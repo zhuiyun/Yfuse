@@ -9,7 +9,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.App
 import com.yfuse.app.RootComponent
 import com.yfuse.core.data.EmbyRepository
-import com.yfuse.core.data.SessionManager
+import com.yfuse.core.data.ServerRegistry
 import org.koin.core.context.GlobalContext
 
 class MainActivity : ComponentActivity() {
@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
                 componentContext = ctx,
                 storeFactory = koin.get<StoreFactory>(),
                 repo = koin.get<EmbyRepository>(),
-                session = koin.get<SessionManager>(),
+                registry = koin.get<ServerRegistry>(),
             )
         }
 

@@ -13,23 +13,21 @@ import kotlinx.serialization.json.Json
 expect fun embyHttpEngine(): HttpClientEngine
 
 /**
- * Creates the shared Ktor client for talking to an Emby server.
+ * Creates the shared Ktor client for Emby.
  *
  * - `ContentEncoding(gzip)`: Emby returns gzip-compressed responses by default.
  * - `expectSuccess = true`: non-2xx responses throw, so callers can map them.
- * - injects the Emby auth header, and the access token when available.
+ * - injects the Emby client identity header. The per-server access token is
+ *   added by the repository on each authenticated request.
  */
-fun createEmbyClient(
-    engine: HttpClientEngine = embyHttpEngine(),
-    tokenProvider: () -> String?,
-): HttpClient = HttpClient(engine) {
-    expectSuccess = true
-    install(ContentEncoding) { gzip() }
-    install(ContentNegotiation) {
-        json(Json { ignoreUnknownKeys = true; isLenient = true })
+fun createEmbyClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient =
+    HttpClient(engine) {
+        expectSuccess = true
+        install(ContentEncoding) { gzip() }
+        install(ContentNegotiation) {
+            json(Json { ignoreUnknownKeys = true; isLenient = true })
+        }
+        defaultRequest {
+            header("X-Emby-Authorization", buildAuthHeader())
+        }
     }
-    defaultRequest {
-        header("X-Emby-Authorization", buildAuthHeader())
-        tokenProvider()?.let { header("X-Emby-Token", it) }
-    }
-}

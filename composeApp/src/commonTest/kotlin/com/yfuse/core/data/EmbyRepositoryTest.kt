@@ -1,81 +1,56 @@
 package com.yfuse.core.data
 
-import com.russhwolf.settings.MapSettings
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
-import com.yfuse.core.network.createEmbyClient
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.MockRequestHandleScope
+import com.yfuse.feature.authRoutes
+import com.yfuse.feature.json
+import com.yfuse.feature.testRepo
 import io.ktor.client.engine.mock.respond
-import io.ktor.client.request.HttpRequestData
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
-import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class EmbyRepositoryTest {
 
-    private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
-
-    private fun repo(
-        handler: suspend MockRequestHandleScope.(HttpRequestData) -> io.ktor.client.request.HttpResponseData,
-    ): Pair<EmbyRepository, SessionManager> {
-        val session = SessionManager(MapSettings())
-        val client = createEmbyClient(MockEngine(handler)) { session.token() }
-        return EmbyRepository(client, session) to session
-    }
+    private val server = SavedServer("id", "http://host:8096", "zhuiyun", "u1", "zhuiyun", "tok")
 
     @Test
-    fun login_success_saves_session() = runTest {
-        val (r, s) = repo {
-            respond(
-                content = ByteReadChannel(
-                    """{"AccessToken":"tok","User":{"Id":"u1","Name":"zhuiyun"}}""",
-                ),
-                status = HttpStatusCode.OK,
-                headers = jsonHeaders,
-            )
-        }
+    fun authenticate_success_returns_server_with_name() = runTest {
+        val repo = testRepo { req -> authRoutes(req) }
 
-        val res = r.login("http://host:8096", "zhuiyun", "123456")
+        val res = repo.authenticate("http://host:8096", "zhuiyun", "123456")
 
         assertTrue(res.isSuccess, res.toString())
-        assertEquals("tok", res.getOrThrow().accessToken)
-        assertEquals("u1", res.getOrThrow().id)
-        assertTrue(s.hasSession())
+        val s = res.getOrThrow()
+        assertEquals("tok", s.accessToken)
+        assertEquals("u1", s.userId)
+        assertEquals("zhuiyun", s.serverName)
+        assertEquals("http://host:8096#u1", s.toSavedServer().id)
     }
 
     @Test
-    fun login_401_returns_unauthorized() = runTest {
-        val (r, _) = repo { respond(content = "", status = HttpStatusCode.Unauthorized) }
+    fun authenticate_401_returns_unauthorized() = runTest {
+        val repo = testRepo { respond(content = "", status = HttpStatusCode.Unauthorized) }
 
-        val res = r.login("http://host:8096", "x", "y")
+        val res = repo.authenticate("http://host:8096", "x", "y")
 
         assertTrue(res.isFailure)
-        val err = (res.exceptionOrNull() as EmbyErrorException).error
-        assertEquals(EmbyError.Unauthorized, err)
+        assertEquals(EmbyError.Unauthorized, (res.exceptionOrNull() as EmbyErrorException).error)
     }
 
     @Test
     fun libraries_parses_items() = runTest {
-        val (r, s) = repo {
-            respond(
-                content = ByteReadChannel(
-                    """{"Items":[{"Id":"1","Name":"电影","CollectionType":"movies"},""" +
-                        """{"Id":"2","Name":"综艺","CollectionType":"tvshows"}]}""",
-                ),
-                status = HttpStatusCode.OK,
-                headers = jsonHeaders,
+        val repo = testRepo {
+            json(
+                """{"Items":[{"Id":"1","Name":"电影","CollectionType":"movies"},""" +
+                    """{"Id":"2","Name":"综艺","CollectionType":"tvshows"}]}""",
             )
         }
-        s.save("http://host:8096", "tok", "u1")
 
-        val res = r.libraries()
+        val res = repo.libraries(server)
 
         assertTrue(res.isSuccess, res.toString())
         assertEquals(2, res.getOrThrow().size)
@@ -84,28 +59,12 @@ class EmbyRepositoryTest {
     }
 
     @Test
-    fun checkServer_returns_name() = runTest {
-        val (r, _) = repo {
-            respond(
-                content = ByteReadChannel("""{"ServerName":"zhuiyun","Version":"4.9.1.90"}"""),
-                status = HttpStatusCode.OK,
-                headers = jsonHeaders,
-            )
-        }
+    fun libraries_network_failure_maps_to_network_error() = runTest {
+        val repo = testRepo { throw RuntimeException("boom") }
 
-        val res = r.checkServer("http://host:8096")
+        val res = repo.libraries(server)
 
-        assertTrue(res.isSuccess, res.toString())
-        assertEquals("zhuiyun", res.getOrThrow())
-    }
-
-    @Test
-    fun checkServer_network_failure_maps_to_network_error() = runTest {
-        val (r, _) = repo { throw RuntimeException("boom") }
-
-        val res = r.checkServer("http://host:8096")
-
-        assertFalse(res.isSuccess)
+        assertTrue(res.isFailure)
         assertEquals(EmbyError.Network, (res.exceptionOrNull() as EmbyErrorException).error)
     }
 }

@@ -1,67 +1,56 @@
 package com.yfuse.app
 
 import com.arkivanov.decompose.ComponentContext
-import com.arkivanov.decompose.router.stack.ChildStack
-import com.arkivanov.decompose.router.stack.StackNavigation
-import com.arkivanov.decompose.router.stack.childStack
-import com.arkivanov.decompose.router.stack.replaceAll
-import com.arkivanov.decompose.router.stack.push
+import com.arkivanov.decompose.childContext
+import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
-import com.yfuse.core.data.SessionManager
-import com.yfuse.feature.home.HomeComponent
-import com.yfuse.feature.login.LoginComponent
-import com.yfuse.feature.server.ServerComponent
-import kotlinx.serialization.Serializable
+import com.yfuse.core.data.ServerRegistry
+import com.yfuse.feature.library.LibraryComponent
+import com.yfuse.feature.profile.ProfileComponent
+import com.yfuse.feature.servers.ServersComponent
 
 /**
- * Owns the navigation stack. Starts at Home when a session already exists,
- * otherwise walks the user through Server -> Login -> Home.
+ * The app shell: three always-alive tab components (Servers / Library / Profile)
+ * and the active tab. Starts on Library when a server exists, else on Servers.
  */
 class RootComponent(
     componentContext: ComponentContext,
-    private val storeFactory: StoreFactory,
-    private val repo: EmbyRepository,
-    private val session: SessionManager,
+    storeFactory: StoreFactory,
+    repo: EmbyRepository,
+    registry: ServerRegistry,
 ) : ComponentContext by componentContext {
 
-    private val navigation = StackNavigation<Config>()
+    enum class Tab { Servers, Library, Profile }
 
-    val childStack: Value<ChildStack<Config, Child>> = childStack(
-        source = navigation,
-        serializer = Config.serializer(),
-        initialConfiguration = if (session.hasSession()) Config.Home else Config.Server,
-        handleBackButton = true,
-        childFactory = ::createChild,
+    private val _activeTab = MutableValue(
+        if (registry.defaultServer != null) Tab.Library else Tab.Servers,
+    )
+    val activeTab: Value<Tab> = _activeTab
+
+    val servers = ServersComponent(
+        componentContext = childContext(key = "servers"),
+        storeFactory = storeFactory,
+        repo = repo,
+        registry = registry,
+        onServerAdded = { _activeTab.value = Tab.Library },
     )
 
-    sealed interface Child {
-        class Server(val component: ServerComponent) : Child
-        class Login(val component: LoginComponent) : Child
-        class Home(val component: HomeComponent) : Child
-    }
+    val library = LibraryComponent(
+        componentContext = childContext(key = "library"),
+        storeFactory = storeFactory,
+        repo = repo,
+        registry = registry,
+    )
 
-    @Serializable
-    sealed interface Config {
-        @Serializable data object Server : Config
-        @Serializable data class Login(val baseUrl: String) : Config
-        @Serializable data object Home : Config
-    }
+    val profile = ProfileComponent(
+        componentContext = childContext(key = "profile"),
+        storeFactory = storeFactory,
+        registry = registry,
+    )
 
-    private fun createChild(config: Config, context: ComponentContext): Child = when (config) {
-        Config.Server -> Child.Server(
-            ServerComponent(context, storeFactory, repo) { baseUrl ->
-                navigation.push(Config.Login(baseUrl))
-            },
-        )
-        is Config.Login -> Child.Login(
-            LoginComponent(context, storeFactory, repo, config.baseUrl) {
-                navigation.replaceAll(Config.Home)
-            },
-        )
-        Config.Home -> Child.Home(
-            HomeComponent(context, storeFactory, repo),
-        )
+    fun selectTab(tab: Tab) {
+        _activeTab.value = tab
     }
 }

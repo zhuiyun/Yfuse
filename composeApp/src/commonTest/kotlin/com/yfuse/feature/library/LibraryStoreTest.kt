@@ -1,13 +1,11 @@
-package com.yfuse.feature.home
+package com.yfuse.feature.library
 
-import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
+import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
+import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
-import io.ktor.client.engine.mock.MockRequestHandleScope
-import io.ktor.client.request.HttpRequestData
-import io.ktor.client.request.HttpResponseData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -19,32 +17,36 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-class HomeStoreTest {
+class LibraryStoreTest {
 
     @BeforeTest fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
     @AfterTest fun tearDown() = Dispatchers.resetMain()
 
-    private fun store(
-        handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
-    ): Store<HomeIntent, HomeState, Nothing> {
-        val (repo, session) = testRepo(handler)
-        session.save("http://host:8096", "tok", "u1")
-        return HomeStoreFactory(DefaultStoreFactory(), repo).create()
-    }
-
     @Test
-    fun load_populates_libraries() = runTest {
-        val store = store {
+    fun loads_default_server_libraries() = runTest {
+        val registry = testRegistry()
+        registry.addOrUpdate(SavedServer("id1", "http://host:8096", "我的服务器", "u1", "zhuiyun", "tok"))
+        val repo = testRepo {
             json(
                 """{"Items":[{"Id":"1","Name":"电影","CollectionType":"movies"},""" +
                     """{"Id":"2","Name":"综艺","CollectionType":"tvshows"}]}""",
             )
         }
+        val store = LibraryStoreFactory(DefaultStoreFactory(), repo, registry).create()
 
-        store.accept(HomeIntent.Load)
-
-        val s = store.states.first { !it.loading && it.libraries.isNotEmpty() }
+        val s = store.states.first { it.libraries.isNotEmpty() }
         assertEquals(2, s.libraries.size)
         assertEquals("电影", s.libraries.first().name)
+        assertEquals("我的服务器", s.currentServer?.serverName)
+        store.dispose()
+    }
+
+    @Test
+    fun no_server_shows_empty() = runTest {
+        val store = LibraryStoreFactory(DefaultStoreFactory(), testRepo { json("{}") }, testRegistry()).create()
+        val s = store.states.first()
+        assertEquals(null, s.currentServer)
+        assertEquals(0, s.libraries.size)
+        store.dispose()
     }
 }

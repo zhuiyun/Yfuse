@@ -1,20 +1,21 @@
-package com.yfuse.feature.home
+package com.yfuse.feature.library
 
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.ServerRegistry
 
-class HomeComponent(
+class LibraryComponent(
     componentContext: ComponentContext,
     storeFactory: StoreFactory,
     repo: EmbyRepository,
+    registry: ServerRegistry,
 ) : ComponentContext by componentContext {
 
-    val store = HomeStoreFactory(storeFactory, repo).create()
+    val store = LibraryStoreFactory(storeFactory, repo, registry).create()
 
     init {
-        store.accept(HomeIntent.Load)
         lifecycle.doOnDestroy(store::dispose)
     }
 }
