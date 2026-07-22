@@ -50,7 +50,9 @@ fun App(root: RootComponent) {
                 }
             },
         ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
+            // Only consume the bottom inset (nav bar); each screen's TopAppBar
+            // handles the status-bar inset itself, so we avoid a doubled top gap.
+            Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
                 when (active) {
                     Tab.Servers -> ServersScreen(root.servers)
                     Tab.Library -> LibraryScreen(root.library)
