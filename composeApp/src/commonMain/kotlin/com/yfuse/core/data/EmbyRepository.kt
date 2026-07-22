@@ -6,8 +6,10 @@ import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.PublicInfoDto
 import com.yfuse.core.data.dto.ViewsDto
+import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.model.HomeContent
+import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
@@ -83,6 +85,32 @@ class EmbyRepository(private val client: HttpClient) {
                 .take(6)
             HomeContent(featured = featured, resume = resume, rows = rows)
         }
+    }
+
+    /** All movies/series in a library, for the "see all" grid. */
+    suspend fun libraryItems(server: SavedServer, libraryId: String): Result<List<MediaItem>> = call {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("ParentId", libraryId)
+            parameter("Recursive", true)
+            parameter("IncludeItemTypes", "Movie,Series")
+            parameter("SortBy", "SortName")
+            parameter("SortOrder", "Ascending")
+            parameter("Fields", "ProductionYear")
+            parameter("EnableImageTypes", "Primary,Backdrop")
+            parameter("ImageTypeLimit", 2)
+            parameter("Limit", 120)
+        }.body()
+        dto.Items.map { it.toMediaItem() }
+    }
+
+    /** Full detail for a single item. */
+    suspend fun itemDetail(server: SavedServer, itemId: String): Result<MediaDetail> = call {
+        val dto: BaseItemDto = client.get("${server.baseUrl}/Users/${server.userId}/Items/$itemId") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("Fields", "Overview,Genres,People")
+        }.body()
+        dto.toMediaDetail()
     }
 
     private suspend fun fetchViews(server: SavedServer): List<MediaLibrary> {

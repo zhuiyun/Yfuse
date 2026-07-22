@@ -1,6 +1,8 @@
 package com.yfuse.core.data.dto
 
+import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.Person
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -37,6 +39,15 @@ data class UserDataDto(
 )
 
 @Serializable
+data class PersonDto(
+    val Id: String,
+    val Name: String? = null,
+    val Role: String? = null,
+    val Type: String? = null,
+    val PrimaryImageTag: String? = null,
+)
+
+@Serializable
 data class BaseItemDto(
     val Id: String,
     val Name: String? = null,
@@ -47,6 +58,12 @@ data class BaseItemDto(
     val SeriesName: String? = null,
     val SeriesId: String? = null,
     val SeriesPrimaryImageTag: String? = null,
+    val Overview: String? = null,
+    val Genres: List<String>? = null,
+    val RunTimeTicks: Long? = null,
+    val CommunityRating: Double? = null,
+    val OfficialRating: String? = null,
+    val People: List<PersonDto>? = null,
     val ImageTags: Map<String, String>? = null,
     val BackdropImageTags: List<String>? = null,
     val UserData: UserDataDto? = null,
@@ -82,3 +99,19 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         playedPercentage = UserData?.PlayedPercentage,
     )
 }
+
+fun BaseItemDto.toMediaDetail(): MediaDetail = MediaDetail(
+    id = Id,
+    title = if (Type == "Episode") "${SeriesName ?: ""} ${Name ?: ""}".trim() else (Name ?: ""),
+    overview = Overview,
+    year = ProductionYear,
+    genres = Genres ?: emptyList(),
+    runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
+    officialRating = OfficialRating,
+    communityRating = CommunityRating,
+    posterItemId = Id,
+    posterTag = ImageTags?.get("Primary"),
+    backdropItemId = Id,
+    backdropTag = BackdropImageTags?.firstOrNull(),
+    people = People?.map { Person(it.Id, it.Name ?: "", it.Role?.ifBlank { null }, it.PrimaryImageTag) } ?: emptyList(),
+)

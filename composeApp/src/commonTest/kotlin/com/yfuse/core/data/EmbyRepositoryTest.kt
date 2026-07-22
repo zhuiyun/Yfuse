@@ -88,4 +88,40 @@ class EmbyRepositoryTest {
         assertEquals(1, content.featured.size)
         assertEquals("某电影", content.featured.first().title)
     }
+
+    @Test
+    fun libraryItems_parses_movies() = runTest {
+        val repo = testRepo {
+            json("""{"Items":[{"Id":"m1","Name":"电影A","Type":"Movie","ProductionYear":2026,"ImageTags":{"Primary":"t"}}]}""")
+        }
+
+        val res = repo.libraryItems(server, "lib1")
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals(1, res.getOrThrow().size)
+        assertEquals("电影A", res.getOrThrow().first().title)
+    }
+
+    @Test
+    fun itemDetail_parses_full_detail() = runTest {
+        val repo = testRepo {
+            json(
+                """{"Id":"m1","Name":"电影A","Type":"Movie","ProductionYear":2026,"Genres":["犯罪"],""" +
+                    """"RunTimeTicks":41657170000,"Overview":"一段简介","People":[{"Id":"p1","Name":"演员A",""" +
+                    """"Role":"角色","Type":"Actor","PrimaryImageTag":"pt"}],"ImageTags":{"Primary":"t"},""" +
+                    """"BackdropImageTags":["bt"]}""",
+            )
+        }
+
+        val res = repo.itemDetail(server, "m1")
+
+        assertTrue(res.isSuccess, res.toString())
+        val d = res.getOrThrow()
+        assertEquals("电影A", d.title)
+        assertEquals(2026, d.year)
+        assertEquals(69, d.runtimeMinutes)
+        assertEquals("犯罪", d.genres.first())
+        assertEquals(1, d.people.size)
+        assertEquals("演员A", d.people.first().name)
+    }
 }
