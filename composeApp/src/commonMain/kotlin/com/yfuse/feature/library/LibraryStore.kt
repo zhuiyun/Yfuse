@@ -7,7 +7,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.model.MediaLibrary
+import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.flow.launchIn
@@ -18,7 +18,7 @@ data class LibraryState(
     val servers: List<SavedServer> = emptyList(),
     val currentServer: SavedServer? = null,
     val loading: Boolean = false,
-    val libraries: List<MediaLibrary> = emptyList(),
+    val content: HomeContent = HomeContent(),
     val error: String? = null,
 )
 
@@ -34,7 +34,7 @@ private sealed interface Action {
 private sealed interface Msg {
     data class Data(val servers: List<SavedServer>, val current: SavedServer?) : Msg
     data object Loading : Msg
-    data class Loaded(val libraries: List<MediaLibrary>) : Msg
+    data class Loaded(val content: HomeContent) : Msg
     data class Failed(val message: String) : Msg
 }
 
@@ -89,7 +89,7 @@ class LibraryStoreFactory(
         private fun load(server: SavedServer) {
             dispatch(Msg.Loading)
             scope.launch {
-                repo.libraries(server)
+                repo.homeContent(server)
                     .onSuccess { dispatch(Msg.Loaded(it)) }
                     .onFailure { dispatch(Msg.Failed(it.toUserMessage("加载失败"))) }
             }
@@ -101,11 +101,10 @@ class LibraryStoreFactory(
             is Msg.Data -> copy(
                 servers = msg.servers,
                 currentServer = msg.current,
-                // clear stale libraries when the selected server changes
-                libraries = if (msg.current?.id != currentServer?.id) emptyList() else libraries,
+                content = if (msg.current?.id != currentServer?.id) HomeContent() else content,
             )
             Msg.Loading -> copy(loading = true, error = null)
-            is Msg.Loaded -> copy(loading = false, libraries = msg.libraries, error = null)
+            is Msg.Loaded -> copy(loading = false, content = msg.content, error = null)
             is Msg.Failed -> copy(loading = false, error = msg.message)
         }
     }

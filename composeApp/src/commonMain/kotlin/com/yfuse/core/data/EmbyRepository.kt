@@ -2,21 +2,32 @@ package com.yfuse.core.data
 
 import com.yfuse.core.data.dto.AuthRequestDto
 import com.yfuse.core.data.dto.AuthResultDto
+import com.yfuse.core.data.dto.BaseItemDto
+import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.PublicInfoDto
 import com.yfuse.core.data.dto.ViewsDto
+import com.yfuse.core.data.dto.toMediaItem
+import com.yfuse.core.model.HomeContent
+import com.yfuse.core.model.HomeRow
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
+import com.yfuse.core.network.normalizeBaseUrl
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 /** Result of a successful authentication, ready to persist as a [SavedServer]. */
 data class AuthedServer(
@@ -42,9 +53,8 @@ data class AuthedServer(
  */
 class EmbyRepository(private val client: HttpClient) {
 
-    /** Authenticates against [baseUrl], also fetching the server's display name. */
     suspend fun authenticate(baseUrl: String, username: String, password: String): Result<AuthedServer> = call {
-        val url = baseUrl.trim().trimEnd('/')
+        val url = normalizeBaseUrl(baseUrl)
         val auth: AuthResultDto = client.post("$url/Users/AuthenticateByName") {
             contentType(ContentType.Application.Json)
             setBody(AuthRequestDto(Username = username, Pw = password))
@@ -52,21 +62,59 @@ class EmbyRepository(private val client: HttpClient) {
         val serverName = runCatching {
             client.get("$url/System/Info/Public").body<PublicInfoDto>().ServerName
         }.getOrNull()
-        AuthedServer(
-            baseUrl = url,
-            serverName = serverName ?: url,
-            userId = auth.User.Id,
-            userName = auth.User.Name,
-            accessToken = auth.AccessToken,
-        )
+        AuthedServer(url, serverName ?: url, auth.User.Id, auth.User.Name, auth.AccessToken)
     }
 
-    /** Lists the libraries ("views") of a saved server. */
-    suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> = call {
+    suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> = call { fetchViews(server) }
+
+    /** Aggregates the home screen: continue-watching, latest-per-library, featured. */
+    suspend fun homeContent(server: SavedServer): Result<HomeContent> = call {
+        coroutineScope {
+            val views = fetchViews(server)
+            val resumeDeferred = async { fetchResume(server) }
+            val rowDeferred = views.map { view ->
+                async { HomeRow(view.id, view.name, fetchLatest(server, view.id)) }
+            }
+            val resume = resumeDeferred.await()
+            val rows = rowDeferred.awaitAll().filter { it.items.isNotEmpty() }
+            val featured = (resume + rows.flatMap { it.items })
+                .filter { it.backdropTag != null }
+                .distinctBy { it.id }
+                .take(6)
+            HomeContent(featured = featured, resume = resume, rows = rows)
+        }
+    }
+
+    private suspend fun fetchViews(server: SavedServer): List<MediaLibrary> {
         val dto: ViewsDto = client.get("${server.baseUrl}/Users/${server.userId}/Views") {
             header("X-Emby-Token", server.accessToken)
         }.body()
-        dto.Items.map { MediaLibrary(it.Id, it.Name, it.CollectionType) }
+        return dto.Items.map { MediaLibrary(it.Id, it.Name, it.CollectionType) }
+    }
+
+    private suspend fun fetchResume(server: SavedServer): List<MediaItem> {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items/Resume") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("Limit", 12)
+            parameter("Recursive", true)
+            parameter("MediaTypes", "Video")
+            parameter("Fields", "BackdropImageTags")
+            parameter("EnableImageTypes", "Primary,Backdrop")
+            parameter("ImageTypeLimit", 2)
+        }.body()
+        return dto.Items.map { it.toMediaItem() }
+    }
+
+    private suspend fun fetchLatest(server: SavedServer, viewId: String): List<MediaItem> {
+        val items: List<BaseItemDto> = client.get("${server.baseUrl}/Users/${server.userId}/Items/Latest") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("ParentId", viewId)
+            parameter("Limit", 16)
+            parameter("Fields", "BackdropImageTags,ProductionYear")
+            parameter("EnableImageTypes", "Primary,Backdrop")
+            parameter("ImageTypeLimit", 2)
+        }.body()
+        return items.map { it.toMediaItem() }
     }
 
     private inline fun <T> call(block: () -> T): Result<T> =

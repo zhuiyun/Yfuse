@@ -37,3 +37,19 @@ fun MockRequestHandleScope.authRoutes(
     request.url.encodedPath.contains("Info/Public") -> json(infoBody)
     else -> json("{}")
 }
+
+/** Routes the home aggregation calls: Views, Items/Resume, Items/Latest. */
+fun MockRequestHandleScope.homeRoutes(
+    request: HttpRequestData,
+    views: String = """{"Items":[{"Id":"lib1","Name":"电影-国产电影","CollectionType":"movies"}]}""",
+    resume: String = """{"Items":[{"Id":"e1","Name":"第1集","Type":"Episode","SeriesName":"某剧",""" +
+        """"SeriesId":"s1","SeriesPrimaryImageTag":"stag","ImageTags":{"Primary":"p"},""" +
+        """"BackdropImageTags":[],"UserData":{"PlayedPercentage":30.0}}]}""",
+    latest: String = """[{"Id":"m1","Name":"某电影","Type":"Movie","ProductionYear":2026,""" +
+        """"ImageTags":{"Primary":"pt"},"BackdropImageTags":["bt"]}]""",
+): HttpResponseData = when {
+    request.url.encodedPath.endsWith("/Views") -> json(views)
+    request.url.encodedPath.contains("/Items/Resume") -> json(resume)
+    request.url.encodedPath.contains("/Items/Latest") -> json(latest)
+    else -> json("{}")
+}
