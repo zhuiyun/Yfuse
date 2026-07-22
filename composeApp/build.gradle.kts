@@ -71,11 +71,24 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        // 64-bit only: drop the 32-bit armeabi-v7a / x86 ABIs.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            // Debug-signed so `assembleRelease` produces an installable APK for
+            // personal use. Replace with a real keystore before public release.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -86,5 +99,18 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/*.version",
+                "/META-INF/*.kotlin_module",
+                "/META-INF/versions/**",
+                "DebugProbesKt.bin",
+                "kotlin-tooling-metadata.json",
+            )
+        }
     }
 }
