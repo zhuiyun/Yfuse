@@ -53,6 +53,8 @@ kotlin {
             implementation(libs.media3.exoplayer)
             implementation(libs.media3.ui)
             implementation(libs.media3.hls)
+            // Native engines fetched by scripts/fetch-engines.sh (gitignored).
+            implementation(files("libs/libmpv-release.aar"))
             implementation(libs.androidx.palette)
         }
 
@@ -74,7 +76,8 @@ val tmdbToken: String = Properties().apply {
 
 android {
     namespace = "com.yfuse"
-    compileSdk = 35
+    // libmpv's AAR requires minCompileSdk 36; targetSdk stays at 35.
+    compileSdk = 36
 
     buildFeatures {
         buildConfig = true

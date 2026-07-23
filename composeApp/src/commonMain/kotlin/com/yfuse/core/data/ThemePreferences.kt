@@ -3,6 +3,7 @@ package com.yfuse.core.data
 import com.russhwolf.settings.Settings
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.ThemeMode
+import com.yfuse.core.model.PlayerEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,6 +14,7 @@ class ThemePreferences(private val settings: Settings) {
     private companion object {
         const val KEY_MODE = "theme.mode"
         const val KEY_ACCENT = "theme.accent"
+        const val KEY_ENGINE = "player.engine"
     }
 
     // The design is the light "轻雾玻璃" direction; dark is the alternative.
@@ -21,6 +23,17 @@ class ThemePreferences(private val settings: Settings) {
 
     private val _accent = MutableStateFlow(load(KEY_ACCENT, AccentColor.entries, AccentColor.Blue))
     val accent: StateFlow<AccentColor> = _accent.asStateFlow()
+
+    private val _engine = MutableStateFlow(load(KEY_ENGINE, PlayerEngine.selectable, PlayerEngine.Exo))
+
+    /** Preferred playback backend; the player page can override it per session. */
+    val engine: StateFlow<PlayerEngine> = _engine.asStateFlow()
+
+    fun setEngine(engine: PlayerEngine) {
+        if (!engine.available) return
+        _engine.value = engine
+        settings.putString(KEY_ENGINE, engine.name)
+    }
 
     fun setMode(mode: ThemeMode) {
         _mode.value = mode
