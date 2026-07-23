@@ -9,7 +9,9 @@ import androidx.activity.compose.setContent
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
@@ -46,6 +48,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import com.yfuse.core.model.PlayerEngine
 
 private const val TAG = "YfusePlayer"
 
@@ -61,18 +64,21 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_TITLES = "yfuse.titles"
         private const val EXTRA_INDEX = "yfuse.index"
         private const val EXTRA_POSITION = "yfuse.positionMs"
+        private const val EXTRA_ENGINE = "yfuse.engine"
 
         fun intent(
             context: Context,
             items: List<PlayerMediaItem>,
             startIndex: Int,
             startPositionMs: Long,
+            engine: PlayerEngine,
         ): Intent = Intent(context, PlayerActivity::class.java).apply {
             putExtra(EXTRA_URLS, items.map { it.url }.toTypedArray())
             putExtra(EXTRA_TRANSCODE, items.map { it.transcodeUrl }.toTypedArray())
             putExtra(EXTRA_TITLES, items.map { it.title }.toTypedArray())
             putExtra(EXTRA_INDEX, startIndex)
             putExtra(EXTRA_POSITION, startPositionMs)
+            putExtra(EXTRA_ENGINE, engine.name)
         }
     }
 
@@ -85,15 +91,111 @@ class PlayerActivity : ComponentActivity() {
             hide(WindowInsetsCompat.Type.systemBars())
         }
 
+        val initialEngine = intent.getStringExtra(EXTRA_ENGINE)
+            ?.let { name -> PlayerEngine.entries.firstOrNull { it.name == name } }
+            ?: PlayerEngine.Exo
+
         setContent {
-            PlayerContent(
+            PlayerRoot(
                 urls = intent.getStringArrayExtra(EXTRA_URLS).orEmpty().toList(),
                 transcodeUrls = intent.getStringArrayExtra(EXTRA_TRANSCODE).orEmpty().toList(),
                 titles = intent.getStringArrayExtra(EXTRA_TITLES).orEmpty().toList(),
                 startIndex = intent.getIntExtra(EXTRA_INDEX, 0),
                 startPositionMs = intent.getLongExtra(EXTRA_POSITION, 0L),
+                initialEngine = initialEngine,
                 onBack = { finish() },
             )
+        }
+    }
+}
+
+/** Hosts the selected engine and lets the viewer switch between them. */
+@Composable
+private fun PlayerRoot(
+    urls: List<String>,
+    transcodeUrls: List<String>,
+    titles: List<String>,
+    startIndex: Int,
+    startPositionMs: Long,
+    initialEngine: PlayerEngine,
+    onBack: () -> Unit,
+) {
+    var engine by remember { mutableStateOf(initialEngine) }
+
+    when (engine) {
+        PlayerEngine.Mpv -> MpvPlayerContent(
+            url = urls.getOrElse(startIndex) { urls.firstOrNull().orEmpty() },
+            startPositionMs = startPositionMs,
+            engine = engine,
+            onSwitchEngine = { engine = it },
+            onBack = onBack,
+        )
+        else -> PlayerContent(
+            urls = urls,
+            transcodeUrls = transcodeUrls,
+            titles = titles,
+            startIndex = startIndex,
+            startPositionMs = startPositionMs,
+            engine = engine,
+            onSwitchEngine = { engine = it },
+            onBack = onBack,
+        )
+    }
+}
+
+/** libmpv playback with the shared overlay controls. */
+@Composable
+private fun MpvPlayerContent(
+    url: String,
+    startPositionMs: Long,
+    engine: PlayerEngine,
+    onSwitchEngine: (PlayerEngine) -> Unit,
+    onBack: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        MpvSurface(url = url, startPositionMs = startPositionMs, modifier = Modifier.fillMaxSize())
+        PlayerOverlay(engine = engine, onSwitchEngine = onSwitchEngine, onBack = onBack)
+    }
+}
+
+/** Back button plus the engine picker, shared by every engine. */
+@Composable
+private fun PlayerOverlay(
+    engine: PlayerEngine,
+    onSwitchEngine: (PlayerEngine) -> Unit,
+    onBack: () -> Unit,
+    trailing: @Composable (() -> Unit)? = null,
+) {
+    Box(Modifier.fillMaxSize()) {
+        Surface(
+            shape = CircleShape,
+            color = Color(0x66000000),
+            modifier = Modifier.padding(12.dp).align(Alignment.TopStart),
+        ) {
+            Box(Modifier.clickable(onClick = onBack).padding(6.dp)) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
+            }
+        }
+
+        Row(
+            Modifier.padding(12.dp).align(Alignment.TopEnd),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            PlayerEngine.selectable.forEach { candidate ->
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (candidate == engine) Color(0xCC4C6BF5) else Color(0x66000000),
+                ) {
+                    Box(
+                        Modifier
+                            .clickable { if (candidate != engine) onSwitchEngine(candidate) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(candidate.label, color = Color.White)
+                    }
+                }
+            }
+            trailing?.invoke()
         }
     }
 }
@@ -106,6 +208,8 @@ private fun PlayerContent(
     titles: List<String>,
     startIndex: Int,
     startPositionMs: Long,
+    engine: PlayerEngine,
+    onSwitchEngine: (PlayerEngine) -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -206,26 +310,23 @@ private fun PlayerContent(
             modifier = Modifier.fillMaxSize(),
         )
 
-        Surface(
-            shape = CircleShape,
-            color = Color(0x66000000),
-            modifier = Modifier.padding(12.dp).align(Alignment.TopStart),
-        ) {
-            Box(Modifier.clickable(onClick = onBack).padding(6.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
-            }
-        }
-
-        // Manual escape hatch when the picture is black but audio plays.
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0x66000000),
-            modifier = Modifier.padding(12.dp).align(Alignment.TopEnd),
-        ) {
-            Box(Modifier.clickable { switchToTranscode() }.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                Text(if (transcoding) "转码中" else "转码播放", color = Color.White)
-            }
-        }
+        PlayerOverlay(
+            engine = engine,
+            onSwitchEngine = onSwitchEngine,
+            onBack = onBack,
+            // Manual escape hatch when the picture is black but audio plays.
+            trailing = {
+                Surface(shape = RoundedCornerShape(16.dp), color = Color(0x66000000)) {
+                    Box(
+                        Modifier
+                            .clickable { switchToTranscode() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(if (transcoding) "转码中" else "转码", color = Color.White)
+                    }
+                }
+            },
+        )
     }
 }
 
