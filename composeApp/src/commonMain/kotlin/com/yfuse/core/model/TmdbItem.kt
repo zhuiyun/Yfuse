@@ -1,6 +1,9 @@
 package com.yfuse.core.model
 
-/** A recommendation entry from TMDB. */
+import kotlinx.serialization.Serializable
+
+/** A recommendation entry from TMDB. Serializable so it can ride in nav configs. */
+@Serializable
 data class TmdbItem(
     val id: Int,
     val title: String,

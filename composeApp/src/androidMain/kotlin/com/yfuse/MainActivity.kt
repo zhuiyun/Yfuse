@@ -11,6 +11,7 @@ import com.yfuse.app.RootComponent
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.TmdbRepository
 import org.koin.core.context.GlobalContext
 
 class MainActivity : ComponentActivity() {
@@ -24,6 +25,7 @@ class MainActivity : ComponentActivity() {
                 componentContext = ctx,
                 storeFactory = koin.get<StoreFactory>(),
                 repo = koin.get<EmbyRepository>(),
+                tmdb = koin.get<TmdbRepository>(),
                 registry = koin.get<ServerRegistry>(),
                 themePreferences = koin.get<ThemePreferences>(),
             )

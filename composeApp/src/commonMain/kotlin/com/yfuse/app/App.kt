@@ -36,7 +36,8 @@ import com.yfuse.core.designsystem.LocalGlass
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.glass
-import com.yfuse.feature.browse.BrowseScreen
+import com.yfuse.feature.home.HomeTabComponent
+import com.yfuse.feature.home.HomeTabScreen
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.library.LibraryScreen
 import com.yfuse.feature.profile.ProfileTabScreen
@@ -67,15 +68,16 @@ fun App(root: RootComponent) {
     YfuseTheme(dark = dark, accent = accent) {
         val active by root.activeTab.subscribeAsState()
         val homeStack by root.home.stack.subscribeAsState()
+        val browseStack by root.browse.stack.subscribeAsState()
 
         // Playback takes over the whole screen: no tab bar while playing.
-        val isPlaying = active == Tab.Home &&
-            homeStack.active.instance is LibraryComponent.Child.Player
+        val isPlaying = (active == Tab.Home && homeStack.active.instance is HomeTabComponent.Child.Player) ||
+            (active == Tab.Browse && browseStack.active.instance is LibraryComponent.Child.Player)
 
         AppBackdrop {
             when (active) {
-                Tab.Home -> LibraryScreen(root.home)
-                Tab.Browse -> BrowseScreen(root.browse)
+                Tab.Home -> HomeTabScreen(root.home)
+                Tab.Browse -> LibraryScreen(root.browse)
                 Tab.Search -> SearchScreen(root.search)
                 Tab.Profile -> ProfileTabScreen(root.profile)
             }

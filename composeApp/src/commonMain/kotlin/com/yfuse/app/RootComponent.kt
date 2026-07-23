@@ -8,7 +8,8 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
-import com.yfuse.feature.browse.BrowseComponent
+import com.yfuse.core.data.TmdbRepository
+import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.search.SearchComponent
@@ -21,6 +22,7 @@ class RootComponent(
     componentContext: ComponentContext,
     storeFactory: StoreFactory,
     repo: EmbyRepository,
+    tmdb: TmdbRepository,
     registry: ServerRegistry,
     val themePreferences: ThemePreferences,
 ) : ComponentContext by componentContext {
@@ -32,14 +34,22 @@ class RootComponent(
     )
     val activeTab: Value<Tab> = _activeTab
 
-    val home = LibraryComponent(
+    /** 首页: TMDB recommendations. */
+    val home = HomeTabComponent(
         componentContext = childContext(key = "home"),
         storeFactory = storeFactory,
+        tmdb = tmdb,
         repo = repo,
         registry = registry,
     )
 
-    val browse = BrowseComponent(childContext(key = "browse"))
+    /** 库: the server's own content. */
+    val browse = LibraryComponent(
+        componentContext = childContext(key = "browse"),
+        storeFactory = storeFactory,
+        repo = repo,
+        registry = registry,
+    )
 
     val search = SearchComponent(childContext(key = "search"))
 

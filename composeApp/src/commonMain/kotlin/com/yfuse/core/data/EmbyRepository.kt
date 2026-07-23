@@ -149,6 +149,21 @@ class EmbyRepository(private val client: HttpClient) {
         return dto.Items.firstOrNull()
     }
 
+    /** Title search, used by the search tab and to match TMDB picks to the library. */
+    suspend fun search(server: SavedServer, query: String, limit: Int = 24): Result<List<MediaItem>> = call {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("SearchTerm", query)
+            parameter("Recursive", true)
+            parameter("IncludeItemTypes", "Movie,Series")
+            parameter("Fields", "ProductionYear")
+            parameter("EnableImageTypes", "Primary,Backdrop")
+            parameter("ImageTypeLimit", 2)
+            parameter("Limit", limit)
+        }.body()
+        dto.Items.map { it.toMediaItem() }
+    }
+
     /** Full detail for a single item. Episodes inherit the series' cast. */
     suspend fun itemDetail(server: SavedServer, itemId: String): Result<MediaDetail> = call {
         val dto: BaseItemDto = client.get("${server.baseUrl}/Users/${server.userId}/Items/$itemId") {
