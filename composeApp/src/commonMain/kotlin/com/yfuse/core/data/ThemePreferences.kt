@@ -15,7 +15,8 @@ class ThemePreferences(private val settings: Settings) {
         const val KEY_ACCENT = "theme.accent"
     }
 
-    private val _mode = MutableStateFlow(load(KEY_MODE, ThemeMode.entries, ThemeMode.Dark))
+    // The design is the light "轻雾玻璃" direction; dark is the alternative.
+    private val _mode = MutableStateFlow(load(KEY_MODE, ThemeMode.entries, ThemeMode.Light))
     val mode: StateFlow<ThemeMode> = _mode.asStateFlow()
 
     private val _accent = MutableStateFlow(load(KEY_ACCENT, AccentColor.entries, AccentColor.Blue))

@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.multiplatform)
@@ -65,9 +66,19 @@ kotlin {
     }
 }
 
+// TMDB token comes from local.properties (gitignored) so it never lands in git.
+val tmdbToken: String = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}.getProperty("tmdb.token").orEmpty()
+
 android {
     namespace = "com.yfuse"
     compileSdk = 35
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "com.yfuse"
@@ -75,6 +86,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
 
         // 64-bit only: drop the 32-bit armeabi-v7a / x86 ABIs.
         ndk {
