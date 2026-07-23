@@ -10,8 +10,13 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.network.EmbyStream
 import kotlinx.coroutines.launch
 
-/** One entry in the player's playlist. */
-data class PlayerMediaItem(val id: String, val url: String, val title: String)
+/** One entry in the player's playlist, with a transcode fallback URL. */
+data class PlayerMediaItem(
+    val id: String,
+    val url: String,
+    val transcodeUrl: String,
+    val title: String,
+)
 
 data class PlayerState(
     val loading: Boolean = true,
@@ -62,7 +67,12 @@ class PlayerStoreFactory(
                     return@launch
                 }
 
-                fun urlOf(id: String) = EmbyStream.directPlay(server.baseUrl, id, server.accessToken)
+                fun itemOf(id: String, title: String) = PlayerMediaItem(
+                    id = id,
+                    url = EmbyStream.directPlay(server.baseUrl, id, server.accessToken),
+                    transcodeUrl = EmbyStream.transcode(server.baseUrl, id, server.accessToken),
+                    title = title,
+                )
 
                 val detail = repo.itemDetail(server, itemId).getOrNull()
                 val seriesId = detail?.seriesId
@@ -71,10 +81,9 @@ class PlayerStoreFactory(
                     val episodes = repo.episodes(server, seriesId, null).getOrDefault(emptyList())
                     if (episodes.isNotEmpty()) {
                         val items = episodes.map { ep ->
-                            PlayerMediaItem(
-                                id = ep.id,
-                                url = urlOf(ep.id),
-                                title = listOfNotNull(ep.indexNumber?.let { "第 $it 集" }, ep.name).joinToString("  "),
+                            itemOf(
+                                ep.id,
+                                listOfNotNull(ep.indexNumber?.let { "第 $it 集" }, ep.name).joinToString("  "),
                             )
                         }
                         val index = items.indexOfFirst { it.id == itemId }.coerceAtLeast(0)
@@ -83,8 +92,7 @@ class PlayerStoreFactory(
                     }
                 }
 
-                val single = PlayerMediaItem(itemId, urlOf(itemId), detail?.title ?: "")
-                dispatch(PlayerMsg.Ready(listOf(single), 0, startMs))
+                dispatch(PlayerMsg.Ready(listOf(itemOf(itemId, detail?.title ?: "")), 0, startMs))
             }
         }
 

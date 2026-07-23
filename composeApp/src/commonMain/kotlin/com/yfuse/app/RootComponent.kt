@@ -7,47 +7,48 @@ import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.ThemePreferences
+import com.yfuse.feature.browse.BrowseComponent
 import com.yfuse.feature.library.LibraryComponent
-import com.yfuse.feature.profile.ProfileComponent
-import com.yfuse.feature.servers.ServersComponent
+import com.yfuse.feature.profile.ProfileTabComponent
+import com.yfuse.feature.search.SearchComponent
 
 /**
- * The app shell: three always-alive tab components (Servers / Library / Profile)
- * and the active tab. Starts on Library when a server exists, else on Servers.
+ * App shell: four always-alive tabs — 首页 / 库 / 搜索 / 我的.
+ * Server management now lives inside the 我的 tab.
  */
 class RootComponent(
     componentContext: ComponentContext,
     storeFactory: StoreFactory,
     repo: EmbyRepository,
     registry: ServerRegistry,
+    val themePreferences: ThemePreferences,
 ) : ComponentContext by componentContext {
 
-    enum class Tab { Servers, Library, Profile }
+    enum class Tab { Home, Browse, Search, Profile }
 
     private val _activeTab = MutableValue(
-        if (registry.defaultServer != null) Tab.Library else Tab.Servers,
+        if (registry.defaultServer != null) Tab.Home else Tab.Profile,
     )
     val activeTab: Value<Tab> = _activeTab
 
-    val servers = ServersComponent(
-        componentContext = childContext(key = "servers"),
-        storeFactory = storeFactory,
-        repo = repo,
-        registry = registry,
-        onServerAdded = { _activeTab.value = Tab.Library },
-    )
-
-    val library = LibraryComponent(
-        componentContext = childContext(key = "library"),
+    val home = LibraryComponent(
+        componentContext = childContext(key = "home"),
         storeFactory = storeFactory,
         repo = repo,
         registry = registry,
     )
 
-    val profile = ProfileComponent(
+    val browse = BrowseComponent(childContext(key = "browse"))
+
+    val search = SearchComponent(childContext(key = "search"))
+
+    val profile = ProfileTabComponent(
         componentContext = childContext(key = "profile"),
         storeFactory = storeFactory,
+        repo = repo,
         registry = registry,
+        themePreferences = themePreferences,
     )
 
     fun selectTab(tab: Tab) {

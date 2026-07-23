@@ -78,7 +78,7 @@ fun DetailScreen(component: DetailComponent) {
     val accent = rememberDominantColor(heroUrl, MaterialTheme.colorScheme.surfaceVariant)
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
     ) { _ ->
         BoxWithConstraints(Modifier.fillMaxSize()) {

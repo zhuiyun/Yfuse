@@ -16,6 +16,7 @@ class ServersComponent(
     repo: EmbyRepository,
     registry: ServerRegistry,
     private val onServerAdded: () -> Unit,
+    val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
 
     val store = ServersStoreFactory(storeFactory, repo, registry).create()

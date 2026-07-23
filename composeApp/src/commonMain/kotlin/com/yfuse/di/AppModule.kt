@@ -5,6 +5,7 @@ import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.network.createEmbyClient
 import org.koin.dsl.module
 
@@ -12,6 +13,7 @@ import org.koin.dsl.module
 fun appModule(settings: Settings) = module {
     single { settings }
     single { ServerRegistry(get()) }
+    single { ThemePreferences(get()) }
     single { createEmbyClient() }
     single { EmbyRepository(get()) }
     single<StoreFactory> { DefaultStoreFactory() }
