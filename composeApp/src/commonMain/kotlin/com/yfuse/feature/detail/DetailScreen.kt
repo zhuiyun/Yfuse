@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -50,35 +52,43 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.core.designsystem.rememberDominantColor
+import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.Person
 import com.yfuse.core.network.EmbyImages
-import kotlinx.coroutines.launch
 
 @Composable
 fun DetailScreen(component: DetailComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val snackbar = remember { SnackbarHostState() }
 
-    // Surface play/resolve failures without replacing the loaded detail.
     LaunchedEffect(state.error) {
         val message = state.error
         if (message != null && state.detail != null) snackbar.showSnackbar(message)
     }
 
+    val baseUrl = state.server?.baseUrl.orEmpty()
+    val detail = state.detail
+    val heroUrl = detail?.let { EmbyImages.backdrop(baseUrl, it) ?: EmbyImages.poster(baseUrl, it) }
+    val accent = rememberDominantColor(heroUrl, MaterialTheme.colorScheme.surfaceVariant)
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
     ) { _ ->
-        Box(Modifier.fillMaxSize()) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val heroHeight = maxHeight * 0.56f
+
             when {
-                state.loading && state.detail == null ->
+                state.loading && detail == null ->
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
 
-                state.error != null && state.detail == null -> Column(
+                state.error != null && detail == null -> Column(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -87,15 +97,23 @@ fun DetailScreen(component: DetailComponent) {
                     TextButton(onClick = { component.store.accept(DetailIntent.Retry) }) { Text("重试") }
                 }
 
-                state.detail != null -> DetailContent(
-                    detail = state.detail!!,
-                    baseUrl = state.server?.baseUrl.orEmpty(),
-                    resolving = state.resolvingPlay,
+                detail != null -> DetailContent(
+                    detail = detail,
+                    state = state,
+                    baseUrl = baseUrl,
+                    heroUrl = heroUrl,
+                    accent = accent,
+                    heroHeight = heroHeight,
                     onPlay = { component.store.accept(DetailIntent.Play) },
+                    onSelectSeason = { component.store.accept(DetailIntent.SelectSeason(it)) },
+                    onPlayEpisode = { ep ->
+                        component.store.accept(
+                            DetailIntent.PlayEpisode(ep.id, ep.resumePositionTicks ?: 0L),
+                        )
+                    },
                 )
             }
 
-            // Back button overlaid on the backdrop.
             Surface(
                 shape = CircleShape,
                 color = Color(0x66000000),
@@ -110,43 +128,43 @@ fun DetailScreen(component: DetailComponent) {
 }
 
 @Composable
-private fun DetailContent(detail: MediaDetail, baseUrl: String, resolving: Boolean, onPlay: () -> Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+private fun DetailContent(
+    detail: MediaDetail,
+    state: DetailState,
+    baseUrl: String,
+    heroUrl: String?,
+    accent: Color,
+    heroHeight: Dp,
+    onPlay: () -> Unit,
+    onSelectSeason: (String) -> Unit,
+    onPlayEpisode: (Episode) -> Unit,
+) {
+    val background = MaterialTheme.colorScheme.background
+
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 28.dp)) {
+        // Full-bleed hero, tinted with the colour sampled from the artwork.
         item {
-            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+            Box(Modifier.fillMaxWidth().height(heroHeight)) {
                 AsyncImage(
-                    model = EmbyImages.backdrop(baseUrl, detail),
-                    contentDescription = null,
+                    model = heroUrl,
+                    contentDescription = detail.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
                 )
                 Box(
                     Modifier.fillMaxSize().background(
-                        Brush.verticalGradient(0.5f to Color.Transparent, 1f to MaterialTheme.colorScheme.background),
+                        Brush.verticalGradient(
+                            0.0f to Color.Transparent,
+                            0.45f to accent.copy(alpha = 0.18f),
+                            0.78f to background.copy(alpha = 0.82f),
+                            1.0f to background,
+                        ),
                     ),
                 )
-            }
-        }
-
-        item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 0.dp)) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.width(110.dp).aspectRatio(2f / 3f),
-                ) {
-                    AsyncImage(
-                        model = EmbyImages.poster(baseUrl, detail),
-                        contentDescription = detail.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.padding(top = 8.dp)) {
+                Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 16.dp)) {
                     Text(
                         detail.title,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onBackground,
                     )
@@ -159,7 +177,7 @@ private fun DetailContent(detail: MediaDetail, baseUrl: String, resolving: Boole
                     if (detail.communityRating != null) {
                         Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFF5A623), modifier = Modifier.size(16.dp))
+                            Icon(Icons.Rounded.Star, null, tint = Color(0xFFF5A623), modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 ((detail.communityRating * 10).toInt() / 10.0).toString(),
@@ -175,10 +193,10 @@ private fun DetailContent(detail: MediaDetail, baseUrl: String, resolving: Boole
         item {
             Button(
                 onClick = onPlay,
-                enabled = !resolving,
+                enabled = !state.resolvingPlay,
                 modifier = Modifier.fillMaxWidth().padding(16.dp).height(50.dp),
             ) {
-                if (resolving) {
+                if (state.resolvingPlay) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                 } else {
                     Icon(Icons.Rounded.PlayArrow, contentDescription = null)
@@ -199,6 +217,43 @@ private fun DetailContent(detail: MediaDetail, baseUrl: String, resolving: Boole
             }
         }
 
+        if (state.seasons.size > 1) {
+            item {
+                LazyRow(
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.seasons, key = { it.id }) { season ->
+                        FilterChip(
+                            selected = season.id == state.selectedSeasonId,
+                            onClick = { onSelectSeason(season.id) },
+                            label = { Text(season.name) },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (state.episodes.isNotEmpty()) {
+            item {
+                Text(
+                    "剧集",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(start = 16.dp, top = 18.dp, bottom = 8.dp),
+                )
+            }
+            items(state.episodes, key = { it.id }) { episode ->
+                EpisodeRow(
+                    baseUrl = baseUrl,
+                    episode = episode,
+                    isCurrent = episode.id == detail.id,
+                    onClick = { onPlayEpisode(episode) },
+                )
+            }
+        }
+
         if (detail.people.isNotEmpty()) {
             item {
                 Text(
@@ -212,10 +267,56 @@ private fun DetailContent(detail: MediaDetail, baseUrl: String, resolving: Boole
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    items(detail.people.take(20), key = { it.id }) { person ->
-                        PersonCard(baseUrl, person)
-                    }
+                    items(detail.people.take(20), key = { it.id }) { PersonCard(baseUrl, it) }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpisodeRow(baseUrl: String, episode: Episode, isCurrent: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.width(132.dp).aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            AsyncImage(
+                model = EmbyImages.primary(baseUrl, episode.id, episode.primaryTag, maxHeight = 240),
+                contentDescription = episode.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            val pct = episode.playedPercentage
+            if (pct != null && pct > 0.0) {
+                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x66000000))) {
+                    Box(
+                        Modifier.fillMaxWidth((pct / 100.0).toFloat().coerceIn(0f, 1f))
+                            .height(3.dp).background(MaterialTheme.colorScheme.primary),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                listOfNotNull(episode.indexNumber?.let { "第 $it 集" }, episode.name).joinToString("  "),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (episode.runtimeMinutes != null) {
+                Text(
+                    "${episode.runtimeMinutes} 分钟",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

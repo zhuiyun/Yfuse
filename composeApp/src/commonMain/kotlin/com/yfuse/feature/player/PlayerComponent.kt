@@ -1,21 +1,24 @@
 package com.yfuse.feature.player
 
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.essenty.lifecycle.doOnDestroy
+import com.arkivanov.mvikotlin.core.store.StoreFactory
+import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.network.EmbyStream
 
 class PlayerComponent(
     componentContext: ComponentContext,
+    storeFactory: StoreFactory,
+    repo: EmbyRepository,
     registry: ServerRegistry,
     itemId: String,
     startPositionTicks: Long,
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
 
-    /** Direct-play URL, or null when there is no usable server. */
-    val streamUrl: String? = registry.defaultServer
-        ?.let { EmbyStream.directPlay(it.baseUrl, itemId, it.accessToken) }
+    val store = PlayerStoreFactory(storeFactory, repo, registry, itemId, startPositionTicks).create()
 
-    /** Emby ticks are 100ns units. */
-    val startPositionMs: Long = startPositionTicks / 10_000L
+    init {
+        lifecycle.doOnDestroy(store::dispose)
+    }
 }

@@ -1,8 +1,10 @@
 package com.yfuse.core.data.dto
 
+import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.Person
+import com.yfuse.core.model.Season
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -58,6 +60,9 @@ data class BaseItemDto(
     val SeriesName: String? = null,
     val SeriesId: String? = null,
     val SeriesPrimaryImageTag: String? = null,
+    val SeasonId: String? = null,
+    val ParentBackdropItemId: String? = null,
+    val ParentBackdropImageTags: List<String>? = null,
     val Overview: String? = null,
     val Genres: List<String>? = null,
     val RunTimeTicks: Long? = null,
@@ -100,20 +105,55 @@ fun BaseItemDto.toMediaItem(): MediaItem {
     )
 }
 
-fun BaseItemDto.toMediaDetail(): MediaDetail = MediaDetail(
+fun BaseItemDto.toMediaDetail(): MediaDetail {
+    // Episodes usually carry no backdrop of their own, but do reference the
+    // series' backdrop/poster — fall back to those so the hero is never blank.
+    val ownBackdrop = BackdropImageTags?.firstOrNull()
+    val parentBackdrop = ParentBackdropImageTags?.firstOrNull()
+    val backdropId = if (ownBackdrop != null) Id else ParentBackdropItemId ?: SeriesId ?: Id
+    val backdropTag = ownBackdrop ?: parentBackdrop
+
+    val ownPoster = ImageTags?.get("Primary")
+    val posterId = if (ownPoster != null) Id else SeriesId ?: Id
+    val posterTag = ownPoster ?: SeriesPrimaryImageTag
+
+    return MediaDetail(
+        id = Id,
+        title = if (Type == "Episode") "${SeriesName ?: ""} ${Name ?: ""}".trim() else (Name ?: ""),
+        type = Type ?: "",
+        seriesId = SeriesId,
+        overview = Overview,
+        year = ProductionYear,
+        genres = Genres ?: emptyList(),
+        runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
+        officialRating = OfficialRating,
+        communityRating = CommunityRating,
+        posterItemId = posterId,
+        posterTag = posterTag,
+        backdropItemId = backdropId,
+        backdropTag = backdropTag,
+        resumePositionTicks = UserData?.PlaybackPositionTicks,
+        people = People?.map { it.toPerson() } ?: emptyList(),
+    )
+}
+
+fun PersonDto.toPerson() = Person(Id, Name ?: "", Role?.ifBlank { null }, PrimaryImageTag)
+
+fun BaseItemDto.toSeason() = Season(
     id = Id,
-    title = if (Type == "Episode") "${SeriesName ?: ""} ${Name ?: ""}".trim() else (Name ?: ""),
-    type = Type ?: "",
-    overview = Overview,
-    year = ProductionYear,
-    genres = Genres ?: emptyList(),
-    runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
-    officialRating = OfficialRating,
-    communityRating = CommunityRating,
-    posterItemId = Id,
+    name = Name ?: "第 ${IndexNumber ?: 1} 季",
+    indexNumber = IndexNumber,
     posterTag = ImageTags?.get("Primary"),
-    backdropItemId = Id,
-    backdropTag = BackdropImageTags?.firstOrNull(),
+)
+
+fun BaseItemDto.toEpisode() = Episode(
+    id = Id,
+    name = Name ?: "",
+    indexNumber = IndexNumber,
+    seasonId = SeasonId,
+    overview = Overview,
+    runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
+    primaryTag = ImageTags?.get("Primary"),
+    playedPercentage = UserData?.PlayedPercentage,
     resumePositionTicks = UserData?.PlaybackPositionTicks,
-    people = People?.map { Person(it.Id, it.Name ?: "", it.Role?.ifBlank { null }, it.PrimaryImageTag) } ?: emptyList(),
 )

@@ -6,9 +6,14 @@ import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.PublicInfoDto
 import com.yfuse.core.data.dto.ViewsDto
+import com.yfuse.core.data.dto.toEpisode
 import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.data.dto.toMediaItem
+import com.yfuse.core.data.dto.toPerson
+import com.yfuse.core.data.dto.toSeason
+import com.yfuse.core.model.Episode
 import com.yfuse.core.model.HomeContent
+import com.yfuse.core.model.Season
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.HomeRow
@@ -144,13 +149,49 @@ class EmbyRepository(private val client: HttpClient) {
         return dto.Items.firstOrNull()
     }
 
-    /** Full detail for a single item. */
+    /** Full detail for a single item. Episodes inherit the series' cast. */
     suspend fun itemDetail(server: SavedServer, itemId: String): Result<MediaDetail> = call {
         val dto: BaseItemDto = client.get("${server.baseUrl}/Users/${server.userId}/Items/$itemId") {
             header("X-Emby-Token", server.accessToken)
-            parameter("Fields", "Overview,Genres,People")
+            parameter(
+                "Fields",
+                "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag",
+            )
         }.body()
-        dto.toMediaDetail()
+        val detail = dto.toMediaDetail()
+
+        // Emby returns no cast on episodes; borrow the series' cast instead.
+        if (detail.type == "Episode" && detail.people.isEmpty() && detail.seriesId != null) {
+            val series = runCatching {
+                client.get("${server.baseUrl}/Users/${server.userId}/Items/${detail.seriesId}") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Fields", "People")
+                }.body<BaseItemDto>()
+            }.getOrNull()
+            detail.copy(people = series?.People?.map { it.toPerson() } ?: emptyList())
+        } else {
+            detail
+        }
+    }
+
+    /** Seasons of a series. */
+    suspend fun seasons(server: SavedServer, seriesId: String): Result<List<Season>> = call {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/$seriesId/Seasons") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("UserId", server.userId)
+        }.body()
+        dto.Items.map { it.toSeason() }
+    }
+
+    /** Episodes of a season (or of the whole series when [seasonId] is null). */
+    suspend fun episodes(server: SavedServer, seriesId: String, seasonId: String?): Result<List<Episode>> = call {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("UserId", server.userId)
+            if (seasonId != null) parameter("SeasonId", seasonId)
+            parameter("Fields", "Overview")
+        }.body()
+        dto.Items.map { it.toEpisode() }
     }
 
     private suspend fun fetchViews(server: SavedServer): List<MediaLibrary> {

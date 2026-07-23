@@ -13,6 +13,8 @@ data class MediaDetail(
     val id: String,
     val title: String,
     val type: String,
+    /** Set for episodes; used to load the series' episode list and cast. */
+    val seriesId: String?,
     val overview: String?,
     val year: Int?,
     val genres: List<String>,

@@ -130,6 +130,7 @@ class EmbyRepositoryTest {
         id = id,
         title = "T",
         type = type,
+        seriesId = null,
         overview = null,
         year = null,
         genres = emptyList(),
@@ -187,5 +188,62 @@ class EmbyRepositoryTest {
         assertTrue(res.isSuccess, res.toString())
         assertEquals("e1", res.getOrThrow().itemId)
         assertEquals(0L, res.getOrThrow().startPositionTicks)
+    }
+
+    @Test
+    fun episode_detail_falls_back_to_series_backdrop_and_cast() = runTest {
+        val repo = testRepo { req ->
+            if (req.url.encodedPath.endsWith("/ep1")) {
+                json(
+                    """{"Id":"ep1","Name":"第1集","Type":"Episode","SeriesId":"s1","SeriesName":"某剧",""" +
+                        """"SeriesPrimaryImageTag":"sp","BackdropImageTags":[],""" +
+                        """"ParentBackdropItemId":"s1","ParentBackdropImageTags":["pb"],"People":[]}""",
+                )
+            } else {
+                // the series lookup that supplies the cast
+                json("""{"Id":"s1","Name":"某剧","Type":"Series","People":[{"Id":"p1","Name":"演员A","Role":"角色"}]}""")
+            }
+        }
+
+        val res = repo.itemDetail(server, "ep1")
+
+        assertTrue(res.isSuccess, res.toString())
+        val d = res.getOrThrow()
+        // backdrop falls back to the series' backdrop
+        assertEquals("s1", d.backdropItemId)
+        assertEquals("pb", d.backdropTag)
+        // poster falls back to the series poster
+        assertEquals("s1", d.posterItemId)
+        assertEquals("sp", d.posterTag)
+        // cast is borrowed from the series
+        assertEquals(1, d.people.size)
+        assertEquals("演员A", d.people.first().name)
+    }
+
+    @Test
+    fun seasons_and_episodes_parse() = runTest {
+        val repo = testRepo { req ->
+            if (req.url.encodedPath.contains("/Seasons")) {
+                json("""{"Items":[{"Id":"se1","Name":"第 1 季","Type":"Season","IndexNumber":1,"ImageTags":{"Primary":"t"}}]}""")
+            } else {
+                json(
+                    """{"Items":[{"Id":"e1","Name":"能听亡魂的女子","Type":"Episode","IndexNumber":1,""" +
+                        """"SeasonId":"se1","RunTimeTicks":28063680000,"ImageTags":{"Primary":"ep"},""" +
+                        """"UserData":{"PlayedPercentage":11.6,"PlaybackPositionTicks":123}}]}""",
+                )
+            }
+        }
+
+        val seasons = repo.seasons(server, "s1")
+        assertTrue(seasons.isSuccess, seasons.toString())
+        assertEquals("第 1 季", seasons.getOrThrow().first().name)
+
+        val episodes = repo.episodes(server, "s1", "se1")
+        assertTrue(episodes.isSuccess, episodes.toString())
+        val ep = episodes.getOrThrow().first()
+        assertEquals(1, ep.indexNumber)
+        assertEquals("能听亡魂的女子", ep.name)
+        assertEquals(46, ep.runtimeMinutes)
+        assertEquals(123L, ep.resumePositionTicks)
     }
 }

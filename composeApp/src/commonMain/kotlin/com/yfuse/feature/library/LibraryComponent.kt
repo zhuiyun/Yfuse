@@ -86,6 +86,8 @@ class LibraryComponent(
         is Config.Player -> Child.Player(
             PlayerComponent(
                 componentContext = context,
+                storeFactory = storeFactory,
+                repo = repo,
                 registry = registry,
                 itemId = config.itemId,
                 startPositionTicks = config.startPositionTicks,
