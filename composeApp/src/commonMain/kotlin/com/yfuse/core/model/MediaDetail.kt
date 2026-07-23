@@ -12,6 +12,7 @@ data class Person(
 data class MediaDetail(
     val id: String,
     val title: String,
+    val type: String,
     val overview: String?,
     val year: Int?,
     val genres: List<String>,
@@ -22,5 +23,9 @@ data class MediaDetail(
     val posterTag: String?,
     val backdropItemId: String,
     val backdropTag: String?,
+    val resumePositionTicks: Long?,
     val people: List<Person>,
 )
+
+/** A concrete, playable target resolved from a detail item. */
+data class PlayTarget(val itemId: String, val startPositionTicks: Long)

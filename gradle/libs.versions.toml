@@ -11,6 +11,7 @@ coroutines = "1.9.0"
 koin = "4.0.0"
 settings = "1.2.0"
 coil = "3.0.4"
+media3 = "1.5.1"
 turbine = "1.2.0"
 
 [libraries]
@@ -42,6 +43,8 @@ coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" 
 coil-network-ktor = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil" }
 # Android
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
+media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
+media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3" }
 # Test
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 

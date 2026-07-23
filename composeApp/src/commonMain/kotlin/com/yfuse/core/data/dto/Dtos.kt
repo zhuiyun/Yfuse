@@ -103,6 +103,7 @@ fun BaseItemDto.toMediaItem(): MediaItem {
 fun BaseItemDto.toMediaDetail(): MediaDetail = MediaDetail(
     id = Id,
     title = if (Type == "Episode") "${SeriesName ?: ""} ${Name ?: ""}".trim() else (Name ?: ""),
+    type = Type ?: "",
     overview = Overview,
     year = ProductionYear,
     genres = Genres ?: emptyList(),
@@ -113,5 +114,6 @@ fun BaseItemDto.toMediaDetail(): MediaDetail = MediaDetail(
     posterTag = ImageTags?.get("Primary"),
     backdropItemId = Id,
     backdropTag = BackdropImageTags?.firstOrNull(),
+    resumePositionTicks = UserData?.PlaybackPositionTicks,
     people = People?.map { Person(it.Id, it.Name ?: "", it.Role?.ifBlank { null }, it.PrimaryImageTag) } ?: emptyList(),
 )

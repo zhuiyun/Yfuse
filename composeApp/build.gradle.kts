@@ -49,6 +49,8 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.ktor.cio)
             implementation(libs.androidx.activity.compose)
+            implementation(libs.media3.exoplayer)
+            implementation(libs.media3.ui)
         }
 
         commonTest.dependencies {

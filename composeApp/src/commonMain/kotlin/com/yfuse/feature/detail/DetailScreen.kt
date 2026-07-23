@@ -37,10 +37,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,7 +62,12 @@ import kotlinx.coroutines.launch
 fun DetailScreen(component: DetailComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+
+    // Surface play/resolve failures without replacing the loaded detail.
+    LaunchedEffect(state.error) {
+        val message = state.error
+        if (message != null && state.detail != null) snackbar.showSnackbar(message)
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -85,7 +90,8 @@ fun DetailScreen(component: DetailComponent) {
                 state.detail != null -> DetailContent(
                     detail = state.detail!!,
                     baseUrl = state.server?.baseUrl.orEmpty(),
-                    onPlay = { scope.launch { snackbar.showSnackbar("播放功能即将推出") } },
+                    resolving = state.resolvingPlay,
+                    onPlay = { component.store.accept(DetailIntent.Play) },
                 )
             }
 
@@ -104,7 +110,7 @@ fun DetailScreen(component: DetailComponent) {
 }
 
 @Composable
-private fun DetailContent(detail: MediaDetail, baseUrl: String, onPlay: () -> Unit) {
+private fun DetailContent(detail: MediaDetail, baseUrl: String, resolving: Boolean, onPlay: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
@@ -169,11 +175,16 @@ private fun DetailContent(detail: MediaDetail, baseUrl: String, onPlay: () -> Un
         item {
             Button(
                 onClick = onPlay,
+                enabled = !resolving,
                 modifier = Modifier.fillMaxWidth().padding(16.dp).height(50.dp),
             ) {
-                Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("播放")
+                if (resolving) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                } else {
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (detail.type == "Series") "播放下一集" else "播放")
+                }
             }
         }
 

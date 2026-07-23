@@ -11,6 +11,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.feature.detail.DetailComponent
+import com.yfuse.feature.player.PlayerComponent
 import kotlinx.serialization.Serializable
 
 /**
@@ -38,12 +39,14 @@ class LibraryComponent(
         @Serializable data object Home : Config
         @Serializable data class Grid(val libraryId: String, val title: String) : Config
         @Serializable data class Detail(val itemId: String) : Config
+        @Serializable data class Player(val itemId: String, val startPositionTicks: Long) : Config
     }
 
     sealed interface Child {
         class Home(val component: LibraryHomeComponent) : Child
         class Grid(val component: LibraryGridComponent) : Child
         class Detail(val component: DetailComponent) : Child
+        class Player(val component: PlayerComponent) : Child
     }
 
     private fun child(config: Config, context: ComponentContext): Child = when (config) {
@@ -76,6 +79,16 @@ class LibraryComponent(
                 repo = repo,
                 registry = registry,
                 itemId = config.itemId,
+                onBack = { navigation.pop() },
+                onPlay = { itemId, ticks -> navigation.push(Config.Player(itemId, ticks)) },
+            ),
+        )
+        is Config.Player -> Child.Player(
+            PlayerComponent(
+                componentContext = context,
+                registry = registry,
+                itemId = config.itemId,
+                startPositionTicks = config.startPositionTicks,
                 onBack = { navigation.pop() },
             ),
         )

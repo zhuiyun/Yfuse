@@ -16,11 +16,18 @@ data class DetailState(
     val loading: Boolean = false,
     val detail: MediaDetail? = null,
     val server: SavedServer? = null,
+    val resolvingPlay: Boolean = false,
     val error: String? = null,
 )
 
 sealed interface DetailIntent {
     data object Retry : DetailIntent
+    data object Play : DetailIntent
+}
+
+sealed interface DetailLabel {
+    /** Resolved playable target; the component turns this into navigation. */
+    data class Play(val itemId: String, val startPositionTicks: Long) : DetailLabel
 }
 
 private sealed interface DetailAction { data object Load : DetailAction }
@@ -29,6 +36,7 @@ private sealed interface DetailMsg {
     data object Loading : DetailMsg
     data class Loaded(val detail: MediaDetail, val server: SavedServer) : DetailMsg
     data class Failed(val message: String) : DetailMsg
+    data class Resolving(val value: Boolean) : DetailMsg
 }
 
 class DetailStoreFactory(
@@ -37,7 +45,7 @@ class DetailStoreFactory(
     private val registry: ServerRegistry,
     private val itemId: String,
 ) {
-    fun create(): Store<DetailIntent, DetailState, Nothing> =
+    fun create(): Store<DetailIntent, DetailState, DetailLabel> =
         storeFactory.create(
             name = "DetailStore",
             initialState = DetailState(),
@@ -47,10 +55,16 @@ class DetailStoreFactory(
         )
 
     private inner class ExecutorImpl :
-        CoroutineExecutor<DetailIntent, DetailAction, DetailState, DetailMsg, Nothing>() {
+        CoroutineExecutor<DetailIntent, DetailAction, DetailState, DetailMsg, DetailLabel>() {
 
         override fun executeAction(action: DetailAction) = load()
-        override fun executeIntent(intent: DetailIntent) = load()
+
+        override fun executeIntent(intent: DetailIntent) {
+            when (intent) {
+                DetailIntent.Retry -> load()
+                DetailIntent.Play -> play()
+            }
+        }
 
         private fun load() {
             val server = registry.defaultServer
@@ -65,13 +79,33 @@ class DetailStoreFactory(
                     .onFailure { dispatch(DetailMsg.Failed(it.toUserMessage("加载失败"))) }
             }
         }
+
+        private fun play() {
+            val current = state()
+            val detail = current.detail ?: return
+            val server = current.server ?: return
+            if (current.resolvingPlay) return
+            dispatch(DetailMsg.Resolving(true))
+            scope.launch {
+                repo.resolvePlayTarget(server, detail)
+                    .onSuccess {
+                        dispatch(DetailMsg.Resolving(false))
+                        publish(DetailLabel.Play(it.itemId, it.startPositionTicks))
+                    }
+                    .onFailure {
+                        dispatch(DetailMsg.Resolving(false))
+                        dispatch(DetailMsg.Failed(it.toUserMessage("无法播放")))
+                    }
+            }
+        }
     }
 
     private object ReducerImpl : Reducer<DetailState, DetailMsg> {
         override fun DetailState.reduce(msg: DetailMsg): DetailState = when (msg) {
             DetailMsg.Loading -> copy(loading = true, error = null)
             is DetailMsg.Loaded -> copy(loading = false, detail = msg.detail, server = msg.server)
-            is DetailMsg.Failed -> copy(loading = false, error = msg.message)
+            is DetailMsg.Failed -> copy(loading = false, resolvingPlay = false, error = msg.message)
+            is DetailMsg.Resolving -> copy(resolvingPlay = msg.value)
         }
     }
 }

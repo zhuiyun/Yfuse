@@ -1,5 +1,6 @@
 package com.yfuse.core.data
 
+import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
@@ -123,5 +124,68 @@ class EmbyRepositoryTest {
         assertEquals("犯罪", d.genres.first())
         assertEquals(1, d.people.size)
         assertEquals("演员A", d.people.first().name)
+    }
+
+    private fun detail(id: String, type: String, resume: Long? = null) = MediaDetail(
+        id = id,
+        title = "T",
+        type = type,
+        overview = null,
+        year = null,
+        genres = emptyList(),
+        runtimeMinutes = null,
+        officialRating = null,
+        communityRating = null,
+        posterItemId = id,
+        posterTag = null,
+        backdropItemId = id,
+        backdropTag = null,
+        resumePositionTicks = resume,
+        people = emptyList(),
+    )
+
+    @Test
+    fun resolvePlayTarget_movie_plays_itself_from_resume_position() = runTest {
+        val repo = testRepo { json("{}") }
+
+        val res = repo.resolvePlayTarget(server, detail("m1", "Movie", resume = 12_345L))
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals("m1", res.getOrThrow().itemId)
+        assertEquals(12_345L, res.getOrThrow().startPositionTicks)
+    }
+
+    @Test
+    fun resolvePlayTarget_series_uses_next_up_episode() = runTest {
+        val repo = testRepo { req ->
+            if (req.url.encodedPath.contains("NextUp")) {
+                json("""{"Items":[{"Id":"e9","Name":"第9集","Type":"Episode","UserData":{"PlaybackPositionTicks":999}}]}""")
+            } else {
+                json("""{"Items":[]}""")
+            }
+        }
+
+        val res = repo.resolvePlayTarget(server, detail("s1", "Series"))
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals("e9", res.getOrThrow().itemId)
+        assertEquals(999L, res.getOrThrow().startPositionTicks)
+    }
+
+    @Test
+    fun resolvePlayTarget_series_falls_back_to_first_episode() = runTest {
+        val repo = testRepo { req ->
+            if (req.url.encodedPath.contains("NextUp")) {
+                json("""{"Items":[]}""")
+            } else {
+                json("""{"Items":[{"Id":"e1","Name":"第1集","Type":"Episode"}]}""")
+            }
+        }
+
+        val res = repo.resolvePlayTarget(server, detail("s1", "Series"))
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals("e1", res.getOrThrow().itemId)
+        assertEquals(0L, res.getOrThrow().startPositionTicks)
     }
 }

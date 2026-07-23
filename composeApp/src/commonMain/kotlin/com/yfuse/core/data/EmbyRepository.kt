@@ -10,6 +10,7 @@ import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
@@ -73,9 +74,14 @@ class EmbyRepository(private val client: HttpClient) {
     suspend fun homeContent(server: SavedServer): Result<HomeContent> = call {
         coroutineScope {
             val views = fetchViews(server)
-            val resumeDeferred = async { fetchResume(server) }
+            // A single library (or the resume row) failing must not blank the
+            // whole home screen — degrade to an empty row instead.
+            val resumeDeferred = async { runCatching { fetchResume(server) }.getOrDefault(emptyList()) }
             val rowDeferred = views.map { view ->
-                async { HomeRow(view.id, view.name, fetchLatest(server, view.id)) }
+                async {
+                    val items = runCatching { fetchLatest(server, view.id) }.getOrDefault(emptyList())
+                    HomeRow(view.id, view.name, items)
+                }
             }
             val resume = resumeDeferred.await()
             val rows = rowDeferred.awaitAll().filter { it.items.isNotEmpty() }
@@ -102,6 +108,40 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("Limit", 120)
         }.body()
         dto.Items.map { it.toMediaItem() }
+    }
+
+    /**
+     * Resolves what to actually play for a detail item: movies/episodes play
+     * themselves; a series plays its "next up" episode (falling back to the
+     * first episode), carrying that episode's resume position.
+     */
+    suspend fun resolvePlayTarget(server: SavedServer, detail: MediaDetail): Result<PlayTarget> = call {
+        if (detail.type != "Series") {
+            PlayTarget(detail.id, detail.resumePositionTicks ?: 0L)
+        } else {
+            val episode = fetchNextUp(server, detail.id) ?: fetchFirstEpisode(server, detail.id)
+            requireNotNull(episode) { "no episodes" }
+            PlayTarget(episode.Id, episode.UserData?.PlaybackPositionTicks ?: 0L)
+        }
+    }
+
+    private suspend fun fetchNextUp(server: SavedServer, seriesId: String): BaseItemDto? {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/NextUp") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("UserId", server.userId)
+            parameter("SeriesId", seriesId)
+            parameter("Limit", 1)
+        }.body()
+        return dto.Items.firstOrNull()
+    }
+
+    private suspend fun fetchFirstEpisode(server: SavedServer, seriesId: String): BaseItemDto? {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("UserId", server.userId)
+            parameter("Limit", 1)
+        }.body()
+        return dto.Items.firstOrNull()
     }
 
     /** Full detail for a single item. */

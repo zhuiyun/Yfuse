@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.library.LibraryScreen
 import com.yfuse.feature.profile.ProfileScreen
 import com.yfuse.feature.servers.ServersScreen
@@ -35,17 +36,24 @@ private val tabs = listOf(
 fun App(root: RootComponent) {
     YfuseTheme {
         val active by root.activeTab.subscribeAsState()
+        val libraryStack by root.library.stack.subscribeAsState()
+
+        // Playback takes over the whole screen: no bottom bar while playing.
+        val isPlaying = active == Tab.Library &&
+            libraryStack.active.instance is LibraryComponent.Child.Player
 
         Scaffold(
             bottomBar = {
-                NavigationBar {
-                    tabs.forEach { item ->
-                        NavigationBarItem(
-                            selected = active == item.tab,
-                            onClick = { root.selectTab(item.tab) },
-                            icon = { Icon(item.icon, contentDescription = item.label) },
-                            label = { Text(item.label) },
-                        )
+                if (!isPlaying) {
+                    NavigationBar {
+                        tabs.forEach { item ->
+                            NavigationBarItem(
+                                selected = active == item.tab,
+                                onClick = { root.selectTab(item.tab) },
+                                icon = { Icon(item.icon, contentDescription = item.label) },
+                                label = { Text(item.label) },
+                            )
+                        }
                     }
                 }
             },
