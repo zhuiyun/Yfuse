@@ -23,6 +23,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.model.SourceInfo
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.normalizeBaseUrl
@@ -208,12 +209,31 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("SearchTerm", query)
             parameter("Recursive", true)
             parameter("IncludeItemTypes", "Movie,Series")
-            parameter("Fields", "ProductionYear,Overview")
+            parameter("Fields", "ProductionYear,Overview,ProviderIds")
             parameter("EnableImageTypes", "Primary,Backdrop")
             parameter("ImageTypeLimit", 2)
             parameter("Limit", limit)
         }.body()
         dto.Items.map { it.toMediaItem() }
+    }
+
+    /** Precise TMDB-to-Emby match, avoiding localized-title mismatches. */
+    suspend fun findByTmdbId(
+        server: SavedServer,
+        tmdbId: Int,
+        mediaType: String,
+    ): Result<MediaItem?> = call {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("Recursive", true)
+            parameter("IncludeItemTypes", if (mediaType == "tv") "Series" else "Movie")
+            parameter("AnyProviderIdEquals", "tmdb.$tmdbId")
+            parameter("Fields", "ProductionYear,Overview,ProviderIds")
+            parameter("EnableImageTypes", "Primary,Backdrop")
+            parameter("ImageTypeLimit", 2)
+            parameter("Limit", 1)
+        }.body()
+        dto.Items.firstOrNull()?.toMediaItem()
     }
 
     /** Full detail for a single item. Episodes inherit the series' cast. */
@@ -254,7 +274,7 @@ class EmbyRepository(private val client: HttpClient) {
     ): List<ServerSource> = coroutineScope {
         servers.map { server ->
             async {
-                val hit = runCatching {
+                val lookup = runCatching {
                     val dto: ItemsResponseDto =
                         client.get("${server.baseUrl}/Users/${server.userId}/Items") {
                             header("X-Emby-Token", server.accessToken)
@@ -267,15 +287,47 @@ class EmbyRepository(private val client: HttpClient) {
                     dto.Items.firstOrNull { it.Name.equals(title, ignoreCase = true) }
                         ?: dto.Items.firstOrNull()
                 }
+                val item = lookup.getOrNull()
+                val source = item?.let {
+                    runCatching { fetchComparableSource(server, it) }.getOrNull()
+                        // A matching library entry is still a resource even if
+                        // this server withholds its stream metadata.
+                        ?: SourceInfo("已有资源", null, null)
+                }
                 ServerSource(
                     serverId = server.id,
                     serverName = server.serverName,
                     isCurrent = server.id == currentServerId,
-                    source = hit.getOrNull()?.MediaSources?.firstOrNull()?.toSourceInfo(),
-                    reachable = hit.isSuccess,
+                    source = source,
+                    reachable = lookup.isSuccess,
                 )
             }
         }.awaitAll()
+    }
+
+    /**
+     * Search results frequently omit MediaSources. Fetch the concrete item again;
+     * for a series, resolve a playable episode because the Series object itself
+     * never owns a video stream.
+     */
+    private suspend fun fetchComparableSource(
+        server: SavedServer,
+        item: BaseItemDto,
+    ): SourceInfo? {
+        item.MediaSources?.firstOrNull()?.toSourceInfo()?.let { return it }
+
+        val playable = if (item.Type == "Series") {
+            fetchNextUp(server, item.Id) ?: fetchFirstEpisode(server, item.Id)
+        } else {
+            item
+        } ?: return null
+
+        val full: BaseItemDto =
+            client.get("${server.baseUrl}/Users/${server.userId}/Items/${playable.Id}") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("Fields", "MediaSources")
+            }.body()
+        return full.MediaSources?.firstOrNull()?.toSourceInfo()
     }
 
     /** Seasons of a series. */

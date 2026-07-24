@@ -8,6 +8,7 @@ import com.arkivanov.decompose.router.stack.childStack
 import com.arkivanov.decompose.router.stack.pop
 import com.arkivanov.decompose.router.stack.push
 import com.arkivanov.decompose.value.Value
+import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
@@ -28,6 +29,8 @@ class SearchComponent(
 ) : ComponentContext by componentContext {
 
     private val navigation = StackNavigation<Config>()
+    private val _focusRequest = MutableValue(0)
+    val focusRequest: Value<Int> = _focusRequest
 
     val stack: Value<ChildStack<Config, Child>> = childStack(
         source = navigation,
@@ -48,6 +51,14 @@ class SearchComponent(
         class Home(val component: SearchHomeComponent) : Child
         class Detail(val component: DetailComponent) : Child
         class Player(val component: PlayerComponent) : Child
+    }
+
+    fun requestFocus() {
+        _focusRequest.value += 1
+    }
+
+    fun navigateBack() {
+        navigation.pop()
     }
 
     private fun child(config: Config, context: ComponentContext): Child = when (config) {

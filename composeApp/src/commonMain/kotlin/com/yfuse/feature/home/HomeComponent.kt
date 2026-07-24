@@ -19,7 +19,7 @@ class HomeComponent(
     emby: EmbyRepository,
     private val registry: ServerRegistry,
     private val onOpenEmbyItem: (String) -> Unit,
-    private val onOpenTmdbItem: (TmdbItem) -> Unit,
+    private val onOpenTmdbItem: (TmdbItem, String?) -> Unit,
     val onOpenSearch: () -> Unit,
     val onOpenProfile: () -> Unit,
 ) : ComponentContext by componentContext {
@@ -35,7 +35,7 @@ class HomeComponent(
             .onEach { label ->
                 when (label) {
                     is HomeLabel.OpenEmbyItem -> onOpenEmbyItem(label.itemId)
-                    is HomeLabel.OpenTmdbItem -> onOpenTmdbItem(label.item)
+                    is HomeLabel.OpenTmdbItem -> onOpenTmdbItem(label.item, label.embyItemId)
                 }
             }
             .launchIn(scope)

@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,8 +38,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,6 +54,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.cssShadow
 import com.yfuse.core.designsystem.glass
@@ -63,7 +69,7 @@ import com.yfuse.core.model.Person
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyImages
 
-/** 详情 — 260px hero, then `padding:0 18px 100px; margin-top:-46px; gap:16px`. */
+/** 详情 — artwork fills at least 56% of the viewport before the information sheet. */
 @Composable
 fun DetailScreen(component: DetailComponent) {
     val state by component.store.states.collectAsState(component.store.state)
@@ -76,7 +82,31 @@ fun DetailScreen(component: DetailComponent) {
 
     var seasonPickerOpen by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val heroHeight = maxHeight * 0.56f
+        val density = LocalDensity.current
+        val pageColor = palette.backgroundStops[1].second
+        val panelBrush = remember(pageColor, density) {
+            Brush.verticalGradient(
+                colorStops = arrayOf(
+                    0f to Color.Transparent,
+                    0.58f to pageColor.copy(alpha = 0.94f),
+                    1f to pageColor,
+                ),
+                startY = 0f,
+                endY = with(density) { 176.dp.toPx() },
+            )
+        }
+        val listState = rememberLazyListState()
+        val lightPageReached by remember(listState, heroHeight, density) {
+            derivedStateOf {
+                val switchOffset = with(density) { (heroHeight - 56.dp).roundToPx() }
+                listState.firstVisibleItemIndex > 0 ||
+                    listState.firstVisibleItemScrollOffset >= switchOffset
+            }
+        }
+        StatusBarIconStyle(darkIcons = detail == null || lightPageReached)
+
         when {
             state.loading && detail == null ->
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -99,17 +129,25 @@ fun DetailScreen(component: DetailComponent) {
 
             else -> LazyColumn(
                 Modifier.fillMaxSize(),
+                state = listState,
                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
             ) {
-                item { Hero(heroUrl, detail.title, component.onBack) }
+                item { Hero(heroUrl, detail.title, heroHeight, component.onBack) }
 
                 item {
-                    // `margin-top:-46px` pulls the poster block up over the hero.
+                    // Pull the information sheet over the lower edge of the artwork.
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .offset(y = (-46).dp)
-                            .padding(horizontal = Dimens.pageHorizontal),
+                            .offset(y = (-132).dp)
+                            .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp))
+                            .background(panelBrush)
+                            .padding(
+                                start = Dimens.pageHorizontal,
+                                top = 24.dp,
+                                end = Dimens.pageHorizontal,
+                                bottom = 12.dp,
+                            ),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         TitleBlock(baseUrl, detail)
@@ -129,10 +167,6 @@ fun DetailScreen(component: DetailComponent) {
 
                         if (state.sources.isNotEmpty()) {
                             SourceComparison(state.sources, accent)
-                        }
-
-                        if (detail.people.isNotEmpty()) {
-                            CastRow(baseUrl, detail.people)
                         }
 
                         if (state.episodes.isNotEmpty()) {
@@ -162,6 +196,10 @@ fun DetailScreen(component: DetailComponent) {
                                 },
                             )
                         }
+
+                        if (detail.people.isNotEmpty()) {
+                            CastRow(baseUrl, detail.people)
+                        }
                     }
                 }
             }
@@ -178,12 +216,12 @@ fun DetailScreen(component: DetailComponent) {
  * `0deg {page} 5%, rgba(20,15,25,.1) 60%, rgba(20,15,25,.35)`, plus a white chevron.
  */
 @Composable
-private fun Hero(url: String?, title: String, onBack: () -> Unit) {
+private fun Hero(url: String?, title: String, height: androidx.compose.ui.unit.Dp, onBack: () -> Unit) {
     val palette = LocalPalette.current
     // The prototype hardcodes #EEF1F5, its light page colour; using the active
     // backdrop's mid stop keeps the fade landing on the page in dark mode too.
     val pageColor = palette.backgroundStops[1].second
-    Box(Modifier.fillMaxWidth().height(260.dp)) {
+    Box(Modifier.fillMaxWidth().height(height)) {
         AsyncImage(
             model = url,
             contentDescription = title,
@@ -214,7 +252,7 @@ private fun Hero(url: String?, title: String, onBack: () -> Unit) {
 }
 
 /**
- * Poster + title cluster — `gap:14px`, bottom aligned; poster 84×118 with a 2px
+ * Poster + title cluster — `gap:16px`, bottom aligned; poster 112×158 with a 2px
  * white border and `0 10px 24px rgba(0,0,0,.25)`.
  */
 @Composable
@@ -222,14 +260,14 @@ private fun TitleBlock(baseUrl: String, detail: MediaDetail) {
     val palette = LocalPalette.current
     Row(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
         Poster(
             url = EmbyImages.poster(baseUrl, detail),
             modifier = Modifier
-                .width(84.dp)
-                .height(118.dp)
+                .width(112.dp)
+                .height(158.dp)
                 .shadow(Shadows.detailPoster, GlassShapes.poster)
                 .border(2.dp, Color.White, GlassShapes.poster),
         )
@@ -458,8 +496,8 @@ private fun CastRow(baseUrl: String, people: List<Person>) {
 }
 
 /**
- * Season header with the `切换季数 ▾` chip, then episode rows at `gap:8px`
- * (`radius:14px`, `padding:8px`, `gap:11px`, 70×44 still).
+ * Season header with the `切换季数 ▾` chip, then a horizontally scrolling
+ * episode rail above the cast section.
  */
 @Composable
 private fun EpisodeSection(
@@ -547,12 +585,12 @@ private fun EpisodeSection(
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            episodes.forEach { episode ->
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(episodes, key = { it.id }) { episode ->
                 val watching = (episode.playedPercentage ?: 0.0) > 0.0
-                Row(
+                Column(
                     Modifier
-                        .fillMaxWidth()
+                        .width(176.dp)
                         .glass(
                             shape = GlassShapes.chip,
                             fill = if (watching) accent.copy(alpha = 0.08f) else palette.card,
@@ -560,35 +598,34 @@ private fun EpisodeSection(
                         )
                         .clickable { onPlayEpisode(episode) }
                         .padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Poster(
                         url = EmbyImages.primary(baseUrl, episode.id, episode.primaryTag, maxHeight = 240),
                         progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
-                        modifier = Modifier.width(70.dp).height(44.dp),
+                        modifier = Modifier.fillMaxWidth().height(92.dp),
                     )
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            listOfNotNull(episode.indexNumber?.let { "第${it}集" }, episode.name)
-                                .joinToString(" · "),
-                            style = sc(12f, 700),
-                            color = palette.text,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            buildString {
-                                if (watching) append("正在观看")
-                                val runtime = episode.runtimeMinutes?.let { "$it 分钟" }
-                                if (watching && runtime != null) append(" · ")
-                                if (runtime != null) append(runtime)
-                            },
-                            style = mr(10.5f, 400),
-                            color = if (watching) accent else palette.sub2,
-                        )
-                    }
+                    Spacer(Modifier.height(7.dp))
+                    Text(
+                        listOfNotNull(episode.indexNumber?.let { "第${it}集" }, episode.name)
+                            .joinToString(" · "),
+                        style = sc(12f, 700),
+                        color = palette.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        buildString {
+                            if (watching) append("正在观看")
+                            val runtime = episode.runtimeMinutes?.let { "$it 分钟" }
+                            if (watching && runtime != null) append(" · ")
+                            if (runtime != null) append(runtime)
+                        },
+                        style = mr(10.5f, 400),
+                        color = if (watching) accent else palette.sub2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }

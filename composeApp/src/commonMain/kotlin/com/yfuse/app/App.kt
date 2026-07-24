@@ -48,6 +48,7 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.YfuseTheme
@@ -140,6 +141,19 @@ fun App(root: RootComponent) {
             Tab.Browse -> browseStack.active.instance is LibraryComponent.Child.Home
             Tab.Search -> searchStack.active.instance is SearchComponent.Child.Home
             Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
+        }
+        val childCanGoBack = !atRoot
+        PlatformBackHandler(enabled = childCanGoBack || active != Tab.Home) {
+            if (childCanGoBack) {
+                when (active) {
+                    Tab.Home -> root.home.navigateBack()
+                    Tab.Browse -> root.browse.navigateBack()
+                    Tab.Search -> root.search.navigateBack()
+                    Tab.Profile -> root.profile.navigateBack()
+                }
+            } else {
+                root.selectTab(Tab.Home)
+            }
         }
 
         val bottomBar = remember { BottomBarState() }

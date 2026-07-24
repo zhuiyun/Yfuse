@@ -1,6 +1,7 @@
 package com.yfuse.feature.home
 
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.decompose.DelicateDecomposeApi
 import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
@@ -20,6 +21,7 @@ import kotlinx.serialization.Serializable
  * 首页 tab: TMDB recommendations. A pick opens the library item when the
  * server has it, otherwise its TMDB info page.
  */
+@OptIn(DelicateDecomposeApi::class)
 class HomeTabComponent(
     componentContext: ComponentContext,
     private val storeFactory: StoreFactory,
@@ -46,14 +48,18 @@ class HomeTabComponent(
         @Serializable data object Home : Config
         @Serializable data class Detail(val itemId: String) : Config
         @Serializable data class Player(val itemId: String, val startPositionTicks: Long) : Config
-        @Serializable data class Info(val item: TmdbItem) : Config
+        @Serializable data class Info(val item: TmdbItem, val embyItemId: String?) : Config
     }
 
     sealed interface Child {
         class Home(val component: HomeComponent) : Child
         class Detail(val component: DetailComponent) : Child
         class Player(val component: PlayerComponent) : Child
-        class Info(val item: TmdbItem, val onBack: () -> Unit) : Child
+        class Info(val component: TmdbInfoComponent) : Child
+    }
+
+    fun navigateBack() {
+        navigation.pop()
     }
 
     private fun child(config: Config, context: ComponentContext): Child = when (config) {
@@ -65,7 +71,9 @@ class HomeTabComponent(
                 emby = repo,
                 registry = registry,
                 onOpenEmbyItem = { navigation.push(Config.Detail(it)) },
-                onOpenTmdbItem = { navigation.push(Config.Info(it)) },
+                onOpenTmdbItem = { item, embyItemId ->
+                    navigation.push(Config.Info(item, embyItemId))
+                },
                 onOpenSearch = onOpenSearch,
                 onOpenProfile = onOpenProfile,
             ),
@@ -92,6 +100,17 @@ class HomeTabComponent(
                 onBack = { navigation.pop() },
             ),
         )
-        is Config.Info -> Child.Info(config.item) { navigation.pop() }
+        is Config.Info -> Child.Info(
+            TmdbInfoComponent(
+                componentContext = context,
+                tmdb = tmdb,
+                emby = repo,
+                registry = registry,
+                item = config.item,
+                embyItemId = config.embyItemId,
+                onBack = { navigation.pop() },
+                onPlayTarget = { id, ticks -> navigation.push(Config.Player(id, ticks)) },
+            ),
+        )
     }
 }

@@ -78,6 +78,14 @@ val tmdbToken: String = Properties().apply {
     if (file.exists()) file.inputStream().use { load(it) }
 }.getProperty("tmdb.token").orEmpty()
 
+val releaseSigningProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val releaseSigningReady = releaseSigningProperties.getProperty("storeFile")
+    ?.let(rootProject::file)
+    ?.exists() == true
+
 android {
     namespace = "com.yfuse"
     // libmpv's AAR requires minCompileSdk 36; targetSdk stays at 35.
@@ -102,6 +110,17 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseSigningReady) {
+            create("release") {
+                storeFile = rootProject.file(releaseSigningProperties.getProperty("storeFile"))
+                storePassword = releaseSigningProperties.getProperty("storePassword")
+                keyAlias = releaseSigningProperties.getProperty("keyAlias")
+                keyPassword = releaseSigningProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -110,9 +129,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Debug-signed so `assembleRelease` produces an installable APK for
-            // personal use. Replace with a real keystore before public release.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (releaseSigningReady) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn("Release keystore is missing; the APK will use the debug signing key.")
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

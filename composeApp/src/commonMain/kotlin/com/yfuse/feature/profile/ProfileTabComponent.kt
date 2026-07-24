@@ -1,6 +1,7 @@
 package com.yfuse.feature.profile
 
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.decompose.DelicateDecomposeApi
 import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
@@ -17,6 +18,7 @@ import kotlinx.serialization.Serializable
 /**
  * The "我的" tab. Server management lives here now rather than as its own tab.
  */
+@OptIn(DelicateDecomposeApi::class)
 class ProfileTabComponent(
     componentContext: ComponentContext,
     private val storeFactory: StoreFactory,
@@ -44,6 +46,10 @@ class ProfileTabComponent(
     sealed interface Child {
         class Home(val component: ProfileComponent) : Child
         class Servers(val component: ServersComponent) : Child
+    }
+
+    fun navigateBack() {
+        navigation.pop()
     }
 
     private fun child(config: Config, context: ComponentContext): Child = when (config) {

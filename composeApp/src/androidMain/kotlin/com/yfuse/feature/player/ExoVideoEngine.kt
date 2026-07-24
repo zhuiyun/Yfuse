@@ -14,8 +14,13 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.model.PlaybackQuality
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -47,6 +52,9 @@ class ExoVideoEngine(
     startIndex: Int,
     startPositionMs: Long,
     private val scope: CoroutineScope,
+    decoderMode: DecoderMode,
+    autoNext: Boolean,
+    quality: PlaybackQuality,
 ) : VideoEngine {
 
     private val _state = MutableStateFlow(
@@ -54,9 +62,15 @@ class ExoVideoEngine(
     )
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
-    /** True once an entry fell back to the server-transcoded stream. */
+    /** True when the current queue entry is using the server-transcoded stream. */
     private val _transcoding = MutableStateFlow(false)
     val transcoding: StateFlow<Boolean> = _transcoding.asStateFlow()
+    private val transcodedIndices = mutableSetOf<Int>().apply {
+        if (quality != PlaybackQuality.Auto) {
+            addAll(items.indices.filter { items[it].transcodeUrl.isNotEmpty() })
+        }
+    }
+    private val progressiveTranscodeIndices = mutableSetOf<Int>()
 
     val player: ExoPlayer = run {
         // Emby 302-redirects stream requests to a CDN, often http -> https,
@@ -66,7 +80,23 @@ class ExoVideoEngine(
             .setConnectTimeoutMs(20_000)
             .setReadTimeoutMs(20_000)
 
-        ExoPlayer.Builder(context)
+        val selector = if (decoderMode == DecoderMode.Software) {
+            MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                val decoders = MediaCodecUtil.getDecoderInfos(
+                    mimeType,
+                    requiresSecureDecoder,
+                    requiresTunnelingDecoder,
+                )
+                decoders.filter { it.softwareOnly }.ifEmpty { decoders }
+            }
+        } else {
+            MediaCodecSelector.DEFAULT
+        }
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setMediaCodecSelector(selector)
+            .setEnableDecoderFallback(decoderMode != DecoderMode.Hardware)
+
+        ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, httpFactory)))
             .build()
     }
@@ -82,16 +112,21 @@ class ExoVideoEngine(
                 it.copy(
                     buffering = state == Player.STATE_BUFFERING,
                     durationMs = knownDuration(),
+                    ended = state == Player.STATE_ENDED,
                 )
             }
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val index = player.currentMediaItemIndex
+            _transcoding.value = index in transcodedIndices
             _state.update {
                 it.copy(
-                    currentIndex = player.currentMediaItemIndex,
+                    currentIndex = index,
                     positionMs = 0L,
                     durationMs = knownDuration(),
+                    error = null,
+                    ended = false,
                 )
             }
         }
@@ -120,12 +155,25 @@ class ExoVideoEngine(
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "playback failed: ${error.errorCodeName}", error)
             when (error.errorCode) {
+                PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+                -> if (!switchToProgressiveTranscode()) {
+                    _state.update {
+                        it.copy(error = "服务器返回了无效的转码清单", buffering = false)
+                    }
+                }
+
                 PlaybackException.ERROR_CODE_DECODING_FAILED,
                 PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
                 PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-                -> switchToTranscode()
+                -> if (!switchToTranscode()) {
+                    _state.update {
+                        it.copy(error = "当前视频无法解码，且服务器未提供可用转码流", buffering = false)
+                    }
+                }
 
-                else -> _state.update { it.copy(error = "播放失败:${error.errorCodeName}") }
+                else -> _state.update {
+                    it.copy(error = "播放失败：${error.errorCodeName}", buffering = false)
+                }
             }
         }
     }
@@ -135,10 +183,17 @@ class ExoVideoEngine(
     init {
         player.addListener(listener)
         player.setMediaItems(
-            items.map { mediaItem(it.url, it.title) },
+            items.mapIndexed { index, item ->
+                mediaItem(
+                    url = if (index in transcodedIndices) item.transcodeUrl else item.url,
+                    title = item.title,
+                )
+            },
             startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)),
             startPositionMs,
         )
+        player.pauseAtEndOfMediaItems = !autoNext
+        _transcoding.value = startIndex in transcodedIndices
         player.playWhenReady = true
         player.prepare()
 
@@ -153,6 +208,7 @@ class ExoVideoEngine(
     }
 
     override fun play() {
+        _state.update { it.copy(ended = false) }
         player.play()
     }
 
@@ -162,7 +218,7 @@ class ExoVideoEngine(
 
     override fun seekTo(positionMs: Long) {
         player.seekTo(positionMs)
-        _state.update { it.copy(positionMs = positionMs) }
+        _state.update { it.copy(positionMs = positionMs, ended = false) }
     }
 
     override fun setSpeed(speed: Float) {
@@ -175,11 +231,19 @@ class ExoVideoEngine(
 
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
+        _transcoding.value = index in transcodedIndices
+        _state.update { it.copy(error = null, buffering = true, ended = false) }
         player.seekToDefaultPosition(index)
         player.play()
     }
 
     override fun currentPositionMs(): Long = player.currentPosition
+
+    override fun retry() {
+        _state.update { it.copy(error = null, buffering = true, ended = false) }
+        player.prepare()
+        player.playWhenReady = true
+    }
 
     override fun release() {
         ticker?.cancel()
@@ -242,18 +306,38 @@ class ExoVideoEngine(
     }
 
     /** Swaps the current entry for the server-transcoded HLS stream. */
-    fun switchToTranscode() {
-        if (_transcoding.value) return
+    fun switchToTranscode(): Boolean {
         val index = player.currentMediaItemIndex
-        val item = items.getOrNull(index) ?: return
-        if (item.transcodeUrl.isEmpty()) return
+        if (index in transcodedIndices) return true
+        val item = items.getOrNull(index) ?: return false
+        if (item.transcodeUrl.isEmpty()) return false
+        transcodedIndices += index
         _transcoding.value = true
         val position = player.currentPosition
+        _state.update { it.copy(error = null, buffering = true) }
         Log.i(TAG, "falling back to transcode for index=$index")
         player.replaceMediaItem(index, mediaItem(item.transcodeUrl, item.title))
         player.prepare()
         player.seekTo(index, position)
         player.playWhenReady = true
+        return true
+    }
+
+    /** Some Emby proxies cannot serve master.m3u8; retry the same item as MP4. */
+    private fun switchToProgressiveTranscode(): Boolean {
+        val index = player.currentMediaItemIndex
+        if (index !in transcodedIndices || index in progressiveTranscodeIndices) return false
+        val item = items.getOrNull(index) ?: return false
+        if (item.fallbackTranscodeUrl.isEmpty()) return false
+        progressiveTranscodeIndices += index
+        val position = player.currentPosition
+        _state.update { it.copy(error = null, buffering = true) }
+        Log.i(TAG, "HLS manifest invalid; falling back to progressive transcode for index=$index")
+        player.replaceMediaItem(index, mediaItem(item.fallbackTranscodeUrl, item.title))
+        player.prepare()
+        player.seekTo(index, position)
+        player.playWhenReady = true
+        return true
     }
 
     private fun knownDuration(): Long =

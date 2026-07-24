@@ -17,11 +17,20 @@ actual fun PlayerLauncher(
     val context = LocalContext.current
     LaunchedEffect(items, startIndex) {
         if (items.isEmpty()) return@LaunchedEffect
-        val engine = runCatching {
-            GlobalContext.get().get<ThemePreferences>().engine.value
-        }.getOrDefault(PlayerEngine.Exo)
+        val preferences = runCatching {
+            GlobalContext.get().get<ThemePreferences>()
+        }.getOrNull()
         context.startActivity(
-            PlayerActivity.intent(context, items, startIndex, startPositionMs, engine),
+            PlayerActivity.intent(
+                context = context,
+                items = items,
+                startIndex = startIndex,
+                startPositionMs = startPositionMs,
+                engine = preferences?.engine?.value ?: PlayerEngine.Exo,
+                decoder = preferences?.decoder?.value ?: com.yfuse.core.model.DecoderMode.Hardware,
+                autoNext = preferences?.autoNext?.value ?: true,
+                quality = preferences?.quality?.value ?: com.yfuse.core.model.PlaybackQuality.Auto,
+            ),
         )
         onLaunched()
     }

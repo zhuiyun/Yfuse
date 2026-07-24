@@ -31,9 +31,9 @@ class RootComponent(
 
     enum class Tab { Home, Browse, Search, Profile }
 
-    private val _activeTab = MutableValue(
-        if (registry.defaultServer != null) Tab.Home else Tab.Profile,
-    )
+    // Every cold start lands on 首页. Server setup remains available from
+    // “我的”, but the absence of a server must not hijack the launch route.
+    private val _activeTab = MutableValue(Tab.Home)
     val activeTab: Value<Tab> = _activeTab
 
     /** 首页: TMDB recommendations. */
@@ -43,7 +43,7 @@ class RootComponent(
         tmdb = tmdb,
         repo = repo,
         registry = registry,
-        onOpenSearch = { selectTab(Tab.Search) },
+        onOpenSearch = ::openSearch,
         onOpenProfile = { selectTab(Tab.Profile) },
     )
 
@@ -73,5 +73,10 @@ class RootComponent(
 
     fun selectTab(tab: Tab) {
         _activeTab.value = tab
+    }
+
+    private fun openSearch() {
+        selectTab(Tab.Search)
+        search.requestFocus()
     }
 }

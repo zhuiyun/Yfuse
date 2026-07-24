@@ -35,7 +35,7 @@ sealed interface HomeIntent {
 
 sealed interface HomeLabel {
     data class OpenEmbyItem(val itemId: String) : HomeLabel
-    data class OpenTmdbItem(val item: TmdbItem) : HomeLabel
+    data class OpenTmdbItem(val item: TmdbItem, val embyItemId: String?) : HomeLabel
 }
 
 private sealed interface Action { data object Load : Action }
@@ -95,20 +95,32 @@ class HomeStoreFactory(
             if (state().resolving) return
             val server = registry.defaultServer
             if (server == null) {
-                publish(HomeLabel.OpenTmdbItem(item))
+                publish(HomeLabel.OpenTmdbItem(item, null))
                 return
             }
             dispatch(Msg.Resolving(true))
             scope.launch {
-                val match = emby.search(server, item.title)
-                    .getOrDefault(emptyList())
-                    .firstOrNull { it.title.equals(item.title, ignoreCase = true) }
-                dispatch(Msg.Resolving(false))
-                if (match != null) {
-                    publish(HomeLabel.OpenEmbyItem(match.id))
+                val exactProviderMatch = emby.findByTmdbId(server, item.id, item.mediaType)
+                    .getOrNull()
+                val titleCandidates = if (exactProviderMatch == null) {
+                    emby.search(server, item.title).getOrDefault(emptyList())
                 } else {
-                    publish(HomeLabel.OpenTmdbItem(item))
+                    emptyList()
                 }
+                val match = exactProviderMatch ?: titleCandidates.firstOrNull { candidate ->
+                    val titleMatches = candidate.title.equals(item.title, ignoreCase = true)
+                    val yearMatches = item.year?.toIntOrNull()?.let { candidate.year == it } ?: true
+                    val typeMatches = if (item.mediaType == "tv") {
+                        candidate.type == "Series"
+                    } else {
+                        candidate.type == "Movie"
+                    }
+                    titleMatches && yearMatches && typeMatches
+                }
+                dispatch(Msg.Resolving(false))
+                // The visual detail always comes from TMDB; an Emby match only
+                // enables the play action.
+                publish(HomeLabel.OpenTmdbItem(item, match?.id))
             }
         }
     }

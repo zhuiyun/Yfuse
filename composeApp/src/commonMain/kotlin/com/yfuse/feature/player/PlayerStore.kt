@@ -16,6 +16,7 @@ data class PlayerMediaItem(
     val url: String,
     val transcodeUrl: String,
     val title: String,
+    val fallbackTranscodeUrl: String = transcodeUrl,
 )
 
 data class PlayerState(
@@ -72,6 +73,11 @@ class PlayerStoreFactory(
                     url = EmbyStream.directPlay(server.baseUrl, id, server.accessToken),
                     transcodeUrl = EmbyStream.transcode(server.baseUrl, id, server.accessToken),
                     title = title,
+                    fallbackTranscodeUrl = EmbyStream.progressiveTranscode(
+                        server.baseUrl,
+                        id,
+                        server.accessToken,
+                    ),
                 )
 
                 val detail = repo.itemDetail(server, itemId).getOrNull()

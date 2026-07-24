@@ -3,6 +3,8 @@ package com.yfuse.feature.player
 import android.content.Context
 import android.util.Log
 import android.view.Surface
+import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.model.PlaybackQuality
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,7 +29,12 @@ class MpvVideoEngine(
     private val items: List<PlayerMediaItem>,
     startIndex: Int,
     private val startPositionMs: Long,
+    private val decoderMode: DecoderMode,
+    private val autoNext: Boolean,
+    quality: PlaybackQuality,
 ) : VideoEngine {
+
+    private val preferTranscode = quality != PlaybackQuality.Auto
 
     private val _state = MutableStateFlow(
         PlaybackState(currentIndex = startIndex, itemCount = items.size.coerceAtLeast(1)),
@@ -39,6 +46,9 @@ class MpvVideoEngine(
 
     @Volatile
     private var released = false
+
+    @Volatile
+    private var attachedSurface: Surface? = null
 
     private var lastPositionMs = -POSITION_STEP_MS
 
@@ -72,7 +82,11 @@ class MpvVideoEngine(
                 "paused-for-cache" -> _state.update { it.copy(buffering = value) }
                 // keep-open=always parks mpv on the last frame instead of
                 // advancing, so the queue is stepped by hand.
-                "eof-reached" -> if (value) playNextIfAny()
+                "eof-reached" -> when {
+                    !value -> _state.update { it.copy(ended = false) }
+                    autoNext && _state.value.hasNext -> playNextIfAny()
+                    else -> _state.update { it.copy(playing = false, buffering = false, ended = true) }
+                }
             }
         }
 
@@ -84,7 +98,7 @@ class MpvVideoEngine(
         override fun event(eventId: Int) {
             when (eventId) {
                 MPVLib.MpvEvent.MPV_EVENT_START_FILE ->
-                    _state.update { it.copy(buffering = true) }
+                    _state.update { it.copy(buffering = true, error = null, ended = false) }
 
                 MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
                     // `start` is a global option; clear it so the next episode
@@ -107,6 +121,7 @@ class MpvVideoEngine(
      */
     fun attach(surface: Surface) {
         if (released) return
+        attachedSurface = surface
         mpv?.let { existing ->
             runCatching { existing.attachSurface(surface) }
                 .onFailure { Log.e(TAG, "mpv re-attach failed", it) }
@@ -125,7 +140,14 @@ class MpvVideoEngine(
             instance.setOptionString("config", "no")
             instance.setOptionString("vo", "gpu")
             instance.setOptionString("gpu-context", "android")
-            instance.setOptionString("hwdec", "auto-safe")
+            instance.setOptionString(
+                "hwdec",
+                when (decoderMode) {
+                    DecoderMode.Hardware -> "auto-safe"
+                    DecoderMode.Software -> "no"
+                    DecoderMode.Auto -> "auto"
+                },
+            )
             instance.setOptionString("keep-open", "always")
             instance.setOptionString("cache", "yes")
             if (startPositionMs > 0) {
@@ -157,6 +179,7 @@ class MpvVideoEngine(
 
     fun detach() {
         withMpv { it.detachSurface() }
+        attachedSurface = null
     }
 
     /** Crop-to-fill instead of letterboxing, for the 全屏 toggle. */
@@ -165,6 +188,7 @@ class MpvVideoEngine(
     }
 
     override fun play() {
+        _state.update { it.copy(ended = false) }
         withMpv { it.setPropertyBoolean("pause", false) }
     }
 
@@ -174,7 +198,7 @@ class MpvVideoEngine(
 
     override fun seekTo(positionMs: Long) {
         lastPositionMs = positionMs
-        _state.update { it.copy(positionMs = positionMs) }
+        _state.update { it.copy(positionMs = positionMs, ended = false) }
         withMpv { it.command(arrayOf("seek", (positionMs / 1000.0).toString(), "absolute")) }
     }
 
@@ -195,14 +219,30 @@ class MpvVideoEngine(
                 positionMs = 0L,
                 durationMs = 0L,
                 buffering = true,
+                ended = false,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
             )
         }
-        withMpv { it.command(arrayOf("loadfile", items[index].url)) }
+        withMpv { it.command(arrayOf("loadfile", playbackUrl(items[index]))) }
     }
 
     override fun currentPositionMs(): Long = _state.value.positionMs
+
+    override fun retry() {
+        val position = _state.value.positionMs
+        _state.update { it.copy(error = null, buffering = true, ended = false) }
+        if (mpv == null) {
+            attachedSurface?.let(::attach)
+            return
+        }
+        withMpv { instance ->
+            if (position > 0L) {
+                instance.setOptionString("start", "+${position / 1000.0}")
+            }
+            instance.command(arrayOf("loadfile", currentUrl()))
+        }
+    }
 
     override fun release() {
         if (released) return
@@ -217,7 +257,11 @@ class MpvVideoEngine(
     }
 
     private fun currentUrl(): String =
-        items.getOrNull(_state.value.currentIndex)?.url ?: items.firstOrNull()?.url.orEmpty()
+        items.getOrNull(_state.value.currentIndex)?.let(::playbackUrl)
+            ?: items.firstOrNull()?.let(::playbackUrl).orEmpty()
+
+    private fun playbackUrl(item: PlayerMediaItem): String =
+        if (preferTranscode && item.transcodeUrl.isNotEmpty()) item.transcodeUrl else item.url
 
     private fun playNextIfAny() {
         val next = _state.value.currentIndex + 1

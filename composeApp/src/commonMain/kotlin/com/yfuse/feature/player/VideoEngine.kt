@@ -29,6 +29,8 @@ data class PlaybackState(
     val audioTracks: List<EngineTrack> = emptyList(),
     val subtitleTracks: List<EngineTrack> = emptyList(),
     val error: String? = null,
+    /** True after the current item reaches its natural end. */
+    val ended: Boolean = false,
 ) {
     val hasNext: Boolean get() = currentIndex + 1 < itemCount
     val hasPrevious: Boolean get() = currentIndex > 0
@@ -59,6 +61,9 @@ interface VideoEngine {
 
     /** Current position, for handing over when switching engines. */
     fun currentPositionMs(): Long
+
+    /** Clears a recoverable playback error and retries the current entry. */
+    fun retry()
 
     fun release()
 }

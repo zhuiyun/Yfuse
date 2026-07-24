@@ -74,6 +74,7 @@ fun PlayerControls(
     filled: Boolean,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
+    onRetry: () -> Unit,
     onSeek: (Long) -> Unit,
     onSelectItem: (Int) -> Unit,
     onSelectAudio: (String) -> Unit,
@@ -122,6 +123,15 @@ fun PlayerControls(
                 }
             },
         )
+
+        state.error?.let { message ->
+            PlaybackErrorOverlay(
+                message = message,
+                onRetry = onRetry,
+                onBack = onBack,
+            )
+            return@Box
+        }
 
         if (locked) {
             LockedOverlay(onUnlock = { locked = false; poke() })
@@ -187,6 +197,56 @@ fun PlayerControls(
                 onDismiss = { drawerOpen = false },
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
+        }
+    }
+}
+
+@Composable
+private fun PlaybackErrorOverlay(
+    message: String,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("播放遇到问题", style = sc(17f, 700), color = Color.White)
+            Text(
+                message,
+                style = mr(12f, 400),
+                color = Color.White.copy(alpha = 0.72f),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "返回",
+                    style = sc(12f, 600),
+                    color = Color.White.copy(alpha = 0.82f),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.White.copy(alpha = 0.12f))
+                        .noRippleClickable(onBack)
+                        .padding(horizontal = 18.dp, vertical = 9.dp),
+                )
+                Text(
+                    "重试",
+                    style = sc(12f, 700),
+                    color = Color(0xFF1B2436),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.White.copy(alpha = 0.92f))
+                        .noRippleClickable(onRetry)
+                        .padding(horizontal = 18.dp, vertical = 9.dp),
+                )
+            }
         }
     }
 }

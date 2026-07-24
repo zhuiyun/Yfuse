@@ -90,6 +90,7 @@ data class BaseItemDto(
     val BackdropImageTags: List<String>? = null,
     val UserData: UserDataDto? = null,
     val MediaSources: List<MediaSourceDto>? = null,
+    val ProviderIds: Map<String, String>? = null,
 )
 
 /** Resume (and most list endpoints) wrap items; `Items/Latest` returns a raw array. */
@@ -138,6 +139,7 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         playedPercentage = UserData?.PlayedPercentage,
         overview = Overview,
         year = ProductionYear,
+        providerIds = ProviderIds.orEmpty(),
     )
 }
 

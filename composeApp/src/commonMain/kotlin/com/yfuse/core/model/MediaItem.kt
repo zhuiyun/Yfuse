@@ -18,6 +18,8 @@ data class MediaItem(
     val overview: String? = null,
     /** Production year shown below poster cards. */
     val year: Int? = null,
+    /** External IDs such as TMDB, used to match recommendations precisely. */
+    val providerIds: Map<String, String> = emptyMap(),
 )
 
 /** One horizontal row on the home screen (e.g. "电影-国产电影 · 最新"). */

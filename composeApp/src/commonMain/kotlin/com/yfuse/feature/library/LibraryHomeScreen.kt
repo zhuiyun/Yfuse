@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -30,6 +31,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,6 +57,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
@@ -95,6 +99,16 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val accent = rememberDominantColor(slideUrl, Brand.Primary)
 
     var serverMenuOpen by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val lightPageReached by remember(listState, density) {
+        derivedStateOf {
+            val switchOffset = with(density) { (432.dp - 56.dp).roundToPx() }
+            listState.firstVisibleItemIndex > 0 ||
+                listState.firstVisibleItemScrollOffset >= switchOffset
+        }
+    }
+    StatusBarIconStyle(darkIcons = slide == null || lightPageReached)
 
     Box(Modifier.fillMaxSize()) {
         when {
@@ -116,6 +130,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().hideBottomBarOnScroll(),
+                state = listState,
                 contentPadding = PaddingValues(bottom = TabBarInset),
             ) {
                 if (slide != null) {

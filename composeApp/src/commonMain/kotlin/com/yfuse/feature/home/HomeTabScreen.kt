@@ -12,7 +12,7 @@ fun HomeTabScreen(component: HomeTabComponent) {
             is HomeTabComponent.Child.Home -> HomeScreen(instance.component)
             is HomeTabComponent.Child.Detail -> DetailScreen(instance.component)
             is HomeTabComponent.Child.Player -> PlayerScreen(instance.component)
-            is HomeTabComponent.Child.Info -> TmdbInfoScreen(instance.item, instance.onBack)
+            is HomeTabComponent.Child.Info -> TmdbInfoScreen(instance.component)
         }
     }
 }

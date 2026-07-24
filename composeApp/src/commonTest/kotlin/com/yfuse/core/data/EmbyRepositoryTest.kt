@@ -9,6 +9,7 @@ import com.yfuse.feature.homeRoutes
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
 import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -120,6 +121,78 @@ class EmbyRepositoryTest {
         assertEquals("沙丘2", res.getOrThrow().single().title)
         assertEquals("2024", res.getOrThrow().single().subtitle)
         assertEquals(2024, res.getOrThrow().single().year)
+    }
+
+    @Test
+    fun findByTmdbId_uses_provider_id_and_media_type() = runTest {
+        val repo = testRepo { request ->
+            assertEquals("tmdb.1234", request.url.parameters["AnyProviderIdEquals"])
+            assertEquals("Movie", request.url.parameters["IncludeItemTypes"])
+            json(
+                """{"Items":[{"Id":"m1","Name":"电影","Type":"Movie","ProviderIds":{"Tmdb":"1234"}}]}""",
+            )
+        }
+
+        val result = repo.findByTmdbId(server, 1234, "movie")
+
+        assertTrue(result.isSuccess, result.toString())
+        assertEquals("m1", result.getOrThrow()?.id)
+        assertEquals("1234", result.getOrThrow()?.providerIds?.get("Tmdb"))
+    }
+
+    @Test
+    fun compareSources_fetches_media_details_when_search_result_omits_them() = runTest {
+        val repo = testRepo { request ->
+            when {
+                request.url.encodedPath.endsWith("/Items/m1") -> json(
+                    """{"Id":"m1","Name":"电影A","Type":"Movie","MediaSources":[{""" +
+                        """"Size":10737418240,"Bitrate":18000000,""" +
+                        """"MediaStreams":[{"Type":"Video","Height":2160,"VideoRange":"HDR10"}]}]}""",
+                )
+                else -> json("""{"Items":[{"Id":"m1","Name":"电影A","Type":"Movie"}]}""")
+            }
+        }
+
+        val sources = repo.compareSources(listOf(server), server.id, "电影A")
+
+        assertEquals(1, sources.size)
+        assertTrue(sources.single().reachable)
+        assertEquals("4K HDR10 · 10.0 GB · 18 Mbps", sources.single().source?.summary)
+    }
+
+    @Test
+    fun compareSources_resolves_series_to_a_playable_episode() = runTest {
+        val repo = testRepo { request ->
+            when {
+                request.url.encodedPath.contains("/Shows/NextUp") ->
+                    json("""{"Items":[{"Id":"e1","Name":"第一集","Type":"Episode"}]}""")
+                request.url.encodedPath.endsWith("/Items/e1") ->
+                    json(
+                        """{"Id":"e1","Name":"第一集","Type":"Episode","MediaSources":[{""" +
+                            """"Bitrate":8000000,"MediaStreams":[{"Type":"Video","Height":1080}]}]}""",
+                    )
+                else -> json("""{"Items":[{"Id":"s1","Name":"某剧","Type":"Series"}]}""")
+            }
+        }
+
+        val sources = repo.compareSources(listOf(server), server.id, "某剧")
+
+        assertEquals("1080P · 8 Mbps", sources.single().source?.summary)
+    }
+
+    @Test
+    fun compareSources_keeps_found_resource_when_stream_metadata_is_unavailable() = runTest {
+        val repo = testRepo { request ->
+            if (request.url.encodedPath.endsWith("/Items/m1")) {
+                json("""{"Id":"m1","Name":"电影A","Type":"Movie"}""")
+            } else {
+                json("""{"Items":[{"Id":"m1","Name":"电影A","Type":"Movie"}]}""")
+            }
+        }
+
+        val sources = repo.compareSources(listOf(server), server.id, "电影A")
+
+        assertEquals("已有资源", sources.single().source?.summary)
     }
 
     @Test
@@ -264,5 +337,29 @@ class EmbyRepositoryTest {
         assertEquals("能听亡魂的女子", ep.name)
         assertEquals(46, ep.runtimeMinutes)
         assertEquals(123L, ep.resumePositionTicks)
+    }
+
+    @Test
+    fun playback_events_post_to_emby_session_endpoints() = runTest {
+        val paths = mutableListOf<String>()
+        val repo = testRepo { request ->
+            paths += request.url.encodedPath
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals("tok", request.headers["X-Emby-Token"])
+            json("{}")
+        }
+
+        assertTrue(repo.reportPlaybackStarted(server, "e1", "session-1", 12_000L, false).isSuccess)
+        assertTrue(repo.reportPlaybackProgress(server, "e1", "session-1", 34_000L, true).isSuccess)
+        assertTrue(repo.reportPlaybackStopped(server, "e1", "session-1", 56_000L, true).isSuccess)
+
+        assertEquals(
+            listOf(
+                "/Sessions/Playing",
+                "/Sessions/Playing/Progress",
+                "/Sessions/Playing/Stopped",
+            ),
+            paths,
+        )
     }
 }

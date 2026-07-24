@@ -1,7 +1,9 @@
 package com.yfuse.core.data
 
 import com.yfuse.core.model.TmdbHome
+import com.yfuse.core.model.TmdbDetail
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.model.TmdbPerson
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
@@ -34,6 +36,40 @@ internal data class TmdbItemDto(
     @SerialName("vote_average") val voteAverage: Double? = null,
 )
 
+@Serializable
+internal data class TmdbGenreDto(val name: String)
+
+@Serializable
+internal data class TmdbCastDto(
+    val id: Int,
+    val name: String,
+    val character: String? = null,
+    @SerialName("profile_path") val profilePath: String? = null,
+)
+
+@Serializable
+internal data class TmdbCreditsDto(val cast: List<TmdbCastDto> = emptyList())
+
+@Serializable
+internal data class TmdbDetailDto(
+    val id: Int,
+    val title: String? = null,
+    val name: String? = null,
+    val overview: String? = null,
+    @SerialName("poster_path") val posterPath: String? = null,
+    @SerialName("backdrop_path") val backdropPath: String? = null,
+    @SerialName("release_date") val releaseDate: String? = null,
+    @SerialName("first_air_date") val firstAirDate: String? = null,
+    @SerialName("vote_average") val voteAverage: Double? = null,
+    val genres: List<TmdbGenreDto> = emptyList(),
+    val runtime: Int? = null,
+    @SerialName("episode_run_time") val episodeRunTime: List<Int> = emptyList(),
+    @SerialName("number_of_seasons") val numberOfSeasons: Int? = null,
+    val status: String? = null,
+    val tagline: String? = null,
+    val credits: TmdbCreditsDto = TmdbCreditsDto(),
+)
+
 private fun TmdbItemDto.toItem(fallbackType: String): TmdbItem = TmdbItem(
     id = id,
     title = title ?: name ?: "",
@@ -64,6 +100,46 @@ class TmdbRepository(private val client: HttpClient) {
 
             Result.success(TmdbHome(featured = featured, rows = rows))
         }
+    } catch (e: Throwable) {
+        Result.failure(EmbyErrorException(e.toError()))
+    }
+
+    suspend fun detail(item: TmdbItem, language: String = "zh-CN"): Result<TmdbDetail> = try {
+        val type = if (item.mediaType == "tv") "tv" else "movie"
+        val dto = client.get("$TMDB_BASE/$type/${item.id}") {
+            parameter("language", language)
+            parameter("append_to_response", "credits")
+        }.body<TmdbDetailDto>()
+        val enriched = item.copy(
+            title = dto.title ?: dto.name ?: item.title,
+            overview = dto.overview?.ifBlank { null } ?: item.overview,
+            posterPath = dto.posterPath ?: item.posterPath,
+            backdropPath = dto.backdropPath ?: item.backdropPath,
+            year = (dto.releaseDate ?: dto.firstAirDate)?.take(4)?.ifBlank { null } ?: item.year,
+            rating = dto.voteAverage?.takeIf { it > 0.0 } ?: item.rating,
+        )
+        Result.success(
+            TmdbDetail(
+                item = enriched,
+                genres = dto.genres.map { it.name },
+                runtimeMinutes = dto.runtime?.takeIf { it > 0 }
+                    ?: dto.episodeRunTime.firstOrNull { it > 0 },
+                numberOfSeasons = dto.numberOfSeasons?.takeIf { it > 0 },
+                status = dto.status?.ifBlank { null },
+                tagline = dto.tagline?.ifBlank { null },
+                cast = dto.credits.cast
+                    .filter { it.name.isNotBlank() }
+                    .take(16)
+                    .map {
+                        TmdbPerson(
+                            id = it.id,
+                            name = it.name,
+                            role = it.character?.ifBlank { null },
+                            profilePath = it.profilePath,
+                        )
+                    },
+            ),
+        )
     } catch (e: Throwable) {
         Result.failure(EmbyErrorException(e.toError()))
     }

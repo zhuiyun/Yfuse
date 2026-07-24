@@ -26,16 +26,21 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.stack.Children
+import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.app.hideBottomBarOnScroll
@@ -57,9 +62,10 @@ import com.yfuse.feature.player.PlayerScreen
 
 @Composable
 fun SearchScreen(component: SearchComponent) {
+    val focusRequest by component.focusRequest.subscribeAsState()
     Children(stack = component.stack) { child ->
         when (val instance = child.instance) {
-            is SearchComponent.Child.Home -> SearchHomeScreen(instance.component)
+            is SearchComponent.Child.Home -> SearchHomeScreen(instance.component, focusRequest)
             is SearchComponent.Child.Detail -> DetailScreen(instance.component)
             is SearchComponent.Child.Player -> PlayerScreen(instance.component)
         }
@@ -68,10 +74,19 @@ fun SearchScreen(component: SearchComponent) {
 
 /** 搜索 — `padding:52px 18px 100px; gap:20px`. */
 @Composable
-private fun SearchHomeScreen(component: SearchHomeComponent) {
+private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
     val store = component.store
+    val fieldFocusRequester = androidx.compose.runtime.remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(focusRequest) {
+        if (focusRequest > 0) {
+            fieldFocusRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -85,6 +100,7 @@ private fun SearchHomeScreen(component: SearchHomeComponent) {
                     onQueryChange = { store.accept(SearchIntent.QueryChanged(it)) },
                     onSubmit = { store.accept(SearchIntent.Submit) },
                     onClear = { store.accept(SearchIntent.Clear) },
+                    focusRequester = fieldFocusRequester,
                 )
             }
 
@@ -165,6 +181,7 @@ private fun SearchField(
     onQueryChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onClear: () -> Unit,
+    focusRequester: FocusRequester,
 ) {
     val palette = LocalPalette.current
     val shape = RoundedCornerShape(20.dp)
@@ -191,7 +208,7 @@ private fun SearchField(
                 cursorBrush = SolidColor(Brand.Primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
             )
         }
         if (query.isNotEmpty()) {

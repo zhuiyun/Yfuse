@@ -453,52 +453,54 @@ private fun OptionSheet(
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.35f))
             .clickable(onClick = onDismiss),
-    )
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 90.dp)
-            .shadow(Shadows.sheet, shape)
-            .glass(shape, Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.9f))
-            .padding(12.dp),
     ) {
-        Text(
-            title,
-            style = sc(12f, 700),
-            color = Color(0xFF151A22),
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-        options.forEachIndexed { index, (label, selected) ->
-            val destructive = index == destructiveIndex
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(GlassShapes.chipSmall)
-                    .background(
-                        if (selected) Brand.Primary.copy(alpha = 0.1f) else Color.Transparent,
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 90.dp)
+                .shadow(Shadows.sheet, shape)
+                .glass(shape, Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.9f))
+                .padding(12.dp),
+        ) {
+            Text(
+                title,
+                style = sc(12f, 700),
+                color = Color(0xFF151A22),
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            options.forEachIndexed { index, (label, selected) ->
+                val destructive = index == destructiveIndex
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(GlassShapes.chipSmall)
+                        .background(
+                            if (selected) Brand.Primary.copy(alpha = 0.1f) else Color.Transparent,
+                        )
+                        .clickable { onSelect(index) }
+                        .padding(horizontal = 10.dp, vertical = 9.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        label,
+                        style = sc(12.5f, if (selected || destructive) 700 else 500),
+                        color = when {
+                            destructive -> Brand.Danger
+                            selected -> Brand.Primary
+                            else -> Color(0xFF151A22)
+                        },
                     )
-                    .clickable { onSelect(index) }
-                    .padding(horizontal = 10.dp, vertical = 9.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    label,
-                    style = sc(12.5f, if (selected || destructive) 700 else 500),
-                    color = when {
-                        destructive -> Brand.Danger
-                        selected -> Brand.Primary
-                        else -> Color(0xFF151A22)
-                    },
-                )
-                if (selected) {
-                    Icon(
-                        AppIcons.Check,
-                        null,
-                        tint = Brand.Primary,
-                        modifier = Modifier.size(13.dp),
-                    )
+                    if (selected) {
+                        Icon(
+                            AppIcons.Check,
+                            null,
+                            tint = Brand.Primary,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
                 }
             }
         }

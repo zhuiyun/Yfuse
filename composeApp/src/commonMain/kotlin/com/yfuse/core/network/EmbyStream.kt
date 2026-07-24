@@ -1,5 +1,7 @@
 package com.yfuse.core.network
 
+import com.yfuse.core.model.PlaybackQuality
+
 /** Builds Emby playback URLs. */
 object EmbyStream {
 
@@ -25,6 +27,34 @@ object EmbyStream {
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/master.m3u8" +
             "?api_key=$token" +
+            "&MediaSourceId=$itemId" +
+            "&Context=Streaming" +
+            "&TranscodingProtocol=hls" +
+            "&VideoCodec=h264" +
+            "&AudioCodec=aac" +
+            "&MaxWidth=$maxWidth" +
+            "&VideoBitrate=$videoBitrate" +
+            "&AudioBitrate=192000" +
+            "&TranscodingMaxAudioChannels=2" +
+            "&SegmentContainer=ts" +
+            "&MinSegments=2" +
+            "&BreakOnNonKeyFrames=true" +
+            "&DeviceId=yfuse"
+
+    /** Progressive H.264/AAC fallback when a server cannot produce a valid HLS manifest. */
+    fun progressiveTranscode(
+        baseUrl: String,
+        itemId: String,
+        token: String,
+        maxWidth: Int = 1920,
+        videoBitrate: Int = 6_000_000,
+    ): String =
+        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream.mp4" +
+            "?static=false" +
+            "&api_key=$token" +
+            "&MediaSourceId=$itemId" +
+            "&Context=Streaming" +
+            "&Container=mp4" +
             "&VideoCodec=h264" +
             "&AudioCodec=aac" +
             "&MaxWidth=$maxWidth" +
@@ -32,4 +62,13 @@ object EmbyStream {
             "&AudioBitrate=192000" +
             "&TranscodingMaxAudioChannels=2" +
             "&DeviceId=yfuse"
+
+    /** Rewrites the generated HLS cap without rebuilding the authenticated URL. */
+    fun withQuality(url: String, quality: PlaybackQuality): String {
+        val maxWidth = quality.maxWidth ?: return url
+        val bitrate = quality.videoBitrate ?: return url
+        return url
+            .replace(Regex("([?&])MaxWidth=[^&]*"), "$1MaxWidth=$maxWidth")
+            .replace(Regex("([?&])VideoBitrate=[^&]*"), "$1VideoBitrate=$bitrate")
+    }
 }

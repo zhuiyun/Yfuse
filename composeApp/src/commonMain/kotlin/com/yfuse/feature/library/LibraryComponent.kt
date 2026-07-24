@@ -1,6 +1,7 @@
 package com.yfuse.feature.library
 
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.decompose.DelicateDecomposeApi
 import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
@@ -17,6 +18,7 @@ import kotlinx.serialization.Serializable
 /**
  * Navigator for the media library tab: Home (content) -> Grid (see-all) -> Detail.
  */
+@OptIn(DelicateDecomposeApi::class)
 class LibraryComponent(
     componentContext: ComponentContext,
     private val storeFactory: StoreFactory,
@@ -47,6 +49,10 @@ class LibraryComponent(
         class Grid(val component: LibraryGridComponent) : Child
         class Detail(val component: DetailComponent) : Child
         class Player(val component: PlayerComponent) : Child
+    }
+
+    fun navigateBack() {
+        navigation.pop()
     }
 
     private fun child(config: Config, context: ComponentContext): Child = when (config) {

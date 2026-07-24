@@ -15,6 +15,24 @@ data class TmdbItem(
     val rating: Double?,
 )
 
+data class TmdbPerson(
+    val id: Int,
+    val name: String,
+    val role: String?,
+    val profilePath: String?,
+)
+
+/** Full TMDB metadata used even when the title is absent from Emby. */
+data class TmdbDetail(
+    val item: TmdbItem,
+    val genres: List<String> = emptyList(),
+    val runtimeMinutes: Int? = null,
+    val numberOfSeasons: Int? = null,
+    val status: String? = null,
+    val tagline: String? = null,
+    val cast: List<TmdbPerson> = emptyList(),
+)
+
 data class TmdbRow(val title: String, val items: List<TmdbItem>)
 
 /** Aggregated TMDB content for the home tab. */
