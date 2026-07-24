@@ -2,22 +2,19 @@ package com.yfuse.feature.player
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -25,7 +22,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -35,10 +31,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AccentColor
-import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.LocalGlass
 import com.yfuse.core.designsystem.YfuseTheme
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.model.PlayerEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.koin.core.context.GlobalContext
@@ -164,6 +157,7 @@ private fun PlayerRoot(
     val exo = engine as? ExoVideoEngine
     val idleTranscoding = remember { MutableStateFlow(false) }
     val transcoding by (exo?.transcoding ?: idleTranscoding).collectAsState()
+    val (volume, setVolume) = rememberSystemVolume()
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (engine) {
@@ -186,24 +180,35 @@ private fun PlayerRoot(
                 filled = !filled
                 (engine as? MpvVideoEngine)?.setFill(filled)
             },
-            topBarExtras = {
-                PlayerEngine.selectable.forEach { candidate ->
-                    TopPill(
-                        label = candidate.label,
-                        selected = candidate == kind,
-                        onClick = { switchEngine(candidate) },
-                    )
-                }
-                // Manual escape hatch when the picture is black but audio plays.
-                if (exo != null) {
-                    TopPill(
-                        label = if (transcoding) "转码中" else "转码",
-                        selected = transcoding,
-                        onClick = { exo.switchToTranscode() },
-                    )
-                }
-            },
+            volume = volume,
+            onVolume = { setVolume(it) },
+            engineOptions = PlayerEngine.selectable.map { it.label to (it == kind) },
+            onSelectEngine = { index -> switchEngine(PlayerEngine.selectable[index]) },
+            // Manual escape hatch when the picture is black but audio plays.
+            transcodeLabel = if (exo != null) "转码播放" else null,
+            transcodeActive = transcoding,
+            onTranscode = { exo?.switchToTranscode() },
         )
+    }
+}
+
+/** Reads and writes `STREAM_MUSIC`, so the player's level chip is the real volume. */
+@Composable
+private fun rememberSystemVolume(): Pair<Float, (Float) -> Unit> {
+    val context = LocalContext.current
+    val audio = remember(context) { context.getSystemService(AudioManager::class.java) }
+    val max = remember(audio) { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
+    var level by remember {
+        mutableFloatStateOf(audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max)
+    }
+    return level to { target: Float ->
+        val clamped = target.coerceIn(0f, 1f)
+        audio.setStreamVolume(
+            AudioManager.STREAM_MUSIC,
+            (clamped * max).toInt().coerceIn(0, max),
+            0,
+        )
+        level = clamped
     }
 }
 
@@ -228,23 +233,4 @@ private fun ExoSurface(engine: ExoVideoEngine, filled: Boolean, modifier: Modifi
         },
         modifier = modifier,
     )
-}
-
-/** Small glass pill for the top-bar extras (engine picker, transcode). */
-@Composable
-private fun RowScope.TopPill(label: String, selected: Boolean, onClick: () -> Unit) {
-    val glass = LocalGlass.current
-    val accent = MaterialTheme.colorScheme.primary
-    Box(
-        Modifier
-            .glass(GlassShapes.pill, strong = selected)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    ) {
-        Text(
-            label,
-            color = if (selected) accent else glass.onGlass,
-            style = MaterialTheme.typography.labelMedium,
-        )
-    }
 }

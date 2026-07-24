@@ -7,6 +7,7 @@ import coil3.SingletonImageLoader
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
+import com.yfuse.core.util.imageCacheContext
 import com.yfuse.di.appModule
 import org.koin.core.context.startKoin
 
@@ -14,6 +15,7 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        imageCacheContext = this
         val prefs = getSharedPreferences("yfuse", MODE_PRIVATE)
         val settings = SharedPreferencesSettings(prefs)
         startKoin {

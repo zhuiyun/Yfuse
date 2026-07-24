@@ -8,6 +8,29 @@ data class Person(
     val primaryImageTag: String?,
 )
 
+/**
+ * One server's copy of an item, as shown in 跨服务器片源对比.
+ * [quality] / [size] / [bitrate] are preformatted for display.
+ */
+data class SourceInfo(
+    val quality: String,
+    val size: String?,
+    val bitrate: String?,
+) {
+    /** `4K HDR · 42.3 GB · 68 Mbps` */
+    val summary: String get() = listOfNotNull(quality, size, bitrate).joinToString(" · ")
+}
+
+/** A server's availability of a given title. */
+data class ServerSource(
+    val serverId: String,
+    val serverName: String,
+    val isCurrent: Boolean,
+    /** Null when the server does not have this title. */
+    val source: SourceInfo?,
+    val reachable: Boolean,
+)
+
 /** Full detail for a single media item (movie or series). */
 data class MediaDetail(
     val id: String,
@@ -27,6 +50,8 @@ data class MediaDetail(
     val backdropTag: String?,
     val resumePositionTicks: Long?,
     val people: List<Person>,
+    /** Primary media source on the server this detail came from. */
+    val source: SourceInfo? = null,
 )
 
 /** A concrete, playable target resolved from a detail item. */

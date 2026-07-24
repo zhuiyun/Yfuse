@@ -41,7 +41,9 @@ class ServersStoreTest {
     fun submit_adds_server_and_emits_label() = runTest {
         val registry = testRegistry()
         val store = store(registry) { req -> authRoutes(req) }
-        store.accept(ServersIntent.UrlChanged("http://host:8096"))
+        store.accept(ServersIntent.ProtocolChanged(https = false))
+        store.accept(ServersIntent.HostChanged("host"))
+        store.accept(ServersIntent.PortChanged("8096"))
         store.accept(ServersIntent.UsernameChanged("zhuiyun"))
         store.accept(ServersIntent.PasswordChanged("123456"))
 
@@ -59,7 +61,9 @@ class ServersStoreTest {
     @Test
     fun submit_failure_sets_form_error() = runTest {
         val store = store(testRegistry()) { respond(content = "", status = HttpStatusCode.Unauthorized) }
-        store.accept(ServersIntent.UrlChanged("http://host:8096"))
+        store.accept(ServersIntent.ProtocolChanged(https = false))
+        store.accept(ServersIntent.HostChanged("host"))
+        store.accept(ServersIntent.PortChanged("8096"))
         store.accept(ServersIntent.UsernameChanged("x"))
         store.accept(ServersIntent.PasswordChanged("y"))
         store.accept(ServersIntent.Submit)

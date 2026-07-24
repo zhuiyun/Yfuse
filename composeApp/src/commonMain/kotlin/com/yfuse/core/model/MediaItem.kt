@@ -14,6 +14,10 @@ data class MediaItem(
     val backdropTag: String?,
     /** Resume progress 0..100, when the item is in "continue watching". */
     val playedPercentage: Double?,
+    /** Synopsis, when the endpoint was asked for it (search results). */
+    val overview: String? = null,
+    /** Production year shown below poster cards. */
+    val year: Int? = null,
 )
 
 /** One horizontal row on the home screen (e.g. "电影-国产电影 · 最新"). */
@@ -21,6 +25,8 @@ data class HomeRow(
     val libraryId: String,
     val title: String,
     val items: List<MediaItem>,
+    /** Size of the whole library, not just the loaded page — shown on the chip. */
+    val totalCount: Int = items.size,
 )
 
 /** Aggregated content for the media library home screen. */

@@ -5,6 +5,7 @@ import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.Season
+import com.yfuse.core.model.SourceInfo
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -50,6 +51,22 @@ data class PersonDto(
 )
 
 @Serializable
+data class MediaStreamDto(
+    val Type: String? = null,
+    val Height: Int? = null,
+    val Width: Int? = null,
+    val VideoRange: String? = null,
+)
+
+/** Backs the 跨服务器片源对比 column: container size, bitrate and video resolution. */
+@Serializable
+data class MediaSourceDto(
+    val Size: Long? = null,
+    val Bitrate: Int? = null,
+    val MediaStreams: List<MediaStreamDto>? = null,
+)
+
+@Serializable
 data class BaseItemDto(
     val Id: String,
     val Name: String? = null,
@@ -72,11 +89,28 @@ data class BaseItemDto(
     val ImageTags: Map<String, String>? = null,
     val BackdropImageTags: List<String>? = null,
     val UserData: UserDataDto? = null,
+    val MediaSources: List<MediaSourceDto>? = null,
 )
 
 /** Resume (and most list endpoints) wrap items; `Items/Latest` returns a raw array. */
 @Serializable
-data class ItemsResponseDto(val Items: List<BaseItemDto> = emptyList())
+data class ItemsResponseDto(
+    val Items: List<BaseItemDto> = emptyList(),
+    /** Full size of the matching set, independent of `Limit`. */
+    val TotalRecordCount: Int = 0,
+)
+
+/** Minimal Emby playback-session payload shared by start/progress/stop calls. */
+@Serializable
+data class PlaybackReportDto(
+    val ItemId: String,
+    val PlaySessionId: String,
+    val PositionTicks: Long,
+    val IsPaused: Boolean,
+    val IsMuted: Boolean = false,
+    val CanSeek: Boolean = true,
+    val PlayMethod: String = "DirectPlay",
+)
 
 fun BaseItemDto.toMediaItem(): MediaItem {
     val isEpisode = Type == "Episode"
@@ -102,6 +136,8 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         backdropItemId = Id,
         backdropTag = BackdropImageTags?.firstOrNull(),
         playedPercentage = UserData?.PlayedPercentage,
+        overview = Overview,
+        year = ProductionYear,
     )
 }
 
@@ -134,7 +170,36 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         backdropTag = backdropTag,
         resumePositionTicks = UserData?.PlaybackPositionTicks,
         people = People?.map { it.toPerson() } ?: emptyList(),
+        source = MediaSources?.firstOrNull()?.toSourceInfo(),
     )
+}
+
+/** `4K HDR · 42.3 GB · 68 Mbps`, from the first video stream and the container. */
+fun MediaSourceDto.toSourceInfo(): SourceInfo? {
+    val video = MediaStreams?.firstOrNull { it.Type == "Video" }
+    val height = video?.Height
+    val quality = when {
+        height == null -> "未知清晰度"
+        height >= 2000 -> "4K"
+        height >= 1000 -> "1080P"
+        height >= 700 -> "720P"
+        else -> "${height}P"
+    }
+    val hdr = video?.VideoRange?.takeIf { !it.equals("SDR", ignoreCase = true) }
+    return SourceInfo(
+        quality = if (hdr != null) "$quality $hdr" else quality,
+        size = Size?.takeIf { it > 0 }?.let { formatBytes(it) },
+        bitrate = Bitrate?.takeIf { it > 0 }?.let { "${it / 1_000_000} Mbps" },
+    )
+}
+
+private fun formatBytes(bytes: Long): String {
+    val gb = bytes / 1024.0 / 1024.0 / 1024.0
+    if (gb >= 1.0) {
+        val tenths = (gb * 10).toLong()
+        return "${tenths / 10}.${tenths % 10} GB"
+    }
+    return "${bytes / 1024 / 1024} MB"
 }
 
 fun PersonDto.toPerson() = Person(Id, Name ?: "", Role?.ifBlank { null }, PrimaryImageTag)

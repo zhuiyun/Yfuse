@@ -6,6 +6,7 @@ import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
@@ -25,6 +26,7 @@ class RootComponent(
     tmdb: TmdbRepository,
     registry: ServerRegistry,
     val themePreferences: ThemePreferences,
+    searchHistory: SearchHistory,
 ) : ComponentContext by componentContext {
 
     enum class Tab { Home, Browse, Search, Profile }
@@ -41,6 +43,8 @@ class RootComponent(
         tmdb = tmdb,
         repo = repo,
         registry = registry,
+        onOpenSearch = { selectTab(Tab.Search) },
+        onOpenProfile = { selectTab(Tab.Profile) },
     )
 
     /** 库: the server's own content. */
@@ -51,7 +55,13 @@ class RootComponent(
         registry = registry,
     )
 
-    val search = SearchComponent(childContext(key = "search"))
+    val search = SearchComponent(
+        componentContext = childContext(key = "search"),
+        storeFactory = storeFactory,
+        repo = repo,
+        registry = registry,
+        history = searchHistory,
+    )
 
     val profile = ProfileTabComponent(
         componentContext = childContext(key = "profile"),

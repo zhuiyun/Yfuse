@@ -5,12 +5,14 @@ import com.yfuse.core.data.dto.AuthResultDto
 import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.PublicInfoDto
+import com.yfuse.core.data.dto.PlaybackReportDto
 import com.yfuse.core.data.dto.ViewsDto
 import com.yfuse.core.data.dto.toEpisode
 import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.data.dto.toPerson
 import com.yfuse.core.data.dto.toSeason
+import com.yfuse.core.data.dto.toSourceInfo
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.Season
@@ -20,6 +22,7 @@ import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.normalizeBaseUrl
@@ -35,6 +38,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 
 /** Result of a successful authentication, ready to persist as a [SavedServer]. */
@@ -75,6 +79,51 @@ class EmbyRepository(private val client: HttpClient) {
 
     suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> = call { fetchViews(server) }
 
+    suspend fun reportPlaybackStarted(
+        server: SavedServer,
+        itemId: String,
+        playSessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ): Result<Unit> = reportPlayback(
+        server = server,
+        path = "/Sessions/Playing",
+        itemId = itemId,
+        playSessionId = playSessionId,
+        positionTicks = positionTicks,
+        isPaused = isPaused,
+    )
+
+    suspend fun reportPlaybackProgress(
+        server: SavedServer,
+        itemId: String,
+        playSessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ): Result<Unit> = reportPlayback(
+        server = server,
+        path = "/Sessions/Playing/Progress",
+        itemId = itemId,
+        playSessionId = playSessionId,
+        positionTicks = positionTicks,
+        isPaused = isPaused,
+    )
+
+    suspend fun reportPlaybackStopped(
+        server: SavedServer,
+        itemId: String,
+        playSessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ): Result<Unit> = reportPlayback(
+        server = server,
+        path = "/Sessions/Playing/Stopped",
+        itemId = itemId,
+        playSessionId = playSessionId,
+        positionTicks = positionTicks,
+        isPaused = isPaused,
+    )
+
     /** Aggregates the home screen: continue-watching, latest-per-library, featured. */
     suspend fun homeContent(server: SavedServer): Result<HomeContent> = call {
         coroutineScope {
@@ -85,7 +134,10 @@ class EmbyRepository(private val client: HttpClient) {
             val rowDeferred = views.map { view ->
                 async {
                     val items = runCatching { fetchLatest(server, view.id) }.getOrDefault(emptyList())
-                    HomeRow(view.id, view.name, items)
+                    // The chip shows the library's real size, not the loaded page.
+                    val total = runCatching { fetchLibraryCount(server, view.id) }
+                        .getOrDefault(items.size)
+                    HomeRow(view.id, view.name, items, total)
                 }
             }
             val resume = resumeDeferred.await()
@@ -156,7 +208,7 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("SearchTerm", query)
             parameter("Recursive", true)
             parameter("IncludeItemTypes", "Movie,Series")
-            parameter("Fields", "ProductionYear")
+            parameter("Fields", "ProductionYear,Overview")
             parameter("EnableImageTypes", "Primary,Backdrop")
             parameter("ImageTypeLimit", 2)
             parameter("Limit", limit)
@@ -170,7 +222,8 @@ class EmbyRepository(private val client: HttpClient) {
             header("X-Emby-Token", server.accessToken)
             parameter(
                 "Fields",
-                "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag",
+                "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
+                    "SeriesPrimaryImageTag,MediaSources",
             )
         }.body()
         val detail = dto.toMediaDetail()
@@ -187,6 +240,42 @@ class EmbyRepository(private val client: HttpClient) {
         } else {
             detail
         }
+    }
+
+    /**
+     * 跨服务器片源对比: looks the title up on every saved server and reports which
+     * ones carry it, with the primary source's specs. Per-server failures degrade to
+     * "unreachable" rather than failing the whole comparison.
+     */
+    suspend fun compareSources(
+        servers: List<SavedServer>,
+        currentServerId: String?,
+        title: String,
+    ): List<ServerSource> = coroutineScope {
+        servers.map { server ->
+            async {
+                val hit = runCatching {
+                    val dto: ItemsResponseDto =
+                        client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+                            header("X-Emby-Token", server.accessToken)
+                            parameter("SearchTerm", title)
+                            parameter("Recursive", true)
+                            parameter("IncludeItemTypes", "Movie,Series")
+                            parameter("Fields", "MediaSources")
+                            parameter("Limit", 5)
+                        }.body()
+                    dto.Items.firstOrNull { it.Name.equals(title, ignoreCase = true) }
+                        ?: dto.Items.firstOrNull()
+                }
+                ServerSource(
+                    serverId = server.id,
+                    serverName = server.serverName,
+                    isCurrent = server.id == currentServerId,
+                    source = hit.getOrNull()?.MediaSources?.firstOrNull()?.toSourceInfo(),
+                    reachable = hit.isSuccess,
+                )
+            }
+        }.awaitAll()
     }
 
     /** Seasons of a series. */
@@ -216,13 +305,26 @@ class EmbyRepository(private val client: HttpClient) {
         return dto.Items.map { MediaLibrary(it.Id, it.Name, it.CollectionType) }
     }
 
+    /** `Limit=0` returns just the count, which is all the category chip needs. */
+    private suspend fun fetchLibraryCount(server: SavedServer, viewId: String): Int {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("ParentId", viewId)
+            parameter("Recursive", true)
+            parameter("IncludeItemTypes", "Movie,Series")
+            parameter("Limit", 0)
+        }.body()
+        return dto.TotalRecordCount
+    }
+
     private suspend fun fetchResume(server: SavedServer): List<MediaItem> {
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items/Resume") {
             header("X-Emby-Token", server.accessToken)
             parameter("Limit", 12)
             parameter("Recursive", true)
             parameter("MediaTypes", "Video")
-            parameter("Fields", "BackdropImageTags")
+            // UserData carries PlayedPercentage, which draws the resume bar.
+            parameter("Fields", "BackdropImageTags,UserData,Overview")
             parameter("EnableImageTypes", "Primary,Backdrop")
             parameter("ImageTypeLimit", 2)
         }.body()
@@ -234,16 +336,42 @@ class EmbyRepository(private val client: HttpClient) {
             header("X-Emby-Token", server.accessToken)
             parameter("ParentId", viewId)
             parameter("Limit", 16)
-            parameter("Fields", "BackdropImageTags,ProductionYear")
+            // Overview feeds the carousel synopsis.
+            parameter("Fields", "BackdropImageTags,ProductionYear,Overview")
             parameter("EnableImageTypes", "Primary,Backdrop")
             parameter("ImageTypeLimit", 2)
         }.body()
         return items.map { it.toMediaItem() }
     }
 
+    private suspend fun reportPlayback(
+        server: SavedServer,
+        path: String,
+        itemId: String,
+        playSessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ): Result<Unit> = call {
+        client.post("${normalizeBaseUrl(server.baseUrl)}$path") {
+            header("X-Emby-Token", server.accessToken)
+            contentType(ContentType.Application.Json)
+            setBody(
+                PlaybackReportDto(
+                    ItemId = itemId,
+                    PlaySessionId = playSessionId,
+                    PositionTicks = positionTicks.coerceAtLeast(0L),
+                    IsPaused = isPaused,
+                ),
+            )
+        }
+        Unit
+    }
+
     private inline fun <T> call(block: () -> T): Result<T> =
         try {
             Result.success(block())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
             Result.failure(EmbyErrorException(e.toEmbyError()))
         }

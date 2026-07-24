@@ -1,18 +1,18 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -22,167 +22,144 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.cssLinearGradient
+import com.yfuse.core.designsystem.cssShadow
+import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.rememberDominantColor
+import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.scrim
+import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.Person
+import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyImages
 
+/** 详情 — 260px hero, then `padding:0 18px 100px; margin-top:-46px; gap:16px`. */
 @Composable
 fun DetailScreen(component: DetailComponent) {
     val state by component.store.states.collectAsState(component.store.state)
-    val snackbar = remember { SnackbarHostState() }
-
-    LaunchedEffect(state.error) {
-        val message = state.error
-        if (message != null && state.detail != null) snackbar.showSnackbar(message)
-    }
-
-    val baseUrl = state.server?.baseUrl.orEmpty()
+    val palette = LocalPalette.current
     val detail = state.detail
+    val baseUrl = state.server?.baseUrl.orEmpty()
+
     val heroUrl = detail?.let { EmbyImages.backdrop(baseUrl, it) ?: EmbyImages.poster(baseUrl, it) }
-    val accent = rememberDominantColor(heroUrl, MaterialTheme.colorScheme.surfaceVariant)
+    val accent = rememberDominantColor(heroUrl, Brand.Primary)
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        snackbarHost = { SnackbarHost(snackbar) },
-    ) { _ ->
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val heroHeight = maxHeight * 0.56f
+    var seasonPickerOpen by remember { mutableStateOf(false) }
 
-            when {
-                state.loading && detail == null ->
-                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+    Box(Modifier.fillMaxSize()) {
+        when {
+            state.loading && detail == null ->
+                CircularProgressIndicator(Modifier.align(Alignment.Center))
 
-                state.error != null && detail == null -> Column(
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(state.error!!, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = { component.store.accept(DetailIntent.Retry) }) { Text("重试") }
-                }
-
-                detail != null -> DetailContent(
-                    detail = detail,
-                    state = state,
-                    baseUrl = baseUrl,
-                    heroUrl = heroUrl,
-                    accent = accent,
-                    heroHeight = heroHeight,
-                    onPlay = { component.store.accept(DetailIntent.Play) },
-                    onSelectSeason = { component.store.accept(DetailIntent.SelectSeason(it)) },
-                    onPlayEpisode = { ep ->
-                        component.store.accept(
-                            DetailIntent.PlayEpisode(ep.id, ep.resumePositionTicks ?: 0L),
-                        )
-                    },
-                )
-            }
-
-            Surface(
-                shape = CircleShape,
-                color = Color(0x66000000),
-                modifier = Modifier.statusBarsPadding().padding(8.dp).align(Alignment.TopStart),
+            detail == null -> Column(
+                Modifier.align(Alignment.Center).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(Modifier.clickable(onClick = component.onBack).padding(6.dp)) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
+                Text(
+                    state.error ?: "加载失败",
+                    style = sc(13f, 400),
+                    color = palette.sub,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = { component.store.accept(DetailIntent.Retry) }) {
+                    Text("重试", style = sc(13f, 700), color = Brand.Primary)
                 }
             }
-        }
-    }
-}
 
-@Composable
-private fun DetailContent(
-    detail: MediaDetail,
-    state: DetailState,
-    baseUrl: String,
-    heroUrl: String?,
-    accent: Color,
-    heroHeight: Dp,
-    onPlay: () -> Unit,
-    onSelectSeason: (String) -> Unit,
-    onPlayEpisode: (Episode) -> Unit,
-) {
-    val background = MaterialTheme.colorScheme.background
+            else -> LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = Dimens.contentBottom),
+            ) {
+                item { Hero(heroUrl, detail.title, component.onBack) }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 28.dp)) {
-        // Full-bleed hero, tinted with the colour sampled from the artwork.
-        item {
-            Box(Modifier.fillMaxWidth().height(heroHeight)) {
-                AsyncImage(
-                    model = heroUrl,
-                    contentDescription = detail.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
-                )
-                Box(
-                    Modifier.fillMaxSize().background(
-                        Brush.verticalGradient(
-                            0.0f to Color.Transparent,
-                            0.45f to accent.copy(alpha = 0.18f),
-                            0.78f to background.copy(alpha = 0.82f),
-                            1.0f to background,
-                        ),
-                    ),
-                )
-                Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 16.dp)) {
-                    Text(
-                        detail.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        buildMeta(detail),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (detail.communityRating != null) {
-                        Spacer(Modifier.height(6.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Star, null, tint = Color(0xFFF5A623), modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
+                item {
+                    // `margin-top:-46px` pulls the poster block up over the hero.
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .offset(y = (-46).dp)
+                            .padding(horizontal = Dimens.pageHorizontal),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        TitleBlock(baseUrl, detail)
+                        ActionRow(
+                            accent = accent,
+                            label = if (detail.type == "Series") "继续观看" else "立即播放",
+                            resolving = state.resolvingPlay,
+                            onPlay = { component.store.accept(DetailIntent.Play) },
+                        )
+                        if (!detail.overview.isNullOrBlank()) {
                             Text(
-                                ((detail.communityRating * 10).toInt() / 10.0).toString(),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onBackground,
+                                detail.overview,
+                                style = sc(12.5f, 400, lineHeight = 12.5f * 1.6f),
+                                color = palette.body,
+                            )
+                        }
+
+                        if (state.sources.isNotEmpty()) {
+                            SourceComparison(state.sources, accent)
+                        }
+
+                        if (detail.people.isNotEmpty()) {
+                            CastRow(baseUrl, detail.people)
+                        }
+
+                        if (state.episodes.isNotEmpty()) {
+                            EpisodeSection(
+                                baseUrl = baseUrl,
+                                accent = accent,
+                                seasonLabel = state.seasons
+                                    .firstOrNull { it.id == state.selectedSeasonId }
+                                    ?.name
+                                    ?: "剧集",
+                                seasons = state.seasons.map { it.id to it.name },
+                                selectedSeasonId = state.selectedSeasonId,
+                                pickerOpen = seasonPickerOpen,
+                                onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
+                                onSelectSeason = {
+                                    seasonPickerOpen = false
+                                    component.store.accept(DetailIntent.SelectSeason(it))
+                                },
+                                episodes = state.episodes,
+                                onPlayEpisode = { episode ->
+                                    component.store.accept(
+                                        DetailIntent.PlayEpisode(
+                                            episode.id,
+                                            episode.resumePositionTicks ?: 0L,
+                                        ),
+                                    )
+                                },
                             )
                         }
                     }
@@ -190,165 +167,430 @@ private fun DetailContent(
             }
         }
 
-        item {
-            Button(
-                onClick = onPlay,
-                enabled = !state.resolvingPlay,
-                modifier = Modifier.fillMaxWidth().padding(16.dp).height(50.dp),
-            ) {
-                if (state.resolvingPlay) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                } else {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (detail.type == "Series") "播放下一集" else "播放")
-                }
-            }
+        if (state.resolvingPlay) {
+            CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
+    }
+}
 
-        if (!detail.overview.isNullOrBlank()) {
-            item {
-                Text(
-                    detail.overview,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
-        }
+/**
+ * 260px backdrop under the annotated wash
+ * `0deg {page} 5%, rgba(20,15,25,.1) 60%, rgba(20,15,25,.35)`, plus a white chevron.
+ */
+@Composable
+private fun Hero(url: String?, title: String, onBack: () -> Unit) {
+    val palette = LocalPalette.current
+    // The prototype hardcodes #EEF1F5, its light page colour; using the active
+    // backdrop's mid stop keeps the fade landing on the page in dark mode too.
+    val pageColor = palette.backgroundStops[1].second
+    Box(Modifier.fillMaxWidth().height(260.dp)) {
+        AsyncImage(
+            model = url,
+            contentDescription = title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            Modifier.fillMaxSize().background(
+                scrim(
+                    0.05f to pageColor,
+                    0.60f to Color(0xFF140F19).copy(alpha = 0.10f),
+                    1f to Color(0xFF140F19).copy(alpha = 0.35f),
+                ),
+            ),
+        )
+        Icon(
+            AppIcons.ChevronLeft,
+            contentDescription = "返回",
+            tint = Color.White,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(start = 18.dp, top = 12.dp)
+                .size(16.dp)
+                .clickable(onClick = onBack),
+        )
+    }
+}
 
-        if (state.seasons.size > 1) {
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(state.seasons, key = { it.id }) { season ->
-                        FilterChip(
-                            selected = season.id == state.selectedSeasonId,
-                            onClick = { onSelectSeason(season.id) },
-                            label = { Text(season.name) },
+/**
+ * Poster + title cluster — `gap:14px`, bottom aligned; poster 84×118 with a 2px
+ * white border and `0 10px 24px rgba(0,0,0,.25)`.
+ */
+@Composable
+private fun TitleBlock(baseUrl: String, detail: MediaDetail) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Poster(
+            url = EmbyImages.poster(baseUrl, detail),
+            modifier = Modifier
+                .width(84.dp)
+                .height(118.dp)
+                .shadow(Shadows.detailPoster, GlassShapes.poster)
+                .border(2.dp, Color.White, GlassShapes.poster),
+        )
+        Column(Modifier.weight(1f).padding(bottom = 4.dp)) {
+            Text(
+                detail.title,
+                style = sc(19f, 800),
+                color = palette.text,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                listOfNotNull(
+                    detail.genres.firstOrNull(),
+                    detail.year?.toString(),
+                    detail.runtimeMinutes?.let { "$it 分钟" },
+                    detail.officialRating,
+                ).joinToString(" · "),
+                style = mr(11f, 400),
+                color = palette.sub,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (detail.communityRating != null) {
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // The prototype shows IMDb and 豆瓣 chips; Emby exposes one
+                    // community rating, rendered in the IMDb chip's styling.
+                    ScoreChip(
+                        "评分 ${(detail.communityRating * 10).toInt() / 10.0}",
+                        Brand.Imdb,
+                        Brand.Imdb.copy(alpha = 0.14f),
+                    )
+                    if (detail.officialRating != null) {
+                        ScoreChip(
+                            detail.officialRating,
+                            Brand.Douban,
+                            Brand.Douban.copy(alpha = 0.12f),
                         )
                     }
                 }
             }
         }
+    }
+}
 
-        if (state.episodes.isNotEmpty()) {
-            item {
-                Text(
-                    "剧集",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(start = 16.dp, top = 18.dp, bottom = 8.dp),
+/** `700 10px Manrope`, `padding:2px 7px`, `radius:6px`. */
+@Composable
+private fun ScoreChip(label: String, fg: Color, bg: Color) {
+    Text(
+        label,
+        style = mr(10f, 700),
+        color = fg,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(bg)
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+    )
+}
+
+/**
+ * Play + add — `gap:8px`; play fills the row at `radius:16px`, `padding:11px`,
+ * `700 13px`, `0 8px 20px {accent 30%}`; the 44px add button is glass tinted `{accent}`.
+ */
+@Composable
+private fun ActionRow(accent: Color, label: String, resolving: Boolean, onPlay: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            Modifier
+                .weight(1f)
+                .cssShadow(
+                    offsetY = 8.dp,
+                    blur = 20.dp,
+                    color = accent.copy(alpha = 0.3f),
+                    shape = GlassShapes.card,
                 )
-            }
-            items(state.episodes, key = { it.id }) { episode ->
-                EpisodeRow(
-                    baseUrl = baseUrl,
-                    episode = episode,
-                    isCurrent = episode.id == detail.id,
-                    onClick = { onPlayEpisode(episode) },
-                )
-            }
+                .background(accent, GlassShapes.card)
+                .clickable(enabled = !resolving, onClick = onPlay)
+                .padding(11.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(Modifier.weight(1f))
+            Icon(AppIcons.Play, null, tint = Color.White, modifier = Modifier.size(13.dp))
+            Text(label, style = sc(13f, 700), color = Color.White)
+            Spacer(Modifier.weight(1f))
         }
-
-        if (detail.people.isNotEmpty()) {
-            item {
-                Text(
-                    "演职人员",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 10.dp),
-                )
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    items(detail.people.take(20), key = { it.id }) { PersonCard(baseUrl, it) }
-                }
-            }
+        Box(
+            Modifier.width(44.dp).height(41.dp).glass(GlassShapes.card),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                AppIcons.Add,
+                contentDescription = "加入列表",
+                tint = accent,
+                modifier = Modifier.size(15.dp),
+            )
         }
     }
 }
 
+/**
+ * 跨服务器片源对比 — 140px columns, `radius:16px`, `padding:12px`, `gap:10px`;
+ * the current server is tinted `{accent 10%}` over `{accent 30%}`.
+ */
 @Composable
-private fun EpisodeRow(baseUrl: String, episode: Episode, isCurrent: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.width(132.dp).aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        ) {
-            AsyncImage(
-                model = EmbyImages.primary(baseUrl, episode.id, episode.primaryTag, maxHeight = 240),
-                contentDescription = episode.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            val pct = episode.playedPercentage
-            if (pct != null && pct > 0.0) {
-                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x66000000))) {
-                    Box(
-                        Modifier.fillMaxWidth((pct / 100.0).toFloat().coerceIn(0f, 1f))
-                            .height(3.dp).background(MaterialTheme.colorScheme.primary),
+private fun SourceComparison(sources: List<ServerSource>, accent: Color) {
+    val palette = LocalPalette.current
+    Column {
+        Text(
+            "跨服务器片源对比",
+            style = sc(13f, 700),
+            color = palette.text,
+            modifier = Modifier.padding(bottom = 10.dp),
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(sources, key = { it.serverId }) { entry ->
+                val available = entry.reachable && entry.source != null
+                Column(
+                    Modifier
+                        .width(140.dp)
+                        .glass(
+                            shape = GlassShapes.card,
+                            fill = if (entry.isCurrent) accent.copy(alpha = 0.1f) else palette.card2,
+                            border = if (entry.isCurrent) accent.copy(alpha = 0.3f) else palette.border,
+                        )
+                        .padding(12.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(30.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    cssLinearGradient(
+                                        135f,
+                                        0f to Brand.PrimaryGradTop,
+                                        1f to Brand.PrimaryGradBottom,
+                                    ),
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                entry.serverName.take(1).uppercase(),
+                                style = mr(11f, 700),
+                                color = Color.White,
+                            )
+                        }
+                        if (entry.isCurrent) {
+                            Text(
+                                "当前",
+                                style = mr(10f, 700),
+                                color = accent,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(accent.copy(alpha = 0.1f))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        entry.serverName,
+                        style = sc(12f, 700),
+                        color = palette.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        when {
+                            !entry.reachable -> "离线 · 无法获取"
+                            entry.source == null -> "无此片源"
+                            else -> entry.source.summary
+                        },
+                        style = mr(10f, 400, lineHeight = 10f * 1.5f),
+                        color = if (available) palette.body else palette.hint,
                     )
                 }
             }
         }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                listOfNotNull(episode.indexNumber?.let { "第 $it 集" }, episode.name).joinToString("  "),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (episode.runtimeMinutes != null) {
-                Text(
-                    "${episode.runtimeMinutes} 分钟",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
     }
 }
 
+/** 主演 — `gap:14px`; 52px round avatars with `500 10px Manrope` names 6px below. */
 @Composable
-private fun PersonCard(baseUrl: String, person: Person) {
-    Column(Modifier.width(72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(64.dp)) {
-            val url = EmbyImages.avatar(baseUrl, person)
-            if (url != null) {
-                AsyncImage(model = url, contentDescription = person.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            } else {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Person, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+private fun CastRow(baseUrl: String, people: List<Person>) {
+    val palette = LocalPalette.current
+    Column {
+        Text(
+            "主演",
+            style = sc(13f, 700),
+            color = palette.text,
+            modifier = Modifier.padding(bottom = 10.dp),
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(people.take(20), key = { it.id }) { person ->
+                Column(Modifier.width(60.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Poster(
+                        url = EmbyImages.avatar(baseUrl, person),
+                        shape = CircleShape,
+                        modifier = Modifier.size(52.dp),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        person.name,
+                        style = mr(10f, 500),
+                        color = palette.body,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(person.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (person.role != null) {
-            Text(person.role, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
     }
 }
 
-private fun buildMeta(detail: MediaDetail): String {
-    val parts = buildList {
-        detail.year?.let { add(it.toString()) }
-        detail.runtimeMinutes?.let { add("$it 分钟") }
-        if (detail.genres.isNotEmpty()) add(detail.genres.take(3).joinToString(" / "))
-        detail.officialRating?.let { add(it) }
+/**
+ * Season header with the `切换季数 ▾` chip, then episode rows at `gap:8px`
+ * (`radius:14px`, `padding:8px`, `gap:11px`, 70×44 still).
+ */
+@Composable
+private fun EpisodeSection(
+    baseUrl: String,
+    accent: Color,
+    seasonLabel: String,
+    seasons: List<Pair<String, String>>,
+    selectedSeasonId: String?,
+    pickerOpen: Boolean,
+    onTogglePicker: () -> Unit,
+    onSelectSeason: (String) -> Unit,
+    episodes: List<Episode>,
+    onPlayEpisode: (Episode) -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column {
+        Box(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(seasonLabel, style = sc(13f, 700), color = palette.text)
+                if (seasons.size > 1) {
+                    Row(
+                        Modifier
+                            .clip(GlassShapes.chipSmall)
+                            .background(accent.copy(alpha = 0.1f))
+                            .clickable(onClick = onTogglePicker)
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("切换季数", style = mr(11f, 500), color = accent)
+                        Icon(AppIcons.ChevronDown, null, tint = accent, modifier = Modifier.size(9.dp))
+                    }
+                }
+            }
+
+            if (pickerOpen) {
+                // `top:26px; right:0; width:170px`, `rgba(255,255,255,.92)`, `radius:14px`.
+                Column(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 26.dp)
+                        .width(170.dp)
+                        .shadow(Shadows.menu, GlassShapes.chip)
+                        .glass(
+                            GlassShapes.chip,
+                            Color.White.copy(alpha = 0.92f),
+                            Color.White.copy(alpha = 0.9f),
+                        )
+                        .padding(6.dp),
+                ) {
+                    seasons.forEach { (id, name) ->
+                        val selected = id == selectedSeasonId
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(GlassShapes.chipSmall)
+                                .background(
+                                    if (selected) accent.copy(alpha = 0.1f) else Color.Transparent,
+                                )
+                                .clickable { onSelectSeason(id) }
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                name,
+                                style = sc(12.5f, if (selected) 700 else 500),
+                                color = if (selected) accent else Color(0xFF151A22),
+                            )
+                            if (selected) {
+                                Icon(
+                                    AppIcons.Check,
+                                    null,
+                                    tint = accent,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            episodes.forEach { episode ->
+                val watching = (episode.playedPercentage ?: 0.0) > 0.0
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .glass(
+                            shape = GlassShapes.chip,
+                            fill = if (watching) accent.copy(alpha = 0.08f) else palette.card,
+                            border = if (watching) accent.copy(alpha = 0.25f) else palette.border,
+                        )
+                        .clickable { onPlayEpisode(episode) }
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Poster(
+                        url = EmbyImages.primary(baseUrl, episode.id, episode.primaryTag, maxHeight = 240),
+                        progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
+                        modifier = Modifier.width(70.dp).height(44.dp),
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            listOfNotNull(episode.indexNumber?.let { "第${it}集" }, episode.name)
+                                .joinToString(" · "),
+                            style = sc(12f, 700),
+                            color = palette.text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            buildString {
+                                if (watching) append("正在观看")
+                                val runtime = episode.runtimeMinutes?.let { "$it 分钟" }
+                                if (watching && runtime != null) append(" · ")
+                                if (runtime != null) append(runtime)
+                            },
+                            style = mr(10.5f, 400),
+                            color = if (watching) accent else palette.sub2,
+                        )
+                    }
+                }
+            }
+        }
     }
-    return parts.joinToString("  ·  ")
 }

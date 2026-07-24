@@ -4,6 +4,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
@@ -16,6 +17,7 @@ fun appModule(settings: Settings) = module {
     single { settings }
     single { ServerRegistry(get()) }
     single { ThemePreferences(get()) }
+    single { SearchHistory(get()) }
     single { createEmbyClient() }
     single { EmbyRepository(get()) }
     // Own client (different host + bearer auth), built inline so Koin keeps a

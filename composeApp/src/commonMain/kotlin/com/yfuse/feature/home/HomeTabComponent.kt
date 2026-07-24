@@ -26,6 +26,9 @@ class HomeTabComponent(
     private val tmdb: TmdbRepository,
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
+    // The header's search entry and avatar switch tabs, which only the root can do.
+    private val onOpenSearch: () -> Unit,
+    private val onOpenProfile: () -> Unit,
 ) : ComponentContext by componentContext {
 
     private val navigation = StackNavigation<Config>()
@@ -63,6 +66,8 @@ class HomeTabComponent(
                 registry = registry,
                 onOpenEmbyItem = { navigation.push(Config.Detail(it)) },
                 onOpenTmdbItem = { navigation.push(Config.Info(it)) },
+                onOpenSearch = onOpenSearch,
+                onOpenProfile = onOpenProfile,
             ),
         )
         is Config.Detail -> Child.Detail(

@@ -11,6 +11,7 @@ import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
+import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.launch
 
@@ -23,6 +24,8 @@ data class DetailState(
     val selectedSeasonId: String? = null,
     val episodes: List<Episode> = emptyList(),
     val episodesLoading: Boolean = false,
+    /** 跨服务器片源对比. */
+    val sources: List<ServerSource> = emptyList(),
     val error: String? = null,
 )
 
@@ -48,6 +51,7 @@ private sealed interface DetailMsg {
     data class SeasonsLoaded(val seasons: List<Season>, val selected: String?) : DetailMsg
     data object EpisodesLoading : DetailMsg
     data class EpisodesLoaded(val episodes: List<Episode>) : DetailMsg
+    data class SourcesLoaded(val sources: List<ServerSource>) : DetailMsg
 }
 
 class DetailStoreFactory(
@@ -99,8 +103,18 @@ class DetailStoreFactory(
                     .onSuccess { detail ->
                         dispatch(DetailMsg.Loaded(detail, server))
                         seriesIdOf(detail)?.let { loadSeasons(server, it) }
+                        loadSources(server, detail)
                     }
                     .onFailure { dispatch(DetailMsg.Failed(it.toUserMessage("加载失败"))) }
+            }
+        }
+
+        /** Fans the title out across every saved server; failures degrade per-server. */
+        private fun loadSources(server: SavedServer, detail: MediaDetail) {
+            val servers = registry.data.value.servers
+            scope.launch {
+                val sources = repo.compareSources(servers, server.id, detail.title)
+                dispatch(DetailMsg.SourcesLoaded(sources))
             }
         }
 
@@ -163,6 +177,7 @@ class DetailStoreFactory(
             is DetailMsg.SeasonsLoaded -> copy(seasons = msg.seasons, selectedSeasonId = msg.selected)
             DetailMsg.EpisodesLoading -> copy(episodesLoading = true)
             is DetailMsg.EpisodesLoaded -> copy(episodesLoading = false, episodes = msg.episodes)
+            is DetailMsg.SourcesLoaded -> copy(sources = msg.sources)
         }
     }
 }

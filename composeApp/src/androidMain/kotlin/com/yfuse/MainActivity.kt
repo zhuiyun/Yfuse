@@ -6,9 +6,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.arkivanov.decompose.retainedComponent
 import com.arkivanov.mvikotlin.core.store.StoreFactory
-import com.yfuse.app.App
+import com.yfuse.app.AnimatedSplashApp
 import com.yfuse.app.RootComponent
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
@@ -28,9 +29,10 @@ class MainActivity : ComponentActivity() {
                 tmdb = koin.get<TmdbRepository>(),
                 registry = koin.get<ServerRegistry>(),
                 themePreferences = koin.get<ThemePreferences>(),
+                searchHistory = koin.get<SearchHistory>(),
             )
         }
 
-        setContent { App(root) }
+        setContent { AnimatedSplashApp(root) }
     }
 }

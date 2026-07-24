@@ -8,6 +8,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.toUserMessage
@@ -16,6 +17,8 @@ import kotlinx.coroutines.launch
 data class HomeState(
     val loading: Boolean = true,
     val content: TmdbHome = TmdbHome(),
+    /** 继续观看 — the signed-in server's in-progress items. */
+    val resume: List<MediaItem> = emptyList(),
     val resolving: Boolean = false,
     val error: String? = null,
 )
@@ -25,6 +28,9 @@ sealed interface HomeIntent {
 
     /** Tapping a TMDB pick: play it if the library has it, else show its info. */
     data class Open(val item: TmdbItem) : HomeIntent
+
+    /** Tapping a 继续观看 card goes straight to the library item. */
+    data class OpenResume(val item: MediaItem) : HomeIntent
 }
 
 sealed interface HomeLabel {
@@ -37,6 +43,7 @@ private sealed interface Action { data object Load : Action }
 private sealed interface Msg {
     data object Loading : Msg
     data class Loaded(val content: TmdbHome) : Msg
+    data class ResumeLoaded(val items: List<MediaItem>) : Msg
     data class Failed(val message: String) : Msg
     data class Resolving(val value: Boolean) : Msg
 }
@@ -65,6 +72,7 @@ class HomeStoreFactory(
             when (intent) {
                 HomeIntent.Retry -> load()
                 is HomeIntent.Open -> open(intent.item)
+                is HomeIntent.OpenResume -> publish(HomeLabel.OpenEmbyItem(intent.item.id))
             }
         }
 
@@ -74,6 +82,12 @@ class HomeStoreFactory(
                 tmdb.home()
                     .onSuccess { dispatch(Msg.Loaded(it)) }
                     .onFailure { dispatch(Msg.Failed(it.toUserMessage("推荐内容加载失败"))) }
+            }
+            // 继续观看 comes from the signed-in server; a failure here just leaves
+            // the row empty rather than failing the whole screen.
+            val server = registry.defaultServer ?: return
+            scope.launch {
+                emby.homeContent(server).onSuccess { dispatch(Msg.ResumeLoaded(it.resume)) }
             }
         }
 
@@ -103,6 +117,7 @@ class HomeStoreFactory(
         override fun HomeState.reduce(msg: Msg): HomeState = when (msg) {
             Msg.Loading -> copy(loading = true, error = null)
             is Msg.Loaded -> copy(loading = false, content = msg.content)
+            is Msg.ResumeLoaded -> copy(resume = msg.items)
             is Msg.Failed -> copy(loading = false, error = msg.message)
             is Msg.Resolving -> copy(resolving = msg.value)
         }

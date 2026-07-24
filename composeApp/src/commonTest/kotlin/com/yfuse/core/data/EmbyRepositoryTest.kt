@@ -104,6 +104,25 @@ class EmbyRepositoryTest {
     }
 
     @Test
+    fun search_sends_term_and_parses_results() = runTest {
+        val repo = testRepo { request ->
+            assertEquals("沙丘", request.url.parameters["SearchTerm"])
+            assertEquals("Movie,Series", request.url.parameters["IncludeItemTypes"])
+            json(
+                """{"Items":[{"Id":"m1","Name":"沙丘2","Type":"Movie","ProductionYear":2024,""" +
+                    """"ImageTags":{"Primary":"poster"}}]}""",
+            )
+        }
+
+        val res = repo.search(server, "沙丘")
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals("沙丘2", res.getOrThrow().single().title)
+        assertEquals("2024", res.getOrThrow().single().subtitle)
+        assertEquals(2024, res.getOrThrow().single().year)
+    }
+
+    @Test
     fun itemDetail_parses_full_detail() = runTest {
         val repo = testRepo {
             json(

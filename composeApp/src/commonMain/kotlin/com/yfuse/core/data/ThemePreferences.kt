@@ -3,6 +3,8 @@ package com.yfuse.core.data
 import com.russhwolf.settings.Settings
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.ThemeMode
+import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +17,9 @@ class ThemePreferences(private val settings: Settings) {
         const val KEY_MODE = "theme.mode"
         const val KEY_ACCENT = "theme.accent"
         const val KEY_ENGINE = "player.engine"
+        const val KEY_DECODER = "player.decoder"
+        const val KEY_AUTO_NEXT = "player.autoNext"
+        const val KEY_QUALITY = "player.quality"
     }
 
     // The design is the light "轻雾玻璃" direction; dark is the alternative.
@@ -29,10 +34,38 @@ class ThemePreferences(private val settings: Settings) {
     /** Preferred playback backend; the player page can override it per session. */
     val engine: StateFlow<PlayerEngine> = _engine.asStateFlow()
 
+    private val _decoder = MutableStateFlow(load(KEY_DECODER, DecoderMode.entries, DecoderMode.Hardware))
+
+    /** Preferred decoder strategy, consumed when a playback activity starts. */
+    val decoder: StateFlow<DecoderMode> = _decoder.asStateFlow()
+
+    private val _autoNext = MutableStateFlow(settings.getBoolean(KEY_AUTO_NEXT, true))
+
+    /** Whether an ended item advances to the next queue entry. */
+    val autoNext: StateFlow<Boolean> = _autoNext.asStateFlow()
+
+    private val _quality = MutableStateFlow(load(KEY_QUALITY, PlaybackQuality.entries, PlaybackQuality.Auto))
+    val quality: StateFlow<PlaybackQuality> = _quality.asStateFlow()
+
     fun setEngine(engine: PlayerEngine) {
         if (!engine.available) return
         _engine.value = engine
         settings.putString(KEY_ENGINE, engine.name)
+    }
+
+    fun setDecoder(decoder: DecoderMode) {
+        _decoder.value = decoder
+        settings.putString(KEY_DECODER, decoder.name)
+    }
+
+    fun setAutoNext(enabled: Boolean) {
+        _autoNext.value = enabled
+        settings.putBoolean(KEY_AUTO_NEXT, enabled)
+    }
+
+    fun setQuality(quality: PlaybackQuality) {
+        _quality.value = quality
+        settings.putString(KEY_QUALITY, quality.name)
     }
 
     fun setMode(mode: ThemeMode) {

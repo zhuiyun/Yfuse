@@ -13,15 +13,30 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
+/** 添加服务器 form: protocol segment + address + port, plus the credentials. */
 data class LoginForm(
-    val url: String = "",
+    /** The prototype defaults the protocol segment to HTTPS. */
+    val https: Boolean = true,
+    val host: String = "",
+    val port: String = "8096",
     val username: String = "",
     val password: String = "",
     val submitting: Boolean = false,
     val error: String? = null,
 ) {
+    val url: String
+        get() = buildString {
+            append(if (https) "https://" else "http://")
+            append(host.trim())
+            val p = port.trim()
+            if (p.isNotEmpty()) {
+                append(':')
+                append(p)
+            }
+        }
+
     val canSubmit: Boolean
-        get() = url.isNotBlank() && username.isNotBlank() && password.isNotBlank() && !submitting
+        get() = host.isNotBlank() && username.isNotBlank() && password.isNotBlank() && !submitting
 }
 
 data class ServersState(
@@ -34,7 +49,9 @@ data class ServersState(
 sealed interface ServersIntent {
     data object OpenAddDialog : ServersIntent
     data object DismissDialog : ServersIntent
-    data class UrlChanged(val value: String) : ServersIntent
+    data class ProtocolChanged(val https: Boolean) : ServersIntent
+    data class HostChanged(val value: String) : ServersIntent
+    data class PortChanged(val value: String) : ServersIntent
     data class UsernameChanged(val value: String) : ServersIntent
     data class PasswordChanged(val value: String) : ServersIntent
     data object Submit : ServersIntent
@@ -55,7 +72,9 @@ private sealed interface Msg {
     data class Data(val servers: List<SavedServer>, val defaultId: String?) : Msg
     data object DialogOpen : Msg
     data object DialogClose : Msg
-    data class Url(val v: String) : Msg
+    data class Protocol(val https: Boolean) : Msg
+    data class Host(val v: String) : Msg
+    data class Port(val v: String) : Msg
     data class Username(val v: String) : Msg
     data class Password(val v: String) : Msg
     data object Submitting : Msg
@@ -92,7 +111,9 @@ class ServersStoreFactory(
             when (intent) {
                 ServersIntent.OpenAddDialog -> dispatch(Msg.DialogOpen)
                 ServersIntent.DismissDialog -> dispatch(Msg.DialogClose)
-                is ServersIntent.UrlChanged -> dispatch(Msg.Url(intent.value))
+                is ServersIntent.ProtocolChanged -> dispatch(Msg.Protocol(intent.https))
+                is ServersIntent.HostChanged -> dispatch(Msg.Host(intent.value))
+                is ServersIntent.PortChanged -> dispatch(Msg.Port(intent.value))
                 is ServersIntent.UsernameChanged -> dispatch(Msg.Username(intent.value))
                 is ServersIntent.PasswordChanged -> dispatch(Msg.Password(intent.value))
                 ServersIntent.Submit -> submit()
@@ -122,7 +143,9 @@ class ServersStoreFactory(
             is Msg.Data -> copy(servers = msg.servers, defaultServerId = msg.defaultId)
             Msg.DialogOpen -> copy(dialogVisible = true, form = LoginForm())
             Msg.DialogClose -> copy(dialogVisible = false, form = LoginForm())
-            is Msg.Url -> copy(form = form.copy(url = msg.v, error = null))
+            is Msg.Protocol -> copy(form = form.copy(https = msg.https, error = null))
+            is Msg.Host -> copy(form = form.copy(host = msg.v, error = null))
+            is Msg.Port -> copy(form = form.copy(port = msg.v, error = null))
             is Msg.Username -> copy(form = form.copy(username = msg.v, error = null))
             is Msg.Password -> copy(form = form.copy(password = msg.v, error = null))
             Msg.Submitting -> copy(form = form.copy(submitting = true, error = null))

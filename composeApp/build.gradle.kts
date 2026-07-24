@@ -68,6 +68,10 @@ kotlin {
     }
 }
 
+compose.resources {
+    packageOfResClass = "com.yfuse.resources"
+}
+
 // TMDB token comes from local.properties (gitignored) so it never lands in git.
 val tmdbToken: String = Properties().apply {
     val file = rootProject.file("local.properties")
@@ -92,9 +96,9 @@ android {
 
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
 
-        // 64-bit only: drop the 32-bit armeabi-v7a / x86 ABIs.
+        // Physical ARM64 devices only. Emulator and all 32-bit ABIs are excluded.
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += "arm64-v8a"
         }
     }
 

@@ -13,21 +13,27 @@ import kotlinx.coroutines.flow.onEach
 
 data class ProfileState(
     val currentServer: SavedServer? = null,
-    val serverCount: Int = 0,
+    /** All saved servers — the 我的服务器 list. */
+    val servers: List<SavedServer> = emptyList(),
     val appVersion: String = APP_VERSION,
-)
+) {
+    val serverCount: Int get() = servers.size
+}
 
 sealed interface ProfileIntent {
     /** Logs out of (removes) the current default server. */
     data object Logout : ProfileIntent
+
+    /** Makes another saved server the active one. */
+    data class SwitchServer(val id: String) : ProfileIntent
 }
 
 private sealed interface Action {
-    data class Data(val current: SavedServer?, val count: Int) : Action
+    data class Data(val current: SavedServer?, val servers: List<SavedServer>) : Action
 }
 
 private sealed interface Msg {
-    data class Data(val current: SavedServer?, val count: Int) : Msg
+    data class Data(val current: SavedServer?, val servers: List<SavedServer>) : Msg
 }
 
 class ProfileStoreFactory(
@@ -40,7 +46,7 @@ class ProfileStoreFactory(
             initialState = ProfileState(),
             bootstrapper = coroutineBootstrapper<Action> {
                 registry.data
-                    .onEach { dispatch(Action.Data(it.defaultServer, it.servers.size)) }
+                    .onEach { dispatch(Action.Data(it.defaultServer, it.servers)) }
                     .launchIn(this)
             },
             executorFactory = ::ExecutorImpl,
@@ -51,19 +57,20 @@ class ProfileStoreFactory(
         CoroutineExecutor<ProfileIntent, Action, ProfileState, Msg, Nothing>() {
 
         override fun executeAction(action: Action) = when (action) {
-            is Action.Data -> dispatch(Msg.Data(action.current, action.count))
+            is Action.Data -> dispatch(Msg.Data(action.current, action.servers))
         }
 
         override fun executeIntent(intent: ProfileIntent) {
             when (intent) {
                 ProfileIntent.Logout -> state().currentServer?.let { registry.remove(it.id) }
+                is ProfileIntent.SwitchServer -> registry.setDefault(intent.id)
             }
         }
     }
 
     private object ReducerImpl : Reducer<ProfileState, Msg> {
         override fun ProfileState.reduce(msg: Msg): ProfileState = when (msg) {
-            is Msg.Data -> copy(currentServer = msg.current, serverCount = msg.count)
+            is Msg.Data -> copy(currentServer = msg.current, servers = msg.servers)
         }
     }
 }

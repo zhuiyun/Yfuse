@@ -1,63 +1,75 @@
 package com.yfuse.feature.library
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.sc
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * 「查看更多」grid. The prototype expands a category in place, so this page reuses
+ * that layout: a 3-up grid of 150px posters with title/year below.
+ */
 @Composable
 fun LibraryGridScreen(component: LibraryGridComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val baseUrl = component.serverBaseUrl
+    val palette = LocalPalette.current
 
-    Scaffold(
-        containerColor = androidx.compose.ui.graphics.Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            TopAppBar(
-                title = { Text(component.title, maxLines = 1) },
-                navigationIcon = {
-                    IconButton(onClick = component.onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
-                ),
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.pageHorizontal)
+                .padding(top = 12.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                AppIcons.ChevronLeft,
+                contentDescription = "返回",
+                tint = palette.sub,
+                modifier = Modifier.size(16.dp).clickable(onClick = component.onBack),
             )
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+            Text(
+                component.title,
+                style = sc(19f, 800),
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        Box(Modifier.fillMaxSize()) {
             when {
                 state.loading && state.items.isEmpty() ->
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -66,20 +78,36 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(state.error!!, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                    Text(
+                        state.error!!,
+                        style = sc(13f, 400),
+                        color = palette.sub,
+                        textAlign = TextAlign.Center,
+                    )
                     Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = { component.store.accept(GridIntent.Retry) }) { Text("重试") }
+                    TextButton(onClick = { component.store.accept(GridIntent.Retry) }) {
+                        Text("重试", style = sc(13f, 700), color = Brand.Primary)
+                    }
                 }
 
                 else -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 110.dp),
-                    contentPadding = PaddingValues(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(
+                        start = Dimens.pageHorizontal,
+                        end = Dimens.pageHorizontal,
+                        bottom = Dimens.contentBottom,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(state.items, key = { it.id }) { item ->
-                        PosterCard(baseUrl, item, showProgress = false, onClick = { component.onOpenItem(item.id) })
+                        PosterCard(
+                            baseUrl = baseUrl,
+                            item = item,
+                            showProgress = false,
+                            onClick = { component.onOpenItem(item.id) },
+                        )
                     }
                 }
             }
