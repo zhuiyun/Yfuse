@@ -8,7 +8,12 @@ data class EngineTrack(
     val label: String,
     val language: String?,
     val selected: Boolean,
-)
+) {
+    companion object {
+        /** Passed to [VideoEngine.selectSubtitleTrack] to turn subtitles off. */
+        const val OFF = "off"
+    }
+}
 
 /** Everything the glass control layer needs to render, engine-agnostic. */
 data class PlaybackState(
@@ -17,15 +22,25 @@ data class PlaybackState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val speed: Float = 1f,
+    /** Decoded picture height, for the "1080P" badge; 0 until the first frame. */
+    val videoHeight: Int = 0,
+    val currentIndex: Int = 0,
+    val itemCount: Int = 1,
     val audioTracks: List<EngineTrack> = emptyList(),
     val subtitleTracks: List<EngineTrack> = emptyList(),
     val error: String? = null,
-)
+) {
+    val hasNext: Boolean get() = currentIndex + 1 < itemCount
+    val hasPrevious: Boolean get() = currentIndex > 0
+
+    /** Milliseconds left in the current entry; 0 while the duration is unknown. */
+    val remainingMs: Long get() = (durationMs - positionMs).coerceAtLeast(0L)
+}
 
 /**
  * Playback backend contract. ExoPlayer and libmpv each implement it so the
- * control layer — progress, play/pause, seek, speed, track pickers — is written
- * once and works with whichever engine is active.
+ * control layer — progress, play/pause, seek, speed, track pickers, episode
+ * navigation — is written once and works with whichever engine is active.
  */
 interface VideoEngine {
     val state: StateFlow<PlaybackState>
@@ -35,7 +50,12 @@ interface VideoEngine {
     fun seekTo(positionMs: Long)
     fun setSpeed(speed: Float)
     fun selectAudioTrack(id: String)
+
+    /** [EngineTrack.OFF] disables subtitles. */
     fun selectSubtitleTrack(id: String)
+
+    /** Jumps to another entry in the queue — next/previous and the episode list. */
+    fun selectItem(index: Int)
 
     /** Current position, for handing over when switching engines. */
     fun currentPositionMs(): Long

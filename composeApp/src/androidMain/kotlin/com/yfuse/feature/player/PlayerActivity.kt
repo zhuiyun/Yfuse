@@ -3,31 +3,25 @@ package com.yfuse.feature.player
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -36,21 +30,18 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.designsystem.AccentColor
+import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalGlass
+import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.designsystem.glass
 import com.yfuse.core.model.PlayerEngine
-
-private const val TAG = "YfusePlayer"
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.koin.core.context.GlobalContext
 
 /**
  * Fullscreen playback lives in its own activity so landscape is declared in the
@@ -95,243 +86,165 @@ class PlayerActivity : ComponentActivity() {
             ?.let { name -> PlayerEngine.entries.firstOrNull { it.name == name } }
             ?: PlayerEngine.Exo
 
-        setContent {
-            PlayerRoot(
-                urls = intent.getStringArrayExtra(EXTRA_URLS).orEmpty().toList(),
-                transcodeUrls = intent.getStringArrayExtra(EXTRA_TRANSCODE).orEmpty().toList(),
-                titles = intent.getStringArrayExtra(EXTRA_TITLES).orEmpty().toList(),
-                startIndex = intent.getIntExtra(EXTRA_INDEX, 0),
-                startPositionMs = intent.getLongExtra(EXTRA_POSITION, 0L),
-                initialEngine = initialEngine,
-                onBack = { finish() },
+        val urls = intent.getStringArrayExtra(EXTRA_URLS).orEmpty()
+        val transcodeUrls = intent.getStringArrayExtra(EXTRA_TRANSCODE).orEmpty()
+        val titles = intent.getStringArrayExtra(EXTRA_TITLES).orEmpty()
+        val items = urls.mapIndexed { index, url ->
+            PlayerMediaItem(
+                id = index.toString(),
+                url = url,
+                transcodeUrl = transcodeUrls.getOrElse(index) { "" },
+                title = titles.getOrElse(index) { "" },
             )
+        }
+
+        val accent = runCatching {
+            GlobalContext.get().get<ThemePreferences>().accent.value
+        }.getOrDefault(AccentColor.Blue)
+
+        setContent {
+            // Always the dark palette: the controls float over the picture.
+            YfuseTheme(dark = true, accent = accent) {
+                PlayerRoot(
+                    items = items,
+                    startIndex = intent.getIntExtra(EXTRA_INDEX, 0),
+                    startPositionMs = intent.getLongExtra(EXTRA_POSITION, 0L),
+                    initialEngine = initialEngine,
+                    onBack = { finish() },
+                )
+            }
         }
     }
 }
 
-/** Hosts the selected engine and lets the viewer switch between them. */
+/**
+ * Owns the live engine and the shared control layer. Switching engines reads
+ * the outgoing engine's position first, so the replacement picks up where it
+ * left off instead of restarting the entry.
+ */
+@OptIn(UnstableApi::class)
 @Composable
 private fun PlayerRoot(
-    urls: List<String>,
-    transcodeUrls: List<String>,
-    titles: List<String>,
+    items: List<PlayerMediaItem>,
     startIndex: Int,
     startPositionMs: Long,
     initialEngine: PlayerEngine,
     onBack: () -> Unit,
 ) {
-    var engine by remember { mutableStateOf(initialEngine) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-    when (engine) {
-        PlayerEngine.Mpv -> MpvPlayerContent(
-            url = urls.getOrElse(startIndex) { urls.firstOrNull().orEmpty() },
-            startPositionMs = startPositionMs,
-            engine = engine,
-            onSwitchEngine = { engine = it },
-            onBack = onBack,
-        )
-        else -> PlayerContent(
-            urls = urls,
-            transcodeUrls = transcodeUrls,
-            titles = titles,
-            startIndex = startIndex,
-            startPositionMs = startPositionMs,
-            engine = engine,
-            onSwitchEngine = { engine = it },
-            onBack = onBack,
-        )
+    var kind by remember { mutableStateOf(initialEngine) }
+    // Where a newly built engine should start: index + position, updated on
+    // every handover so the switch is seamless.
+    var resume by remember { mutableStateOf(startIndex to startPositionMs) }
+    var filled by remember { mutableStateOf(false) }
+
+    val engine: VideoEngine = remember(kind, resume) {
+        when (kind) {
+            PlayerEngine.Mpv -> MpvVideoEngine(context, items, resume.first, resume.second)
+            else -> ExoVideoEngine(context, items, resume.first, resume.second, scope)
+        }
     }
-}
 
-/** libmpv playback with the shared overlay controls. */
-@Composable
-private fun MpvPlayerContent(
-    url: String,
-    startPositionMs: Long,
-    engine: PlayerEngine,
-    onSwitchEngine: (PlayerEngine) -> Unit,
-    onBack: () -> Unit,
-) {
+    DisposableEffect(engine) {
+        onDispose { engine.release() }
+    }
+
+    val state by engine.state.collectAsState()
+
+    fun switchEngine(target: PlayerEngine) {
+        if (target == kind) return
+        // Read the position before the old engine is torn down.
+        engine.pause()
+        resume = state.currentIndex to engine.currentPositionMs()
+        kind = target
+    }
+
+    val exo = engine as? ExoVideoEngine
+    val idleTranscoding = remember { MutableStateFlow(false) }
+    val transcoding by (exo?.transcoding ?: idleTranscoding).collectAsState()
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        MpvSurface(url = url, startPositionMs = startPositionMs, modifier = Modifier.fillMaxSize())
-        PlayerOverlay(engine = engine, onSwitchEngine = onSwitchEngine, onBack = onBack)
-    }
-}
-
-/** Back button plus the engine picker, shared by every engine. */
-@Composable
-private fun PlayerOverlay(
-    engine: PlayerEngine,
-    onSwitchEngine: (PlayerEngine) -> Unit,
-    onBack: () -> Unit,
-    trailing: @Composable (() -> Unit)? = null,
-) {
-    Box(Modifier.fillMaxSize()) {
-        Surface(
-            shape = CircleShape,
-            color = Color(0x66000000),
-            modifier = Modifier.padding(12.dp).align(Alignment.TopStart),
-        ) {
-            Box(Modifier.clickable(onClick = onBack).padding(6.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
-            }
+        when (engine) {
+            is MpvVideoEngine -> MpvSurface(engine, Modifier.fillMaxSize())
+            is ExoVideoEngine -> ExoSurface(engine, filled, Modifier.fillMaxSize())
         }
 
-        Row(
-            Modifier.padding(12.dp).align(Alignment.TopEnd),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            PlayerEngine.selectable.forEach { candidate ->
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (candidate == engine) Color(0xCC4C6BF5) else Color(0x66000000),
-                ) {
-                    Box(
-                        Modifier
-                            .clickable { if (candidate != engine) onSwitchEngine(candidate) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Text(candidate.label, color = Color.White)
-                    }
+        PlayerControls(
+            state = state,
+            titles = items.map { it.title },
+            filled = filled,
+            onBack = onBack,
+            onPlayPause = { if (state.playing) engine.pause() else engine.play() },
+            onSeek = engine::seekTo,
+            onSelectItem = engine::selectItem,
+            onSelectAudio = engine::selectAudioTrack,
+            onSelectSubtitle = engine::selectSubtitleTrack,
+            onSpeed = engine::setSpeed,
+            onToggleFill = {
+                filled = !filled
+                (engine as? MpvVideoEngine)?.setFill(filled)
+            },
+            topBarExtras = {
+                PlayerEngine.selectable.forEach { candidate ->
+                    TopPill(
+                        label = candidate.label,
+                        selected = candidate == kind,
+                        onClick = { switchEngine(candidate) },
+                    )
                 }
-            }
-            trailing?.invoke()
-        }
+                // Manual escape hatch when the picture is black but audio plays.
+                if (exo != null) {
+                    TopPill(
+                        label = if (transcoding) "转码中" else "转码",
+                        selected = transcoding,
+                        onClick = { exo.switchToTranscode() },
+                    )
+                }
+            },
+        )
     }
 }
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun PlayerContent(
-    urls: List<String>,
-    transcodeUrls: List<String>,
-    titles: List<String>,
-    startIndex: Int,
-    startPositionMs: Long,
-    engine: PlayerEngine,
-    onSwitchEngine: (PlayerEngine) -> Unit,
-    onBack: () -> Unit,
-) {
-    val context = LocalContext.current
-    var transcoding by remember { mutableStateOf(false) }
-
-    val player = remember {
-        // Emby 302-redirects stream requests to a CDN, often http -> https,
-        // which ExoPlayer refuses unless cross-protocol redirects are allowed.
-        val httpFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(20_000)
-            .setReadTimeoutMs(20_000)
-
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, httpFactory)))
-            .build()
-            .apply {
-                setMediaItems(
-                    urls.mapIndexed { index, url -> mediaItem(url, titles.getOrElse(index) { "" }) },
-                    startIndex.coerceIn(0, (urls.size - 1).coerceAtLeast(0)),
-                    startPositionMs,
-                )
-                playWhenReady = true
-                prepare()
+private fun ExoSurface(engine: ExoVideoEngine, filled: Boolean, modifier: Modifier = Modifier) {
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                useController = false
+                keepScreenOn = true
             }
-    }
-
-    /** Swaps the current entry for the server-transcoded HLS stream. */
-    fun switchToTranscode() {
-        val index = player.currentMediaItemIndex
-        val url = transcodeUrls.getOrNull(index) ?: return
-        if (transcoding) return
-        transcoding = true
-        val position = player.currentPosition
-        Log.i(TAG, "falling back to transcode for index=$index")
-        player.replaceMediaItem(index, mediaItem(url, titles.getOrElse(index) { "" }))
-        player.prepare()
-        player.seekTo(index, position)
-        player.playWhenReady = true
-    }
-
-    DisposableEffect(player) {
-        val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(state: Int) {
-                Log.i(TAG, "state=$state")
+        },
+        update = { view ->
+            // Reassigned on update too: a fresh engine reuses this same view.
+            if (view.player !== engine.player) view.player = engine.player
+            view.resizeMode = if (filled) {
+                AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            } else {
+                AspectRatioFrameLayout.RESIZE_MODE_FIT
             }
+        },
+        modifier = modifier,
+    )
+}
 
-            override fun onRenderedFirstFrame() {
-                Log.i(TAG, "renderedFirstFrame (picture is on screen)")
-            }
-
-            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                Log.i(TAG, "videoSize=${videoSize.width}x${videoSize.height}")
-            }
-
-            override fun onTracksChanged(tracks: Tracks) {
-                val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
-                val anySupported = videoGroups.any { group ->
-                    (0 until group.length).any { group.isTrackSupported(it) }
-                }
-                // Video present but undecodable (e.g. Dolby Vision P5) -> transcode.
-                if (videoGroups.isNotEmpty() && !anySupported) {
-                    Log.w(TAG, "no supported video track; switching to transcode")
-                    switchToTranscode()
-                }
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                Log.e(TAG, "playback failed: ${error.errorCodeName}", error)
-                when (error.errorCode) {
-                    PlaybackException.ERROR_CODE_DECODING_FAILED,
-                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-                    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-                    -> switchToTranscode()
-                }
-            }
-        }
-        player.addListener(listener)
-        onDispose {
-            player.removeListener(listener)
-            player.release()
-        }
-    }
-
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    this.player = player
-                    useController = true
-                    keepScreenOn = true
-                    // Built-in audio/subtitle pickers and episode navigation.
-                    setShowSubtitleButton(true)
-                    setShowNextButton(true)
-                    setShowPreviousButton(true)
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        PlayerOverlay(
-            engine = engine,
-            onSwitchEngine = onSwitchEngine,
-            onBack = onBack,
-            // Manual escape hatch when the picture is black but audio plays.
-            trailing = {
-                Surface(shape = RoundedCornerShape(16.dp), color = Color(0x66000000)) {
-                    Box(
-                        Modifier
-                            .clickable { switchToTranscode() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Text(if (transcoding) "转码中" else "转码", color = Color.White)
-                    }
-                }
-            },
+/** Small glass pill for the top-bar extras (engine picker, transcode). */
+@Composable
+private fun RowScope.TopPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val glass = LocalGlass.current
+    val accent = MaterialTheme.colorScheme.primary
+    Box(
+        Modifier
+            .glass(GlassShapes.pill, strong = selected)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(
+            label,
+            color = if (selected) accent else glass.onGlass,
+            style = MaterialTheme.typography.labelMedium,
         )
     }
 }
-
-private fun mediaItem(url: String, title: String): MediaItem =
-    MediaItem.Builder()
-        .setUri(url)
-        .setMediaMetadata(MediaMetadata.Builder().setTitle(title).build())
-        .build()
