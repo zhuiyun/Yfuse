@@ -17,11 +17,10 @@
 -keepclasseswithmembers,allowshrinking class **$$serializer {
     *** INSTANCE;
 }
-# Belt-and-suspenders: keep everything serializable in our own package.
--keep @kotlinx.serialization.Serializable class com.yfuse.** { *; }
--keepclassmembers class com.yfuse.** {
-    kotlinx.serialization.KSerializer serializer(...);
-}
+# Generated serializers are referenced directly by the compiler plugin.
+# Keeping every field of every DTO/model prevented R8 from renaming and
+# shrinking a large part of the data layer, so only serializer entry points
+# above are retained.
 
 # ---- Ktor / coroutines ----
 -dontwarn org.slf4j.**

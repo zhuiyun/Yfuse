@@ -29,6 +29,8 @@ data class ServerSource(
     /** Null when the server does not have this title. */
     val source: SourceInfo?,
     val reachable: Boolean,
+    /** Concrete item on that server, used to switch the playback origin. */
+    val itemId: String? = null,
 )
 
 /** Full detail for a single media item (movie or series). */
@@ -52,6 +54,8 @@ data class MediaDetail(
     val people: List<Person>,
     /** Primary media source on the server this detail came from. */
     val source: SourceInfo? = null,
+    val isFavorite: Boolean = false,
+    val played: Boolean = false,
 )
 
 /** A concrete, playable target resolved from a detail item. */

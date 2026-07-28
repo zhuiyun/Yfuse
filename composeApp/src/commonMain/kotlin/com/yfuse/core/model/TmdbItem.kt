@@ -13,6 +13,7 @@ data class TmdbItem(
     val year: String?,
     val mediaType: String,
     val rating: Double?,
+    val releaseDate: String? = null,
 )
 
 data class TmdbPerson(

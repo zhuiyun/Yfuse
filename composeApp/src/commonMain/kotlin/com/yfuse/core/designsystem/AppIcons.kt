@@ -51,6 +51,22 @@ object AppIcons {
         reflectiveCurveToRelative(6.2f, 2f, 7.2f, 6.2f)
     }.build()
 
+    /** The exact stacked-server icon shipped with the supplied UI package. */
+    val Server = newBuilder("server").apply {
+        path(
+            fill = null,
+            stroke = SolidColor(Color.Black),
+            strokeLineWidth = 1.8f,
+        ) {
+            roundRect(4f, 4f, 16f, 6f, 1.5f)
+            roundRect(4f, 14f, 16f, 6f, 1.5f)
+        }
+        path(fill = SolidColor(Color.Black)) {
+            circle(8f, 7f, 0.8f)
+            circle(8f, 17f, 0.8f)
+        }
+    }.build()
+
     // ------------------------------------------------------------ icon set (1.8)
 
     /** Filled triangle — `M6 4.5v15l14-7.5-14-7.5z`. */
@@ -133,6 +149,32 @@ object AppIcons {
         arcToRelative(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 0f, 6f)
     }.build()
 
+    /** Player casting glyph from the supplied interaction prototype. */
+    val Cast = strokeVector(
+        name = "cast",
+        width = 1.8f,
+        cap = StrokeCap.Round,
+        join = StrokeJoin.Round,
+    ) {
+        moveTo(6.5f, 16.5f); horizontalLineTo(4.5f)
+        arcToRelative(1.5f, 1.5f, 0f, false, true, -1.5f, -1.5f)
+        verticalLineTo(6.5f)
+        arcToRelative(1.5f, 1.5f, 0f, false, true, 1.5f, -1.5f)
+        horizontalLineTo(19.5f)
+        arcToRelative(1.5f, 1.5f, 0f, false, true, 1.5f, 1.5f)
+        verticalLineTo(15f)
+        arcToRelative(1.5f, 1.5f, 0f, false, true, -1.5f, 1.5f)
+        horizontalLineTo(17.5f)
+        moveTo(12f, 13.5f); lineTo(16.6f, 20f); horizontalLineTo(7.4f); close()
+    }.build()
+
+    /** Three-dot "more" glyph from the supplied interaction prototype. */
+    val More = fillVector("more") {
+        circle(5.5f, 12f, 1.7f)
+        circle(12f, 12f, 1.7f)
+        circle(18.5f, 12f, 1.7f)
+    }
+
     /** `M15 5l-7 7 7 7` */
     val ChevronLeft = strokeVector("chevron-left", cap = StrokeCap.Round, join = StrokeJoin.Round) {
         moveTo(15f, 5f); lineToRelative(-7f, 7f); lineToRelative(7f, 7f)
@@ -170,6 +212,36 @@ object AppIcons {
         moveTo(12f, 5f); verticalLineToRelative(14f)
         moveTo(5f, 12f); horizontalLineToRelative(14f)
     }.build()
+
+    /** Source prototype's download glyph. */
+    val Download = strokeVector("download", width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round) {
+        moveTo(12f, 4f); verticalLineTo(15f)
+        moveTo(12f, 15f); lineTo(7.5f, 10.5f)
+        moveTo(12f, 15f); lineTo(16.5f, 10.5f)
+        moveTo(4.5f, 19f); horizontalLineTo(19.5f)
+    }.build()
+
+    /** ⓘ — the hero's 详情 button and the detail page's 技术规格 affordance. */
+    val Info = strokeVector("info") {
+        circle(12f, 12f, 9f)
+    }.andPath(cap = StrokeCap.Round) {
+        moveTo(12f, 11f); verticalLineToRelative(5.5f)
+        moveTo(12f, 7.8f); verticalLineToRelative(0.01f)
+    }.build()
+
+    // ------------------------------------------------- state glyphs (收藏 / 稍后 / 评分)
+
+    /** 收藏 — outline; [HeartFilled] is the same contour filled. */
+    val Heart = strokeVector("heart", join = StrokeJoin.Round) { heart() }.build()
+    val HeartFilled = fillVector("heart-filled") { heart() }
+
+    /** 稍后观看 — outline bookmark; [BookmarkFilled] marks the queued state. */
+    val Bookmark = strokeVector("bookmark", join = StrokeJoin.Round) { bookmark() }.build()
+    val BookmarkFilled = fillVector("bookmark-filled") { bookmark() }
+
+    /** 评分 — the star that precedes a community rating. */
+    val Star = strokeVector("star", join = StrokeJoin.Round) { star() }.build()
+    val StarFilled = fillVector("star-filled") { star() }
 }
 
 // ---------------------------------------------------------------- vector plumbing
@@ -227,6 +299,47 @@ private fun PathBuilder.circle(cx: Float, cy: Float, r: Float) {
     moveTo(cx - r, cy)
     arcToRelative(r, r, 0f, isMoreThanHalf = true, isPositiveArc = true, 2 * r, 0f)
     arcToRelative(r, r, 0f, isMoreThanHalf = true, isPositiveArc = true, -2 * r, 0f)
+    close()
+}
+
+/** One closed heart contour, drawn either stroked or filled. */
+private fun PathBuilder.heart() {
+    moveTo(12f, 20.6f)
+    lineToRelative(-1.35f, -1.23f)
+    curveTo(5.9f, 15.05f, 2.8f, 12.2f, 2.8f, 8.7f)
+    curveTo(2.8f, 5.85f, 5.05f, 3.6f, 7.9f, 3.6f)
+    curveToRelative(1.61f, 0f, 3.15f, 0.75f, 4.1f, 1.93f)
+    curveTo(12.95f, 4.35f, 14.49f, 3.6f, 16.1f, 3.6f)
+    curveToRelative(2.85f, 0f, 5.1f, 2.25f, 5.1f, 5.1f)
+    curveToRelative(0f, 3.5f, -3.1f, 6.35f, -7.85f, 10.67f)
+    close()
+}
+
+/** One closed bookmark contour, drawn either stroked or filled. */
+private fun PathBuilder.bookmark() {
+    moveTo(7.5f, 3.6f)
+    horizontalLineTo(16.5f)
+    arcToRelative(1.4f, 1.4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.4f, 1.4f)
+    verticalLineTo(20.4f)
+    lineTo(12f, 16.6f)
+    lineTo(6.1f, 20.4f)
+    verticalLineTo(5f)
+    arcToRelative(1.4f, 1.4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.4f, -1.4f)
+    close()
+}
+
+/** One closed five-point star, drawn either stroked or filled. */
+private fun PathBuilder.star() {
+    moveTo(12f, 3.6f)
+    lineToRelative(2.6f, 5.3f)
+    lineToRelative(5.8f, 0.85f)
+    lineToRelative(-4.2f, 4.1f)
+    lineToRelative(1f, 5.8f)
+    lineTo(12f, 16.9f)
+    lineToRelative(-5.2f, 2.75f)
+    lineToRelative(1f, -5.8f)
+    lineToRelative(-4.2f, -4.1f)
+    lineToRelative(5.8f, -0.85f)
     close()
 }
 

@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -23,6 +24,7 @@ import android.os.Bundle
 import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -50,9 +52,11 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.core.content.ContextCompat
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.cast.CastManager
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.model.DecoderMode
@@ -60,6 +64,7 @@ import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyStream
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
 
@@ -81,6 +86,7 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_TRANSCODE = "yfuse.transcodeUrls"
         private const val EXTRA_FALLBACK_TRANSCODE = "yfuse.fallbackTranscodeUrls"
         private const val EXTRA_TITLES = "yfuse.titles"
+        private const val EXTRA_SERVER_IDS = "yfuse.serverIds"
         private const val EXTRA_INDEX = "yfuse.index"
         private const val EXTRA_POSITION = "yfuse.positionMs"
         private const val EXTRA_ENGINE = "yfuse.engine"
@@ -103,6 +109,7 @@ class PlayerActivity : ComponentActivity() {
             putExtra(EXTRA_TRANSCODE, items.map { it.transcodeUrl }.toTypedArray())
             putExtra(EXTRA_FALLBACK_TRANSCODE, items.map { it.fallbackTranscodeUrl }.toTypedArray())
             putExtra(EXTRA_TITLES, items.map { it.title }.toTypedArray())
+            putExtra(EXTRA_SERVER_IDS, items.map { it.serverId.orEmpty() }.toTypedArray())
             putExtra(EXTRA_INDEX, startIndex)
             putExtra(EXTRA_POSITION, startPositionMs)
             putExtra(EXTRA_ENGINE, engine.name)
@@ -120,6 +127,8 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var notificationManager: NotificationManager
     private var mediaReceiverRegistered = false
     private var videoBounds: Rect? = null
+    private var pipWasVisible = false
+    private var stopRequested = false
     private val mediaActionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -163,6 +172,7 @@ class PlayerActivity : ComponentActivity() {
         val transcodeUrls = intent.getStringArrayExtra(EXTRA_TRANSCODE).orEmpty()
         val fallbackTranscodeUrls = intent.getStringArrayExtra(EXTRA_FALLBACK_TRANSCODE).orEmpty()
         val titles = intent.getStringArrayExtra(EXTRA_TITLES).orEmpty()
+        val serverIds = intent.getStringArrayExtra(EXTRA_SERVER_IDS).orEmpty()
         val items = urls.mapIndexed { index, url ->
             PlayerMediaItem(
                 id = ids.getOrElse(index) { index.toString() },
@@ -176,9 +186,26 @@ class PlayerActivity : ComponentActivity() {
                     fallbackTranscodeUrls.getOrElse(index) { "" },
                     quality,
                 ),
+                serverId = serverIds.getOrNull(index)?.ifBlank { null },
             )
         }
+        pictureInPicture.value = isInPictureInPictureMode
+        pipWasVisible = isInPictureInPictureMode
         sessionTitles = items.map { it.title }
+        ActivePlayback.bind(
+            toggle = {
+                if (activeState.playing) activeEngine?.pause() else activeEngine?.play()
+            },
+            open = {
+                startActivity(
+                    Intent(this, PlayerActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+                )
+            },
+            close = {
+                stopPlaybackAndFinish()
+            },
+        )
 
         createMediaSession()
         createPlaybackNotificationChannel()
@@ -189,7 +216,11 @@ class PlayerActivity : ComponentActivity() {
         val preferences = runCatching { koin.get<ThemePreferences>() }.getOrNull()
         val accent = preferences?.accent?.value ?: AccentColor.Blue
         val playbackSink = runCatching {
-            val server = koin.get<ServerRegistry>().defaultServer
+            val registry = koin.get<ServerRegistry>()
+            val selectedServerId = items.getOrNull(
+                intent.getIntExtra(EXTRA_INDEX, 0),
+            )?.serverId
+            val server = selectedServerId?.let(registry::serverById) ?: registry.defaultServer
             val repo = koin.get<EmbyRepository>()
             server?.let { EmbyPlaybackEventSink(repo, it) }
         }.getOrNull()
@@ -214,14 +245,26 @@ class PlayerActivity : ComponentActivity() {
                     },
                     onPlaybackState = { state ->
                         activeState = state
+                        ActivePlayback.update(
+                            sessionTitles.getOrNull(state.currentIndex).orEmpty(),
+                            state,
+                        )
                         updateMediaSession(state)
                         updatePictureInPictureParams()
+                        if (state.playing) {
+                            ContextCompat.startForegroundService(
+                                this,
+                                Intent(this, PlaybackKeepAliveService::class.java),
+                            )
+                        } else {
+                            stopService(Intent(this, PlaybackKeepAliveService::class.java))
+                        }
                     },
                     onVideoBounds = { bounds ->
                         videoBounds = bounds
                         updatePictureInPictureParams()
                     },
-                    onBack = { finish() },
+                    onBack = ::returnToMain,
                 )
             }
         }
@@ -249,16 +292,28 @@ class PlayerActivity : ComponentActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         pictureInPicture.value = isInPictureInPictureMode
+        if (isInPictureInPictureMode) pipWasVisible = true
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Only an expanded player regains a focused full-size window. Closing
+        // PiP never does, so keep the marker for onStop to release playback.
+        if (hasFocus && !isInPictureInPictureMode) pipWasVisible = false
     }
 
     override fun onStop() {
         super.onStop()
-        if (!isInPictureInPictureMode && !isChangingConfigurations) {
-            activeEngine?.pause()
+        // Android can keep a closed PiP activity stopped but alive. Explicitly
+        // tear down its engine so audio cannot continue invisibly.
+        if (pipWasVisible && !isChangingConfigurations) {
+            stopPlaybackAndFinish()
         }
     }
 
     override fun onDestroy() {
+        ActivePlayback.clear()
+        stopService(Intent(this, PlaybackKeepAliveService::class.java))
         notificationManager.cancel(NOTIFICATION_ID)
         if (mediaReceiverRegistered) {
             runCatching { unregisterReceiver(mediaActionReceiver) }
@@ -267,6 +322,27 @@ class PlayerActivity : ComponentActivity() {
         mediaSession.isActive = false
         mediaSession.release()
         super.onDestroy()
+    }
+
+    private fun returnToMain() {
+        packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
+            startActivity(
+                launch.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+                ),
+            )
+        }
+    }
+
+    private fun stopPlaybackAndFinish() {
+        if (stopRequested) return
+        stopRequested = true
+        activeEngine?.release()
+        activeEngine = null
+        ActivePlayback.clear()
+        stopService(Intent(this, PlaybackKeepAliveService::class.java))
+        finishAndRemoveTask()
     }
 
     private fun createMediaSession() {
@@ -476,6 +552,7 @@ private fun PlayerRoot(
     onVideoBounds: (Rect) -> Unit,
     onBack: () -> Unit,
 ) {
+    BackHandler(onBack = onBack)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -542,6 +619,9 @@ private fun PlayerRoot(
     val idleTranscoding = remember { MutableStateFlow(false) }
     val transcoding by (exo?.transcoding ?: idleTranscoding).collectAsState()
     val (volume, setVolume) = rememberSystemVolume()
+    val (brightness, setBrightness) = rememberWindowBrightness()
+    val castManager = remember { GlobalContext.get().get<CastManager>() }
+    val castState by castManager.state.collectAsState()
 
     Box(
         Modifier
@@ -583,13 +663,49 @@ private fun PlayerRoot(
                 },
                 volume = volume,
                 onVolume = { setVolume(it) },
+                brightness = brightness,
+                onBrightness = { setBrightness(it) },
                 engineOptions = PlayerEngine.selectable.map { it.label to (it == kind) },
                 onSelectEngine = { index -> switchEngine(PlayerEngine.selectable[index]) },
                 // Manual escape hatch when the picture is black but audio plays.
                 transcodeLabel = if (exo != null) "转码播放" else null,
                 transcodeActive = transcoding,
                 onTranscode = { exo?.switchToTranscode() },
+                castDevices = castState.devices.map { it.id to it.name },
+                castingDeviceId = castState.activeDeviceId,
+                castDiscovering = castState.discovering,
+                castError = castState.error,
+                onDiscoverCast = { scope.launch { castManager.discover() } },
+                onCastTo = { deviceId ->
+                    val item = items.getOrNull(state.currentIndex) ?: return@PlayerControls
+                    scope.launch {
+                        castManager.play(deviceId, item.url, item.title)
+                        if (castManager.state.value.activeDeviceId == deviceId) engine.pause()
+                    }
+                },
+                onStopCast = {
+                    scope.launch {
+                        castManager.stop()
+                        engine.play()
+                    }
+                },
             )
+        }
+    }
+}
+
+@Composable
+private fun rememberWindowBrightness(): Pair<Float, (Float) -> Unit> {
+    val activity = LocalContext.current as? Activity
+    var level by remember(activity) {
+        val current = activity?.window?.attributes?.screenBrightness ?: -1f
+        mutableFloatStateOf(if (current in 0f..1f) current else 0.5f)
+    }
+    return level to { target: Float ->
+        val clamped = target.coerceIn(0.02f, 1f)
+        level = clamped
+        activity?.window?.let { window ->
+            window.attributes = window.attributes.apply { screenBrightness = clamped }
         }
     }
 }
@@ -622,6 +738,7 @@ private fun ExoSurface(engine: ExoVideoEngine, filled: Boolean, modifier: Modifi
             PlayerView(ctx).apply {
                 useController = false
                 keepScreenOn = true
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             }
         },
         update = { view ->

@@ -10,6 +10,8 @@ import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.util.componentScope
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.profile.ProfileTabComponent
@@ -27,6 +29,7 @@ class RootComponent(
     registry: ServerRegistry,
     val themePreferences: ThemePreferences,
     searchHistory: SearchHistory,
+    syncManager: ServerSyncManager,
 ) : ComponentContext by componentContext {
 
     enum class Tab { Home, Browse, Search, Profile }
@@ -36,6 +39,10 @@ class RootComponent(
     private val _activeTab = MutableValue(Tab.Home)
     val activeTab: Value<Tab> = _activeTab
 
+    init {
+        syncManager.start(componentScope(lifecycle))
+    }
+
     /** 首页: TMDB recommendations. */
     val home = HomeTabComponent(
         componentContext = childContext(key = "home"),
@@ -44,6 +51,7 @@ class RootComponent(
         repo = repo,
         registry = registry,
         onOpenSearch = ::openSearch,
+        onOpenLibrary = { selectTab(Tab.Browse) },
         onOpenProfile = { selectTab(Tab.Profile) },
     )
 

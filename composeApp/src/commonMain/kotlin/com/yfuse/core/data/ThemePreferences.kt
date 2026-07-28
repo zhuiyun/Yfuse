@@ -20,6 +20,9 @@ class ThemePreferences(private val settings: Settings) {
         const val KEY_DECODER = "player.decoder"
         const val KEY_AUTO_NEXT = "player.autoNext"
         const val KEY_QUALITY = "player.quality"
+        const val KEY_REDUCE_TRANSPARENCY = "accessibility.reduceTransparency"
+        const val KEY_LARGE_TEXT = "accessibility.largeText"
+        const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
     }
 
     // The design is the light "轻雾玻璃" direction; dark is the alternative.
@@ -46,6 +49,16 @@ class ThemePreferences(private val settings: Settings) {
 
     private val _quality = MutableStateFlow(load(KEY_QUALITY, PlaybackQuality.entries, PlaybackQuality.Auto))
     val quality: StateFlow<PlaybackQuality> = _quality.asStateFlow()
+
+    private val _reduceTransparency =
+        MutableStateFlow(settings.getBoolean(KEY_REDUCE_TRANSPARENCY, false))
+    val reduceTransparency: StateFlow<Boolean> = _reduceTransparency.asStateFlow()
+
+    private val _largeText = MutableStateFlow(settings.getBoolean(KEY_LARGE_TEXT, false))
+    val largeText: StateFlow<Boolean> = _largeText.asStateFlow()
+
+    private val _reduceMotion = MutableStateFlow(settings.getBoolean(KEY_REDUCE_MOTION, false))
+    val reduceMotion: StateFlow<Boolean> = _reduceMotion.asStateFlow()
 
     fun setEngine(engine: PlayerEngine) {
         if (!engine.available) return
@@ -76,6 +89,21 @@ class ThemePreferences(private val settings: Settings) {
     fun setAccent(accent: AccentColor) {
         _accent.value = accent
         settings.putString(KEY_ACCENT, accent.name)
+    }
+
+    fun setReduceTransparency(enabled: Boolean) {
+        _reduceTransparency.value = enabled
+        settings.putBoolean(KEY_REDUCE_TRANSPARENCY, enabled)
+    }
+
+    fun setLargeText(enabled: Boolean) {
+        _largeText.value = enabled
+        settings.putBoolean(KEY_LARGE_TEXT, enabled)
+    }
+
+    fun setReduceMotion(enabled: Boolean) {
+        _reduceMotion.value = enabled
+        settings.putBoolean(KEY_REDUCE_MOTION, enabled)
     }
 
     private fun <T : Enum<T>> load(key: String, values: List<T>, fallback: T): T {

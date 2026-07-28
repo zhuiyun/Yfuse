@@ -5,6 +5,7 @@ import com.yfuse.core.model.SavedServer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ServerRegistryTest {
 
@@ -61,5 +62,54 @@ class ServerRegistryTest {
         val reloaded = ServerRegistry(settings)
         assertEquals(1, reloaded.data.value.servers.size)
         assertEquals("a", reloaded.defaultServer?.id)
+    }
+
+    @Test
+    fun portable_backup_round_trips_credentials_and_default() {
+        val source = ServerRegistry(MapSettings())
+        val first = SavedServer(
+            SavedServer.idOf("https://one.example", "u1"),
+            "https://one.example",
+            "One",
+            "u1",
+            "Alice",
+            "secret-one",
+        )
+        val second = SavedServer(
+            SavedServer.idOf("http://two.local:8096", "u2"),
+            "http://two.local:8096",
+            "Two",
+            "u2",
+            "Bob",
+            "secret-two",
+        )
+        source.addOrUpdate(first)
+        source.addOrUpdate(second)
+        source.setDefault(second.id)
+
+        val target = ServerRegistry(MapSettings())
+        assertEquals(2, target.importBackup(source.exportBackup()).getOrThrow())
+        assertEquals(second.id, target.defaultServer?.id)
+        assertEquals("secret-one", target.serverById(first.id)?.accessToken)
+    }
+
+    @Test
+    fun portable_import_merges_and_rejects_invalid_payload() {
+        val source = ServerRegistry(MapSettings())
+        val imported = SavedServer(
+            SavedServer.idOf("https://new.example", "u"),
+            "https://new.example",
+            "New",
+            "u",
+            "User",
+            "new-token",
+        )
+        source.addOrUpdate(imported)
+
+        val target = ServerRegistry(MapSettings())
+        target.addOrUpdate(server("local"))
+        target.importBackup(source.exportBackup()).getOrThrow()
+        assertEquals(2, target.data.value.servers.size)
+        assertTrue(target.importBackup("""{"v":99,"s":[]}""").isFailure)
     }
 }

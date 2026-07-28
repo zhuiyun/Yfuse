@@ -43,8 +43,13 @@ class SearchComponent(
     @Serializable
     sealed interface Config {
         @Serializable data object Home : Config
-        @Serializable data class Detail(val itemId: String) : Config
-        @Serializable data class Player(val itemId: String, val startPositionTicks: Long) : Config
+        @Serializable data class Detail(val serverId: String, val itemId: String) : Config
+        @Serializable
+        data class Player(
+            val serverId: String,
+            val itemId: String,
+            val startPositionTicks: Long,
+        ) : Config
     }
 
     sealed interface Child {
@@ -69,7 +74,9 @@ class SearchComponent(
                 repo = repo,
                 registry = registry,
                 history = history,
-                onOpenItem = { navigation.push(Config.Detail(it)) },
+                onOpenItem = { serverId, itemId ->
+                    navigation.push(Config.Detail(serverId, itemId))
+                },
             ),
         )
         is Config.Detail -> Child.Detail(
@@ -79,8 +86,11 @@ class SearchComponent(
                 repo = repo,
                 registry = registry,
                 itemId = config.itemId,
+                serverId = config.serverId,
                 onBack = { navigation.pop() },
-                onPlay = { itemId, ticks -> navigation.push(Config.Player(itemId, ticks)) },
+                onPlay = { serverId, itemId, ticks ->
+                    navigation.push(Config.Player(serverId, itemId, ticks))
+                },
             ),
         )
         is Config.Player -> Child.Player(
@@ -91,6 +101,7 @@ class SearchComponent(
                 registry = registry,
                 itemId = config.itemId,
                 startPositionTicks = config.startPositionTicks,
+                serverId = config.serverId,
                 onBack = { navigation.pop() },
             ),
         )
@@ -103,10 +114,11 @@ class SearchHomeComponent(
     repo: EmbyRepository,
     private val registry: ServerRegistry,
     history: SearchHistory,
-    val onOpenItem: (itemId: String) -> Unit,
+    val onOpenItem: (serverId: String, itemId: String) -> Unit,
 ) : ComponentContext by componentContext {
 
-    val serverBaseUrl: String get() = registry.defaultServer?.baseUrl.orEmpty()
+    fun serverBaseUrl(serverId: String): String =
+        registry.serverById(serverId)?.baseUrl.orEmpty()
 
     val store = SearchStoreFactory(storeFactory, repo, registry, history).create()
 

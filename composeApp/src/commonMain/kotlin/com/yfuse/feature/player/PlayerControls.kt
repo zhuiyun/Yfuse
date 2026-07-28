@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +40,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -47,18 +51,20 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.cssLinearGradient
+import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 /** Controls fade out after this long without interaction, while playing. */
 private const val AUTO_HIDE_MS = 4_000L
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 
-/** The settings panel's three tabs — 字幕·音轨 / 倍速 / 内核. */
-private enum class Tab(val label: String) { Subtitle("字幕·音轨"), Speed("倍速"), Engine("内核") }
+/** The reference exposes only two secondary entries: 字幕 and 更多. */
+private enum class Tab(val label: String) { Subtitle("字幕"), Cast("投屏"), More("更多") }
 
 /**
  * The player chrome, transcribed from the prototype's landscape player: a gradient
@@ -84,6 +90,9 @@ fun PlayerControls(
     /** System volume, 0f..1f, and its setter — drives the bottom-left level chip. */
     volume: Float = 0f,
     onVolume: (Float) -> Unit = {},
+    /** Current window brightness, 0f..1f. Vertical drags on the left half adjust it. */
+    brightness: Float = 0.5f,
+    onBrightness: (Float) -> Unit = {},
     /** Engine picker rows: label to selected. */
     engineOptions: List<Pair<String, Boolean>> = emptyList(),
     onSelectEngine: (Int) -> Unit = {},
@@ -91,14 +100,32 @@ fun PlayerControls(
     transcodeLabel: String? = null,
     transcodeActive: Boolean = false,
     onTranscode: () -> Unit = {},
+    castDevices: List<Pair<String, String>> = emptyList(),
+    castingDeviceId: String? = null,
+    castDiscovering: Boolean = false,
+    castError: String? = null,
+    onDiscoverCast: () -> Unit = {},
+    onCastTo: (String) -> Unit = {},
+    onStopCast: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(true) }
     var locked by remember { mutableStateOf(false) }
     var settingsTab by remember { mutableStateOf<Tab?>(null) }
     var drawerOpen by remember { mutableStateOf(false) }
+    var gestureHud by remember { mutableStateOf<String?>(null) }
+    val haptics = LocalHapticFeedback.current
     // Bumped by every interaction so the auto-hide timer restarts.
     var interactions by remember { mutableIntStateOf(0) }
+    val latestPosition by rememberUpdatedState(state.positionMs)
+    val latestDuration by rememberUpdatedState(state.durationMs)
+    val latestSpeed by rememberUpdatedState(state.speed)
+    val latestVolume by rememberUpdatedState(volume)
+    val latestBrightness by rememberUpdatedState(brightness)
+    val latestOnSeek by rememberUpdatedState(onSeek)
+    val latestOnSpeed by rememberUpdatedState(onSpeed)
+    val latestOnVolume by rememberUpdatedState(onVolume)
+    val latestOnBrightness by rememberUpdatedState(onBrightness)
 
     fun poke() {
         interactions++
@@ -110,18 +137,93 @@ fun PlayerControls(
         delay(AUTO_HIDE_MS)
         visible = false
     }
+    LaunchedEffect(gestureHud) {
+        if (gestureHud != null) {
+            delay(850)
+            gestureHud = null
+        }
+    }
 
     Box(modifier.fillMaxSize()) {
         // Tap catcher sits below the controls, so buttons win the gesture.
         Box(
-            Modifier.fillMaxSize().noRippleClickable {
-                when {
-                    settingsTab != null -> settingsTab = null
-                    drawerOpen -> drawerOpen = false
-                    visible -> visible = false
-                    else -> poke()
+            Modifier
+                .fillMaxSize()
+                .pointerInput(
+                    settingsTab,
+                    drawerOpen,
+                    visible,
+                ) {
+                    detectTapGestures(
+                        onTap = {
+                            when {
+                                settingsTab != null -> settingsTab = null
+                                drawerOpen -> drawerOpen = false
+                                visible -> visible = false
+                                else -> poke()
+                            }
+                        },
+                        onDoubleTap = { offset ->
+                            val delta = if (offset.x < size.width / 2f) -10_000L else 10_000L
+                            latestOnSeek((latestPosition + delta).coerceIn(0L, latestDuration))
+                            gestureHud = if (delta < 0) "快退 10 秒" else "快进 10 秒"
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            poke()
+                        },
+                        onLongPress = {
+                            val target = if (latestSpeed >= 1.95f) 1f else 2f
+                            latestOnSpeed(target)
+                            gestureHud = if (target > 1f) "2.0× 倍速" else "恢复正常速度"
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            poke()
+                        },
+                    )
                 }
-            },
+                .pointerInput(
+                    state.currentIndex,
+                ) {
+                    var totalX = 0f
+                    var totalY = 0f
+                    var startX = 0f
+                    var seekTarget = latestPosition
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            startX = offset.x
+                            totalX = 0f
+                            totalY = 0f
+                            seekTarget = latestPosition
+                        },
+                        onDragEnd = {
+                            if (abs(totalX) > abs(totalY) && latestDuration > 0) {
+                                latestOnSeek(seekTarget)
+                            }
+                            poke()
+                        },
+                        onDragCancel = { gestureHud = null },
+                    ) { change, amount ->
+                        change.consume()
+                        totalX += amount.x
+                        totalY += amount.y
+                        if (abs(totalX) > abs(totalY)) {
+                            val span = latestDuration.coerceAtLeast(1L)
+                            seekTarget = (
+                                latestPosition + totalX / size.width * span * 0.45f
+                                ).toLong().coerceIn(0L, span)
+                            gestureHud = "${seekTarget.asClock()} / ${span.asClock()}"
+                        } else {
+                            val delta = -totalY / size.height
+                            if (startX < size.width / 2f) {
+                                val target = (latestBrightness + delta).coerceIn(0.02f, 1f)
+                                latestOnBrightness(target)
+                                gestureHud = "亮度 ${(target * 100).toInt()}%"
+                            } else {
+                                val target = (latestVolume + delta).coerceIn(0f, 1f)
+                                latestOnVolume(target)
+                                gestureHud = "音量 ${(target * 100).toInt()}%"
+                            }
+                        }
+                    }
+                }
         )
 
         state.error?.let { message ->
@@ -145,7 +247,6 @@ fun PlayerControls(
                 filled = filled,
                 hasEpisodes = state.itemCount > 1,
                 onBack = onBack,
-                onLock = { locked = true; visible = true },
                 onOpenDrawer = { poke(); drawerOpen = true },
                 onToggleFill = { poke(); onToggleFill() },
                 modifier = Modifier.align(Alignment.TopCenter),
@@ -166,7 +267,12 @@ fun PlayerControls(
                 onSeek = { poke(); onSeek(it) },
                 onScrub = { interactions++ },
                 onOpenTab = { poke(); settingsTab = it },
-                hasEngines = engineOptions.isNotEmpty() || transcodeLabel != null,
+                casting = castingDeviceId != null,
+                onToggleCast = {
+                    poke()
+                    settingsTab = Tab.Cast
+                    if (castDevices.isEmpty()) onDiscoverCast()
+                },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
@@ -176,15 +282,37 @@ fun PlayerControls(
                 tab = tab,
                 state = state,
                 speeds = SPEEDS,
+                filled = filled,
+                hasEpisodes = state.itemCount > 1,
                 engineOptions = engineOptions,
                 transcodeLabel = transcodeLabel,
                 transcodeActive = transcodeActive,
+                castDevices = castDevices,
+                castingDeviceId = castingDeviceId,
+                castDiscovering = castDiscovering,
+                castError = castError,
                 onTab = { settingsTab = it },
                 onSelectSubtitle = { onSelectSubtitle(it); settingsTab = null },
                 onSelectAudio = { onSelectAudio(it); settingsTab = null },
                 onSpeed = { onSpeed(it); settingsTab = null },
                 onSelectEngine = { onSelectEngine(it); settingsTab = null },
                 onTranscode = { onTranscode(); settingsTab = null },
+                onDiscoverCast = onDiscoverCast,
+                onCastTo = onCastTo,
+                onStopCast = onStopCast,
+                onOpenEpisodes = {
+                    settingsTab = null
+                    drawerOpen = true
+                },
+                onToggleFill = {
+                    onToggleFill()
+                    settingsTab = null
+                },
+                onLock = {
+                    settingsTab = null
+                    locked = true
+                    visible = true
+                },
                 onDismiss = { settingsTab = null },
             )
         }
@@ -198,7 +326,48 @@ fun PlayerControls(
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
         }
+
+        gestureHud?.let { value ->
+            Text(
+                value,
+                style = sc(15f, 700),
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .glass(
+                        shape = RoundedCornerShape(22.dp),
+                        fill = Color.Black.copy(alpha = 0.56f),
+                        border = Color.White.copy(alpha = 0.24f),
+                    )
+                    .padding(horizontal = 22.dp, vertical = 13.dp),
+            )
+        }
+
+        if (state.hasNext && state.durationMs > 0L) {
+            val remainingSeconds = ((state.durationMs - state.positionMs) / 1_000L)
+            if (remainingSeconds in 1L..10L) {
+                Text(
+                    "下一集将在 ${remainingSeconds} 秒后播放",
+                    style = sc(12f, 700),
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 22.dp, bottom = 96.dp)
+                        .glass(
+                            shape = GlassShapes.chip,
+                            fill = Color.Black.copy(alpha = 0.5f),
+                            border = Color.White.copy(alpha = 0.22f),
+                        )
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                )
+            }
+        }
     }
+}
+
+private fun Long.asClock(): String {
+    val seconds = (this / 1_000L).coerceAtLeast(0L)
+    return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
 }
 
 @Composable
@@ -231,8 +400,11 @@ private fun PlaybackErrorOverlay(
                     style = sc(12f, 600),
                     color = Color.White.copy(alpha = 0.82f),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color.White.copy(alpha = 0.12f))
+                        .glass(
+                            shape = RoundedCornerShape(18.dp),
+                            fill = Color.White.copy(alpha = 0.10f),
+                            border = Color.White.copy(alpha = 0.28f),
+                        )
                         .noRippleClickable(onBack)
                         .padding(horizontal = 18.dp, vertical = 9.dp),
                 )
@@ -241,8 +413,11 @@ private fun PlaybackErrorOverlay(
                     style = sc(12f, 700),
                     color = Color(0xFF1B2436),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color.White.copy(alpha = 0.92f))
+                        .glass(
+                            shape = RoundedCornerShape(18.dp),
+                            fill = Color.White.copy(alpha = 0.68f),
+                            border = Color.White.copy(alpha = 0.88f),
+                        )
                         .noRippleClickable(onRetry)
                         .padding(horizontal = 18.dp, vertical = 9.dp),
                 )
@@ -259,7 +434,6 @@ private fun TopBar(
     filled: Boolean,
     hasEpisodes: Boolean,
     onBack: () -> Unit,
-    onLock: () -> Unit,
     onOpenDrawer: () -> Unit,
     onToggleFill: () -> Unit,
     modifier: Modifier = Modifier,
@@ -286,7 +460,15 @@ private fun TopBar(
                 AppIcons.ChevronLeft,
                 contentDescription = "返回",
                 tint = Color.White,
-                modifier = Modifier.size(16.dp).noRippleClickable(onBack),
+                modifier = Modifier
+                    .size(48.dp)
+                    .glass(
+                        shape = CircleShape,
+                        fill = PlayerTokens.controlFill,
+                        border = Color.White.copy(alpha = 0.28f),
+                    )
+                    .noRippleClickable(onBack)
+                    .padding(14.dp),
             )
             Column {
                 Text(
@@ -313,16 +495,15 @@ private fun TopBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (hasEpisodes) {
-                CircleControl(AppIcons.Menu, "剧集列表", 32.dp, 15.dp, onOpenDrawer)
+                CircleControl(AppIcons.Menu, "剧集列表", 48.dp, 19.dp, onOpenDrawer)
             }
             CircleControl(
                 icon = if (filled) AppIcons.Collapse else AppIcons.Expand,
-                description = "画面填充",
-                size = 32.dp,
-                iconSize = 14.dp,
+                description = "切换画面比例",
+                size = 48.dp,
+                iconSize = 19.dp,
                 onClick = onToggleFill,
             )
-            CircleControl(AppIcons.Lock, "锁屏", 32.dp, 14.dp, onLock)
         }
     }
 }
@@ -342,7 +523,7 @@ private fun TransportRow(
             horizontalArrangement = Arrangement.spacedBy(38.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircleControl(AppIcons.Rewind, "快退 10 秒", 46.dp, 16.dp, onRewind)
+            CircleControl(AppIcons.Rewind, "快退 10 秒", 48.dp, 17.dp, onRewind)
 
             if (state.buffering) {
                 Box(Modifier.size(58.dp), contentAlignment = Alignment.Center) {
@@ -353,8 +534,11 @@ private fun TransportRow(
                 Box(
                     Modifier
                         .size(58.dp)
-                        .clip(CircleShape)
-                        .background(PlayerTokens.playFill)
+                        .glass(
+                            shape = CircleShape,
+                            fill = PlayerTokens.playFill,
+                            border = Color.White.copy(alpha = 0.42f),
+                        )
                         .noRippleClickable(onPlayPause),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -367,7 +551,7 @@ private fun TransportRow(
                 }
             }
 
-            CircleControl(AppIcons.Forward, "快进 10 秒", 46.dp, 16.dp, onForward)
+            CircleControl(AppIcons.Forward, "快进 10 秒", 48.dp, 17.dp, onForward)
         }
     }
 }
@@ -381,7 +565,8 @@ private fun BottomBar(
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
     onOpenTab: (Tab) -> Unit,
-    hasEngines: Boolean,
+    casting: Boolean,
+    onToggleCast: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Non-null only while the thumb is held; the engine's position is ignored then
@@ -435,12 +620,22 @@ private fun BottomBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (state.subtitleTracks.isNotEmpty() || state.audioTracks.size > 1) {
-                    Chip("字幕·音轨") { onOpenTab(Tab.Subtitle) }
+                    Chip("字幕") { onOpenTab(Tab.Subtitle) }
                 }
-                Chip(speedLabel(state.speed)) { onOpenTab(Tab.Speed) }
-                if (hasEngines) {
-                    Chip("内核") { onOpenTab(Tab.Engine) }
+                if (state.audioTracks.size > 1) {
+                    Chip("音轨") { onOpenTab(Tab.Subtitle) }
                 }
+                IconChip(
+                    icon = AppIcons.Cast,
+                    description = if (casting) "停止投送" else "投屏",
+                    active = casting,
+                    onClick = onToggleCast,
+                )
+                IconChip(
+                    icon = AppIcons.More,
+                    description = "更多",
+                    onClick = { onOpenTab(Tab.More) },
+                )
             }
         }
     }
@@ -506,8 +701,11 @@ private fun VolumeChip(volume: Float, onVolume: (Float) -> Unit) {
     var width by remember { mutableStateOf(1f) }
     Row(
         Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(PlayerTokens.chipFill)
+            .glass(
+                shape = RoundedCornerShape(16.dp),
+                fill = PlayerTokens.chipFill,
+                border = Color.White.copy(alpha = 0.24f),
+            )
             .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -552,11 +750,50 @@ private fun Chip(label: String, onClick: () -> Unit) {
         color = Color.White.copy(alpha = 0.9f),
         maxLines = 1,
         modifier = Modifier
-            .clip(GlassShapes.chip)
-            .background(PlayerTokens.chipFill)
+            .glass(
+                shape = GlassShapes.chip,
+                fill = PlayerTokens.chipFill,
+                border = Color.White.copy(alpha = 0.24f),
+            )
             .noRippleClickable(onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )
+}
+
+@Composable
+private fun IconChip(
+    icon: ImageVector,
+    description: String,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .width(46.dp)
+            .height(44.dp)
+            .glass(
+                shape = RoundedCornerShape(14.dp),
+                fill = if (active) {
+                    Brand.Primary.copy(alpha = 0.7f)
+                } else {
+                    PlayerTokens.chipFill
+                },
+                border = if (active) {
+                    Color.White.copy(alpha = 0.36f)
+                } else {
+                    Color.White.copy(alpha = 0.24f)
+                },
+            )
+            .noRippleClickable(onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = description,
+            tint = Color.White,
+            modifier = Modifier.size(18.dp),
+        )
+    }
 }
 
 /** `rgba(255,255,255,.16)` circle over a `rgba(255,255,255,.28)` hairline. */
@@ -571,8 +808,11 @@ private fun CircleControl(
     Box(
         Modifier
             .size(size)
-            .clip(CircleShape)
-            .background(PlayerTokens.controlFill)
+            .glass(
+                shape = CircleShape,
+                fill = PlayerTokens.controlFill,
+                border = Color.White.copy(alpha = 0.28f),
+            )
             .noRippleClickable(onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -595,8 +835,11 @@ private fun LockedOverlay(onUnlock: () -> Unit) {
             Box(
                 Modifier
                     .size(52.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.1f)),
+                    .glass(
+                        shape = CircleShape,
+                        fill = Color.White.copy(alpha = 0.09f),
+                        border = Color.White.copy(alpha = 0.24f),
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(AppIcons.Lock, null, tint = Color.White, modifier = Modifier.size(20.dp))
@@ -611,8 +854,11 @@ private fun LockedOverlay(onUnlock: () -> Unit) {
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 22.dp, bottom = 40.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color.White.copy(alpha = 0.12f))
+                .glass(
+                    shape = RoundedCornerShape(20.dp),
+                    fill = Color.White.copy(alpha = 0.10f),
+                    border = Color.White.copy(alpha = 0.28f),
+                )
                 .noRippleClickable(onUnlock)
                 .padding(horizontal = 18.dp, vertical = 9.dp),
         )
@@ -628,21 +874,33 @@ private fun SettingsPanel(
     tab: Tab,
     state: PlaybackState,
     speeds: List<Float>,
+    filled: Boolean,
+    hasEpisodes: Boolean,
     engineOptions: List<Pair<String, Boolean>>,
     transcodeLabel: String?,
     transcodeActive: Boolean,
+    castDevices: List<Pair<String, String>>,
+    castingDeviceId: String?,
+    castDiscovering: Boolean,
+    castError: String?,
     onTab: (Tab) -> Unit,
     onSelectSubtitle: (String) -> Unit,
     onSelectAudio: (String) -> Unit,
     onSpeed: (Float) -> Unit,
     onSelectEngine: (Int) -> Unit,
     onTranscode: () -> Unit,
+    onDiscoverCast: () -> Unit,
+    onCastTo: (String) -> Unit,
+    onStopCast: () -> Unit,
+    onOpenEpisodes: () -> Unit,
+    onToggleFill: () -> Unit,
+    onLock: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val tabs = buildList {
         if (state.subtitleTracks.isNotEmpty() || state.audioTracks.isNotEmpty()) add(Tab.Subtitle)
-        add(Tab.Speed)
-        if (engineOptions.isNotEmpty() || transcodeLabel != null) add(Tab.Engine)
+        add(Tab.Cast)
+        add(Tab.More)
     }
     val shape = RoundedCornerShape(18.dp)
 
@@ -654,8 +912,11 @@ private fun SettingsPanel(
                 .padding(end = 120.dp, bottom = 70.dp)
                 .width(230.dp)
                 .shadow(Shadows.playerSheet, shape)
-                .clip(shape)
-                .background(PlayerTokens.sheetFillLandscape)
+                .glass(
+                    shape = shape,
+                    fill = PlayerTokens.sheetFillLandscape,
+                    border = Color.White.copy(alpha = 0.42f),
+                )
                 .noRippleClickable { }
                 .padding(top = 6.dp, bottom = 12.dp),
         ) {
@@ -671,7 +932,22 @@ private fun SettingsPanel(
                             entry.label,
                             style = sc(12.5f, if (active) 700 else 500),
                             color = if (active) Brand.Primary else Color(0xFF8A93A3),
-                            modifier = Modifier.noRippleClickable { onTab(entry) },
+                            modifier = Modifier
+                                .glass(
+                                    shape = GlassShapes.thumb,
+                                    fill = if (active) {
+                                        Brand.Primary.copy(alpha = 0.13f)
+                                    } else {
+                                        Color.White.copy(alpha = 0.10f)
+                                    },
+                                    border = if (active) {
+                                        Brand.Primary.copy(alpha = 0.24f)
+                                    } else {
+                                        Color.White.copy(alpha = 0.14f)
+                                    },
+                                )
+                                .noRippleClickable { onTab(entry) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
                         )
                         Spacer(Modifier.height(8.dp))
                         Box(
@@ -688,7 +964,7 @@ private fun SettingsPanel(
             // `padding:10px 14px 2px; max-height:150px`.
             Column(
                 Modifier
-                    .heightIn(max = 150.dp)
+                    .heightIn(max = 210.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 2.dp),
             ) {
@@ -711,17 +987,55 @@ private fun SettingsPanel(
                         }
                     }
 
-                    Tab.Speed -> speeds.forEach { speed ->
-                        OptionRow(speedLabel(speed), speed == state.speed) { onSpeed(speed) }
-                    }
+                    Tab.More -> {
+                        GroupLabel("播放")
+                        if (hasEpisodes) {
+                            OptionRow("剧集列表", false, onClick = onOpenEpisodes)
+                        }
+                        OptionRow(if (filled) "适应画面" else "填充画面", filled, onClick = onToggleFill)
+                        OptionRow("锁定控制", false, onClick = onLock)
 
-                    Tab.Engine -> {
+                        GroupLabel("播放速度")
+                        speeds.forEach { speed ->
+                            OptionRow(speedLabel(speed), speed == state.speed) { onSpeed(speed) }
+                        }
+
+                        if (engineOptions.isNotEmpty() || transcodeLabel != null) {
+                            GroupLabel("播放器内核")
+                        }
                         engineOptions.forEachIndexed { index, (label, selected) ->
                             OptionRow(label, selected) { onSelectEngine(index) }
                         }
                         if (transcodeLabel != null) {
                             OptionRow(transcodeLabel, transcodeActive, onClick = onTranscode)
                         }
+                    }
+
+                    Tab.Cast -> {
+                        GroupLabel("局域网投屏设备")
+                        if (castDiscovering) {
+                            Text(
+                                "正在发现 DLNA 设备…",
+                                style = mr(11.5f, 500),
+                                color = Color(0xFF8A93A3),
+                                modifier = Modifier.padding(vertical = 10.dp),
+                            )
+                        }
+                        castDevices.forEach { (id, name) ->
+                            OptionRow(name, id == castingDeviceId) { onCastTo(id) }
+                        }
+                        if (castingDeviceId != null) {
+                            OptionRow("停止投屏", false, onClick = onStopCast)
+                        }
+                        if (castError != null) {
+                            Text(
+                                castError,
+                                style = mr(10.5f, 500),
+                                color = Brand.Danger,
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                        }
+                        OptionRow("重新扫描", false, onClick = onDiscoverCast)
                     }
                 }
             }
@@ -749,8 +1063,19 @@ private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(GlassShapes.chipSmall)
-            .background(if (selected) Brand.Primary.copy(alpha = 0.1f) else Color.Transparent)
+            .glass(
+                shape = GlassShapes.thumb,
+                fill = if (selected) {
+                    Brand.Primary.copy(alpha = 0.13f)
+                } else {
+                    Color.White.copy(alpha = 0.08f)
+                },
+                border = if (selected) {
+                    Brand.Primary.copy(alpha = 0.24f)
+                } else {
+                    Color.White.copy(alpha = 0.12f)
+                },
+            )
             .noRippleClickable(onClick)
             .padding(horizontal = 10.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -787,7 +1112,11 @@ private fun EpisodeDrawer(
         modifier
             .fillMaxHeight()
             .width(190.dp)
-            .background(PlayerTokens.drawerFillLandscape)
+            .glass(
+                shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp),
+                fill = PlayerTokens.drawerFillLandscape,
+                border = Color.White.copy(alpha = 0.24f),
+            )
             .noRippleClickable { }
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 16.dp),
@@ -812,9 +1141,18 @@ private fun EpisodeDrawer(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clip(GlassShapes.chipSmall)
-                    .background(
-                        if (current) PlayerTokens.episodeActiveFill else PlayerTokens.episodeIdleFill,
+                    .glass(
+                        shape = GlassShapes.thumb,
+                        fill = if (current) {
+                            PlayerTokens.episodeActiveFill
+                        } else {
+                            PlayerTokens.episodeIdleFill
+                        },
+                        border = if (current) {
+                            Color.White.copy(alpha = 0.28f)
+                        } else {
+                            Color.White.copy(alpha = 0.12f)
+                        },
                     )
                     .noRippleClickable { onSelect(index) }
                     .padding(6.dp),

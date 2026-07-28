@@ -150,6 +150,8 @@ class MpvVideoEngine(
             )
             instance.setOptionString("keep-open", "always")
             instance.setOptionString("cache", "yes")
+            instance.setOptionString("keepaspect", "yes")
+            instance.setOptionString("panscan", "0")
             if (startPositionMs > 0) {
                 instance.setOptionString("start", "+${startPositionMs / 1000}")
             }

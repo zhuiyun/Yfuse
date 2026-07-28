@@ -6,9 +6,11 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.network.LanDiscovery
 import com.yfuse.core.util.componentScope
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import org.koin.core.context.GlobalContext
 
 class ServersComponent(
     componentContext: ComponentContext,
@@ -19,7 +21,8 @@ class ServersComponent(
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
 
-    val store = ServersStoreFactory(storeFactory, repo, registry).create()
+    private val discovery: LanDiscovery = GlobalContext.get().get()
+    val store = ServersStoreFactory(storeFactory, repo, registry, discovery).create()
 
     init {
         val scope = componentScope(lifecycle)

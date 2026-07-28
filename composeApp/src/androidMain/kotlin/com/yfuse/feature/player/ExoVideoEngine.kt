@@ -99,6 +99,11 @@ class ExoVideoEngine(
         ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, httpFactory)))
             .build()
+            .apply {
+                // Preserve the stream's native display aspect ratio. PlayerView uses
+                // FIT by default, so no axis is stretched and no picture is cropped.
+                videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+            }
     }
 
     private val listener = object : Player.Listener {

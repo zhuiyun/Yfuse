@@ -7,22 +7,41 @@ import com.yfuse.core.model.Person
 /** Builds Emby image URLs. Emby image endpoints are public (no token needed). */
 object EmbyImages {
 
-    fun primary(baseUrl: String, itemId: String, tag: String?, maxHeight: Int = 450): String? {
-        val t = tag ?: return null
-        return "${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Primary?tag=$t&maxHeight=$maxHeight&quality=90"
+    fun primary(
+        baseUrl: String,
+        itemId: String,
+        tag: String?,
+        maxHeight: Int = 450,
+        accessToken: String? = null,
+    ): String? {
+        if (baseUrl.isBlank() || itemId.isBlank()) return null
+        val tagQuery = tag?.let { "tag=$it&" }.orEmpty()
+        val tokenQuery = accessToken?.takeIf { it.isNotBlank() }?.let { "&api_key=$it" }.orEmpty()
+        return "${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Primary?${tagQuery}maxHeight=$maxHeight&quality=90$tokenQuery"
     }
 
     fun backdropOf(baseUrl: String, itemId: String, tag: String?, maxWidth: Int = 1280): String? {
-        val t = tag ?: return null
-        return "${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Backdrop/0?tag=$t&maxWidth=$maxWidth&quality=85"
+        if (baseUrl.isBlank() || itemId.isBlank()) return null
+        val tagQuery = tag?.let { "tag=$it&" }.orEmpty()
+        return "${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Backdrop/0?${tagQuery}maxWidth=$maxWidth&quality=85"
     }
 
-    fun poster(baseUrl: String, item: MediaItem, maxHeight: Int = 450): String? =
-        primary(baseUrl, item.posterItemId, item.posterTag, maxHeight)
+    fun poster(
+        baseUrl: String,
+        item: MediaItem,
+        maxHeight: Int = 450,
+        accessToken: String? = null,
+    ): String? = primary(baseUrl, item.posterItemId, item.posterTag, maxHeight, accessToken)
 
-    fun backdrop(baseUrl: String, item: MediaItem, maxWidth: Int = 1280): String? {
+    fun backdrop(
+        baseUrl: String,
+        item: MediaItem,
+        maxWidth: Int = 1280,
+        accessToken: String? = null,
+    ): String? {
         val id = item.backdropItemId ?: return null
-        return backdropOf(baseUrl, id, item.backdropTag, maxWidth)
+        val raw = backdropOf(baseUrl, id, item.backdropTag, maxWidth) ?: return null
+        return accessToken?.takeIf { it.isNotBlank() }?.let { "$raw&api_key=$it" } ?: raw
     }
 
     fun poster(baseUrl: String, detail: MediaDetail, maxHeight: Int = 600): String? =

@@ -7,7 +7,11 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.network.DiscoveredServer
+import com.yfuse.core.network.LanDiscovery
+import com.yfuse.core.network.createLanDiscovery
 import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -36,7 +40,7 @@ data class LoginForm(
         }
 
     val canSubmit: Boolean
-        get() = host.isNotBlank() && username.isNotBlank() && password.isNotBlank() && !submitting
+        get() = host.isNotBlank() && username.isNotBlank() && !submitting
 }
 
 data class ServersState(
@@ -44,6 +48,9 @@ data class ServersState(
     val defaultServerId: String? = null,
     val dialogVisible: Boolean = false,
     val form: LoginForm = LoginForm(),
+    val scanning: Boolean = false,
+    val discovered: List<DiscoveredServer> = emptyList(),
+    val publicUsers: List<PublicUserDto> = emptyList(),
 )
 
 sealed interface ServersIntent {
@@ -55,6 +62,9 @@ sealed interface ServersIntent {
     data class UsernameChanged(val value: String) : ServersIntent
     data class PasswordChanged(val value: String) : ServersIntent
     data object Submit : ServersIntent
+    data object Scan : ServersIntent
+    data class SelectDiscovered(val server: DiscoveredServer) : ServersIntent
+    data class SelectPublicUser(val name: String) : ServersIntent
     data class SelectDefault(val id: String) : ServersIntent
     data class Remove(val id: String) : ServersIntent
 }
@@ -80,12 +90,16 @@ private sealed interface Msg {
     data object Submitting : Msg
     data object SubmitDone : Msg
     data class SubmitError(val m: String) : Msg
+    data object ScanStarted : Msg
+    data class ScanDone(val servers: List<DiscoveredServer>) : Msg
+    data class PublicUsers(val users: List<PublicUserDto>) : Msg
 }
 
 class ServersStoreFactory(
     private val storeFactory: StoreFactory,
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
+    private val discovery: LanDiscovery = createLanDiscovery(),
 ) {
     fun create(): Store<ServersIntent, ServersState, ServersLabel> =
         storeFactory.create(
@@ -117,8 +131,35 @@ class ServersStoreFactory(
                 is ServersIntent.UsernameChanged -> dispatch(Msg.Username(intent.value))
                 is ServersIntent.PasswordChanged -> dispatch(Msg.Password(intent.value))
                 ServersIntent.Submit -> submit()
+                ServersIntent.Scan -> scan()
+                is ServersIntent.SelectDiscovered -> selectDiscovered(intent.server)
+                is ServersIntent.SelectPublicUser ->
+                    dispatch(Msg.Username(intent.name))
                 is ServersIntent.SelectDefault -> registry.setDefault(intent.id)
                 is ServersIntent.Remove -> registry.remove(intent.id)
+            }
+        }
+
+        private fun scan() {
+            dispatch(Msg.ScanStarted)
+            scope.launch {
+                dispatch(Msg.ScanDone(runCatching { discovery.discover() }.getOrDefault(emptyList())))
+            }
+        }
+
+        private fun selectDiscovered(server: DiscoveredServer) {
+            val match = Regex("""^(https?)://([^/:]+)(?::(\d+))?""")
+                .find(server.address.trim())
+            val https = match?.groupValues?.getOrNull(1).equals("https", true)
+            val host = match?.groupValues?.getOrNull(2).orEmpty()
+            val port = match?.groupValues?.getOrNull(3)
+                ?.takeIf(String::isNotBlank)
+                ?: if (https) "443" else "8096"
+            dispatch(Msg.Protocol(https))
+            dispatch(Msg.Host(host))
+            dispatch(Msg.Port(port))
+            scope.launch {
+                dispatch(Msg.PublicUsers(repo.publicUsers(server.address).getOrDefault(emptyList())))
             }
         }
 
@@ -151,6 +192,9 @@ class ServersStoreFactory(
             Msg.Submitting -> copy(form = form.copy(submitting = true, error = null))
             Msg.SubmitDone -> copy(dialogVisible = false, form = LoginForm())
             is Msg.SubmitError -> copy(form = form.copy(submitting = false, error = msg.m))
+            Msg.ScanStarted -> copy(scanning = true, discovered = emptyList())
+            is Msg.ScanDone -> copy(scanning = false, discovered = msg.servers)
+            is Msg.PublicUsers -> copy(publicUsers = msg.users)
         }
     }
 }

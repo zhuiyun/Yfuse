@@ -56,6 +56,7 @@ kotlin {
             // Native engines fetched by scripts/fetch-engines.sh (gitignored).
             implementation(files("libs/libmpv-release.aar"))
             implementation(libs.androidx.palette)
+            implementation(libs.zxing.core)
         }
 
         commonTest.dependencies {
@@ -86,6 +87,16 @@ val releaseSigningReady = releaseSigningProperties.getProperty("storeFile")
     ?.let(rootProject::file)
     ?.exists() == true
 
+val versionFile = rootProject.file("version.properties")
+val storedVersionCode = Properties().apply {
+    versionFile.inputStream().use { load(it) }
+}.getProperty("VERSION_CODE", "1").toInt()
+val isReleaseBuild = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true) &&
+        (it.contains("assemble", true) || it.contains("bundle", true) || it.contains("package", true))
+}
+val buildVersionCode = if (isReleaseBuild) storedVersionCode + 1 else storedVersionCode
+
 android {
     namespace = "com.yfuse"
     // libmpv's AAR requires minCompileSdk 36; targetSdk stays at 35.
@@ -99,8 +110,8 @@ android {
         applicationId = "com.yfuse"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = buildVersionCode
+        versionName = "0.1.$buildVersionCode"
 
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
 
@@ -148,6 +159,12 @@ android {
     }
 
     packaging {
+        // The bundled MPV/FFmpeg libraries account for most of the APK. Store
+        // them deflated so sideload and update packages stay compact; Android
+        // extracts them on install on our minSdk 26 devices.
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += setOf(
                 "/META-INF/{AL2.0,LGPL2.1}",
@@ -157,6 +174,16 @@ android {
                 "DebugProbesKt.bin",
                 "kotlin-tooling-metadata.json",
             )
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == "assembleRelease") {
+        doLast {
+            if (isReleaseBuild && storedVersionCode < buildVersionCode) {
+                versionFile.writeText("VERSION_CODE=$buildVersionCode\n")
+            }
         }
     }
 }

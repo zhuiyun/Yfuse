@@ -21,6 +21,7 @@ class HomeComponent(
     private val onOpenEmbyItem: (String) -> Unit,
     private val onOpenTmdbItem: (TmdbItem, String?) -> Unit,
     val onOpenSearch: () -> Unit,
+    val onOpenLibrary: () -> Unit,
     val onOpenProfile: () -> Unit,
 ) : ComponentContext by componentContext {
 
@@ -28,6 +29,7 @@ class HomeComponent(
 
     /** Base URL for 继续观看 artwork. */
     val serverBaseUrl: String get() = registry.defaultServer?.baseUrl.orEmpty()
+    val serverAccessToken: String get() = registry.defaultServer?.accessToken.orEmpty()
 
     init {
         val scope = componentScope(lifecycle)

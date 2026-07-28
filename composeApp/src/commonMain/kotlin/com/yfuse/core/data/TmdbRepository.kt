@@ -8,6 +8,7 @@ import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.TMDB_BASE
+import com.yfuse.core.util.currentIsoDate
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
@@ -77,6 +78,7 @@ private fun TmdbItemDto.toItem(fallbackType: String): TmdbItem = TmdbItem(
     posterPath = posterPath,
     backdropPath = backdropPath,
     year = (releaseDate ?: firstAirDate)?.take(4)?.ifBlank { null },
+    releaseDate = (releaseDate ?: firstAirDate)?.ifBlank { null },
     mediaType = mediaType ?: fallbackType,
     rating = voteAverage?.takeIf { it > 0.0 },
 )
@@ -86,16 +88,31 @@ class TmdbRepository(private val client: HttpClient) {
 
     suspend fun home(language: String = "zh-CN"): Result<TmdbHome> = try {
         coroutineScope {
-            val trending = async { fetch("/trending/all/week", language, "movie") }
-            val movies = async { fetch("/movie/popular", language, "movie") }
-            val shows = async { fetch("/tv/popular", language, "tv") }
-            val (trend, pop, tv) = awaitAll(trending, movies, shows)
+            val popularMovies = async { fetch("/movie/popular", language, "movie") }
+            val popularShows = async { fetch("/tv/popular", language, "tv") }
+            val nowMovies = async { fetch("/movie/now_playing", language, "movie") }
+            val nowShows = async { fetch("/tv/airing_today", language, "tv") }
+            val upcomingMovies = async { fetch("/movie/upcoming", language, "movie") }
+            val upcomingShows = async { fetch("/tv/on_the_air", language, "tv") }
+            val result = awaitAll(
+                popularMovies,
+                popularShows,
+                nowMovies,
+                nowShows,
+                upcomingMovies,
+                upcomingShows,
+            )
+            val popular = interleave(result[0], result[1])
+            val nowPlaying = interleave(result[2], result[3])
+            val today = currentIsoDate()
+            val upcoming = interleave(result[4], result[5])
+                .filter { item -> item.releaseDate?.let { it >= today } == true }
 
-            val featured = trend.filter { it.backdropPath != null }.take(5)
+            val featured = popular.filter { it.backdropPath != null }.take(5)
             val rows = listOf(
-                TmdbRow("本周趋势", trend),
-                TmdbRow("热门电影", pop),
-                TmdbRow("热门剧集", tv),
+                TmdbRow("热门", popular),
+                TmdbRow("正在上映", nowPlaying),
+                TmdbRow("即将上映", upcoming),
             ).filter { it.items.isNotEmpty() }
 
             Result.success(TmdbHome(featured = featured, rows = rows))
@@ -116,6 +133,7 @@ class TmdbRepository(private val client: HttpClient) {
             posterPath = dto.posterPath ?: item.posterPath,
             backdropPath = dto.backdropPath ?: item.backdropPath,
             year = (dto.releaseDate ?: dto.firstAirDate)?.take(4)?.ifBlank { null } ?: item.year,
+            releaseDate = (dto.releaseDate ?: dto.firstAirDate)?.ifBlank { null } ?: item.releaseDate,
             rating = dto.voteAverage?.takeIf { it > 0.0 } ?: item.rating,
         )
         Result.success(
@@ -151,7 +169,16 @@ class TmdbRepository(private val client: HttpClient) {
                 .results
                 .map { it.toItem(fallbackType) }
                 .filter { it.title.isNotBlank() }
+                .filter { it.posterPath != null || it.backdropPath != null }
         }.getOrDefault(emptyList())
+
+    private fun interleave(first: List<TmdbItem>, second: List<TmdbItem>): List<TmdbItem> =
+        buildList {
+            repeat(maxOf(first.size, second.size)) { index ->
+                first.getOrNull(index)?.let(::add)
+                second.getOrNull(index)?.let(::add)
+            }
+        }.distinctBy { "${it.mediaType}:${it.id}" }
 
     private fun Throwable.toError(): EmbyError = when (this) {
         is ResponseException -> when (response.status.value) {

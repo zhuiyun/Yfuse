@@ -13,10 +13,18 @@ class PlayerComponent(
     registry: ServerRegistry,
     itemId: String,
     startPositionTicks: Long,
+    serverId: String? = null,
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
 
-    val store = PlayerStoreFactory(storeFactory, repo, registry, itemId, startPositionTicks).create()
+    val store = PlayerStoreFactory(
+        storeFactory,
+        repo,
+        registry,
+        itemId,
+        startPositionTicks,
+        serverId,
+    ).create()
 
     init {
         lifecycle.doOnDestroy(store::dispose)

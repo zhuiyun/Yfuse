@@ -16,33 +16,123 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 
-/** Corner radii annotated in the spec's "间距 / 圆角 / 模糊 Token" table. */
+/**
+ * 设计说明文档 §8.4 — 圆角三档，不允许中间值.
+ *
+ * The names say where a radius is used, but all of them resolve to one of the three
+ * steps; adding a fourth value is a spec violation, not a tweak.
+ */
 object GlassShapes {
-    val chipSmall = RoundedCornerShape(Dimens.chipSmall)   // 10px
-    val chip = RoundedCornerShape(Dimens.chip)             // 14px
-    val poster = RoundedCornerShape(Dimens.poster)         // 14px
-    val card = RoundedCornerShape(Dimens.card)             // 16px
-    val cardLarge = RoundedCornerShape(Dimens.cardLarge)   // 20px
-    val hero = RoundedCornerShape(Dimens.hero)             // 24px
-    val tabBar = RoundedCornerShape(Dimens.tabBarRadius)   // 31px pill
+    /** 小 10px — 缩略图、内嵌小块. */
+    val thumb = RoundedCornerShape(Dimens.small)
+
+    /** 中 16px — 海报、按钮、胶囊、菜单. */
+    val poster = RoundedCornerShape(Dimens.medium)
+    val chip = RoundedCornerShape(Dimens.medium)
+    val card = RoundedCornerShape(Dimens.medium)
+    val menu = RoundedCornerShape(Dimens.medium)
+
+    /** 大 26px — sheet、迷你播放器、tab bar. */
+    val sheet = RoundedCornerShape(Dimens.large)
+    val hero = RoundedCornerShape(Dimens.large)
+    val tabBar = RoundedCornerShape(Dimens.large)
+
     val circle = CircleShape
 }
 
 /**
- * The spec's glass material is `backdrop-filter: blur(18px) saturate(160%)` over a
- * translucent white fill plus a 1px hairline. Compose Multiplatform has no common
- * backdrop-blur, so the blur is dropped and the annotated fill / border are applied
- * verbatim — over the app's soft backdrop the two read nearly the same.
+ * Primary liquid-glass surface. A translucent diagonal sheen, luminous edge and
+ * ambient tint preserve depth without a platform-specific blur dependency.
  */
 @Composable
 fun Modifier.glass(
     shape: Shape = GlassShapes.card,
     fill: Color = LocalPalette.current.card,
     border: Color? = LocalPalette.current.border,
-): Modifier = this
-    .clip(shape)
-    .background(fill)
-    .let { if (border != null) it.border(Dimens.hairline, border, shape) else it }
+): Modifier {
+    val palette = LocalPalette.current
+    val accessibility = LocalAccessibilityOptions.current
+    val resolvedFill = if (accessibility.reduceTransparency) {
+        if (palette.isDark) Color(0xFF182235) else Color.White
+    } else {
+        fill
+    }
+    val sheen = if (palette.isDark) {
+        Color.White.copy(alpha = 0.13f)
+    } else {
+        Color.White.copy(alpha = 0.58f)
+    }
+    val surface = if (accessibility.reduceTransparency) {
+        Brush.linearGradient(listOf(resolvedFill, resolvedFill))
+    } else {
+        cssLinearGradient(
+            145f,
+            0f to sheen,
+            0.26f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f)),
+            0.72f to resolvedFill,
+            1f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.78f).coerceIn(0f, 1f)),
+        )
+    }
+    val edge = border?.let {
+        Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = if (palette.isDark) 0.38f else 0.92f),
+                it,
+                if (palette.isDark) Color(0xFF8FB2E8).copy(alpha = 0.16f)
+                else Brand.PrimaryGradTop.copy(alpha = 0.28f),
+            ),
+        )
+    }
+    return this
+        .clip(shape)
+        .background(surface)
+        .let { modifier ->
+            if (edge != null) modifier.border(Dimens.hairline, edge, shape) else modifier
+        }
+}
+
+/**
+ * Liquid-glass surface without a directional colour ramp.
+ *
+ * Profile and form controls use this variant when hierarchy should come from
+ * translucency, a single fill and the luminous edge.
+ */
+@Composable
+fun Modifier.flatGlass(
+    shape: Shape = GlassShapes.card,
+    fill: Color = LocalPalette.current.card,
+    border: Color? = LocalPalette.current.border,
+): Modifier {
+    val palette = LocalPalette.current
+    val accessibility = LocalAccessibilityOptions.current
+    val resolvedFill = if (accessibility.reduceTransparency) {
+        if (palette.isDark) Color(0xFF182235) else Color.White
+    } else {
+        fill
+    }
+    return this
+        .clip(shape)
+        .background(resolvedFill)
+        .let { modifier ->
+            if (border != null) modifier.border(Dimens.hairline, border, shape) else modifier
+        }
+}
+
+/**
+ * Stronger liquid glass used above artwork and dense content.
+ */
+@Composable
+fun Modifier.overlayGlass(
+    shape: Shape = GlassShapes.sheet,
+    fill: Color = LocalPalette.current.glass,
+    border: Color? = LocalPalette.current.border,
+): Modifier {
+    return glass(
+        shape = shape,
+        fill = fill,
+        border = border,
+    )
+}
 
 /** Same, for surfaces whose fill is a gradient (hero cards, artwork tiles). */
 fun Modifier.glass(
@@ -54,7 +144,9 @@ fun Modifier.glass(
     .background(fill)
     .let { if (border != null) it.border(Dimens.hairline, border, shape) else it }
 
-/** A glass panel with content. */
+/**
+ * Content-layer liquid glass card.
+ */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
@@ -66,11 +158,51 @@ fun GlassCard(
     Box(modifier.glass(shape, fill, border), content = content)
 }
 
-/** Page backdrop — `--pg-bg`, a 160deg wash behind every screen. */
+/** Ambient colour field visible through every liquid-glass surface. */
 @Composable
 fun AppBackdrop(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     val palette = LocalPalette.current
-    Box(modifier.fillMaxSize().background(palette.background), content = content)
+    val base = if (palette.isDark) {
+        cssLinearGradient(
+            155f,
+            0f to Color(0xFF101D35),
+            0.46f to palette.background,
+            1f to Color(0xFF170F2A),
+        )
+    } else {
+        cssLinearGradient(
+            155f,
+            0f to Color(0xFFE7EFFB),
+            0.42f to palette.background,
+            0.72f to Color(0xFFF3EFF9),
+            1f to Color(0xFFEDF7F5),
+        )
+    }
+    val upperGlow = cssRadialGradient(
+        centerX = 0.15f,
+        centerY = 0.08f,
+        endStop = 0.72f,
+        inner = if (palette.isDark) {
+            Brand.PrimaryGradBottom.copy(alpha = 0.24f)
+        } else {
+            Color.White.copy(alpha = 0.76f)
+        },
+    )
+    val lowerGlow = cssRadialGradient(
+        centerX = 0.92f,
+        centerY = 0.76f,
+        endStop = 0.68f,
+        inner = if (palette.isDark) {
+            Color(0xFF704FBE).copy(alpha = 0.18f)
+        } else {
+            Color(0xFF9B7DE0).copy(alpha = 0.18f)
+        },
+    )
+    Box(modifier.fillMaxSize().background(base)) {
+        Box(Modifier.fillMaxSize().background(upperGlow))
+        Box(Modifier.fillMaxSize().background(lowerGlow))
+        content()
+    }
 }
 
 /** `rgba(0,0,0,.06)` divider used inside stacked form cards. */

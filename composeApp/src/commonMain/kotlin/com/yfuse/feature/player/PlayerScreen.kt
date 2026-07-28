@@ -5,13 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.core.designsystem.glass
 
 @Composable
 fun PlayerScreen(component: PlayerComponent) {
@@ -47,14 +48,25 @@ fun PlayerScreen(component: PlayerComponent) {
             )
         }
 
-        Surface(
-            shape = CircleShape,
-            color = Color(0x66000000),
-            modifier = Modifier.statusBarsPadding().padding(8.dp).align(Alignment.TopStart),
+        Box(
+            Modifier
+                .statusBarsPadding()
+                .padding(8.dp)
+                .align(Alignment.TopStart)
+                .size(38.dp)
+                .glass(
+                    shape = CircleShape,
+                    fill = Color.Black.copy(alpha = 0.28f),
+                    border = Color.White.copy(alpha = 0.32f),
+                )
+                .clickable(onClick = component.onBack),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.clickable(onClick = component.onBack).padding(6.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
-            }
+            Icon(
+                Icons.AutoMirrored.Rounded.ArrowBack,
+                contentDescription = "返回",
+                tint = Color.White,
+            )
         }
     }
 }

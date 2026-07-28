@@ -16,6 +16,14 @@ data class PublicInfoDto(
 )
 
 @Serializable
+data class PublicUserDto(
+    val Id: String,
+    val Name: String = "",
+    val HasPassword: Boolean = false,
+    val PrimaryImageTag: String? = null,
+)
+
+@Serializable
 data class AuthRequestDto(val Username: String, val Pw: String)
 
 @Serializable
@@ -39,6 +47,7 @@ data class UserDataDto(
     val PlayedPercentage: Double? = null,
     val PlaybackPositionTicks: Long? = null,
     val Played: Boolean? = null,
+    val IsFavorite: Boolean? = null,
 )
 
 @Serializable
@@ -91,6 +100,7 @@ data class BaseItemDto(
     val UserData: UserDataDto? = null,
     val MediaSources: List<MediaSourceDto>? = null,
     val ProviderIds: Map<String, String>? = null,
+    val DateModified: String? = null,
 )
 
 /** Resume (and most list endpoints) wrap items; `Items/Latest` returns a raw array. */
@@ -100,6 +110,9 @@ data class ItemsResponseDto(
     /** Full size of the matching set, independent of `Limit`. */
     val TotalRecordCount: Int = 0,
 )
+
+@Serializable
+data class PlaylistCreatedDto(val Id: String? = null)
 
 /** Minimal Emby playback-session payload shared by start/progress/stop calls. */
 @Serializable
@@ -115,7 +128,9 @@ data class PlaybackReportDto(
 
 fun BaseItemDto.toMediaItem(): MediaItem {
     val isEpisode = Type == "Episode"
-    val useSeriesPoster = isEpisode && SeriesId != null && SeriesPrimaryImageTag != null
+    val useSeriesPoster = isEpisode && SeriesId != null
+    val ownBackdrop = BackdropImageTags?.firstOrNull()
+    val inheritedBackdrop = ParentBackdropImageTags?.firstOrNull()
 
     val title = if (isEpisode) (SeriesName ?: Name ?: "") else (Name ?: "")
     val subtitle = when {
@@ -134,12 +149,14 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         type = Type ?: "",
         posterItemId = if (useSeriesPoster) SeriesId!! else Id,
         posterTag = if (useSeriesPoster) SeriesPrimaryImageTag else ImageTags?.get("Primary"),
-        backdropItemId = Id,
-        backdropTag = BackdropImageTags?.firstOrNull(),
+        backdropItemId = if (ownBackdrop != null) Id else ParentBackdropItemId ?: SeriesId ?: Id,
+        backdropTag = ownBackdrop ?: inheritedBackdrop,
         playedPercentage = UserData?.PlayedPercentage,
         overview = Overview,
         year = ProductionYear,
         providerIds = ProviderIds.orEmpty(),
+        isFavorite = UserData?.IsFavorite == true,
+        played = UserData?.Played == true,
     )
 }
 
@@ -173,6 +190,8 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         resumePositionTicks = UserData?.PlaybackPositionTicks,
         people = People?.map { it.toPerson() } ?: emptyList(),
         source = MediaSources?.firstOrNull()?.toSourceInfo(),
+        isFavorite = UserData?.IsFavorite == true,
+        played = UserData?.Played == true,
     )
 }
 

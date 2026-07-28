@@ -5,7 +5,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.graphics.Color
 
 /**
@@ -34,15 +37,24 @@ enum class ThemeMode(val label: String) {
 val LocalPalette = staticCompositionLocalOf { LightPalette }
 val LocalAccent = staticCompositionLocalOf { AccentColor.Blue }
 
+@Immutable
+data class AccessibilityOptions(
+    val reduceTransparency: Boolean = false,
+    val largeText: Boolean = false,
+    val reduceMotion: Boolean = false,
+)
+
+val LocalAccessibilityOptions = staticCompositionLocalOf { AccessibilityOptions() }
+
 private fun darkScheme(accent: Color) = darkColorScheme(
     primary = accent,
     onPrimary = Color.White,
     primaryContainer = accent.copy(alpha = 0.22f),
     onPrimaryContainer = Color(0xFFE8ECFF),
     secondary = DarkPalette.sub,
-    background = Color(0xFF14171D),
+    background = DarkPalette.background,
     onBackground = DarkPalette.text,
-    surface = Color(0xFF1B1F27),
+    surface = DarkPalette.card,
     onSurface = DarkPalette.text,
     surfaceVariant = Color(0xFF232833),
     onSurfaceVariant = DarkPalette.sub2,
@@ -58,9 +70,9 @@ private fun lightScheme(accent: Color) = lightColorScheme(
     primaryContainer = accent.copy(alpha = 0.10f),
     onPrimaryContainer = Brand.Primary,
     secondary = LightPalette.sub,
-    background = Color(0xFFEEF1F5),
+    background = LightPalette.background,
     onBackground = LightPalette.text,
-    surface = Color.White,
+    surface = LightPalette.card,
     onSurface = LightPalette.text,
     surfaceVariant = Color(0xFFE2E5EB),
     onSurfaceVariant = LightPalette.sub2,
@@ -74,10 +86,22 @@ private fun lightScheme(accent: Color) = lightColorScheme(
 fun YfuseTheme(
     dark: Boolean,
     accent: AccentColor,
+    accessibility: AccessibilityOptions = AccessibilityOptions(),
     content: @Composable () -> Unit,
 ) {
     val palette = if (dark) DarkPalette else LightPalette
-    CompositionLocalProvider(LocalPalette provides palette, LocalAccent provides accent) {
+    val density = LocalDensity.current
+    val adjustedDensity = if (accessibility.largeText) {
+        Density(density.density, density.fontScale * 1.12f)
+    } else {
+        density
+    }
+    CompositionLocalProvider(
+        LocalPalette provides palette,
+        LocalAccent provides accent,
+        LocalAccessibilityOptions provides accessibility,
+        LocalDensity provides adjustedDensity,
+    ) {
         MaterialTheme(
             colorScheme = if (dark) darkScheme(accent.color) else lightScheme(accent.color),
             content = content,

@@ -17,6 +17,7 @@ data class PlayerMediaItem(
     val transcodeUrl: String,
     val title: String,
     val fallbackTranscodeUrl: String = transcodeUrl,
+    val serverId: String? = null,
 )
 
 data class PlayerState(
@@ -46,6 +47,7 @@ class PlayerStoreFactory(
     private val registry: ServerRegistry,
     private val itemId: String,
     private val startPositionTicks: Long,
+    private val serverId: String? = null,
 ) {
     fun create(): Store<PlayerIntent, PlayerState, Nothing> =
         storeFactory.create(
@@ -60,7 +62,7 @@ class PlayerStoreFactory(
         CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
 
         override fun executeAction(action: PlayerAction) {
-            val server = registry.defaultServer
+            val server = serverId?.let(registry::serverById) ?: registry.defaultServer
             val startMs = startPositionTicks / 10_000L
             scope.launch {
                 if (server == null) {
@@ -78,6 +80,7 @@ class PlayerStoreFactory(
                         id,
                         server.accessToken,
                     ),
+                    serverId = server.id,
                 )
 
                 val detail = repo.itemDetail(server, itemId).getOrNull()

@@ -4,11 +4,15 @@ import android.app.Application
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.core.util.imageCacheContext
+import com.yfuse.core.offline.offlineApplicationContext
 import com.yfuse.di.appModule
+import okio.Path.Companion.toOkioPath
 import org.koin.core.context.startKoin
 
 class YfuseApp : Application(), SingletonImageLoader.Factory {
@@ -16,6 +20,7 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         imageCacheContext = this
+        offlineApplicationContext = this
         val prefs = getSharedPreferences("yfuse", MODE_PRIVATE)
         val settings = SharedPreferencesSettings(prefs)
         startKoin {
@@ -23,10 +28,22 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
         }
     }
 
-    // Emby image endpoints are public, so a plain network-backed loader suffices.
+    // Keep decoded images hot in memory and original responses on disk. This is
+    // shared by every poster/backdrop and can be cleared from Profile.
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
             .components { add(KtorNetworkFetcherFactory()) }
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizePercent(context, percent = 0.20)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("image_cache").toOkioPath())
+                    .maxSizeBytes(256L * 1024L * 1024L)
+                    .build()
+            }
             .crossfade(true)
             .build()
 }

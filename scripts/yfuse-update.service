@@ -1,0 +1,23 @@
+[Unit]
+Description=Yfuse static application update server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nobody
+WorkingDirectory=/srv/yfuse-update
+ExecStart=/usr/bin/python3 -m http.server 80 --bind 0.0.0.0
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/srv/yfuse-update
+
+[Install]
+WantedBy=multi-user.target

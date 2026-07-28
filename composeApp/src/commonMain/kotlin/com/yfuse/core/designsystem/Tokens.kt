@@ -49,63 +49,76 @@ val PrimaryGradient: Brush = cssLinearGradient(
 // ---------------------------------------------------------------- theme palette
 
 /**
- * The prototype's CSS custom properties on `.phone` / `.phone[data-theme="dark"]`.
- * Names match the CSS variables so annotations stay greppable.
+ * 设计说明文档 §8.2 色彩. Light / dark are one variable set switched under two themes;
+ * there is exactly one accent ([Brand.Primary], `#3d64c9`) and no second saturated hue.
+ *
+ * The product direction uses liquid glass as the primary material. Page backgrounds
+ * carry the colour and depth; cards, sheets and controls remain translucent so the
+ * surrounding artwork and ambient colour continue through the whole app.
  */
 @Immutable
 data class Palette(
-    /** `--pg-bg`, a 160deg wash. */
-    val backgroundStops: List<Pair<Float, Color>>,
-    /** `--pg-text` */ val text: Color,
-    /** `--pg-sub` */ val sub: Color,
+    /** 页面底色 — the base under the ambient gradient. */
+    val background: Color,
+    /** 主文字 */ val text: Color,
+    /** 次文字 */ val sub: Color,
     /** `--pg-sub2` */ val sub2: Color,
     /** `--pg-body` */ val body: Color,
     /** `--pg-hint` */ val hint: Color,
-    /** `--pg-card` */ val card: Color,
+    /** Primary content glass. */ val card: Color,
     /** `--pg-card2` */ val card2: Color,
     /** `--pg-card3` */ val card3: Color,
+    /** `--pg-sheet` — media-library content sheet. */ val sheet: Color,
+    /** 浮层玻璃底 — §8.1, 浅色 0.74–0.82 半透明白 / 深色半透明深底. */
+    val glass: Color,
+    /**
+     * The same material for overlays that sit directly over dense content — tab bar,
+     * 迷你播放器, sheets.
+     *
+     * §8.1 pairs its 0.74–0.82 fill with `blur(20-22px) saturate(180%)`; that blur is
+     * what keeps the bar legible over artwork. Compose Multiplatform has no common
+     * backdrop-blur, so at the annotated alpha posters read straight through and the
+     * tab labels blur out. Raising the alpha buys back the separation the blur provided.
+     */
+    val glassStrong: Color,
     /** `--pg-border` */ val border: Color,
     /** `--pg-tabbar-border` */ val tabbarBorder: Color,
     val isDark: Boolean,
-) {
-    val background: Brush get() = cssLinearGradient(160f, *backgroundStops.toTypedArray())
-}
+)
 
 val LightPalette = Palette(
-    backgroundStops = listOf(
-        0f to Color(0xFFF6F7F9),
-        0.45f to Color(0xFFEEF1F5),
-        1f to Color(0xFFE6EBF1),
-    ),
+    background = Color(0xFFF3F5F8),
     text = Color(0xFF151A22),
-    sub = Color(0xFF7A8494),
+    sub = Color(0xFF68717F),
     sub2 = Color(0xFF8A93A3),
     body = Color(0xFF5A6472),
     hint = Color(0xFFB0B8C4),
-    card = Color.White.copy(alpha = 0.55f),
-    card2 = Color.White.copy(alpha = 0.50f),
-    card3 = Color.White.copy(alpha = 0.60f),
-    border = Color.White.copy(alpha = 0.80f),
-    tabbarBorder = Color.White.copy(alpha = 0.85f),
+    card = Color.White.copy(alpha = 0.62f),
+    card2 = Color.White.copy(alpha = 0.46f),
+    card3 = Color.White.copy(alpha = 0.72f),
+    sheet = Color.White.copy(alpha = 0.58f),
+    glass = Color.White.copy(alpha = 0.54f),
+    glassStrong = Color.White.copy(alpha = 0.72f),
+    border = Color.White.copy(alpha = 0.70f),
+    tabbarBorder = Color.White.copy(alpha = 0.82f),
     isDark = false,
 )
 
 val DarkPalette = Palette(
-    backgroundStops = listOf(
-        0f to Color(0xFF1B1F27),
-        0.55f to Color(0xFF14171D),
-        1f to Color(0xFF0F1216),
-    ),
+    background = Color(0xFF080D17),
     text = Color(0xFFEEF0F3),
     sub = Color(0xFF9AA4B4),
     sub2 = Color(0xFF9199A8),
     body = Color(0xFFB7BFCB),
     hint = Color(0xFF6B7280),
-    card = Color.White.copy(alpha = 0.08f),
-    card2 = Color.White.copy(alpha = 0.06f),
-    card3 = Color.White.copy(alpha = 0.10f),
-    border = Color.White.copy(alpha = 0.12f),
-    tabbarBorder = Color.White.copy(alpha = 0.14f),
+    card = Color(0xFF182235).copy(alpha = 0.62f),
+    card2 = Color(0xFF111A2A).copy(alpha = 0.48f),
+    card3 = Color(0xFF202D43).copy(alpha = 0.70f),
+    sheet = Color(0xFF111A2A).copy(alpha = 0.62f),
+    glass = Color(0xFF111A29).copy(alpha = 0.58f),
+    glassStrong = Color(0xFF111A29).copy(alpha = 0.76f),
+    border = Color.White.copy(alpha = 0.18f),
+    tabbarBorder = Color.White.copy(alpha = 0.24f),
     isDark = true,
 )
 
@@ -146,15 +159,15 @@ object PlayerTokens {
     val controlBorder = Color.White.copy(alpha = 0.28f)
     val chipFill = Color.White.copy(alpha = 0.14f)
     val chipBorder = Color.White.copy(alpha = 0.22f)
-    val playFill = Color.White.copy(alpha = 0.92f)
+    val playFill = Color.White.copy(alpha = 0.68f)
     val onPlay = Color(0xFF141A26)
     val trackFill = Color.White.copy(alpha = 0.22f)
     val trackFillLandscape = Color.White.copy(alpha = 0.24f)
     val timeText = Color.White.copy(alpha = 0.70f)
     val timeTextLandscape = Color.White.copy(alpha = 0.75f)
     val footerText = Color.White.copy(alpha = 0.65f)
-    val sheetFill = Color.White.copy(alpha = 0.90f)
-    val sheetFillLandscape = Color.White.copy(alpha = 0.92f)
+    val sheetFill = Color.White.copy(alpha = 0.76f)
+    val sheetFillLandscape = Color.White.copy(alpha = 0.80f)
     val episodeIdleFill = Color.White.copy(alpha = 0.08f)
     val episodeActiveFill = Brand.Primary.copy(alpha = 0.25f)
     val episodeActiveBorder = Color(0xFF7FA2E8).copy(alpha = 0.40f)
@@ -184,45 +197,94 @@ object MiniPlayerTokens {
 
 // ---------------------------------------------------------------- metrics
 
-/** 间距 / 圆角 token table. */
+/**
+ * 设计说明文档 §8.4 圆角与间距.
+ *
+ * Values are the spec's prototype-canvas px carried over as dp, which is the convention
+ * the whole codebase uses. The spec's ×1.31 canvas→pt factor is *not* applied: it targets
+ * a 393 pt iPhone baseline, and scaling by it on a typical 360 dp Android phone visibly
+ * inflates the layout.
+ *
+ * **圆角三档，不允许中间值** — anything that needs a radius picks [small], [medium] or
+ * [large]. The old 14 / 20 / 24 / 31 px steps are gone.
+ */
 object Dimens {
-    /** 页面水平内边距 */ val pageHorizontal = 18.dp
+    /** 页面水平内边距统一 18px */ val pageHorizontal = 18.dp
 
     /**
      * Gap between the status bar and the first row. The prototype's screens use
      * `padding-top:52px` over a `40px` status bar, so the real inset is 12px —
      * applied on top of `statusBarsPadding()`, whose height varies by device.
      */
-    val contentTop = 12.dp
+    val contentTop = 20.dp
 
-    /** `padding-bottom:100px` — clears the floating tab bar. */
-    val contentBottom = 100.dp
+    /** 滚动容器底部预留 134px 供浮层组避让（迷你播放器 + tab bar）. */
+    val contentBottom = 134.dp
 
-    /** 大区块间距 */ val sectionGap = 22.dp
+    /** 卡片间距 8–14px */ val cardGap = 14.dp
 
-    // 圆角
-    /** 小圆角（芯片/按钮） */ val chip = 14.dp
-    val chipSmall = 10.dp
+    /** 大区块间距 18–22px */ val sectionGap = 22.dp
 
-    /** 卡片圆角 */ val card = 16.dp
-    val cardLarge = 20.dp
-    val hero = 24.dp
+    // ------------------------------------------------------------ 圆角三档
+    /** 小 10px — 缩略图、内嵌小块. */ val small = 10.dp
 
-    /** 海报圆角 — `.poster` */ val poster = 14.dp
+    /** 中 16px — 海报、按钮、胶囊、菜单. */ val medium = 16.dp
 
-    /** 悬浮 Tab Bar */
+    /** 大 26px — sheet、迷你播放器、tab bar. */ val large = 26.dp
+
+    /** 悬浮 Tab Bar — 与迷你播放器共用材质、圆角与左右边距（§3）. */
     val tabBarHeight = 62.dp
-    val tabBarRadius = 31.dp
-    val tabBarInset = 16.dp
+    val tabBarInset = 14.dp
 
     /** 卡片描边 */ val hairline = 1.dp
 }
 
 /**
- * Space the scrollable content must leave for the floating tab bar.
- * `bottom:16px` + `height:62px` + breathing room, matching the prototype's 100px.
+ * Space the scrollable content must leave for the floating overlay stack —
+ * 滚动容器底部预留 134px, §8.4.
  */
 val TabBarInset = Dimens.contentBottom
+
+// ---------------------------------------------------------------- motion
+
+/**
+ * 设计说明文档 §3.1 转场体系 — five transitions, all on one iOS curve. Durations are ms.
+ *
+ * 开启「减弱动态效果」后全部降为瞬时切换（see [AccessibilityPreferences] consumers).
+ */
+object Motion {
+    /** `cubic-bezier(.32,.72,0,1)` — the single easing used by every transition. */
+    val Curve = androidx.compose.animation.core.CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
+
+    /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */
+    const val PUSH = 360
+    val pushOffset = 30.dp
+
+    /** 返回 — 左侧 22px 滑入 + 淡入. */
+    const val POP = 300
+    val popOffset = 22.dp
+
+    /** 平级切 tab — 0.986 缩放淡入. */
+    const val TAB = 260
+    const val TAB_SCALE_FROM = 0.986f
+
+    /** 覆盖（播放器 / 菜单）— 下方 46px 上滑. */
+    const val MODAL = 400
+    val modalOffset = 46.dp
+
+    /** 迷你播放器展开 — 从底部 0.8 缩放放大；详情页顶图 1.14 → 1. */
+    const val EXPAND = 460
+    const val MINI_SCALE_FROM = 0.8f
+    const val DETAIL_HERO_SCALE_FROM = 1.14f
+
+    /** 顶栏材质切换 — 滚动超过 280px 后转为玻璃底（§4.2）. */
+    const val TOP_BAR = 280
+
+    /** 图片渐进加载：占位主色渐变 → 12px 模糊放大 1.05 → 清晰归位. */
+    const val IMAGE_IN = 550
+    val imageBlur = 12.dp
+    const val IMAGE_SCALE_FROM = 1.05f
+}
 
 // ---------------------------------------------------------------- typography
 
@@ -250,6 +312,27 @@ fun mr(size: Float, weight: Int, lineHeight: Float? = null) = TextStyle(
     fontWeight = FontWeight(weight),
     lineHeight = (lineHeight ?: (size * 1.35f)).sp,
 )
+
+/**
+ * 设计说明文档 §8.3 字体四级体系 — 四级层次，不新增字号. Sizes are the spec's canvas px
+ * carried over as sp; see [Dimens] on why the ×1.31 factor is not applied.
+ *
+ * Reach for these rather than a fresh [sc] / [mr] call: the spec caps the scale at four
+ * steps, and every ad-hoc size widens it.
+ */
+object Type {
+    /** Display · 800 · 22–26px — 页面主标题、hero 片名. */
+    fun display(size: Float = 26f) = sc(size, 800)
+
+    /** Section · 700 · 15–18px — 货架标题、顶栏标题. */
+    fun section(size: Float = 18f) = sc(size, 700)
+
+    /** Body · 400–600 · 11.5–13px — 卡片标题、简介、列表行. */
+    fun body(size: Float = 13f, weight: Int = 400) = sc(size, weight)
+
+    /** Caption · 400–700 · 9–11px — 年份、条目数、徽章. */
+    fun caption(size: Float = 11f, weight: Int = 400) = mr(size, weight)
+}
 
 // ---------------------------------------------------------------- gradient helpers
 

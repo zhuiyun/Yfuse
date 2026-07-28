@@ -3,6 +3,7 @@ package com.yfuse.app
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -44,16 +45,18 @@ import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
 import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.YfuseTheme
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
+import com.yfuse.core.designsystem.overlayGlass
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
@@ -63,6 +66,7 @@ import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.profile.ProfileTabScreen
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.feature.search.SearchScreen
+import com.yfuse.feature.player.ActivePlayback
 
 private data class TabItem(val tab: Tab, val label: String, val icon: ImageVector)
 
@@ -121,18 +125,30 @@ fun Modifier.hideBottomBarOnScroll(): Modifier {
 fun App(root: RootComponent) {
     val mode by root.themePreferences.mode.collectAsState()
     val accent by root.themePreferences.accent.collectAsState()
+    val reduceTransparency by root.themePreferences.reduceTransparency.collectAsState()
+    val largeText by root.themePreferences.largeText.collectAsState()
+    val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
     val dark = when (mode) {
         ThemeMode.System -> isSystemInDarkTheme()
         ThemeMode.Dark -> true
         ThemeMode.Light -> false
     }
 
-    YfuseTheme(dark = dark, accent = accent) {
+    YfuseTheme(
+        dark = dark,
+        accent = accent,
+        accessibility = AccessibilityOptions(
+            reduceTransparency = reduceTransparency,
+            largeText = largeText,
+            reduceMotion = reduceMotion,
+        ),
+    ) {
         val active by root.activeTab.subscribeAsState()
         val homeStack by root.home.stack.subscribeAsState()
         val browseStack by root.browse.stack.subscribeAsState()
         val searchStack by root.search.stack.subscribeAsState()
         val profileStack by root.profile.stack.subscribeAsState()
+        val miniPlayback by ActivePlayback.state.collectAsState()
 
         // The bar belongs to the four roots; any pushed page (detail, grid, add
         // server, player) owns the whole screen.
@@ -143,6 +159,8 @@ fun App(root: RootComponent) {
             Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
         }
         val childCanGoBack = !atRoot
+        val showBottomBar = atRoot ||
+            (active == Tab.Browse && browseStack.active.instance is LibraryComponent.Child.Grid)
         PlatformBackHandler(enabled = childCanGoBack || active != Tab.Home) {
             if (childCanGoBack) {
                 when (active) {
@@ -167,16 +185,16 @@ fun App(root: RootComponent) {
                     Tab.Profile -> ProfileTabScreen(root.profile)
                 }
 
-                if (atRoot) {
+                if (showBottomBar) {
                     // `transform:translateY(90px);opacity:0` — 90px, .3s ease.
                     val shift by animateFloatAsState(
                         targetValue = if (bottomBar.hidden) 90f else 0f,
-                        animationSpec = tween(durationMillis = 300),
+                        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 300),
                         label = "tabBarShift",
                     )
                     val fade by animateFloatAsState(
                         targetValue = if (bottomBar.hidden) 0f else 1f,
-                        animationSpec = tween(durationMillis = 300),
+                        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 300),
                         label = "tabBarFade",
                     )
                     GlassTabBar(
@@ -190,15 +208,104 @@ fun App(root: RootComponent) {
                                 alpha = fade
                             },
                     )
+                    if (miniPlayback.active) {
+                        MiniPlayer(
+                            title = miniPlayback.title,
+                            playing = miniPlayback.playing,
+                            progress = if (miniPlayback.durationMs > 0L) {
+                                miniPlayback.positionMs.toFloat() / miniPlayback.durationMs
+                            } else {
+                                0f
+                            },
+                            onOpen = ActivePlayback::open,
+                            onToggle = ActivePlayback::toggle,
+                            onClose = ActivePlayback::close,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(horizontal = Dimens.tabBarInset)
+                                .padding(bottom = Dimens.tabBarHeight + 22.dp),
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+@Composable
+private fun MiniPlayer(
+    title: String,
+    playing: Boolean,
+    progress: Float,
+    onOpen: () -> Unit,
+    onToggle: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .shadow(Shadows.tabBar, GlassShapes.card)
+            .overlayGlass(
+                GlassShapes.card,
+                MiniPlayerTokens.fill,
+                MiniPlayerTokens.border,
+            )
+            .clickable(onClick = onOpen)
+            .padding(start = 12.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(GlassShapes.thumb)
+                .background(MiniPlayerTokens.artwork),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(AppIcons.Play, null, tint = Color.White, modifier = Modifier.size(16.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title.ifBlank { "正在播放" }, style = mr(11.5f, 650), color = Color.White, maxLines = 1)
+            Spacer(Modifier.height(6.dp))
+            Box(Modifier.fillMaxWidth().height(2.dp).background(Color.White.copy(alpha = 0.18f))) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(Brand.Primary),
+                )
+            }
+        }
+        Icon(
+            if (playing) AppIcons.Pause else AppIcons.Play,
+            contentDescription = if (playing) "暂停" else "播放",
+            tint = Color.White,
+            modifier = Modifier
+                .size(34.dp)
+                .clickable(onClick = onToggle)
+                .padding(8.dp),
+        )
+        Icon(
+            AppIcons.Close,
+            contentDescription = "关闭播放器",
+            tint = Color.White.copy(alpha = 0.8f),
+            modifier = Modifier
+                .size(32.dp)
+                .clickable(onClick = onClose)
+                .padding(8.dp),
+        )
+    }
+}
+
 /**
- * `.tabbar` — left/right 16, bottom 16, height 62, radius 31, `--pg-card` fill,
+ * `.tabbar` — 浮层: left/right 14, bottom 14, height 62, radius 26 (大档), glass fill,
  * 1px hairline, `0 12px 30px rgba(60,90,150,.18)`, items spaced `space-around`.
+ *
+ * §3 fixes the bottom stack as 内容 → 迷你播放器 → tab bar, with the mini player sharing
+ * this material, radius and horizontal inset so the two read as one continuous overlay.
  */
 @Composable
 private fun GlassTabBar(active: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
@@ -210,7 +317,7 @@ private fun GlassTabBar(active: Tab, onSelect: (Tab) -> Unit, modifier: Modifier
             .padding(bottom = Dimens.tabBarInset)
             .height(Dimens.tabBarHeight)
             .shadow(Shadows.tabBar, GlassShapes.tabBar)
-            .glass(GlassShapes.tabBar, palette.card, palette.tabbarBorder),
+            .overlayGlass(GlassShapes.tabBar, palette.glassStrong, palette.tabbarBorder),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tabs.forEach { item ->

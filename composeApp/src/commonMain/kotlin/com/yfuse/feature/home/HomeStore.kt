@@ -21,6 +21,7 @@ data class HomeState(
     val resume: List<MediaItem> = emptyList(),
     val resolving: Boolean = false,
     val error: String? = null,
+    val actionMessage: String? = null,
 )
 
 sealed interface HomeIntent {
@@ -28,6 +29,7 @@ sealed interface HomeIntent {
 
     /** Tapping a TMDB pick: play it if the library has it, else show its info. */
     data class Open(val item: TmdbItem) : HomeIntent
+    data class Favorite(val item: TmdbItem) : HomeIntent
 
     /** Tapping a 继续观看 card goes straight to the library item. */
     data class OpenResume(val item: MediaItem) : HomeIntent
@@ -46,6 +48,7 @@ private sealed interface Msg {
     data class ResumeLoaded(val items: List<MediaItem>) : Msg
     data class Failed(val message: String) : Msg
     data class Resolving(val value: Boolean) : Msg
+    data class ActionMessage(val value: String?) : Msg
 }
 
 class HomeStoreFactory(
@@ -72,6 +75,7 @@ class HomeStoreFactory(
             when (intent) {
                 HomeIntent.Retry -> load()
                 is HomeIntent.Open -> open(intent.item)
+                is HomeIntent.Favorite -> favorite(intent.item)
                 is HomeIntent.OpenResume -> publish(HomeLabel.OpenEmbyItem(intent.item.id))
             }
         }
@@ -123,6 +127,34 @@ class HomeStoreFactory(
                 publish(HomeLabel.OpenTmdbItem(item, match?.id))
             }
         }
+
+        private fun favorite(item: TmdbItem) {
+            if (state().resolving) return
+            val server = registry.defaultServer ?: run {
+                dispatch(Msg.ActionMessage("请先登录 Emby 服务器"))
+                return
+            }
+            dispatch(Msg.Resolving(true))
+            scope.launch {
+                val exact = emby.findByTmdbId(server, item.id, item.mediaType).getOrNull()
+                val match = exact ?: emby.search(server, item.title)
+                    .getOrDefault(emptyList())
+                    .firstOrNull { candidate ->
+                        candidate.title.equals(item.title, ignoreCase = true) &&
+                            (item.year?.toIntOrNull()?.let { candidate.year == it } ?: true)
+                    }
+                if (match == null) {
+                    dispatch(Msg.ActionMessage("媒体库中没有此资源，无法收藏"))
+                } else {
+                    emby.setFavorite(server, match.id, true)
+                        .onSuccess { dispatch(Msg.ActionMessage("已加入收藏")) }
+                        .onFailure {
+                            dispatch(Msg.ActionMessage(it.toUserMessage("收藏失败")))
+                        }
+                }
+                dispatch(Msg.Resolving(false))
+            }
+        }
     }
 
     private object ReducerImpl : Reducer<HomeState, Msg> {
@@ -132,6 +164,7 @@ class HomeStoreFactory(
             is Msg.ResumeLoaded -> copy(resume = msg.items)
             is Msg.Failed -> copy(loading = false, error = msg.message)
             is Msg.Resolving -> copy(resolving = msg.value)
+            is Msg.ActionMessage -> copy(actionMessage = msg.value)
         }
     }
 }

@@ -10,14 +10,25 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+data class ServerSearchGroup(
+    val serverId: String,
+    val serverName: String,
+    val items: List<MediaItem> = emptyList(),
+    val error: String? = null,
+)
 
 data class SearchState(
     val query: String = "",
     val searchedQuery: String = "",
     val loading: Boolean = false,
     val items: List<MediaItem> = emptyList(),
+    val groups: List<ServerSearchGroup> = emptyList(),
     /** Terms that returned results, newest first — fills the chip row. */
     val recent: List<String> = emptyList(),
     val error: String? = null,
@@ -45,7 +56,7 @@ sealed interface SearchIntent {
 private sealed interface SearchMsg {
     data class QueryChanged(val value: String) : SearchMsg
     data class Loading(val query: String) : SearchMsg
-    data class Loaded(val query: String, val items: List<MediaItem>) : SearchMsg
+    data class Loaded(val query: String, val groups: List<ServerSearchGroup>) : SearchMsg
     data class Failed(val query: String, val message: String) : SearchMsg
     data class Recent(val terms: List<String>) : SearchMsg
     data object Cleared : SearchMsg
@@ -112,8 +123,8 @@ class SearchStoreFactory(
                 return
             }
 
-            val server = registry.defaultServer
-            if (server == null) {
+            val servers = registry.data.value.servers
+            if (servers.isEmpty()) {
                 dispatch(SearchMsg.Failed(query, "还没有可用的服务器，请先到「我的」添加服务器"))
                 return
             }
@@ -121,16 +132,38 @@ class SearchStoreFactory(
             searchJob?.cancel()
             dispatch(SearchMsg.Loading(query))
             searchJob = scope.launch {
-                repo.search(server, query)
-                    .onSuccess {
-                        dispatch(SearchMsg.Loaded(query, it))
-                        if (it.isNotEmpty()) {
-                            history?.remember(query)?.let { terms ->
-                                dispatch(SearchMsg.Recent(terms))
-                            }
+                val groups = coroutineScope {
+                    servers.map { server ->
+                        async {
+                            repo.search(server, query).fold(
+                                onSuccess = {
+                                    ServerSearchGroup(
+                                        serverId = server.id,
+                                        serverName = server.serverName,
+                                        items = it,
+                                    )
+                                },
+                                onFailure = {
+                                    ServerSearchGroup(
+                                        serverId = server.id,
+                                        serverName = server.serverName,
+                                        error = it.toUserMessage("搜索失败"),
+                                    )
+                                },
+                            )
+                        }
+                    }.awaitAll()
+                }
+                if (groups.all { it.error != null }) {
+                    dispatch(SearchMsg.Failed(query, "所有服务器均无法完成搜索"))
+                } else {
+                    dispatch(SearchMsg.Loaded(query, groups))
+                    if (groups.any { it.items.isNotEmpty() }) {
+                        history?.remember(query)?.let { terms ->
+                            dispatch(SearchMsg.Recent(terms))
                         }
                     }
-                    .onFailure { dispatch(SearchMsg.Failed(query, it.toUserMessage("搜索失败"))) }
+                }
             }
         }
     }
@@ -144,17 +177,21 @@ class SearchStoreFactory(
                 loading = true,
                 error = null,
             )
-            is SearchMsg.Loaded -> copy(
+            is SearchMsg.Loaded -> {
+                val allItems = msg.groups.flatMap { it.items }
+                copy(
                 searchedQuery = msg.query,
                 loading = false,
-                items = msg.items,
-                recent = if (msg.items.isEmpty()) {
+                items = allItems,
+                groups = msg.groups,
+                recent = if (allItems.isEmpty()) {
                     recent
                 } else {
                     (listOf(msg.query) + recent.filterNot { it == msg.query }).take(RECENT_LIMIT)
                 },
                 error = null,
             )
+            }
             is SearchMsg.Failed -> copy(
                 searchedQuery = msg.query,
                 loading = false,

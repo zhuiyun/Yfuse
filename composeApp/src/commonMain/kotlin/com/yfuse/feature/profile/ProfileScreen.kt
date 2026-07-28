@@ -1,6 +1,7 @@
 package com.yfuse.feature.profile
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,17 +18,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,23 +43,39 @@ import com.yfuse.app.TabBarInset
 import com.yfuse.app.hideBottomBarOnScroll
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ThemeMode
-import com.yfuse.core.designsystem.cssLinearGradient
-import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.offline.DownloadStatus
+import com.yfuse.core.offline.OfflineMedia
+import com.yfuse.core.offline.OfflineMediaManager
+import com.yfuse.feature.player.PlayerLauncher
+import com.yfuse.feature.player.PlayerMediaItem
+import com.yfuse.core.sync.ServerSyncManager
+import kotlinx.coroutines.launch
 
 /** Which option sheet is open — the prototype's `settingsSheetTab`. */
-private enum class Sheet { Engine, Decoder, Quality, Cache, Server }
+private enum class Sheet { Engine, Decoder, Quality }
+
+private enum class ProfilePage { Downloads, Sync }
 
 /** 个人中心 — `padding:52px 18px 100px; gap:18px`. */
 @Composable
@@ -69,75 +87,203 @@ fun ProfileScreen(component: ProfileComponent) {
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
     val quality by prefs.quality.collectAsState()
+    val offlineItems by component.offlineMedia.items.collectAsState()
+    val serversState by component.serversStore.states
+        .collectAsState(component.serversStore.state)
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmRemove by remember { mutableStateOf<SavedServer?>(null) }
+    var confirmClearCache by remember { mutableStateOf(false) }
+    var userMenuOpen by remember { mutableStateOf(false) }
+    var page by remember { mutableStateOf<ProfilePage?>(null) }
+    var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
+    val palette = LocalPalette.current
+
+    val addServerOpen = serversState.dialogVisible
+    fun openAddServer() {
+        userMenuOpen = false
+        component.serversStore.accept(ServersIntent.OpenAddDialog)
+    }
+
+    StatusBarIconStyle(darkIcons = !palette.isDark)
+    PlatformBackHandler(
+        enabled = page != null || userMenuOpen || sheet != null ||
+            addServerOpen || confirmRemove != null || confirmClearCache,
+    ) {
+        when {
+            confirmClearCache -> confirmClearCache = false
+            confirmRemove != null -> confirmRemove = null
+            addServerOpen -> component.serversStore.accept(ServersIntent.DismissDialog)
+            sheet != null -> sheet = null
+            userMenuOpen -> userMenuOpen = false
+            else -> page = null
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().hideBottomBarOnScroll(),
-            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            item {
-                UserCard(
-                    userName = state.currentServer?.userName ?: "未登录",
-                    serverName = state.currentServer?.serverName,
-                    onClick = { sheet = Sheet.Server },
-                )
-            }
+        if (page != null) {
+            ProfileUtilityScreen(
+                page = page!!,
+                onBack = { page = null },
+                onOpenSync = { page = ProfilePage.Sync },
+                offlineManager = component.offlineMedia,
+                syncManager = component.syncManager,
+                onPlayOffline = { offlineToPlay = it },
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().statusBarsPadding().hideBottomBarOnScroll(),
+                contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                item {
+                    UserCard(
+                        userName = state.currentServer?.userName ?: "未登录",
+                        serverName = state.currentServer?.serverName,
+                        onClick = { userMenuOpen = true },
+                    )
+                }
 
-            item {
-                Section(
-                    title = "我的服务器",
-                    action = "+ 添加",
-                    onAction = component.onOpenServers,
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        state.servers.forEach { server ->
-                            ServerRow(
-                                server = server,
-                                isCurrent = server.id == state.currentServer?.id,
-                                onClick = {
-                                    component.store.accept(ProfileIntent.SwitchServer(server.id))
-                                },
-                                onLongClick = { confirmRemove = server },
+                item {
+                    Section(
+                        title = "我的服务器",
+                        action = "+ 添加",
+                        onAction = ::openAddServer,
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            state.servers.forEach { server ->
+                                ServerRow(
+                                    server = server,
+                                    isCurrent = server.id == state.currentServer?.id,
+                                    onClick = {
+                                        component.store.accept(ProfileIntent.SwitchServer(server.id))
+                                    },
+                                    onLongClick = { confirmRemove = server },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Section(title = "服务器迁移") {
+                        ServerBackupTools(
+                            payload = component.exportServers(),
+                            serverCount = state.servers.size,
+                            onImport = component::importServers,
+                        )
+                    }
+                }
+
+                item {
+                    Section(title = "播放设置") {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .glass(GlassShapes.card, palette.card2, palette.border)
+                                .clip(GlassShapes.card),
+                        ) {
+                            SettingRow(
+                                "播放器内核",
+                                engine.label,
+                                embedded = true,
+                                onClick = { sheet = Sheet.Engine },
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                "解码内核",
+                                decoder.label,
+                                embedded = true,
+                                onClick = { sheet = Sheet.Decoder },
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                "默认清晰度",
+                                quality.label,
+                                embedded = true,
+                                onClick = { sheet = Sheet.Quality },
+                            )
+                            SettingsDivider()
+                            SwitchRow(
+                                "自动播放下一集",
+                                autoNext,
+                                embedded = true,
+                            ) { prefs.setAutoNext(it) }
+                        }
+                    }
+                }
+
+                item {
+                    Section(title = "离线") {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                                .clip(RoundedCornerShape(13.dp)),
+                        ) {
+                            DownloadRow(
+                                value = "${offlineItems.count { it.playable }} 项已下载 ›",
+                                embedded = true,
+                                onClick = { page = ProfilePage.Downloads },
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                "缓存占用",
+                                "${formatOfflineBytes(offlineItems.sumOf { it.downloadedBytes })} ›",
+                                embedded = true,
+                                onClick = { confirmClearCache = true },
                             )
                         }
                     }
                 }
-            }
 
-            item {
-                Section(title = "播放") {
-                    // `gap:1px; border-radius:16px; overflow:hidden` — hairline-joined rows.
-                    Column(
-                        Modifier.clip(GlassShapes.card),
-                        verticalArrangement = Arrangement.spacedBy(1.dp),
-                    ) {
-                        SettingRow("播放器内核", engine.label, onClick = { sheet = Sheet.Engine })
-                        SettingRow("解码内核", decoder.label, onClick = { sheet = Sheet.Decoder })
-                        SettingRow("默认清晰度", quality.label, onClick = { sheet = Sheet.Quality })
-                        SettingRow("下载与缓存", "缓存 ›", onClick = { sheet = Sheet.Cache })
-                        SwitchRow("自动播放下一集", autoNext) { prefs.setAutoNext(it) }
-                    }
-                }
-            }
-
-            item {
-                Section(title = "外观") {
-                    Column(Modifier.clip(GlassShapes.card)) {
-                        SwitchRow("深色模式", mode == ThemeMode.Dark) { on ->
-                            prefs.setMode(if (on) ThemeMode.Dark else ThemeMode.Light)
+                item {
+                    Section(title = "外观") {
+                        Column(Modifier.clip(GlassShapes.card)) {
+                            SwitchRow("深色模式", mode == ThemeMode.Dark) { on ->
+                                prefs.setMode(if (on) ThemeMode.Dark else ThemeMode.Light)
+                            }
                         }
                     }
                 }
+
             }
+        }
+
+        offlineToPlay?.takeIf { it.playable }?.let { offline ->
+            val path = offline.localPath ?: return@let
+            PlayerLauncher(
+                items = listOf(
+                    PlayerMediaItem(
+                        id = offline.itemId,
+                        url = "file://$path",
+                        transcodeUrl = "file://$path",
+                        title = offline.title,
+                    ),
+                ),
+                startIndex = 0,
+                startPositionMs = 0L,
+                onLaunched = { offlineToPlay = null },
+            )
+        }
+
+        if (userMenuOpen && page == null) {
+            UserSwitchMenu(
+                servers = state.servers,
+                currentId = state.currentServer?.id,
+                onSelect = { server ->
+                    component.store.accept(ProfileIntent.SwitchServer(server.id))
+                    userMenuOpen = false
+                },
+                onAddServer = ::openAddServer,
+                onDismiss = { userMenuOpen = false },
+            )
         }
 
         when (sheet) {
             Sheet.Engine -> OptionSheet(
-                title = "选择播放器内核",
+                title = "播放器内核",
+                subtitle = "决定用哪个引擎解码与渲染",
                 options = PlayerEngine.selectable.map { it.label to (it == engine) },
                 onSelect = { index ->
                     prefs.setEngine(PlayerEngine.selectable[index])
@@ -147,7 +293,8 @@ fun ProfileScreen(component: ProfileComponent) {
             )
 
             Sheet.Decoder -> OptionSheet(
-                title = "选择解码内核",
+                title = "解码内核",
+                subtitle = "硬解更省电，软解兼容性更好",
                 options = DecoderMode.entries.map { it.label to (it == decoder) },
                 onSelect = { index ->
                     prefs.setDecoder(DecoderMode.entries[index])
@@ -157,7 +304,8 @@ fun ProfileScreen(component: ProfileComponent) {
             )
 
             Sheet.Quality -> OptionSheet(
-                title = "选择默认清晰度",
+                title = "默认清晰度",
+                subtitle = "新播放的内容使用该清晰度起播",
                 options = PlaybackQuality.entries.map { it.label to (it == quality) },
                 onSelect = { index ->
                     prefs.setQuality(PlaybackQuality.entries[index])
@@ -166,54 +314,54 @@ fun ProfileScreen(component: ProfileComponent) {
                 onDismiss = { sheet = null },
             )
 
-            Sheet.Cache -> OptionSheet(
-                title = "下载与缓存",
-                options = listOf("图片与元数据缓存" to false, "清除全部缓存" to false),
-                destructiveIndex = 1,
-                onSelect = { index ->
-                    if (index == 1) component.onClearCache()
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
-
-            Sheet.Server -> OptionSheet(
-                title = "切换用户",
-                options = state.servers.map {
-                    "${it.userName} · ${it.serverName}" to (it.id == state.currentServer?.id)
-                },
-                onSelect = { index ->
-                    component.store.accept(ProfileIntent.SwitchServer(state.servers[index].id))
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
-
             null -> Unit
         }
-    }
 
-    confirmRemove?.let { server ->
-        AlertDialog(
-            onDismissRequest = { confirmRemove = null },
-            title = { Text("移除服务器", style = sc(15f, 700)) },
-            text = { Text("将从列表中移除「${server.serverName}」，可重新登录。", style = sc(13f, 400)) },
-            confirmButton = {
-                TextButton(onClick = {
+        if (addServerOpen) {
+            AddServerDialog(
+                state = serversState,
+                onIntent = component.serversStore::accept,
+                onDismiss = { component.serversStore.accept(ServersIntent.DismissDialog) },
+            )
+        }
+
+        confirmRemove?.let { server ->
+            val isCurrent = server.id == state.currentServer?.id
+            ConfirmDialog(
+                title = "移除服务器",
+                message = if (isCurrent) {
+                    "将退出「${server.serverName}」并从列表中移除，已下载的离线内容会保留。"
+                } else {
+                    "将从列表中移除「${server.serverName}」，之后可以重新登录。"
+                },
+                confirmLabel = "移除",
+                destructive = true,
+                onConfirm = {
                     confirmRemove = null
-                    if (server.id == state.currentServer?.id) {
+                    if (isCurrent) {
                         component.store.accept(ProfileIntent.Logout)
                     } else {
                         component.onRemoveServer(server.id)
                     }
-                }) { Text("移除", style = sc(13f, 700), color = Brand.Danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmRemove = null }) {
-                    Text("取消", style = sc(13f, 500))
-                }
-            },
-        )
+                },
+                onDismiss = { confirmRemove = null },
+            )
+        }
+
+        if (confirmClearCache) {
+            ConfirmDialog(
+                title = "清除缓存",
+                message = "将清除图片与元数据缓存，下次浏览时重新下载。" +
+                    "离线下载的影片不受影响。",
+                confirmLabel = "清除",
+                destructive = true,
+                onConfirm = {
+                    confirmClearCache = false
+                    component.onClearCache()
+                },
+                onDismiss = { confirmClearCache = false },
+            )
+        }
     }
 }
 
@@ -240,7 +388,7 @@ private fun UserCard(userName: String, serverName: String?, onClick: () -> Unit)
             Modifier
                 .size(56.dp)
                 .clip(CircleShape)
-                .background(com.yfuse.core.designsystem.PrimaryGradient),
+                .background(Brand.Primary),
         )
         Column(Modifier.weight(1f)) {
             Text(userName, style = sc(15f, 700), color = palette.text)
@@ -252,6 +400,107 @@ private fun UserCard(userName: String, serverName: String?, onClick: () -> Unit)
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+    }
+}
+
+/**
+ * The prototype anchors account switching directly below the user card. It is
+ * intentionally not a bottom sheet: the visual relationship to the profile
+ * identity remains clear and the current account can be scanned in place.
+ */
+@Composable
+private fun UserSwitchMenu(
+    servers: List<SavedServer>,
+    currentId: String?,
+    onSelect: (SavedServer) -> Unit,
+    onAddServer: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "切换用户",
+            subtitle = if (servers.isEmpty()) {
+                "尚未添加服务器"
+            } else {
+                "每个账号有独立的观看记录"
+            },
+            onClose = onDismiss,
+        )
+        Column {
+            servers.forEachIndexed { index, server ->
+                val selected = server.id == currentId
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .pressable { onSelect(server) }
+                        .background(Color.Transparent)
+                        .padding(horizontal = 11.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(serverColor(server.id)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            server.userName.take(1).uppercase(),
+                            style = mr(12f, 700),
+                            color = Color.White,
+                        )
+                    }
+                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                        Text(
+                            server.userName,
+                            style = sc(12.5f, 700),
+                            color = palette.text,
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            server.serverName,
+                            style = mr(10f, 400),
+                            color = palette.sub2,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (selected) {
+                        Icon(
+                            AppIcons.Check,
+                            null,
+                            tint = Brand.Primary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
+                if (index < servers.lastIndex) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 11.dp)
+                            .height(1.dp)
+                            .background(palette.border),
+                    )
+                }
+            }
+            // Adding an account belongs where accounts are listed, not only in the
+            // server section further down the page.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .pressable(onClick = onAddServer)
+                    .background(Color.Transparent)
+                    .padding(horizontal = 11.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(AppIcons.Add, null, tint = Brand.Primary, modifier = Modifier.size(14.dp))
+                Text("添加服务器", style = sc(12.5f, 700), color = Brand.Primary)
+            }
         }
     }
 }
@@ -280,7 +529,14 @@ private fun Section(
                     action,
                     style = mr(11f, 600),
                     color = Brand.Primary,
-                    modifier = Modifier.clickable(onClick = onAction),
+                    modifier = Modifier
+                        .glass(
+                            shape = GlassShapes.chip,
+                            fill = palette.card2,
+                            border = palette.border,
+                        )
+                        .clickable(onClick = onAction)
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
         }
@@ -315,12 +571,12 @@ private fun ServerRow(
         horizontalArrangement = Arrangement.spacedBy(11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 34×34, `radius:9px`, 135deg gradient, `700 12px Manrope` initial.
+        // A solid server colour keeps identity without adding a second material.
         Box(
             Modifier
                 .size(34.dp)
                 .clip(RoundedCornerShape(9.dp))
-                .background(serverGradient(server.id)),
+                .background(serverColor(server.id)),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -367,12 +623,21 @@ private fun ServerRow(
 
 /** Settings row — `--pg-card2`, `padding:13px 16px`, `500 13px` / `400 12px Manrope`. */
 @Composable
-private fun SettingRow(title: String, value: String, onClick: (() -> Unit)? = null) {
+private fun SettingRow(
+    title: String,
+    value: String,
+    embedded: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
     val palette = LocalPalette.current
     Row(
         Modifier
             .fillMaxWidth()
-            .background(palette.card2)
+            .let {
+                if (embedded) it else {
+                    it.glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                }
+            }
             .let { if (onClick != null) it.clickable(onClick = onClick) else it }
             .padding(horizontal = 16.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -383,14 +648,55 @@ private fun SettingRow(title: String, value: String, onClick: (() -> Unit)? = nu
     }
 }
 
-/** Same row with the prototype's 38×22 pill switch. */
 @Composable
-private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () -> Unit) {
     val palette = LocalPalette.current
     Row(
         Modifier
             .fillMaxWidth()
-            .background(palette.card2)
+            .let {
+                if (embedded) it else {
+                    it.glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                }
+            }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                AppIcons.Download,
+                null,
+                tint = Brand.Primary,
+                modifier = Modifier.size(16.dp),
+            )
+            Text("下载与离线库", style = sc(13f, 500), color = palette.text)
+        }
+        Text(value, style = mr(12f, 400), color = palette.sub2, maxLines = 1)
+    }
+}
+
+/** Same row with the prototype's 38×22 pill switch. */
+@Composable
+private fun SwitchRow(
+    title: String,
+    checked: Boolean,
+    embedded: Boolean = false,
+    onChange: (Boolean) -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .let {
+                if (embedded) it else {
+                    it.glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                }
+            }
             .clickable { onChange(!checked) }
             .padding(horizontal = 16.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -401,6 +707,441 @@ private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Un
     }
 }
 
+@Composable
+private fun SettingsDivider() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .height(1.dp)
+            .background(LocalPalette.current.border.copy(alpha = 0.55f)),
+    )
+}
+
+@Composable
+private fun DescribedSwitchRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+            .clickable { onChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = sc(13f, 500), color = palette.text, maxLines = 1)
+            Spacer(Modifier.height(3.dp))
+            Text(
+                description,
+                style = sc(10.5f, 400),
+                color = palette.sub2,
+                maxLines = 2,
+            )
+        }
+        PillSwitch(checked)
+    }
+}
+
+@Composable
+private fun ProfileUtilityScreen(
+    page: ProfilePage,
+    onBack: () -> Unit,
+    onOpenSync: () -> Unit,
+    offlineManager: OfflineMediaManager,
+    syncManager: ServerSyncManager,
+    onPlayOffline: (OfflineMedia) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val downloads by offlineManager.items.collectAsState()
+    val wifiOnly by offlineManager.wifiOnly.collectAsState()
+    val syncState by syncManager.state.collectAsState()
+    val autoSync by syncManager.autoSync.collectAsState()
+    val syncMetadata by syncManager.syncMetadata.collectAsState()
+    val syncProgress by syncManager.syncProgress.collectAsState()
+    val syncArtwork by syncManager.syncArtwork.collectAsState()
+    val syncFavorites by syncManager.syncFavorites.collectAsState()
+    val syncStatus = syncState.statuses.firstOrNull()
+    val syncing = syncState.statuses.any { it.syncing }
+    val scope = rememberCoroutineScope()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().statusBarsPadding().hideBottomBarOnScroll(),
+        contentPadding = PaddingValues(
+            top = Dimens.contentTop,
+            bottom = TabBarInset,
+            start = Dimens.pageHorizontal,
+            end = Dimens.pageHorizontal,
+        ),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        item {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border)
+                        .clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        AppIcons.ChevronLeft,
+                        "返回",
+                        tint = palette.text,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+                Text(
+                    if (page == ProfilePage.Downloads) "下载" else "服务器同步",
+                    style = sc(20f, 700),
+                    color = palette.text,
+                    modifier = Modifier.padding(start = 12.dp),
+                )
+            }
+        }
+
+        if (page == ProfilePage.Downloads) {
+            item {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .glass(RoundedCornerShape(18.dp), palette.card, palette.border)
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        Text("存储空间", style = sc(12.5f, 700), color = palette.text)
+                        Text(
+                            "${formatOfflineBytes(downloads.sumOf { it.downloadedBytes })} 已使用",
+                            style = mr(10.5f, 400),
+                            color = palette.sub2,
+                        )
+                    }
+                    Spacer(Modifier.height(9.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(2.5.dp))
+                            .background(palette.border),
+                    )
+                }
+            }
+
+            item {
+                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))) {
+                    DescribedSwitchRow(
+                        "仅在 Wi-Fi 下下载",
+                        "避免占用蜂窝流量",
+                        wifiOnly,
+                    ) { offlineManager.setWifiOnly(it) }
+                }
+            }
+
+            if (downloads.isEmpty()) item {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 52.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        AppIcons.Download,
+                        null,
+                        tint = palette.hint,
+                        modifier = Modifier.size(28.dp),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "还没有下载内容\n在详情页点击下载，即可离线观看",
+                        style = sc(11.5f, 400, lineHeight = 18f),
+                        color = palette.hint,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+            if (downloads.isNotEmpty()) {
+                items(
+                    count = downloads.size,
+                    key = { downloads[it].id },
+                ) { index ->
+                    val download = downloads[index]
+                    OfflineDownloadRow(
+                        item = download,
+                        onPlay = { onPlayOffline(download) },
+                        onPause = { offlineManager.pause(download.id) },
+                        onResume = { offlineManager.resume(download.id) },
+                        onRemove = { offlineManager.remove(download.id) },
+                    )
+                }
+            }
+        } else {
+            item {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .glass(RoundedCornerShape(20.dp), palette.card, palette.border)
+                        .padding(16.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("同步当前服务器", style = sc(14f, 700), color = palette.text)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                when {
+                                    syncing -> "正在从服务器同步…"
+                                    syncStatus?.online == false ->
+                                        syncStatus.error ?: "服务器离线"
+                                    syncStatus?.lastSyncEpochMs != null ->
+                                        "已同步 ${syncStatus.itemCount} 项 · " +
+                                            "${syncState.pendingCount} 项待回传"
+                                    else -> "尚未同步"
+                                },
+                                style = sc(10.5f, 400),
+                                color = palette.sub2,
+                            )
+                        }
+                        Box(
+                            Modifier
+                                .height(34.dp)
+                                .glass(
+                                    RoundedCornerShape(12.dp),
+                                    Brand.Primary.copy(alpha = 0.68f),
+                                    Color.White.copy(alpha = 0.48f),
+                                )
+                                .clickable(enabled = !syncing) {
+                                    scope.launch { syncManager.syncCurrent() }
+                                }
+                                .padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (syncing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.White,
+                                )
+                            } else {
+                                Text("立即同步", style = sc(11.5f, 700), color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                SectionBlock {
+                    SwitchRow("自动同步", autoSync, onChange = syncManager::setAutoSync)
+                    SwitchRow("媒体资料", syncMetadata, onChange = syncManager::setMetadata)
+                    SwitchRow("观看进度", syncProgress, onChange = syncManager::setProgress)
+                    SwitchRow("海报与背景图", syncArtwork, onChange = syncManager::setArtwork)
+                    SwitchRow("收藏状态", syncFavorites, onChange = syncManager::setFavorites)
+                }
+            }
+
+            if (syncState.conflicts.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "需要处理的同步冲突",
+                            style = sc(13f, 700),
+                            color = palette.text,
+                        )
+                        syncState.conflicts.forEach { conflict ->
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .glass(GlassShapes.card, palette.card, palette.border)
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    conflict.mutation.title,
+                                    style = sc(12.5f, 700),
+                                    color = palette.text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "本机与服务器的${if (conflict.mutation.kind.name == "Favorite") "收藏" else "已看"}状态不同",
+                                    style = sc(10.5f, 400),
+                                    color = palette.sub2,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        "使用本机",
+                                        style = sc(10.5f, 700),
+                                        color = Brand.Primary,
+                                        modifier = Modifier
+                                            .glass(GlassShapes.chip)
+                                            .clickable {
+                                                scope.launch {
+                                                    syncManager.resolveConflict(conflict, true)
+                                                }
+                                            }
+                                            .padding(horizontal = 11.dp, vertical = 7.dp),
+                                    )
+                                    Text(
+                                        "使用服务器",
+                                        style = sc(10.5f, 700),
+                                        color = palette.sub,
+                                        modifier = Modifier
+                                            .glass(GlassShapes.chip)
+                                            .clickable {
+                                                scope.launch {
+                                                    syncManager.resolveConflict(conflict, false)
+                                                }
+                                            }
+                                            .padding(horizontal = 11.dp, vertical = 7.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Text(
+                    "同步会从当前 Emby 服务器更新资料、观看进度与收藏状态。离线下载内容不会被删除。",
+                    style = sc(10.5f, 400, lineHeight = 17f),
+                    color = palette.sub2,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionBlock(content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(GlassShapes.card),
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun OfflineDownloadRow(
+    item: OfflineMedia,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .glass(GlassShapes.card, palette.card, palette.border)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    item.title,
+                    style = sc(12.5f, 700),
+                    color = palette.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    when (item.status) {
+                        DownloadStatus.Queued -> "等待下载"
+                        DownloadStatus.WaitingForWifi -> "等待 Wi-Fi"
+                        DownloadStatus.Downloading ->
+                            "${formatOfflineBytes(item.downloadedBytes)} / " +
+                                formatOfflineBytes(item.totalBytes)
+                        DownloadStatus.Paused -> "已暂停 · ${formatOfflineBytes(item.downloadedBytes)}"
+                        DownloadStatus.Completed -> "已完成 · ${formatOfflineBytes(item.downloadedBytes)}"
+                        DownloadStatus.Failed -> item.error ?: "下载失败"
+                    },
+                    style = mr(10.5f, 400),
+                    color = if (item.status == DownloadStatus.Failed) Brand.Danger else palette.sub2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                when (item.status) {
+                    DownloadStatus.Completed -> "播放"
+                    DownloadStatus.Downloading -> "暂停"
+                    else -> "继续"
+                },
+                style = sc(11f, 700),
+                color = Brand.Primary,
+                modifier = Modifier
+                    .glass(GlassShapes.chip, palette.card2, palette.border)
+                    .clickable {
+                        when (item.status) {
+                            DownloadStatus.Completed -> onPlay()
+                            DownloadStatus.Downloading -> onPause()
+                            else -> onResume()
+                        }
+                    }
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                AppIcons.Close,
+                contentDescription = "删除离线文件",
+                tint = palette.sub2,
+                modifier = Modifier
+                    .size(30.dp)
+                    .glass(CircleShape, palette.card2, palette.border)
+                    .clickable(onClick = onRemove)
+                    .padding(8.dp),
+            )
+        }
+        if (item.status != DownloadStatus.Completed) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(palette.border),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(item.progress)
+                        .height(4.dp)
+                        .background(Brand.Primary),
+                )
+            }
+        }
+    }
+}
+
+private fun formatOfflineBytes(value: Long): String = when {
+    value >= 1024L * 1024L * 1024L ->
+        "${(value / 1024.0 / 1024.0 / 1024.0 * 10).toInt() / 10.0} GB"
+    value >= 1024L * 1024L -> "${value / 1024L / 1024L} MB"
+    value >= 1024L -> "${value / 1024L} KB"
+    else -> "$value B"
+}
+
 /**
  * `width:38px;height:22px;border-radius:11px` track — `#3D64C9` on, `rgba(0,0,0,.15)`
  * off — with an 18px knob inset 2px.
@@ -408,19 +1149,21 @@ private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Un
 @Composable
 private fun PillSwitch(checked: Boolean) {
     val palette = LocalPalette.current
+    val shape = RoundedCornerShape(11.dp)
     Box(
         Modifier
             .width(38.dp)
             .height(22.dp)
-            .clip(RoundedCornerShape(11.dp))
-            .background(
+            .glass(
+                shape,
                 if (checked) {
-                    Brand.Primary
+                    Brand.Primary.copy(alpha = 0.72f)
                 } else if (palette.isDark) {
-                    Color.White.copy(alpha = 0.15f)
+                    Color.White.copy(alpha = 0.12f)
                 } else {
-                    Color.Black.copy(alpha = 0.15f)
+                    Color.White.copy(alpha = 0.38f)
                 },
+                if (checked) Color.White.copy(alpha = 0.44f) else palette.border,
             ),
         contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
@@ -428,95 +1171,51 @@ private fun PillSwitch(checked: Boolean) {
             Modifier
                 .padding(horizontal = 2.dp)
                 .size(18.dp)
-                .clip(CircleShape)
-                .background(Color.White),
+                .glass(CircleShape, Color.White.copy(alpha = 0.82f), Color.White),
         )
     }
 }
 
-/**
- * Bottom option sheet — scrim `rgba(0,0,0,.35)`; panel `left/right:16px`,
- * `bottom:90px`, `rgba(255,255,255,.95)` over a `rgba(255,255,255,.9)` hairline,
- * `radius:18px`, `padding:12px`, `0 20px 44px -10px rgba(30,40,70,.3)`.
- */
+/** Single-choice list. Picking a row applies it and closes — there is no confirm step. */
 @Composable
 private fun OptionSheet(
     title: String,
     options: List<Pair<String, Boolean>>,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
-    destructiveIndex: Int = -1,
+    subtitle: String? = null,
 ) {
-    val shape = RoundedCornerShape(18.dp)
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.35f))
-            .clickable(onClick = onDismiss),
-    ) {
-        Column(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 90.dp)
-                .shadow(Shadows.sheet, shape)
-                .glass(shape, Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.9f))
-                .padding(12.dp),
-        ) {
-            Text(
-                title,
-                style = sc(12f, 700),
-                color = Color(0xFF151A22),
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
+    val palette = LocalPalette.current
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(title = title, subtitle = subtitle, onClose = onDismiss)
+        Column {
             options.forEachIndexed { index, (label, selected) ->
-                val destructive = index == destructiveIndex
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(GlassShapes.chipSmall)
-                        .background(
-                            if (selected) Brand.Primary.copy(alpha = 0.1f) else Color.Transparent,
-                        )
-                        .clickable { onSelect(index) }
-                        .padding(horizontal = 10.dp, vertical = 9.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        label,
-                        style = sc(12.5f, if (selected || destructive) 700 else 500),
-                        color = when {
-                            destructive -> Brand.Danger
-                            selected -> Brand.Primary
-                            else -> Color(0xFF151A22)
-                        },
+                OverlayOptionRow(
+                    label = label,
+                    selected = selected,
+                    onClick = { onSelect(index) },
+                )
+                if (index < options.lastIndex) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .height(1.dp)
+                            .background(palette.border),
                     )
-                    if (selected) {
-                        Icon(
-                            AppIcons.Check,
-                            null,
-                            tint = Brand.Primary,
-                            modifier = Modifier.size(13.dp),
-                        )
-                    }
                 }
             }
         }
     }
 }
 
-/** Stable per-server badge gradient, drawn from the prototype's four pairs. */
-private fun serverGradient(id: String) = cssLinearGradient(
-    135f,
-    0f to serverGradients[(id.hashCode().let { if (it < 0) -it else it }) % serverGradients.size].first,
-    1f to serverGradients[(id.hashCode().let { if (it < 0) -it else it }) % serverGradients.size].second,
-)
+/** Stable per-server solid colour, deliberately free of gradients. */
+private fun serverColor(id: String): Color =
+    serverColors[(id.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }) % serverColors.size]
 
-private val serverGradients = listOf(
-    Color(0xFF8FB2E8) to Color(0xFF5B7FD1),
-    Color(0xFFE8C9A0) to Color(0xFFC98F5B),
-    Color(0xFFC9D4E8) to Color(0xFF8FA4C9),
-    Color(0xFFA9C9E8) to Color(0xFF6F93D1),
+private val serverColors = listOf(
+    Color(0xFF6689D3),
+    Color(0xFFC98F5B),
+    Color(0xFF8298C1),
+    Color(0xFF7198CB),
 )

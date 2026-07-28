@@ -20,6 +20,9 @@ data class MediaItem(
     val year: Int? = null,
     /** External IDs such as TMDB, used to match recommendations precisely. */
     val providerIds: Map<String, String> = emptyMap(),
+    /** User-specific Emby state returned through UserData. */
+    val isFavorite: Boolean = false,
+    val played: Boolean = false,
 )
 
 /** One horizontal row on the home screen (e.g. "电影-国产电影 · 最新"). */

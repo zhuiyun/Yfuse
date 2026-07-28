@@ -40,8 +40,13 @@ class LibraryComponent(
     sealed interface Config {
         @Serializable data object Home : Config
         @Serializable data class Grid(val libraryId: String, val title: String) : Config
-        @Serializable data class Detail(val itemId: String) : Config
-        @Serializable data class Player(val itemId: String, val startPositionTicks: Long) : Config
+        @Serializable data class Detail(val serverId: String?, val itemId: String) : Config
+        @Serializable
+        data class Player(
+            val serverId: String?,
+            val itemId: String,
+            val startPositionTicks: Long,
+        ) : Config
     }
 
     sealed interface Child {
@@ -63,7 +68,9 @@ class LibraryComponent(
                 repo = repo,
                 registry = registry,
                 onSeeAll = { libraryId, title -> navigation.push(Config.Grid(libraryId, title)) },
-                onOpenItem = { navigation.push(Config.Detail(it)) },
+                onOpenItem = {
+                    navigation.push(Config.Detail(registry.defaultServer?.id, it))
+                },
             ),
         )
         is Config.Grid -> Child.Grid(
@@ -74,7 +81,9 @@ class LibraryComponent(
                 registry = registry,
                 libraryId = config.libraryId,
                 title = config.title,
-                onOpenItem = { navigation.push(Config.Detail(it)) },
+                onOpenItem = {
+                    navigation.push(Config.Detail(registry.defaultServer?.id, it))
+                },
                 onBack = { navigation.pop() },
             ),
         )
@@ -85,8 +94,11 @@ class LibraryComponent(
                 repo = repo,
                 registry = registry,
                 itemId = config.itemId,
+                serverId = config.serverId,
                 onBack = { navigation.pop() },
-                onPlay = { itemId, ticks -> navigation.push(Config.Player(itemId, ticks)) },
+                onPlay = { serverId, itemId, ticks ->
+                    navigation.push(Config.Player(serverId, itemId, ticks))
+                },
             ),
         )
         is Config.Player -> Child.Player(
@@ -97,6 +109,7 @@ class LibraryComponent(
                 registry = registry,
                 itemId = config.itemId,
                 startPositionTicks = config.startPositionTicks,
+                serverId = config.serverId,
                 onBack = { navigation.pop() },
             ),
         )

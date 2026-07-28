@@ -18,11 +18,11 @@ actual fun StatusBarIconStyle(darkIcons: Boolean) {
             onDispose {}
         } else {
             val controller = WindowCompat.getInsetsController(window, view)
-            val previous = controller.isAppearanceLightStatusBars
             controller.isAppearanceLightStatusBars = darkIcons
-            onDispose {
-                controller.isAppearanceLightStatusBars = previous
-            }
+            // Shared-element routes keep the outgoing screen composed briefly.
+            // Restoring its old value on disposal races the already-visible detail
+            // screen and can leave dark icons over bright artwork.
+            onDispose {}
         }
     }
 }

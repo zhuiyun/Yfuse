@@ -30,6 +30,7 @@ class HomeTabComponent(
     private val registry: ServerRegistry,
     // The header's search entry and avatar switch tabs, which only the root can do.
     private val onOpenSearch: () -> Unit,
+    private val onOpenLibrary: () -> Unit,
     private val onOpenProfile: () -> Unit,
 ) : ComponentContext by componentContext {
 
@@ -46,8 +47,13 @@ class HomeTabComponent(
     @Serializable
     sealed interface Config {
         @Serializable data object Home : Config
-        @Serializable data class Detail(val itemId: String) : Config
-        @Serializable data class Player(val itemId: String, val startPositionTicks: Long) : Config
+        @Serializable data class Detail(val serverId: String?, val itemId: String) : Config
+        @Serializable
+        data class Player(
+            val serverId: String?,
+            val itemId: String,
+            val startPositionTicks: Long,
+        ) : Config
         @Serializable data class Info(val item: TmdbItem, val embyItemId: String?) : Config
     }
 
@@ -70,11 +76,14 @@ class HomeTabComponent(
                 tmdb = tmdb,
                 emby = repo,
                 registry = registry,
-                onOpenEmbyItem = { navigation.push(Config.Detail(it)) },
+                onOpenEmbyItem = {
+                    navigation.push(Config.Detail(registry.defaultServer?.id, it))
+                },
                 onOpenTmdbItem = { item, embyItemId ->
                     navigation.push(Config.Info(item, embyItemId))
                 },
                 onOpenSearch = onOpenSearch,
+                onOpenLibrary = onOpenLibrary,
                 onOpenProfile = onOpenProfile,
             ),
         )
@@ -85,8 +94,11 @@ class HomeTabComponent(
                 repo = repo,
                 registry = registry,
                 itemId = config.itemId,
+                serverId = config.serverId,
                 onBack = { navigation.pop() },
-                onPlay = { id, ticks -> navigation.push(Config.Player(id, ticks)) },
+                onPlay = { serverId, id, ticks ->
+                    navigation.push(Config.Player(serverId, id, ticks))
+                },
             ),
         )
         is Config.Player -> Child.Player(
@@ -97,6 +109,7 @@ class HomeTabComponent(
                 registry = registry,
                 itemId = config.itemId,
                 startPositionTicks = config.startPositionTicks,
+                serverId = config.serverId,
                 onBack = { navigation.pop() },
             ),
         )
@@ -109,7 +122,11 @@ class HomeTabComponent(
                 item = config.item,
                 embyItemId = config.embyItemId,
                 onBack = { navigation.pop() },
-                onPlayTarget = { id, ticks -> navigation.push(Config.Player(id, ticks)) },
+                onPlayTarget = { id, ticks ->
+                    navigation.push(
+                        Config.Player(registry.defaultServer?.id, id, ticks),
+                    )
+                },
             ),
         )
     }

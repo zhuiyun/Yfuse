@@ -2,6 +2,7 @@ package com.yfuse.feature.home
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,11 +30,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,16 +47,20 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.app.hideBottomBarOnScroll
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PrimaryGradient
+import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.scrim
+import com.yfuse.core.designsystem.sharedMediaElement
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.TmdbItem
@@ -69,6 +78,14 @@ import org.jetbrains.compose.resources.painterResource
 fun HomeScreen(component: HomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
+    val listState = rememberLazyListState()
+    val heroVisible by remember(listState) {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 &&
+                listState.firstVisibleItemScrollOffset < 330
+        }
+    }
+    StatusBarIconStyle(darkIcons = !heroVisible && !palette.isDark)
 
     Box(Modifier.fillMaxSize()) {
         when {
@@ -81,25 +98,54 @@ fun HomeScreen(component: HomeComponent) {
             ) {
                 Text(state.error!!, style = sc(13f, 400), color = palette.sub, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(8.dp))
-                TextButton(onClick = { component.store.accept(HomeIntent.Retry) }) {
+                TextButton(
+                    onClick = { component.store.accept(HomeIntent.Retry) },
+                    modifier = Modifier.glass(
+                        shape = GlassShapes.chip,
+                        fill = palette.card2,
+                        border = palette.border,
+                    ),
+                ) {
                     Text("重试", style = sc(13f, 700))
                 }
             }
 
             else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().statusBarsPadding().hideBottomBarOnScroll(),
-                contentPadding = PaddingValues(
-                    top = Dimens.contentTop,
-                    bottom = TabBarInset,
-                ),
+                modifier = Modifier.fillMaxSize().hideBottomBarOnScroll(),
+                state = listState,
+                contentPadding = PaddingValues(bottom = TabBarInset),
                 verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
             ) {
-                item { Greeting(onOpenProfile = component.onOpenProfile) }
-                item { SearchEntry(onClick = component.onOpenSearch) }
-
-                state.content.featured.firstOrNull()?.let { featured ->
+                // 首屏大图 runs edge to edge from the very top, with the greeting row
+                // floating on it — so it is the first item, not a padded card.
+                item {
+                    Hero(
+                        item = state.content.featured.firstOrNull(),
+                        onOpenProfile = component.onOpenProfile,
+                        onOpenSearch = component.onOpenSearch,
+                        onPlay = {
+                            state.content.featured.firstOrNull()
+                                ?.let { component.store.accept(HomeIntent.Open(it)) }
+                        },
+                        onFavorite = {
+                            state.content.featured.firstOrNull()
+                                ?.let { component.store.accept(HomeIntent.Favorite(it)) }
+                        },
+                    )
+                }
+                state.actionMessage?.let { message ->
                     item {
-                        HeroCard(featured) { component.store.accept(HomeIntent.Open(featured)) }
+                        Text(
+                            message,
+                            style = sc(11.5f, 650),
+                            color = Brand.Primary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Dimens.pageHorizontal)
+                                .glass(GlassShapes.chip)
+                                .padding(10.dp),
+                        )
                     }
                 }
 
@@ -107,16 +153,25 @@ fun HomeScreen(component: HomeComponent) {
                     item {
                         ContinueWatching(
                             baseUrl = component.serverBaseUrl,
+                            accessToken = component.serverAccessToken,
                             items = state.resume,
+                            onSeeAll = component.onOpenLibrary,
                             onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
                         )
                     }
                 }
 
-                val recommended = state.content.rows.flatMap { it.items }
-                if (recommended.isNotEmpty()) {
-                    item {
-                        Recommended(recommended) { component.store.accept(HomeIntent.Open(it)) }
+                state.content.rows.forEach { row ->
+                    if (row.items.isNotEmpty()) {
+                        item(key = "tmdb-${row.title}") {
+                        Recommended(
+                            title = row.title,
+                            items = row.items,
+                            showReleaseDate = row.title == "即将上映",
+                            onSeeAll = component.onOpenLibrary,
+                            onClick = { component.store.accept(HomeIntent.Open(it)) },
+                        )
+                        }
                     }
                 }
             }
@@ -129,14 +184,75 @@ fun HomeScreen(component: HomeComponent) {
 }
 
 /**
- * Header row — `gap:10px`; left cluster `gap:9px` with the 30px mark,
- * `下午好` at `400 11px Manrope`, `继续你的旅程` at `800 17px`; 36px avatar.
+ * 首屏大图 — 390px, edge to edge, starting behind the status bar (§2 首页).
+ *
+ * The greeting row floats on the artwork rather than sitting above it, and the search
+ * entry is a circular button in that row — the full-width search field is gone.
  */
 @Composable
-private fun Greeting(onOpenProfile: () -> Unit) {
-    val palette = LocalPalette.current
+private fun Hero(
+    item: TmdbItem?,
+    onOpenProfile: () -> Unit,
+    onOpenSearch: () -> Unit,
+    onPlay: () -> Unit,
+    onFavorite: () -> Unit,
+) {
+    Box(Modifier.fillMaxWidth().height(390.dp)) {
+        if (item != null) {
+            AsyncImage(
+                model = TmdbImages.backdrop(item.backdropPath),
+                contentDescription = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .sharedMediaElement("tmdb-backdrop-${item.id}"),
+            )
+        }
+        // 底部 90% → 透明的深色渐变压暗，保证任意剧照上标题都可读 (§4.1).
+        Box(
+            Modifier.fillMaxSize().background(
+                scrim(
+                    0f to Color(0xFF0A0E1A).copy(alpha = 0.90f),
+                    0.55f to Color(0xFF0A0E1A).copy(alpha = 0.10f),
+                    1f to Color(0xFF0A0E1A).copy(alpha = 0.35f),
+                ),
+            ),
+        )
+
+        HeroHeader(
+            onOpenProfile = onOpenProfile,
+            onOpenSearch = onOpenSearch,
+            modifier = Modifier.align(Alignment.TopStart),
+        )
+
+        if (item != null) {
+            HeroCaption(
+                item = item,
+                onPlay = onPlay,
+                onFavorite = onFavorite,
+                onInfo = onPlay,
+                modifier = Modifier.align(Alignment.BottomStart),
+            )
+        }
+    }
+}
+
+/**
+ * Header row over the hero — `gap:10px`; left cluster `gap:9px` with the 30px mark,
+ * `下午好` at `400 11px Manrope`, `继续你的旅程` at `800 17px`; 36px search + avatar.
+ * Text is white here because it sits on the darkened artwork, not the page.
+ */
+@Composable
+private fun HeroHeader(
+    onOpenProfile: () -> Unit,
+    onOpenSearch: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+        modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(top = Dimens.contentTop, start = Dimens.pageHorizontal, end = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -147,145 +263,154 @@ private fun Greeting(onOpenProfile: () -> Unit) {
         ) {
             AppMark(Modifier.size(30.dp))
             Column {
-                Text("下午好", style = mr(11f, 400), color = palette.sub)
+                Text("下午好", style = mr(11f, 400), color = Color.White.copy(alpha = 0.75f))
                 Text(
                     "继续你的旅程",
                     style = sc(17f, 800),
-                    color = palette.text,
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
         Box(
-            Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(PrimaryGradient)
-                .clickable(onClick = onOpenProfile),
-        )
-    }
-}
-
-/**
- * Search entry — `radius:20px; padding:11px 16px; gap:8px;`
- * `--pg-card` over a 1px `--pg-border`, `0 6px 18px rgba(90,120,180,.12)`.
- */
-@Composable
-private fun SearchEntry(onClick: () -> Unit) {
-    val palette = LocalPalette.current
-    val shape = RoundedCornerShape(20.dp)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Dimens.pageHorizontal)
-            .shadow(Shadows.searchBar, shape)
-            .glass(shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 11.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(AppIcons.Search, null, tint = Color(0xFF7A8FC4), modifier = Modifier.size(15.dp))
-        Text("搜索电影、剧集、演员", style = mr(13f, 400), color = palette.sub2)
-    }
-}
-
-/**
- * 今日精选 hero — `height:170px; radius:24px;`
- * scrim `linear-gradient(0deg,rgba(10,14,26,.75),rgba(10,14,26,.05) 55%)`,
- * `0 10px 30px rgba(30,40,70,.18)`, 1px `--pg-card2` hairline.
- */
-@Composable
-private fun HeroCard(item: TmdbItem, onPlay: () -> Unit) {
-    val palette = LocalPalette.current
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Dimens.pageHorizontal)
-            .height(170.dp)
-            .shadow(Shadows.hero, GlassShapes.hero)
-            .glass(GlassShapes.hero, palette.card2)
-            .clickable(onClick = onPlay),
-    ) {
-        AsyncImage(
-            model = TmdbImages.backdrop(item.backdropPath),
-            contentDescription = item.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
+            Modifier.size(44.dp).clickable(onClick = onOpenSearch),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .glass(
+                        shape = CircleShape,
+                        fill = Color.White.copy(alpha = 0.14f),
+                        border = Color.White.copy(alpha = 0.34f),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(AppIcons.Search, "搜索", tint = Color.White, modifier = Modifier.size(17.dp))
+            }
+        }
         Box(
-            Modifier.fillMaxSize().background(
-                scrim(
-                    0f to Color(0xFF0A0E1A).copy(alpha = 0.75f),
-                    0.55f to Color(0xFF0A0E1A).copy(alpha = 0.05f),
-                ),
-            ),
-        )
+            Modifier.size(44.dp).clickable(onClick = onOpenProfile),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(36.dp).clip(CircleShape).background(PrimaryGradient))
+        }
+    }
+}
 
-        // 今日精选 chip: left 16, top 14, 500 10px Manrope, #CFE0FF on white 15%.
+/**
+ * Hero caption — ✦今日精选 badge, Display 片名, 类型 · 年份, then the action row:
+ * 主按钮「立即播放」+ 两个次级玻璃圆钮（收藏 / 详情）, per §4.1.
+ */
+@Composable
+private fun HeroCaption(
+    item: TmdbItem,
+    onPlay: () -> Unit,
+    onFavorite: () -> Unit,
+    onInfo: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .padding(start = Dimens.pageHorizontal, end = Dimens.pageHorizontal, bottom = 22.dp),
+    ) {
         Text(
-            "今日精选",
+            "✦ 今日精选",
             style = mr(10f, 500),
-            color = Color(0xFFCFE0FF),
+            color = Color.White,
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 16.dp, top = 14.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color.White.copy(alpha = 0.15f))
+                .glass(
+                    shape = GlassShapes.chip,
+                    fill = Color.White.copy(alpha = 0.14f),
+                    border = Color.White.copy(alpha = 0.30f),
+                )
                 .padding(horizontal = 9.dp, vertical = 3.dp),
         )
-
-        Column(
-            Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+        Spacer(Modifier.height(10.dp))
+        Text(
+            item.title,
+            style = sc(26f, 800),
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            listOfNotNull(item.year, item.rating?.let { "评分 ${(it * 10).toInt() / 10.0}" })
+                .joinToString(" · "),
+            style = mr(11f, 400),
+            color = Color.White.copy(alpha = 0.75f),
+        )
+        Spacer(Modifier.height(14.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                item.title,
-                style = sc(20f, 800),
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                listOfNotNull(item.year, item.rating?.let { "评分 ${(it * 10).toInt() / 10.0}" })
-                    .joinToString(" · "),
-                style = mr(11f, 400),
-                color = Color.White.copy(alpha = 0.75f),
-            )
-            Spacer(Modifier.height(10.dp))
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier
+                    .height(44.dp)
+                    .glass(
+                        shape = GlassShapes.chip,
+                        fill = Color(0xFF101722).copy(alpha = 0.30f),
+                        border = Color.White.copy(alpha = 0.40f),
+                    )
+                    .clickable(onClick = onPlay)
+                    .padding(start = 5.dp, end = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     Modifier
                         .size(34.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.85f)),
+                        .glass(
+                            shape = CircleShape,
+                            fill = Color.White.copy(alpha = 0.22f),
+                            border = Color.White.copy(alpha = 0.54f),
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         AppIcons.Play,
                         null,
-                        tint = Color(0xFF1B2436),
+                        tint = Color.White,
                         modifier = Modifier.size(13.dp),
                     )
                 }
-                Text("立即播放", style = mr(11f, 500), color = Color.White)
+                Text("立即播放", style = sc(13f, 700), color = Color.White)
             }
+            HeroCircleButton(AppIcons.Add, "加入收藏", onFavorite)
+            HeroCircleButton(AppIcons.Info, "查看详情", onInfo)
         }
     }
 }
 
-/** 继续观看 — 118×74 artwork with title/year below and a 3px progress bar. */
+/** 次级玻璃圆钮 beside the hero's main CTA. */
+@Composable
+private fun HeroCircleButton(icon: ImageVector, label: String, onClick: () -> Unit = {}) {
+    Box(
+        Modifier
+            .size(42.dp)
+            .glass(
+                shape = CircleShape,
+                fill = Color(0xFF11151F).copy(alpha = 0.38f),
+                border = Color.White.copy(alpha = 0.34f),
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, label, tint = Color.White, modifier = Modifier.size(15.dp))
+    }
+}
+
+/** 继续观看 — 150×90 artwork with title/year below and a 3px progress bar. */
 @Composable
 private fun ContinueWatching(
     baseUrl: String,
+    accessToken: String,
     items: List<MediaItem>,
+    onSeeAll: () -> Unit,
     onClick: (MediaItem) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -299,7 +424,15 @@ private fun ContinueWatching(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("继续观看", style = sc(14f, 700), color = palette.text)
-            Text("全部", style = mr(11f, 400), color = palette.sub2)
+            Text(
+                "全部 ›",
+                style = mr(11f, 500),
+                color = palette.sub2,
+                modifier = Modifier
+                    .glass(GlassShapes.chip, palette.card2, palette.border)
+                    .clickable(onClick = onSeeAll)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            )
         }
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
@@ -307,45 +440,135 @@ private fun ContinueWatching(
         ) {
             items(items, key = { it.id }) { item ->
                 CaptionedPoster(
-                    url = EmbyImages.backdrop(baseUrl, item, maxWidth = 480)
-                        ?: EmbyImages.poster(baseUrl, item),
+                    url = EmbyImages.backdrop(
+                        baseUrl,
+                        item,
+                        maxWidth = 480,
+                        accessToken = accessToken,
+                    ),
+                    fallbackUrl = EmbyImages.poster(
+                        baseUrl,
+                        item,
+                        accessToken = accessToken,
+                    ),
                     title = item.title,
                     year = item.year?.toString(),
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
+                    sharedKey = "media-poster-${item.id}",
                     onClick = { onClick(item) },
-                    modifier = Modifier.width(118.dp),
-                    posterModifier = Modifier.fillMaxWidth().height(74.dp),
+                    modifier = Modifier.width(150.dp),
+                    posterModifier = Modifier.fillMaxWidth().height(90.dp),
                 )
             }
         }
     }
 }
 
-/** 为你推荐 — three enlarged portrait posters with identity below the artwork. */
+/** 为你推荐 — horizontal 2:3 rail; the next card remains visible as a scroll cue. */
 @Composable
-private fun Recommended(items: List<TmdbItem>, onClick: (TmdbItem) -> Unit) {
+private fun Recommended(
+    title: String,
+    items: List<TmdbItem>,
+    showReleaseDate: Boolean,
+    onSeeAll: () -> Unit,
+    onClick: (TmdbItem) -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).padding(bottom = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, style = sc(14.5f, 700), color = palette.text)
+            Text(
+                "全部 ›",
+                style = mr(11f, 500),
+                color = palette.sub2,
+                modifier = Modifier
+                    .glass(GlassShapes.chip, palette.card2, palette.border)
+                    .clickable(onClick = onSeeAll)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            )
+        }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(items.take(12), key = { "${it.mediaType}:${it.id}" }) { item ->
+                CaptionedPoster(
+                    url = TmdbImages.poster(item.posterPath),
+                    fallbackUrls = listOfNotNull(
+                        TmdbImages.media(item.posterPath),
+                        TmdbImages.poster(item.posterPath, "original"),
+                        TmdbImages.media(item.posterPath, "original"),
+                        TmdbImages.backdrop(item.backdropPath, "w780"),
+                        TmdbImages.media(item.backdropPath, "w780"),
+                        TmdbImages.backdrop(item.backdropPath, "original"),
+                        TmdbImages.media(item.backdropPath, "original"),
+                    ),
+                    title = item.title,
+                    year = if (showReleaseDate) {
+                        item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
+                    } else {
+                        item.year
+                    },
+                    // The same title can appear in 热门 and 正在上映 at once.
+                    // A shared-element key must be unique within a screen, so
+                    // shelf posters use the route fade instead of competing for
+                    // one shared element (which made the duplicate turn blank).
+                    sharedKey = null,
+                    onClick = { onClick(item) },
+                    modifier = Modifier.width(132.dp),
+                    posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+                )
+            }
+        }
+    }
+}
+
+/** 最近添加 — three-column poster wall matching the bottom shelf in the prototype. */
+@Composable
+private fun RecentAdded(
+    items: List<TmdbItem>,
+    onSeeAll: () -> Unit,
+    onClick: (TmdbItem) -> Unit,
+) {
     val palette = LocalPalette.current
     Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
-        Text(
-            "为你推荐",
-            style = sc(14f, 700),
-            color = palette.text,
-            modifier = Modifier.padding(bottom = 10.dp),
-        )
-        // A plain Column of Rows keeps the grid inside the outer LazyColumn.
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("最近添加", style = sc(14.5f, 700), color = palette.text)
+            Text(
+                "全部 ›",
+                style = mr(11f, 500),
+                color = palette.sub2,
+                modifier = Modifier
+                    .glass(GlassShapes.chip, palette.card2, palette.border)
+                    .clickable(onClick = onSeeAll)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            )
+        }
         items.chunked(3).forEach { row ->
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 row.forEach { item ->
-                    CaptionedPoster(
+                    Poster(
                         url = TmdbImages.poster(item.posterPath),
+                        fallbackUrls = listOfNotNull(
+                            TmdbImages.media(item.posterPath),
+                            TmdbImages.backdrop(item.backdropPath, "w780"),
+                            TmdbImages.media(item.backdropPath, "w780"),
+                        ),
                         title = item.title,
-                        year = item.year,
+                        sharedKey = null,
                         onClick = { onClick(item) },
-                        modifier = Modifier.weight(1f),
-                        posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+                        modifier = Modifier.weight(1f).aspectRatio(2f / 3f),
                     )
                 }
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }

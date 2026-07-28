@@ -5,7 +5,9 @@ import com.yfuse.core.data.dto.AuthResultDto
 import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.PublicInfoDto
+import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.data.dto.PlaybackReportDto
+import com.yfuse.core.data.dto.PlaylistCreatedDto
 import com.yfuse.core.data.dto.ViewsDto
 import com.yfuse.core.data.dto.toEpisode
 import com.yfuse.core.data.dto.toMediaDetail
@@ -27,10 +29,12 @@ import com.yfuse.core.model.SourceInfo
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.normalizeBaseUrl
+import com.yfuse.core.sync.SyncedUserItem
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.get
+import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
@@ -66,6 +70,10 @@ data class AuthedServer(
  */
 class EmbyRepository(private val client: HttpClient) {
 
+    suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> = call {
+        client.get("${normalizeBaseUrl(baseUrl)}/Users/Public").body()
+    }
+
     suspend fun authenticate(baseUrl: String, username: String, password: String): Result<AuthedServer> = call {
         val url = normalizeBaseUrl(baseUrl)
         val auth: AuthResultDto = client.post("$url/Users/AuthenticateByName") {
@@ -79,6 +87,68 @@ class EmbyRepository(private val client: HttpClient) {
     }
 
     suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> = call { fetchViews(server) }
+
+    suspend fun setFavorite(
+        server: SavedServer,
+        itemId: String,
+        favorite: Boolean,
+    ): Result<Unit> = call {
+        val url = "${server.baseUrl}/Users/${server.userId}/FavoriteItems/$itemId"
+        if (favorite) {
+            client.post(url) { header("X-Emby-Token", server.accessToken) }
+        } else {
+            client.delete(url) { header("X-Emby-Token", server.accessToken) }
+        }
+        Unit
+    }
+
+    suspend fun setPlayed(
+        server: SavedServer,
+        itemId: String,
+        played: Boolean,
+    ): Result<Unit> = call {
+        val url = "${server.baseUrl}/Users/${server.userId}/PlayedItems/$itemId"
+        if (played) {
+            client.post(url) { header("X-Emby-Token", server.accessToken) }
+        } else {
+            client.delete(url) { header("X-Emby-Token", server.accessToken) }
+        }
+        Unit
+    }
+
+    /**
+     * Emby has no special “watch later” flag. It is represented by a real
+     * user playlist so it follows the account across clients and servers.
+     */
+    suspend fun addToWatchLater(server: SavedServer, itemId: String): Result<Unit> = call {
+        val playlists: ItemsResponseDto =
+            client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("Recursive", true)
+                parameter("IncludeItemTypes", "Playlist")
+                parameter("SearchTerm", "稍后观看")
+                parameter("Limit", 20)
+            }.body()
+        val playlistId = playlists.Items
+            .firstOrNull { it.Name.equals("稍后观看", ignoreCase = true) }
+            ?.Id
+        if (playlistId != null) {
+            client.post("${server.baseUrl}/Playlists/$playlistId/Items") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("Ids", itemId)
+                parameter("UserId", server.userId)
+            }
+        } else {
+            val created: PlaylistCreatedDto = client.post("${server.baseUrl}/Playlists") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("UserId", server.userId)
+                parameter("Name", "稍后观看")
+                parameter("Ids", itemId)
+            }.body()
+            require(!created.Id.isNullOrBlank()) { "playlist was not created" }
+        }
+        Unit
+    }
 
     suspend fun reportPlaybackStarted(
         server: SavedServer,
@@ -160,7 +230,11 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("IncludeItemTypes", "Movie,Series")
             parameter("SortBy", "SortName")
             parameter("SortOrder", "Ascending")
-            parameter("Fields", "ProductionYear")
+            parameter(
+                "Fields",
+                "ProductionYear,BackdropImageTags,ParentBackdropItemId," +
+                    "ParentBackdropImageTags,SeriesPrimaryImageTag",
+            )
             parameter("EnableImageTypes", "Primary,Backdrop")
             parameter("ImageTypeLimit", 2)
             parameter("Limit", 120)
@@ -209,12 +283,39 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("SearchTerm", query)
             parameter("Recursive", true)
             parameter("IncludeItemTypes", "Movie,Series")
-            parameter("Fields", "ProductionYear,Overview,ProviderIds")
+            parameter(
+                "Fields",
+                "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
+                    "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag",
+            )
             parameter("EnableImageTypes", "Primary,Backdrop")
             parameter("ImageTypeLimit", 2)
             parameter("Limit", limit)
         }.body()
         dto.Items.map { it.toMediaItem() }
+    }
+
+    /** Complete user-state snapshot used by the real multi-server sync coordinator. */
+    suspend fun userLibrarySnapshot(server: SavedServer): Result<List<SyncedUserItem>> = call {
+        val dto: ItemsResponseDto =
+            client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("Recursive", true)
+                parameter("IncludeItemTypes", "Movie,Series,Episode")
+                parameter("Fields", "UserData,DateModified")
+                parameter("EnableImages", false)
+                parameter("Limit", 10_000)
+            }.body()
+        dto.Items.map { item ->
+            SyncedUserItem(
+                id = item.Id,
+                title = item.Name.orEmpty(),
+                favorite = item.UserData?.IsFavorite == true,
+                played = item.UserData?.Played == true,
+                positionTicks = item.UserData?.PlaybackPositionTicks ?: 0L,
+                dateModified = item.DateModified,
+            )
+        }
     }
 
     /** Precise TMDB-to-Emby match, avoiding localized-title mismatches. */
@@ -298,6 +399,7 @@ class EmbyRepository(private val client: HttpClient) {
                     serverId = server.id,
                     serverName = server.serverName,
                     isCurrent = server.id == currentServerId,
+                    itemId = item?.Id,
                     source = source,
                     reachable = lookup.isSuccess,
                 )
@@ -376,7 +478,11 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("Recursive", true)
             parameter("MediaTypes", "Video")
             // UserData carries PlayedPercentage, which draws the resume bar.
-            parameter("Fields", "BackdropImageTags,UserData,Overview")
+            parameter(
+                "Fields",
+                "BackdropImageTags,UserData,Overview,ParentBackdropItemId," +
+                    "ParentBackdropImageTags,SeriesPrimaryImageTag",
+            )
             parameter("EnableImageTypes", "Primary,Backdrop")
             parameter("ImageTypeLimit", 2)
         }.body()
@@ -389,7 +495,11 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("ParentId", viewId)
             parameter("Limit", 16)
             // Overview feeds the carousel synopsis.
-            parameter("Fields", "BackdropImageTags,ProductionYear,Overview")
+            parameter(
+                "Fields",
+                "BackdropImageTags,ProductionYear,Overview,ParentBackdropItemId," +
+                    "ParentBackdropImageTags,SeriesPrimaryImageTag",
+            )
             parameter("EnableImageTypes", "Primary,Backdrop")
             parameter("ImageTypeLimit", 2)
         }.body()
