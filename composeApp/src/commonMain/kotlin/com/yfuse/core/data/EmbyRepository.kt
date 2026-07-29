@@ -365,7 +365,7 @@ class EmbyRepository(private val client: HttpClient) {
             parameter(
                 "Fields",
                 "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
-                    "SeriesPrimaryImageTag,MediaSources",
+                    "SeriesPrimaryImageTag,MediaSources,Chapters,ProviderIds",
             )
         }.body()
         val detail = dto.toMediaDetail()
@@ -495,7 +495,7 @@ class EmbyRepository(private val client: HttpClient) {
             header("X-Emby-Token", server.accessToken)
             parameter("UserId", server.userId)
             if (seasonId != null) parameter("SeasonId", seasonId)
-            parameter("Fields", "Overview")
+            parameter("Fields", "Overview,Chapters,ProviderIds,RunTimeTicks,UserData")
         }.body()
         dto.Items.map { it.toEpisode() }
     }

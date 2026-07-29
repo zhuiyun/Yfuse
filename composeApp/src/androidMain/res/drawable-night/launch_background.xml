@@ -10,5 +10,5 @@
         android:width="168dp"
         android:height="168dp"
         android:gravity="center"
-        android:drawable="@drawable/yfuse_logo_mark" />
+        android:drawable="@drawable/ic_yfuse_mark" />
 </layer-list>

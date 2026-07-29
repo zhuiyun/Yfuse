@@ -6,6 +6,7 @@ import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.header
+import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
@@ -20,7 +21,10 @@ expect fun embyHttpEngine(): HttpClientEngine
  * - injects the Emby client identity header. The per-server access token is
  *   added by the repository on each authenticated request.
  */
-fun createEmbyClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient =
+fun createEmbyClient(
+    engine: HttpClientEngine = embyHttpEngine(),
+    customUserAgent: () -> String = { "" },
+): HttpClient =
     HttpClient(engine) {
         expectSuccess = true
         install(ContentEncoding) { gzip() }
@@ -29,5 +33,8 @@ fun createEmbyClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient =
         }
         defaultRequest {
             header("X-Emby-Authorization", buildAuthHeader())
+            customUserAgent().trim().takeIf { it.isNotEmpty() }?.let { value ->
+                header(HttpHeaders.UserAgent, value)
+            }
         }
     }

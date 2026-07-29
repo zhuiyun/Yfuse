@@ -2,7 +2,7 @@ param(
     [string]$Server = "admin@47.112.219.60",
     [int]$SshPort = 443,
     [string]$RemoteDir = "/srv/yfuse-update/yfuse",
-    [string]$ReleaseNotes = "界面与播放体验优化"
+    [string]$ReleaseNotes = "Playback and interface improvements"
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,14 +23,20 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 $publishedApk = Join-Path $stage "Yfuse-latest.apk"
 Copy-Item $apk $publishedApk -Force
 
-[ordered]@{
+$manifest = [ordered]@{
     versionCode = $versionCode
     versionName = $versionName
     apkUrl = "http://47.112.219.60/yfuse/Yfuse-latest.apk"
     sha256 = $sha
     size = $size
     notes = $ReleaseNotes
-} | ConvertTo-Json | Set-Content (Join-Path $stage "update.json") -Encoding utf8NoBOM
+} | ConvertTo-Json
+$utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText(
+    (Join-Path $stage "update.json"),
+    $manifest,
+    $utf8WithoutBom
+)
 
 ssh -p $SshPort $Server "sudo -n mkdir -p '$RemoteDir' && sudo -n chown `$USER '$RemoteDir'"
 scp -P $SshPort $publishedApk "${Server}:/tmp/Yfuse-latest.apk.new"

@@ -37,6 +37,7 @@ kotlin {
             implementation(libs.ktor.content.negotiation)
             implementation(libs.ktor.json)
             implementation(libs.ktor.encoding)
+            implementation(libs.ktor.client.websockets)
 
             implementation(libs.serialization.json)
             implementation(libs.coroutines.core)
@@ -48,6 +49,7 @@ kotlin {
         }
 
         androidMain.dependencies {
+            implementation(project(":mdkAndroid"))
             implementation(libs.ktor.cio)
             implementation(libs.androidx.activity.compose)
             implementation(libs.media3.exoplayer)
@@ -164,6 +166,7 @@ android {
         // extracts them on install on our minSdk 26 devices.
         jniLibs {
             useLegacyPackaging = true
+            pickFirsts += "**/libc++_shared.so"
         }
         resources {
             excludes += setOf(

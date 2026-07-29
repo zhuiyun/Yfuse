@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import android.content.Context
 import android.util.Log
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -15,7 +16,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -55,21 +58,25 @@ class ExoVideoEngine(
     decoderMode: DecoderMode,
     autoNext: Boolean,
     quality: PlaybackQuality,
+    customUserAgent: String,
 ) : VideoEngine {
 
     private val _state = MutableStateFlow(
-        PlaybackState(currentIndex = startIndex, itemCount = items.size.coerceAtLeast(1)),
+        PlaybackState(
+            currentIndex = startIndex,
+            itemCount = items.size.coerceAtLeast(1),
+            diagnostics = PlaybackDiagnostics(
+                engine = "Media3 / ExoPlayer",
+                decoder = decoderMode.label,
+            ),
+        ),
     )
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
     /** True when the current queue entry is using the server-transcoded stream. */
     private val _transcoding = MutableStateFlow(false)
     val transcoding: StateFlow<Boolean> = _transcoding.asStateFlow()
-    private val transcodedIndices = mutableSetOf<Int>().apply {
-        if (quality != PlaybackQuality.Auto) {
-            addAll(items.indices.filter { items[it].transcodeUrl.isNotEmpty() })
-        }
-    }
+    private val transcodedIndices = mutableSetOf<Int>()
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
 
     val player: ExoPlayer = run {
@@ -79,6 +86,11 @@ class ExoVideoEngine(
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(20_000)
             .setReadTimeoutMs(20_000)
+            .apply {
+                customUserAgent.trim().takeIf { it.isNotEmpty() }?.let { value ->
+                    setDefaultRequestProperties(mapOf("User-Agent" to value))
+                }
+            }
 
         val selector = if (decoderMode == DecoderMode.Software) {
             MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
@@ -106,6 +118,70 @@ class ExoVideoEngine(
             }
     }
 
+    private var wasBuffering = true
+    private var droppedFrames = 0
+
+    private val analyticsListener = object : AnalyticsListener {
+        override fun onVideoDecoderInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long,
+        ) {
+            _state.update {
+                it.copy(diagnostics = it.diagnostics.copy(decoder = decoderName))
+            }
+        }
+
+        override fun onVideoInputFormatChanged(
+            eventTime: AnalyticsListener.EventTime,
+            format: Format,
+            decoderReuseEvaluation: DecoderReuseEvaluation?,
+        ) {
+            _state.update {
+                it.copy(
+                    diagnostics = it.diagnostics.copy(
+                        videoCodec = format.codecs ?: format.sampleMimeType ?: "未知",
+                        bitrateBitsPerSecond = format.bitrate.takeIf { value -> value > 0 }
+                            ?.toLong() ?: it.diagnostics.bitrateBitsPerSecond,
+                        frameRate = format.frameRate.takeIf { value -> value > 0f }
+                            ?: it.diagnostics.frameRate,
+                    ),
+                )
+            }
+        }
+
+        override fun onDroppedVideoFrames(
+            eventTime: AnalyticsListener.EventTime,
+            droppedFrames: Int,
+            elapsedMs: Long,
+        ) {
+            this@ExoVideoEngine.droppedFrames += droppedFrames
+            _state.update {
+                it.copy(
+                    diagnostics = it.diagnostics.copy(
+                        droppedFrames = this@ExoVideoEngine.droppedFrames,
+                    ),
+                )
+            }
+        }
+
+        override fun onBandwidthEstimate(
+            eventTime: AnalyticsListener.EventTime,
+            totalLoadTimeMs: Int,
+            totalBytesLoaded: Long,
+            bitrateEstimate: Long,
+        ) {
+            _state.update {
+                it.copy(
+                    diagnostics = it.diagnostics.copy(
+                        networkBitsPerSecond = bitrateEstimate.coerceAtLeast(0L),
+                    ),
+                )
+            }
+        }
+    }
+
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.update { it.copy(playing = isPlaying) }
@@ -113,11 +189,17 @@ class ExoVideoEngine(
 
         override fun onPlaybackStateChanged(state: Int) {
             Log.i(TAG, "exo state=$state")
+            val buffering = state == Player.STATE_BUFFERING
+            val bufferEvent = buffering && !wasBuffering
+            wasBuffering = buffering
             _state.update {
                 it.copy(
-                    buffering = state == Player.STATE_BUFFERING,
+                    buffering = buffering,
                     durationMs = knownDuration(),
                     ended = state == Player.STATE_ENDED,
+                    diagnostics = it.diagnostics.copy(
+                        bufferEvents = it.diagnostics.bufferEvents + if (bufferEvent) 1 else 0,
+                    ),
                 )
             }
         }
@@ -132,6 +214,9 @@ class ExoVideoEngine(
                     durationMs = knownDuration(),
                     error = null,
                     ended = false,
+                    diagnostics = it.diagnostics.copy(
+                        playMethod = if (index in transcodedIndices) "服务器转码" else "直播放",
+                    ),
                 )
             }
         }
@@ -187,6 +272,7 @@ class ExoVideoEngine(
 
     init {
         player.addListener(listener)
+        player.addAnalyticsListener(analyticsListener)
         player.setMediaItems(
             items.mapIndexed { index, item ->
                 mediaItem(
@@ -205,7 +291,13 @@ class ExoVideoEngine(
         ticker = scope.launch {
             while (isActive) {
                 _state.update {
-                    it.copy(positionMs = player.currentPosition, durationMs = knownDuration())
+                    it.copy(
+                        positionMs = player.currentPosition,
+                        durationMs = knownDuration(),
+                        diagnostics = it.diagnostics.copy(
+                            bufferedDurationMs = player.totalBufferedDuration.coerceAtLeast(0L),
+                        ),
+                    )
                 }
                 delay(TICK_MS)
             }
@@ -254,6 +346,7 @@ class ExoVideoEngine(
         ticker?.cancel()
         ticker = null
         player.removeListener(listener)
+        player.removeAnalyticsListener(analyticsListener)
         player.release()
     }
 
@@ -319,7 +412,13 @@ class ExoVideoEngine(
         transcodedIndices += index
         _transcoding.value = true
         val position = player.currentPosition
-        _state.update { it.copy(error = null, buffering = true) }
+        _state.update {
+            it.copy(
+                error = null,
+                buffering = true,
+                diagnostics = it.diagnostics.copy(playMethod = "服务器转码"),
+            )
+        }
         Log.i(TAG, "falling back to transcode for index=$index")
         player.replaceMediaItem(index, mediaItem(item.transcodeUrl, item.title))
         player.prepare()
@@ -347,6 +446,7 @@ class ExoVideoEngine(
 
     private fun knownDuration(): Long =
         player.duration.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
+
 }
 
 private fun mediaItem(url: String, title: String): MediaItem =

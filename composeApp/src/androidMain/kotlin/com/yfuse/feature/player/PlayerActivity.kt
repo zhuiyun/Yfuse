@@ -53,17 +53,34 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.core.content.ContextCompat
+import com.yfuse.core.data.DanmakuComment
+import com.yfuse.core.data.DanmakuDisplayArea
+import com.yfuse.core.data.DanmakuFontSize
+import com.yfuse.core.data.DanmakuMedia
+import com.yfuse.core.data.DanmakuOpacity
+import com.yfuse.core.data.DanmakuPreferences
+import com.yfuse.core.data.DanmakuRepository
+import com.yfuse.core.data.DanmakuSpeed
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.UserAgentPreferences
+import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.model.PlaybackSegment
+import com.yfuse.core.model.PlaybackSegmentType
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyStream
+import com.yfuse.core.sync.WatchTogetherClient
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
@@ -87,6 +104,8 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_FALLBACK_TRANSCODE = "yfuse.fallbackTranscodeUrls"
         private const val EXTRA_TITLES = "yfuse.titles"
         private const val EXTRA_SERVER_IDS = "yfuse.serverIds"
+        private const val EXTRA_SEGMENTS = "yfuse.playbackSegments"
+        private const val EXTRA_WATCH_KEYS = "yfuse.watchKeys"
         private const val EXTRA_INDEX = "yfuse.index"
         private const val EXTRA_POSITION = "yfuse.positionMs"
         private const val EXTRA_ENGINE = "yfuse.engine"
@@ -110,6 +129,8 @@ class PlayerActivity : ComponentActivity() {
             putExtra(EXTRA_FALLBACK_TRANSCODE, items.map { it.fallbackTranscodeUrl }.toTypedArray())
             putExtra(EXTRA_TITLES, items.map { it.title }.toTypedArray())
             putExtra(EXTRA_SERVER_IDS, items.map { it.serverId.orEmpty() }.toTypedArray())
+            putExtra(EXTRA_SEGMENTS, items.map(::encodePlaybackSegments).toTypedArray())
+            putExtra(EXTRA_WATCH_KEYS, items.map { it.watchKey }.toTypedArray())
             putExtra(EXTRA_INDEX, startIndex)
             putExtra(EXTRA_POSITION, startPositionMs)
             putExtra(EXTRA_ENGINE, engine.name)
@@ -173,6 +194,8 @@ class PlayerActivity : ComponentActivity() {
         val fallbackTranscodeUrls = intent.getStringArrayExtra(EXTRA_FALLBACK_TRANSCODE).orEmpty()
         val titles = intent.getStringArrayExtra(EXTRA_TITLES).orEmpty()
         val serverIds = intent.getStringArrayExtra(EXTRA_SERVER_IDS).orEmpty()
+        val segmentRows = intent.getStringArrayExtra(EXTRA_SEGMENTS).orEmpty()
+        val watchKeys = intent.getStringArrayExtra(EXTRA_WATCH_KEYS).orEmpty()
         val items = urls.mapIndexed { index, url ->
             PlayerMediaItem(
                 id = ids.getOrElse(index) { index.toString() },
@@ -187,6 +210,10 @@ class PlayerActivity : ComponentActivity() {
                     quality,
                 ),
                 serverId = serverIds.getOrNull(index)?.ifBlank { null },
+                playbackSegments = decodePlaybackSegments(segmentRows.getOrElse(index) { "" }),
+                watchKey = watchKeys.getOrElse(index) {
+                    "emby:${ids.getOrElse(index) { index.toString() }}"
+                },
             )
         }
         pictureInPicture.value = isInPictureInPictureMode
@@ -214,6 +241,12 @@ class PlayerActivity : ComponentActivity() {
 
         val koin = GlobalContext.get()
         val preferences = runCatching { koin.get<ThemePreferences>() }.getOrNull()
+        val danmakuPreferences = koin.get<DanmakuPreferences>()
+        val danmakuRepository = koin.get<DanmakuRepository>()
+        val playbackRecovery = koin.get<PlaybackRecoveryStore>()
+        val customUserAgent = koin.get<UserAgentPreferences>().userAgent.value
+        val watchTogether = koin.get<WatchTogetherClient>()
+        val watchTogetherPreferences = koin.get<WatchTogetherPreferences>()
         val accent = preferences?.accent?.value ?: AccentColor.Blue
         val playbackSink = runCatching {
             val registry = koin.get<ServerRegistry>()
@@ -239,6 +272,12 @@ class PlayerActivity : ComponentActivity() {
                     quality = quality,
                     inPictureInPicture = inPictureInPicture,
                     playbackSink = playbackSink,
+                    danmakuPreferences = danmakuPreferences,
+                    danmakuRepository = danmakuRepository,
+                    playbackRecovery = playbackRecovery,
+                    customUserAgent = customUserAgent,
+                    watchTogether = watchTogether,
+                    watchTogetherPreferences = watchTogetherPreferences,
                     onEngineAttached = { engine -> activeEngine = engine },
                     onEngineDetached = { engine ->
                         if (activeEngine === engine) activeEngine = null
@@ -529,6 +568,25 @@ class PlayerActivity : ComponentActivity() {
         )
 }
 
+private fun encodePlaybackSegments(item: PlayerMediaItem): String =
+    item.playbackSegments.joinToString(";") { segment ->
+        "${segment.type.name},${segment.startMs},${segment.endMs ?: ""}"
+    }
+
+private fun decodePlaybackSegments(raw: String): List<PlaybackSegment> =
+    raw.split(';').mapNotNull { row ->
+        val fields = row.split(',', limit = 3)
+        val type = fields.getOrNull(0)?.let { name ->
+            PlaybackSegmentType.entries.firstOrNull { it.name == name }
+        } ?: return@mapNotNull null
+        val startMs = fields.getOrNull(1)?.toLongOrNull() ?: return@mapNotNull null
+        PlaybackSegment(
+            type = type,
+            startMs = startMs,
+            endMs = fields.getOrNull(2)?.toLongOrNull(),
+        )
+    }
+
 /**
  * Owns the live engine and the shared control layer. Switching engines reads
  * the outgoing engine's position first, so the replacement picks up where it
@@ -546,6 +604,12 @@ private fun PlayerRoot(
     quality: PlaybackQuality,
     inPictureInPicture: Boolean,
     playbackSink: PlaybackEventSink?,
+    danmakuPreferences: DanmakuPreferences,
+    danmakuRepository: DanmakuRepository,
+    playbackRecovery: PlaybackRecoveryStore,
+    customUserAgent: String,
+    watchTogether: WatchTogetherClient,
+    watchTogetherPreferences: WatchTogetherPreferences,
     onEngineAttached: (VideoEngine) -> Unit,
     onEngineDetached: (VideoEngine) -> Unit,
     onPlaybackState: (PlaybackState) -> Unit,
@@ -564,6 +628,16 @@ private fun PlayerRoot(
 
     val engine: VideoEngine = remember(kind, resume) {
         when (kind) {
+            PlayerEngine.Mdk -> MdkVideoEngine(
+                items = items,
+                startIndex = resume.first,
+                startPositionMs = resume.second,
+                decoderMode = decoderMode,
+                autoNext = autoNext,
+                quality = quality,
+                customUserAgent = customUserAgent,
+                scope = scope,
+            )
             PlayerEngine.Mpv -> MpvVideoEngine(
                 context = context,
                 items = items,
@@ -572,6 +646,7 @@ private fun PlayerRoot(
                 decoderMode = decoderMode,
                 autoNext = autoNext,
                 quality = quality,
+                customUserAgent = customUserAgent,
             )
             else -> ExoVideoEngine(
                 context = context,
@@ -582,6 +657,7 @@ private fun PlayerRoot(
                 decoderMode = decoderMode,
                 autoNext = autoNext,
                 quality = quality,
+                customUserAgent = customUserAgent,
             )
         }
     }
@@ -595,6 +671,84 @@ private fun PlayerRoot(
     }
 
     val state by engine.state.collectAsState()
+    val watchState by watchTogether.state.collectAsState()
+    val watchEndpoint by watchTogetherPreferences.endpoint.collectAsState()
+    val danmakuUrl by danmakuPreferences.urlTemplate.collectAsState()
+    val danmakuEnabled by danmakuPreferences.enabled.collectAsState()
+    val danmakuArea by danmakuPreferences.displayArea.collectAsState()
+    val danmakuFont by danmakuPreferences.fontSize.collectAsState()
+    val danmakuSpeed by danmakuPreferences.speed.collectAsState()
+    val danmakuOpacity by danmakuPreferences.opacity.collectAsState()
+    var danmakuComments by remember { mutableStateOf(emptyList<DanmakuComment>()) }
+    var danmakuLoading by remember { mutableStateOf(false) }
+    var danmakuError by remember { mutableStateOf<String?>(null) }
+    val currentItem = items.getOrNull(state.currentIndex)
+    val activeSegment = currentItem?.playbackSegments?.firstOrNull { segment ->
+        segment.contains(state.positionMs, state.durationMs)
+    }
+    LaunchedEffect(currentItem?.id, danmakuUrl, danmakuEnabled) {
+        danmakuComments = emptyList()
+        danmakuError = null
+        danmakuLoading = false
+        val item = currentItem ?: return@LaunchedEffect
+        if (!danmakuEnabled || danmakuUrl.isBlank()) return@LaunchedEffect
+
+        danmakuLoading = true
+        danmakuRepository.load(
+            template = danmakuUrl,
+            media = DanmakuMedia(
+                id = item.id,
+                title = item.title,
+                episode = state.currentIndex + 1,
+                serverId = item.serverId,
+            ),
+        ).fold(
+            onSuccess = { danmakuComments = it },
+            onFailure = { danmakuError = it.message ?: "弹幕加载失败" },
+        )
+        danmakuLoading = false
+    }
+    val latestEngine by rememberUpdatedState(engine)
+    val latestPlaybackState by rememberUpdatedState(state)
+    LaunchedEffect(watchTogether) {
+        watchTogether.playbackUpdates.collect { update ->
+            val room = watchTogether.state.value
+            if (!room.connected || room.isHost) return@collect
+            val playback = latestPlaybackState
+            val targetIndex = items.indexOfFirst { it.watchKey == update.itemId }
+                .takeIf { it >= 0 } ?: update.itemIndex.takeIf { it in items.indices }
+                ?: return@collect
+            if (targetIndex != playback.currentIndex) {
+                latestEngine.selectItem(targetIndex)
+            }
+            val latency = if (update.playing) {
+                (System.currentTimeMillis() - update.sentAtEpochMs).coerceIn(0L, 2_000L)
+            } else {
+                0L
+            }
+            val targetPosition = (update.positionMs + latency).coerceAtLeast(0L)
+            if (kotlin.math.abs(latestEngine.currentPositionMs() - targetPosition) > 750L) {
+                latestEngine.seekTo(targetPosition)
+            }
+            if (update.playing) latestEngine.play() else latestEngine.pause()
+        }
+    }
+    LaunchedEffect(watchState.connected, watchState.isHost, currentItem?.id, engine) {
+        if (!watchState.connected || !watchState.isHost) return@LaunchedEffect
+        while (isActive) {
+            val playback = latestPlaybackState
+            val item = items.getOrNull(playback.currentIndex)
+            if (item != null) {
+                watchTogether.sendPlayback(
+                    itemId = item.watchKey,
+                    itemIndex = playback.currentIndex,
+                    positionMs = latestEngine.currentPositionMs(),
+                    playing = playback.playing,
+                )
+            }
+            delay(1_000L)
+        }
+    }
     val latestState by rememberUpdatedState(state)
     val reporter = remember(items, playbackSink) {
         playbackSink?.let { PlaybackProgressReporter(items, it) }
@@ -602,9 +756,36 @@ private fun PlayerRoot(
     LaunchedEffect(state, reporter) {
         reporter?.update(state)
         onPlaybackState(state)
+        val item = items.getOrNull(state.currentIndex)
+        when {
+            state.ended -> playbackRecovery.clear()
+            item != null && state.positionMs >= 2_000L -> playbackRecovery.record(
+                itemId = item.id,
+                title = item.title,
+                serverId = item.serverId,
+                positionMs = state.positionMs,
+                durationMs = state.durationMs,
+                engine = state.diagnostics.engine,
+            )
+        }
     }
     DisposableEffect(reporter) {
-        onDispose { reporter?.close(latestState) }
+        onDispose {
+            reporter?.close(latestState)
+            val finalState = latestState
+            val item = items.getOrNull(finalState.currentIndex)
+            if (item != null && !finalState.ended && finalState.positionMs >= 2_000L) {
+                playbackRecovery.record(
+                    itemId = item.id,
+                    title = item.title,
+                    serverId = item.serverId,
+                    positionMs = finalState.positionMs,
+                    durationMs = finalState.durationMs,
+                    engine = finalState.diagnostics.engine,
+                    force = true,
+                )
+            }
+        }
     }
 
     fun switchEngine(target: PlayerEngine) {
@@ -640,8 +821,22 @@ private fun PlayerRoot(
             },
     ) {
         when (engine) {
+            is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize())
             is MpvVideoEngine -> MpvSurface(engine, Modifier.fillMaxSize())
             is ExoVideoEngine -> ExoSurface(engine, filled, Modifier.fillMaxSize())
+        }
+
+        if (!inPictureInPicture && danmakuEnabled && danmakuComments.isNotEmpty()) {
+            DanmakuOverlay(
+                comments = danmakuComments,
+                positionMs = state.positionMs,
+                playing = state.playing && !state.buffering,
+                playbackRate = state.speed,
+                displayArea = danmakuArea,
+                fontSize = danmakuFont,
+                speed = danmakuSpeed,
+                opacity = danmakuOpacity,
+            )
         }
 
         if (!inPictureInPicture) {
@@ -650,16 +845,53 @@ private fun PlayerRoot(
                 titles = items.map { it.title },
                 filled = filled,
                 onBack = onBack,
-                onPlayPause = { if (state.playing) engine.pause() else engine.play() },
+                onPlayPause = {
+                    if (!watchState.connected || watchState.isHost) {
+                        if (state.playing) engine.pause() else engine.play()
+                        currentItem?.let { item ->
+                            watchTogether.sendPlayback(
+                                itemId = item.watchKey,
+                                itemIndex = state.currentIndex,
+                                positionMs = engine.currentPositionMs(),
+                                playing = !state.playing,
+                            )
+                        }
+                    }
+                },
                 onRetry = engine::retry,
-                onSeek = engine::seekTo,
-                onSelectItem = engine::selectItem,
+                onSeek = { position ->
+                    if (!watchState.connected || watchState.isHost) {
+                        engine.seekTo(position)
+                        currentItem?.let { item ->
+                            watchTogether.sendPlayback(
+                                itemId = item.watchKey,
+                                itemIndex = state.currentIndex,
+                                positionMs = position,
+                                playing = state.playing,
+                            )
+                        }
+                    }
+                },
+                onSelectItem = { index ->
+                    if (!watchState.connected || watchState.isHost) {
+                        engine.selectItem(index)
+                        items.getOrNull(index)?.let { item ->
+                            watchTogether.sendPlayback(
+                                itemId = item.watchKey,
+                                itemIndex = index,
+                                positionMs = 0L,
+                                playing = true,
+                            )
+                        }
+                    }
+                },
                 onSelectAudio = engine::selectAudioTrack,
                 onSelectSubtitle = engine::selectSubtitleTrack,
                 onSpeed = engine::setSpeed,
                 onToggleFill = {
                     filled = !filled
                     (engine as? MpvVideoEngine)?.setFill(filled)
+                    (engine as? MdkVideoEngine)?.setFill(filled)
                 },
                 volume = volume,
                 onVolume = { setVolume(it) },
@@ -689,6 +921,74 @@ private fun PlayerRoot(
                         engine.play()
                     }
                 },
+                danmakuConfigured = danmakuUrl.isNotBlank(),
+                danmakuEnabled = danmakuEnabled,
+                danmakuCount = danmakuComments.size,
+                danmakuLoading = danmakuLoading,
+                danmakuError = danmakuError,
+                danmakuAreaOptions = DanmakuDisplayArea.entries.map {
+                    it.label to (it == danmakuArea)
+                },
+                danmakuFontOptions = DanmakuFontSize.entries.map {
+                    it.label to (it == danmakuFont)
+                },
+                danmakuSpeedOptions = DanmakuSpeed.entries.map {
+                    it.label to (it == danmakuSpeed)
+                },
+                danmakuOpacityOptions = DanmakuOpacity.entries.map {
+                    it.label to (it == danmakuOpacity)
+                },
+                onToggleDanmaku = {
+                    danmakuPreferences.setEnabled(!danmakuEnabled)
+                },
+                onSelectDanmakuArea = { index ->
+                    danmakuPreferences.setDisplayArea(DanmakuDisplayArea.entries[index])
+                },
+                onSelectDanmakuFont = { index ->
+                    danmakuPreferences.setFontSize(DanmakuFontSize.entries[index])
+                },
+                onSelectDanmakuSpeed = { index ->
+                    danmakuPreferences.setSpeed(DanmakuSpeed.entries[index])
+                },
+                onSelectDanmakuOpacity = { index ->
+                    danmakuPreferences.setOpacity(DanmakuOpacity.entries[index])
+                },
+                skipSegmentLabel = activeSegment?.type?.skipLabel,
+                onSkipSegment = {
+                    if (!watchState.connected || watchState.isHost) {
+                        when (activeSegment?.type) {
+                            PlaybackSegmentType.Intro -> {
+                                activeSegment.endMs?.let(engine::seekTo)
+                            }
+                            PlaybackSegmentType.Credits -> {
+                                if (state.hasNext) {
+                                    engine.selectItem(state.currentIndex + 1)
+                                } else {
+                                    engine.seekTo((state.durationMs - 500L).coerceAtLeast(0L))
+                                }
+                            }
+                            null -> Unit
+                        }
+                    }
+                },
+                watchEndpoint = watchEndpoint,
+                watchConnecting = watchState.connecting,
+                watchConnected = watchState.connected,
+                watchRoomCode = watchState.roomCode,
+                watchIsHost = watchState.isHost,
+                watchParticipantCount = watchState.participantCount,
+                watchError = watchState.error,
+                onCreateWatchRoom = { endpoint ->
+                    currentItem?.let { item ->
+                        watchTogether.createRoom(endpoint, item.watchKey)
+                    }
+                },
+                onJoinWatchRoom = { endpoint, roomCode ->
+                    currentItem?.let { item ->
+                        watchTogether.joinRoom(endpoint, roomCode, item.watchKey)
+                    }
+                },
+                onLeaveWatchRoom = watchTogether::leave,
             )
         }
     }

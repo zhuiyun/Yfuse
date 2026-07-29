@@ -956,13 +956,7 @@ private fun OverviewSection(
     }
 }
 
-/**
- * Compact horizontal resource cards; unavailable servers stay hidden.
- *
- * The tiles carry [glass] rather than [solidGlass]: the diagonal sheen and the luminous
- * gradient edge are what make them read as the app's liquid-glass material, and at this
- * width the card is small enough that the extra depth does not become noise.
- */
+/** Compact solid-glass resource cards; unavailable servers stay hidden. */
 @Composable
 private fun SourceSection(
     sources: List<ServerSource>,
@@ -990,7 +984,7 @@ private fun SourceSection(
                     .pressable {
                         entry.itemId?.let { onSelect(entry.serverId, it) }
                     }
-                    .glass(
+                    .solidGlass(
                         shape = GlassShapes.thumb,
                         fill = if (palette.isDark) {
                             Color.White.copy(alpha = 0.08f)

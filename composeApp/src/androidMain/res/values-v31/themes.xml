@@ -4,7 +4,7 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">#FFFFFF</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/yfuse_logo_mark</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_yfuse_mark</item>
         <item name="android:windowSplashScreenBackground">#FFFFFF</item>
         <item name="android:windowSplashScreenAnimationDuration">300</item>
     </style>

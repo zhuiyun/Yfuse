@@ -4,6 +4,8 @@ import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.Person
+import com.yfuse.core.model.PlaybackSegment
+import com.yfuse.core.model.PlaybackSegmentType
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.SourceInfo
 import kotlinx.serialization.Serializable
@@ -76,6 +78,12 @@ data class MediaSourceDto(
 )
 
 @Serializable
+data class ChapterDto(
+    val StartPositionTicks: Long = 0L,
+    val MarkerType: String? = null,
+)
+
+@Serializable
 data class BaseItemDto(
     val Id: String,
     val Name: String? = null,
@@ -101,6 +109,7 @@ data class BaseItemDto(
     val MediaSources: List<MediaSourceDto>? = null,
     val ProviderIds: Map<String, String>? = null,
     val DateModified: String? = null,
+    val Chapters: List<ChapterDto>? = null,
 )
 
 /** Resume (and most list endpoints) wrap items; `Items/Latest` returns a raw array. */
@@ -194,6 +203,7 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         isFavorite = UserData?.IsFavorite == true,
         played = UserData?.Played == true,
         providerIds = ProviderIds.orEmpty(),
+        playbackSegments = playbackSegments(),
     )
 }
 
@@ -244,4 +254,33 @@ fun BaseItemDto.toEpisode() = Episode(
     primaryTag = ImageTags?.get("Primary"),
     playedPercentage = UserData?.PlayedPercentage,
     resumePositionTicks = UserData?.PlaybackPositionTicks,
+    playbackSegments = playbackSegments(),
+    providerIds = ProviderIds.orEmpty(),
 )
+
+/** Pairs Emby's IntroStart/IntroEnd markers and treats CreditsStart as open-ended. */
+fun BaseItemDto.playbackSegments(): List<PlaybackSegment> {
+    val markers = Chapters.orEmpty().sortedBy { it.StartPositionTicks }
+    val introStart = markers.firstOrNull { it.MarkerType.equals("IntroStart", true) }
+    val introEnd = markers.firstOrNull {
+        it.MarkerType.equals("IntroEnd", true) &&
+            (introStart == null || it.StartPositionTicks > introStart.StartPositionTicks)
+    }
+    val intro = if (introStart != null && introEnd != null) {
+        PlaybackSegment(
+            type = PlaybackSegmentType.Intro,
+            startMs = introStart.StartPositionTicks / 10_000L,
+            endMs = introEnd.StartPositionTicks / 10_000L,
+        )
+    } else {
+        null
+    }
+    val credits = markers.firstOrNull { it.MarkerType.equals("CreditsStart", true) }?.let {
+        PlaybackSegment(
+            type = PlaybackSegmentType.Credits,
+            startMs = it.StartPositionTicks / 10_000L,
+            endMs = null,
+        )
+    }
+    return listOfNotNull(intro, credits)
+}

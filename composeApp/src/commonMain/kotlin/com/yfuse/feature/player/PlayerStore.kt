@@ -8,6 +8,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.network.EmbyStream
+import com.yfuse.core.model.PlaybackSegment
 import kotlinx.coroutines.launch
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
@@ -18,6 +19,9 @@ data class PlayerMediaItem(
     val title: String,
     val fallbackTranscodeUrl: String = transcodeUrl,
     val serverId: String? = null,
+    val playbackSegments: List<PlaybackSegment> = emptyList(),
+    /** Cross-server identity used by watch-together rooms. */
+    val watchKey: String = id,
 )
 
 data class PlayerState(
@@ -70,7 +74,12 @@ class PlayerStoreFactory(
                     return@launch
                 }
 
-                fun itemOf(id: String, title: String) = PlayerMediaItem(
+                fun itemOf(
+                    id: String,
+                    title: String,
+                    playbackSegments: List<PlaybackSegment> = emptyList(),
+                    providerIds: Map<String, String> = emptyMap(),
+                ) = PlayerMediaItem(
                     id = id,
                     url = EmbyStream.directPlay(server.baseUrl, id, server.accessToken),
                     transcodeUrl = EmbyStream.transcode(server.baseUrl, id, server.accessToken),
@@ -81,6 +90,8 @@ class PlayerStoreFactory(
                         server.accessToken,
                     ),
                     serverId = server.id,
+                    playbackSegments = playbackSegments,
+                    watchKey = providerIds.watchKey(id),
                 )
 
                 val detail = repo.itemDetail(server, itemId).getOrNull()
@@ -93,6 +104,8 @@ class PlayerStoreFactory(
                             itemOf(
                                 ep.id,
                                 listOfNotNull(ep.indexNumber?.let { "第 $it 集" }, ep.name).joinToString("  "),
+                                ep.playbackSegments,
+                                ep.providerIds,
                             )
                         }
                         val index = items.indexOfFirst { it.id == itemId }.coerceAtLeast(0)
@@ -101,7 +114,20 @@ class PlayerStoreFactory(
                     }
                 }
 
-                dispatch(PlayerMsg.Ready(listOf(itemOf(itemId, detail?.title ?: "")), 0, startMs))
+                dispatch(
+                    PlayerMsg.Ready(
+                        listOf(
+                            itemOf(
+                                itemId,
+                                detail?.title ?: "",
+                                detail?.playbackSegments.orEmpty(),
+                                detail?.providerIds.orEmpty(),
+                            ),
+                        ),
+                        0,
+                        startMs,
+                    ),
+                )
             }
         }
 
@@ -119,4 +145,15 @@ class PlayerStoreFactory(
             is PlayerMsg.Failed -> copy(loading = false, error = msg.message)
         }
     }
+}
+
+private fun Map<String, String>.watchKey(fallbackId: String): String {
+    val preferred = listOf("Tmdb", "Tvdb", "Imdb")
+    for (provider in preferred) {
+        entries.firstOrNull { it.key.equals(provider, ignoreCase = true) }
+            ?.value
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return "${provider.lowercase()}:$it" }
+    }
+    return "emby:$fallbackId"
 }

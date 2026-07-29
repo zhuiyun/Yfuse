@@ -19,4 +19,6 @@ data class Episode(
     val primaryTag: String?,
     val playedPercentage: Double?,
     val resumePositionTicks: Long?,
+    val playbackSegments: List<PlaybackSegment> = emptyList(),
+    val providerIds: Map<String, String> = emptyMap(),
 )
