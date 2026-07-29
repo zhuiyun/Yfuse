@@ -242,6 +242,27 @@ class EmbyRepository(private val client: HttpClient) {
         dto.Items.map { it.toMediaItem() }
     }
 
+    /** Real Emby recommendations used by the detail page's compact poster rail. */
+    suspend fun similarItems(
+        server: SavedServer,
+        itemId: String,
+        limit: Int = 12,
+    ): Result<List<MediaItem>> = call {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Items/$itemId/Similar") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("UserId", server.userId)
+            parameter("Limit", limit)
+            parameter(
+                "Fields",
+                "ProductionYear,CommunityRating,BackdropImageTags,ParentBackdropItemId," +
+                    "ParentBackdropImageTags,SeriesPrimaryImageTag",
+            )
+            parameter("EnableImageTypes", "Primary,Backdrop")
+            parameter("ImageTypeLimit", 2)
+        }.body()
+        dto.Items.map { it.toMediaItem() }
+    }
+
     /**
      * Resolves what to actually play for a detail item: movies/episodes play
      * themselves; a series plays its "next up" episode (falling back to the
@@ -372,21 +393,48 @@ class EmbyRepository(private val client: HttpClient) {
         servers: List<SavedServer>,
         currentServerId: String?,
         title: String,
+        tmdbId: Int? = null,
+        mediaType: String? = null,
+        year: Int? = null,
     ): List<ServerSource> = coroutineScope {
         servers.map { server ->
             async {
                 val lookup = runCatching {
-                    val dto: ItemsResponseDto =
+                    suspend fun query(providerMatch: Boolean): ItemsResponseDto =
                         client.get("${server.baseUrl}/Users/${server.userId}/Items") {
                             header("X-Emby-Token", server.accessToken)
-                            parameter("SearchTerm", title)
                             parameter("Recursive", true)
-                            parameter("IncludeItemTypes", "Movie,Series")
-                            parameter("Fields", "MediaSources")
+                            parameter(
+                                "IncludeItemTypes",
+                                when (mediaType) {
+                                    "tv" -> "Series"
+                                    "movie" -> "Movie"
+                                    else -> "Movie,Series"
+                                },
+                            )
+                            if (providerMatch && tmdbId != null) {
+                                parameter("AnyProviderIdEquals", "tmdb.$tmdbId")
+                            } else {
+                                parameter("SearchTerm", title)
+                            }
+                            parameter("Fields", "MediaSources,ProductionYear,ProviderIds")
                             parameter("Limit", 5)
                         }.body()
-                    dto.Items.firstOrNull { it.Name.equals(title, ignoreCase = true) }
-                        ?: dto.Items.firstOrNull()
+                    val providerItems = if (tmdbId != null) query(providerMatch = true).Items
+                    else emptyList()
+                    val candidates = providerItems.ifEmpty {
+                        query(providerMatch = false).Items
+                    }
+                    candidates.firstOrNull { candidate ->
+                        val titleMatches = candidate.Name.equals(title, ignoreCase = true)
+                        val yearMatches = year == null || candidate.ProductionYear == year
+                        val typeMatches = when (mediaType) {
+                            "tv" -> candidate.Type == "Series"
+                            "movie" -> candidate.Type == "Movie"
+                            else -> true
+                        }
+                        titleMatches && yearMatches && typeMatches
+                    } ?: candidates.firstOrNull()
                 }
                 val item = lookup.getOrNull()
                 val source = item?.let {

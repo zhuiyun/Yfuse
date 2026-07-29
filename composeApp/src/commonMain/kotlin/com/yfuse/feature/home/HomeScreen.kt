@@ -1,6 +1,5 @@
 package com.yfuse.feature.home
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -56,6 +55,7 @@ import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.YfuseMark
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
@@ -66,9 +66,6 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
-import com.yfuse.resources.Res
-import com.yfuse.resources.logo
-import org.jetbrains.compose.resources.painterResource
 
 /**
  * 首页 — the prototype's `isHome` screen:
@@ -580,10 +577,5 @@ private fun RecentAdded(
 /** The app mark, sized to the prototype's 30px header slot. */
 @Composable
 private fun AppMark(modifier: Modifier = Modifier) {
-    Image(
-        painter = painterResource(Res.drawable.logo),
-        contentDescription = null,
-        contentScale = ContentScale.Fit,
-        modifier = modifier,
-    )
+    YfuseMark(modifier)
 }

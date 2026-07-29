@@ -35,6 +35,10 @@ internal data class TmdbItemDto(
     @SerialName("first_air_date") val firstAirDate: String? = null,
     @SerialName("media_type") val mediaType: String? = null,
     @SerialName("vote_average") val voteAverage: Double? = null,
+    @SerialName("vote_count") val voteCount: Int = 0,
+    val popularity: Double = 0.0,
+    @SerialName("genre_ids") val genreIds: List<Int> = emptyList(),
+    @SerialName("original_language") val originalLanguage: String? = null,
 )
 
 @Serializable
@@ -81,6 +85,10 @@ private fun TmdbItemDto.toItem(fallbackType: String): TmdbItem = TmdbItem(
     releaseDate = (releaseDate ?: firstAirDate)?.ifBlank { null },
     mediaType = mediaType ?: fallbackType,
     rating = voteAverage?.takeIf { it > 0.0 },
+    voteCount = voteCount,
+    popularity = popularity,
+    genreIds = genreIds,
+    originalLanguage = originalLanguage,
 )
 
 /** Recommendations from TMDB for the home tab. */
@@ -88,12 +96,120 @@ class TmdbRepository(private val client: HttpClient) {
 
     suspend fun home(language: String = "zh-CN"): Result<TmdbHome> = try {
         coroutineScope {
+            val today = currentIsoDate()
+            val currentYear = today.take(4).toIntOrNull() ?: 2026
+            val nextYearEnd = "${currentYear + 1}-12-31"
             val popularMovies = async { fetch("/movie/popular", language, "movie") }
             val popularShows = async { fetch("/tv/popular", language, "tv") }
             val nowMovies = async { fetch("/movie/now_playing", language, "movie") }
             val nowShows = async { fetch("/tv/airing_today", language, "tv") }
             val upcomingMovies = async { fetch("/movie/upcoming", language, "movie") }
-            val upcomingShows = async { fetch("/tv/on_the_air", language, "tv") }
+            val upcomingShows = async {
+                fetch(
+                    "/discover/tv",
+                    language,
+                    "tv",
+                    mapOf(
+                        "first_air_date.gte" to today,
+                        "first_air_date.lte" to nextYearEnd,
+                        "sort_by" to "popularity.desc",
+                        "vote_count.gte" to GLOBAL_UPCOMING_MIN_VOTES.toString(),
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
+            val cnPopularMovies = async {
+                fetch(
+                    "/discover/movie",
+                    language,
+                    "movie",
+                    mapOf(
+                        "with_origin_country" to "CN",
+                        "with_original_language" to "zh",
+                        "sort_by" to "popularity.desc",
+                        "vote_count.gte" to DOMESTIC_MIN_VOTES.toString(),
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
+            val cnPopularShows = async {
+                fetch(
+                    "/discover/tv",
+                    language,
+                    "tv",
+                    mapOf(
+                        "with_origin_country" to "CN",
+                        "with_original_language" to "zh",
+                        "sort_by" to "popularity.desc",
+                        "vote_count.gte" to DOMESTIC_MIN_VOTES.toString(),
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
+            val cnNowMovies = async {
+                fetch(
+                    "/discover/movie",
+                    language,
+                    "movie",
+                    mapOf(
+                        "with_origin_country" to "CN",
+                        "with_original_language" to "zh",
+                        "primary_release_year" to currentYear.toString(),
+                        "primary_release_date.lte" to today,
+                        "region" to "CN",
+                        "sort_by" to "popularity.desc",
+                        "vote_count.gte" to DOMESTIC_MIN_VOTES.toString(),
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
+            val cnNowShows = async {
+                fetch(
+                    "/discover/tv",
+                    language,
+                    "tv",
+                    mapOf(
+                        "with_origin_country" to "CN",
+                        "with_original_language" to "zh",
+                        "first_air_date_year" to currentYear.toString(),
+                        "first_air_date.lte" to today,
+                        "sort_by" to "popularity.desc",
+                        "vote_count.gte" to DOMESTIC_MIN_VOTES.toString(),
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
+            val cnUpcomingMovies = async {
+                fetch(
+                    "/discover/movie",
+                    language,
+                    "movie",
+                    mapOf(
+                        "with_origin_country" to "CN",
+                        "with_original_language" to "zh",
+                        "primary_release_date.gte" to today,
+                        "primary_release_date.lte" to nextYearEnd,
+                        "region" to "CN",
+                        "sort_by" to "popularity.desc",
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
+            val cnUpcomingShows = async {
+                fetch(
+                    "/discover/tv",
+                    language,
+                    "tv",
+                    mapOf(
+                        "with_origin_country" to "CN",
+                        "with_original_language" to "zh",
+                        "first_air_date.gte" to today,
+                        "first_air_date.lte" to nextYearEnd,
+                        "sort_by" to "popularity.desc",
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
             val result = awaitAll(
                 popularMovies,
                 popularShows,
@@ -101,12 +217,34 @@ class TmdbRepository(private val client: HttpClient) {
                 nowShows,
                 upcomingMovies,
                 upcomingShows,
+                cnPopularMovies,
+                cnPopularShows,
+                cnNowMovies,
+                cnNowShows,
+                cnUpcomingMovies,
+                cnUpcomingShows,
             )
-            val popular = interleave(result[0], result[1])
-            val nowPlaying = interleave(result[2], result[3])
-            val today = currentIsoDate()
-            val upcoming = interleave(result[4], result[5])
-                .filter { item -> item.releaseDate?.let { it >= today } == true }
+            val popular = integrateDomestic(
+                global = interleave(result[0], result[1]).eligibleCatalogItems(),
+                domestic = interleave(result[6], result[7]).trustedDomesticItems(),
+            )
+            val nowPlaying = integrateDomestic(
+                global = interleave(result[2], result[3])
+                    .eligibleCatalogItems()
+                    .filter { item -> item.releaseDate?.let { it <= today } == true },
+                domestic = interleave(result[8], result[9])
+                    .trustedDomesticItems()
+                    .filter { item -> item.releaseDate?.let { it <= today } == true },
+            )
+            val upcoming = integrateDomestic(
+                global = interleave(result[4], result[5]).eligibleCatalogItems(),
+                domestic = interleave(result[10], result[11])
+                    .filter { it.popularity >= DOMESTIC_UPCOMING_MIN_POPULARITY },
+            )
+                .eligibleCatalogItems()
+                .filter { item ->
+                    item.releaseDate?.let { it >= today && it <= nextYearEnd } == true
+                }
 
             val featured = popular.filter { it.backdropPath != null }.take(5)
             val rows = listOf(
@@ -162,9 +300,17 @@ class TmdbRepository(private val client: HttpClient) {
         Result.failure(EmbyErrorException(e.toError()))
     }
 
-    private suspend fun fetch(path: String, language: String, fallbackType: String): List<TmdbItem> =
+    private suspend fun fetch(
+        path: String,
+        language: String,
+        fallbackType: String,
+        parameters: Map<String, String> = emptyMap(),
+    ): List<TmdbItem> =
         runCatching {
-            client.get("$TMDB_BASE$path") { parameter("language", language) }
+            client.get("$TMDB_BASE$path") {
+                parameter("language", language)
+                parameters.forEach { (name, value) -> parameter(name, value) }
+            }
                 .body<TmdbListDto>()
                 .results
                 .map { it.toItem(fallbackType) }
@@ -180,6 +326,33 @@ class TmdbRepository(private val client: HttpClient) {
             }
         }.distinctBy { "${it.mediaType}:${it.id}" }
 
+    private fun List<TmdbItem>.eligibleCatalogItems(): List<TmdbItem> =
+        filter { item -> item.genreIds.none(BLOCKED_GENRE_IDS::contains) }
+
+    private fun List<TmdbItem>.trustedDomesticItems(): List<TmdbItem> =
+        eligibleCatalogItems().filter { item ->
+            item.originalLanguage == "zh" &&
+                item.voteCount >= DOMESTIC_MIN_VOTES &&
+                item.popularity >= DOMESTIC_MIN_POPULARITY
+        }
+
+    /** Inserts one domestic title for every two global entries, then removes duplicates. */
+    private fun integrateDomestic(
+        global: List<TmdbItem>,
+        domestic: List<TmdbItem>,
+    ): List<TmdbItem> = buildList {
+        var domesticIndex = 0
+        global.forEachIndexed { index, item ->
+            if (index % 2 == 0) {
+                domestic.getOrNull(domesticIndex++)?.let(::add)
+            }
+            add(item)
+        }
+        while (domesticIndex < domestic.size) {
+            add(domestic[domesticIndex++])
+        }
+    }.distinctBy { "${it.mediaType}:${it.id}" }
+
     private fun Throwable.toError(): EmbyError = when (this) {
         is ResponseException -> when (response.status.value) {
             401 -> EmbyError.Unauthorized
@@ -187,5 +360,14 @@ class TmdbRepository(private val client: HttpClient) {
             else -> EmbyError.Unknown("HTTP ${response.status.value}")
         }
         else -> EmbyError.Network
+    }
+
+    private companion object {
+        val BLOCKED_GENRE_IDS = setOf(99, 10763, 10764, 10767)
+        val BLOCKED_GENRES_PARAMETER = BLOCKED_GENRE_IDS.joinToString(",")
+        const val DOMESTIC_MIN_VOTES = 10
+        const val DOMESTIC_MIN_POPULARITY = 3.0
+        const val DOMESTIC_UPCOMING_MIN_POPULARITY = 5.0
+        const val GLOBAL_UPCOMING_MIN_VOTES = 3
     }
 }

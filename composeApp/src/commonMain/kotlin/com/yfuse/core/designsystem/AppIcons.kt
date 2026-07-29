@@ -221,6 +221,17 @@ object AppIcons {
         moveTo(4.5f, 19f); horizontalLineTo(19.5f)
     }.build()
 
+    /** 片源 — the detail page marks each reachable server with a cloud. */
+    val Cloud = strokeVector("cloud", cap = StrokeCap.Round, join = StrokeJoin.Round) {
+        // M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z
+        moveTo(18f, 10f)
+        horizontalLineToRelative(-1.26f)
+        arcToRelative(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = false, -7.74f, 10f)
+        horizontalLineToRelative(9f)
+        arcToRelative(5f, 5f, 0f, isMoreThanHalf = false, isPositiveArc = false, 0f, -10f)
+        close()
+    }.build()
+
     /** ⓘ — the hero's 详情 button and the detail page's 技术规格 affordance. */
     val Info = strokeVector("info") {
         circle(12f, 12f, 9f)

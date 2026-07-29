@@ -9,6 +9,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
@@ -28,6 +29,7 @@ data class DetailState(
     val episodesLoading: Boolean = false,
     /** 跨服务器片源对比. */
     val sources: List<ServerSource> = emptyList(),
+    val related: List<MediaItem> = emptyList(),
     val error: String? = null,
     val actionMessage: String? = null,
 )
@@ -63,6 +65,7 @@ private sealed interface DetailMsg {
     data object EpisodesLoading : DetailMsg
     data class EpisodesLoaded(val episodes: List<Episode>) : DetailMsg
     data class SourcesLoaded(val sources: List<ServerSource>) : DetailMsg
+    data class RelatedLoaded(val items: List<MediaItem>) : DetailMsg
     data class FavoriteChanged(val value: Boolean) : DetailMsg
     data class PlayedChanged(val value: Boolean) : DetailMsg
     data class ActionMessage(val value: String?) : DetailMsg
@@ -132,6 +135,7 @@ class DetailStoreFactory(
                         dispatch(DetailMsg.Loaded(detail, server))
                         seriesIdOf(detail)?.let { loadSeasons(server, it) }
                         loadSources(server, detail)
+                        loadRelated(server, detail)
                     }
                     .onFailure { dispatch(DetailMsg.Failed(it.toUserMessage("加载失败"))) }
             }
@@ -141,8 +145,31 @@ class DetailStoreFactory(
         private fun loadSources(server: SavedServer, detail: MediaDetail) {
             val servers = registry.data.value.servers
             scope.launch {
-                val sources = repo.compareSources(servers, server.id, detail.title)
+                val tmdbId = detail.providerIds.entries
+                    .firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
+                    ?.value
+                    ?.toIntOrNull()
+                val sources = repo.compareSources(
+                    servers = servers,
+                    currentServerId = server.id,
+                    title = detail.title,
+                    tmdbId = tmdbId,
+                    mediaType = when (detail.type) {
+                        "Series" -> "tv"
+                        "Movie" -> "movie"
+                        else -> null
+                    },
+                    year = detail.year,
+                )
                 dispatch(DetailMsg.SourcesLoaded(sources))
+            }
+        }
+
+        private fun loadRelated(server: SavedServer, detail: MediaDetail) {
+            scope.launch {
+                repo.similarItems(server, detail.id)
+                    .onSuccess { dispatch(DetailMsg.RelatedLoaded(it)) }
+                    .onFailure { dispatch(DetailMsg.RelatedLoaded(emptyList())) }
             }
         }
 
@@ -257,6 +284,7 @@ class DetailStoreFactory(
             DetailMsg.EpisodesLoading -> copy(episodesLoading = true)
             is DetailMsg.EpisodesLoaded -> copy(episodesLoading = false, episodes = msg.episodes)
             is DetailMsg.SourcesLoaded -> copy(sources = msg.sources)
+            is DetailMsg.RelatedLoaded -> copy(related = msg.items)
             is DetailMsg.FavoriteChanged -> copy(
                 detail = detail?.copy(isFavorite = msg.value),
                 actionMessage = null,

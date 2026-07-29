@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +43,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -694,19 +696,21 @@ private fun SeekBar(
 
 /**
  * `gap:10px`, `rgba(255,255,255,.14)` over `rgba(255,255,255,.22)`, `radius:16px`,
- * `padding:6px 12px`, with a 70×3 level track.
+ * `padding:6px 12px`, with a 70×3 level track. Shares [ChipHeight] with the chip row
+ * opposite it, so the whole bottom row sits on one baseline.
  */
 @Composable
 private fun VolumeChip(volume: Float, onVolume: (Float) -> Unit) {
     var width by remember { mutableStateOf(1f) }
     Row(
         Modifier
+            .height(ChipHeight)
             .glass(
-                shape = RoundedCornerShape(16.dp),
+                shape = ChipShape,
                 fill = PlayerTokens.chipFill,
                 border = Color.White.copy(alpha = 0.24f),
             )
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -741,25 +745,42 @@ private fun VolumeChip(volume: Float, onVolume: (Float) -> Unit) {
     }
 }
 
-/** `radius:14px`, `padding:6px 12px`, `500 11px Manrope`, `rgba(255,255,255,.9)`. */
+/**
+ * 字幕 / 音轨 / 投屏 / 更多 are one control family, so they share one height, one radius
+ * and one material. Only the width flexes — a label needs more room than a glyph, and a
+ * text chip that shrank to fit its text used to sit two thirds the height of the icon
+ * ones next to it.
+ */
+private val ChipHeight = 40.dp
+private val ChipMinWidth = 46.dp
+private val ChipShape = RoundedCornerShape(14.dp)
+
+/** Labelled chip — `radius:14px`, `600 11.5px Manrope`, `rgba(255,255,255,.92)`. */
 @Composable
 private fun Chip(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        style = mr(11f, 500),
-        color = Color.White.copy(alpha = 0.9f),
-        maxLines = 1,
-        modifier = Modifier
+    Box(
+        Modifier
+            .height(ChipHeight)
+            .widthIn(min = ChipMinWidth)
             .glass(
-                shape = GlassShapes.chip,
+                shape = ChipShape,
                 fill = PlayerTokens.chipFill,
                 border = Color.White.copy(alpha = 0.24f),
             )
             .noRippleClickable(onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = mr(11.5f, 600),
+            color = Color.White.copy(alpha = 0.92f),
+            maxLines = 1,
+        )
+    }
 }
 
+/** Glyph chip — same box as [Chip], sized to [ChipMinWidth] since it holds one icon. */
 @Composable
 private fun IconChip(
     icon: ImageVector,
@@ -769,10 +790,10 @@ private fun IconChip(
 ) {
     Box(
         Modifier
-            .width(46.dp)
-            .height(44.dp)
+            .width(ChipMinWidth)
+            .height(ChipHeight)
             .glass(
-                shape = RoundedCornerShape(14.dp),
+                shape = ChipShape,
                 fill = if (active) {
                     Brand.Primary.copy(alpha = 0.7f)
                 } else {
@@ -902,71 +923,81 @@ private fun SettingsPanel(
         add(Tab.Cast)
         add(Tab.More)
     }
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(20.dp)
 
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).noRippleClickable(onDismiss))
+    // Dismiss catcher only — the old full-screen `rgba(0,0,0,.35)` scrim dimmed the film
+    // itself every time a track list opened. The panel earns its separation from its own
+    // material and shadow instead, so the picture behind it stays untouched.
+    Box(Modifier.fillMaxSize().noRippleClickable(onDismiss))
     Box(Modifier.fillMaxSize()) {
         Column(
             Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 120.dp, bottom = 70.dp)
-                .width(230.dp)
+                // Sits directly above the chip row that opens it, on the same right edge.
+                .padding(end = 22.dp, bottom = 84.dp)
+                .width(248.dp)
                 .shadow(Shadows.playerSheet, shape)
                 .glass(
                     shape = shape,
-                    fill = PlayerTokens.sheetFillLandscape,
-                    border = Color.White.copy(alpha = 0.42f),
+                    fill = PlayerTokens.drawerFillLandscape,
+                    border = Color.White.copy(alpha = 0.20f),
                 )
                 .noRippleClickable { }
-                .padding(top = 6.dp, bottom = 12.dp),
+                .padding(top = 8.dp, bottom = 10.dp),
         ) {
-            // Tab row — `padding:12px 14px 6px`, `gap:14px`, hairline underneath.
+            // Segmented tab row. The pill alone carries the active state; the 2px rule
+            // underneath it was a second signal saying the same thing.
             Row(
-                Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 tabs.forEach { entry ->
                     val active = entry == tab
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            entry.label,
-                            style = sc(12.5f, if (active) 700 else 500),
-                            color = if (active) Brand.Primary else Color(0xFF8A93A3),
-                            modifier = Modifier
-                                .glass(
-                                    shape = GlassShapes.thumb,
-                                    fill = if (active) {
-                                        Brand.Primary.copy(alpha = 0.13f)
-                                    } else {
-                                        Color.White.copy(alpha = 0.10f)
-                                    },
-                                    border = if (active) {
-                                        Brand.Primary.copy(alpha = 0.24f)
-                                    } else {
-                                        Color.White.copy(alpha = 0.14f)
-                                    },
-                                )
-                                .noRippleClickable { onTab(entry) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(2.dp)
-                                .background(if (active) Brand.Primary else Color.Transparent),
-                        )
-                    }
+                    Text(
+                        entry.label,
+                        style = sc(12.5f, if (active) 700 else 500),
+                        color = if (active) {
+                            Color.White
+                        } else {
+                            Color.White.copy(alpha = 0.58f)
+                        },
+                        maxLines = 1,
+                        modifier = Modifier
+                            .weight(1f)
+                            .glass(
+                                shape = GlassShapes.thumb,
+                                fill = if (active) {
+                                    Color.White.copy(alpha = 0.18f)
+                                } else {
+                                    Color.Transparent
+                                },
+                                border = if (active) {
+                                    Color.White.copy(alpha = 0.26f)
+                                } else {
+                                    null
+                                },
+                            )
+                            .noRippleClickable { onTab(entry) }
+                            .padding(vertical = 7.dp),
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color.Black.copy(alpha = 0.06f)))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .height(1.dp)
+                    .background(Color.White.copy(alpha = 0.10f)),
+            )
 
             // `padding:10px 14px 2px; max-height:150px`.
             Column(
                 Modifier
                     .heightIn(max = 210.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 2.dp),
+                    .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 when (tab) {
                     Tab.Subtitle -> {
@@ -1017,7 +1048,7 @@ private fun SettingsPanel(
                             Text(
                                 "正在发现 DLNA 设备…",
                                 style = mr(11.5f, 500),
-                                color = Color(0xFF8A93A3),
+                                color = Color.White.copy(alpha = 0.55f),
                                 modifier = Modifier.padding(vertical = 10.dp),
                             )
                         }
@@ -1043,37 +1074,39 @@ private fun SettingsPanel(
     }
 }
 
-/** `600 11px Manrope`, `#8A93A3`, above each group in the 字幕·音轨 tab. */
+/** `600 11px Manrope`, above each group in the 字幕·音轨 tab. */
 @Composable
 private fun GroupLabel(text: String) {
     Text(
         text,
         style = mr(11f, 600),
-        color = Color(0xFF8A93A3),
-        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+        color = Color.White.copy(alpha = 0.48f),
+        modifier = Modifier.padding(top = 6.dp, bottom = 6.dp),
     )
 }
 
 /**
- * `padding:9px 10px`, `radius:10px`; selected is `700 12.5px` `#3D64C9` over
- * `rgba(61,100,201,.1)`, otherwise `500 12.5px` `#151A22`.
+ * `padding:9px 10px`, `radius:10px`. The panel reads on a dark glass plate over video,
+ * so the selected row takes [Brand.PrimaryGradTop] — the accent's light end. The spec's
+ * `#3D64C9` is a light-theme ink and goes muddy against this fill.
  */
 @Composable
 private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    val accent = Brand.PrimaryGradTop
     Row(
         Modifier
             .fillMaxWidth()
             .glass(
                 shape = GlassShapes.thumb,
                 fill = if (selected) {
-                    Brand.Primary.copy(alpha = 0.13f)
+                    accent.copy(alpha = 0.20f)
                 } else {
-                    Color.White.copy(alpha = 0.08f)
+                    Color.White.copy(alpha = 0.06f)
                 },
                 border = if (selected) {
-                    Brand.Primary.copy(alpha = 0.24f)
+                    accent.copy(alpha = 0.38f)
                 } else {
-                    Color.White.copy(alpha = 0.12f)
+                    Color.White.copy(alpha = 0.10f)
                 },
             )
             .noRippleClickable(onClick)
@@ -1084,13 +1117,13 @@ private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
         Text(
             label,
             style = sc(12.5f, if (selected) 700 else 500),
-            color = if (selected) Brand.Primary else Color(0xFF151A22),
+            color = if (selected) accent else Color.White.copy(alpha = 0.86f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
         if (selected) {
-            Icon(AppIcons.Check, null, tint = Brand.Primary, modifier = Modifier.size(12.dp))
+            Icon(AppIcons.Check, null, tint = accent, modifier = Modifier.size(12.dp))
         }
     }
 }

@@ -84,4 +84,58 @@ class ServersStoreTest {
         assertEquals("N", s.servers.first().serverName)
         store.dispose()
     }
+
+    @Test
+    fun protocol_switch_updates_the_default_port() = runTest {
+        val store = store(testRegistry()) { authRoutes(it) }
+
+        assertEquals("443", store.state.form.port)
+        store.accept(ServersIntent.ProtocolChanged(https = false))
+        assertEquals("8096", store.state.form.port)
+        store.accept(ServersIntent.ProtocolChanged(https = true))
+        assertEquals("443", store.state.form.port)
+
+        store.dispose()
+    }
+
+    @Test
+    fun address_with_http_scheme_updates_protocol_and_avoids_duplicate_scheme() = runTest {
+        val store = store(testRegistry()) { authRoutes(it) }
+
+        store.accept(ServersIntent.HostChanged("http://media.example.com"))
+
+        assertEquals(false, store.state.form.https)
+        assertEquals("media.example.com", store.state.form.host)
+        assertEquals("8096", store.state.form.port)
+        assertEquals("http://media.example.com:8096", store.state.form.url)
+        store.dispose()
+    }
+
+    @Test
+    fun address_without_scheme_keeps_selected_protocol_and_explicit_port() = runTest {
+        val store = store(testRegistry()) { authRoutes(it) }
+        store.accept(ServersIntent.ProtocolChanged(https = false))
+
+        store.accept(ServersIntent.HostChanged("192.168.1.8:19001"))
+
+        assertEquals(false, store.state.form.https)
+        assertEquals("192.168.1.8", store.state.form.host)
+        assertEquals("19001", store.state.form.port)
+        assertEquals("http://192.168.1.8:19001", store.state.form.url)
+        store.dispose()
+    }
+
+    @Test
+    fun address_with_https_and_explicit_port_overrides_both_fields() = runTest {
+        val store = store(testRegistry()) { authRoutes(it) }
+        store.accept(ServersIntent.ProtocolChanged(https = false))
+
+        store.accept(ServersIntent.HostChanged("https://media.example.com:9443"))
+
+        assertEquals(true, store.state.form.https)
+        assertEquals("media.example.com", store.state.form.host)
+        assertEquals("9443", store.state.form.port)
+        assertEquals("https://media.example.com:9443", store.state.form.url)
+        store.dispose()
+    }
 }

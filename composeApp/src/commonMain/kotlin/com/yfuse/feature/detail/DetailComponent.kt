@@ -23,6 +23,7 @@ class DetailComponent(
     itemId: String,
     serverId: String? = null,
     val onBack: () -> Unit,
+    val onOpenRelated: (serverId: String, itemId: String) -> Unit,
     private val onPlay: (serverId: String, itemId: String, startPositionTicks: Long) -> Unit,
 ) : ComponentContext by componentContext {
 

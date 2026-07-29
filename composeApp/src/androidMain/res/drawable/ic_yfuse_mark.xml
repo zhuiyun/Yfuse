@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Yfuse 标识 —「三片叶片」4a 标准叶片，几何取自设计稿的 64×64 画布。
+  外层 group 把 64 画布缩放并居中放进 108 的自适应图标画布（叶片直径约 63，
+  落在 66 的安全区内），因此这一份同时用作 launcher 前景层和开屏图标。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:scaleX="1.4375"
+        android:scaleY="1.4375"
+        android:translateX="8"
+        android:translateY="8">
+        <group
+            android:pivotX="32"
+            android:pivotY="32"
+            android:rotation="-90">
+
+            <group
+                android:pivotX="32"
+                android:pivotY="32"
+                android:rotation="0">
+                <path android:pathData="M19.25,11 H44.75 A5.25,5.25 0 0 1 44.75,21.5 H19.25 A5.25,5.25 0 0 1 19.25,11 Z">
+                    <aapt:attr name="android:fillColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="14"
+                            android:startY="11"
+                            android:endX="50"
+                            android:endY="21.5">
+                            <item android:offset="0" android:color="#E6E2FF" />
+                            <item android:offset="1" android:color="#8B83F4" />
+                        </gradient>
+                    </aapt:attr>
+                </path>
+                <path
+                    android:fillAlpha="0.5"
+                    android:pathData="M17,12 H47 A2,2 0 0 1 47,16 H17 A2,2 0 0 1 17,12 Z">
+                    <aapt:attr name="android:fillColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="0"
+                            android:startY="12"
+                            android:endX="0"
+                            android:endY="16">
+                            <item android:offset="0" android:color="#BFFFFFFF" />
+                            <item android:offset="1" android:color="#00FFFFFF" />
+                        </gradient>
+                    </aapt:attr>
+                </path>
+            </group>
+
+            <group
+                android:pivotX="32"
+                android:pivotY="32"
+                android:rotation="120">
+                <path android:pathData="M19.25,11 H44.75 A5.25,5.25 0 0 1 44.75,21.5 H19.25 A5.25,5.25 0 0 1 19.25,11 Z">
+                    <aapt:attr name="android:fillColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="14"
+                            android:startY="11"
+                            android:endX="50"
+                            android:endY="21.5">
+                            <item android:offset="0" android:color="#D9D6FF" />
+                            <item android:offset="1" android:color="#79CDE4" />
+                        </gradient>
+                    </aapt:attr>
+                </path>
+                <path
+                    android:fillAlpha="0.4"
+                    android:pathData="M17,12 H47 A2,2 0 0 1 47,16 H17 A2,2 0 0 1 17,12 Z">
+                    <aapt:attr name="android:fillColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="0"
+                            android:startY="12"
+                            android:endX="0"
+                            android:endY="16">
+                            <item android:offset="0" android:color="#BFFFFFFF" />
+                            <item android:offset="1" android:color="#00FFFFFF" />
+                        </gradient>
+                    </aapt:attr>
+                </path>
+            </group>
+
+            <group
+                android:pivotX="32"
+                android:pivotY="32"
+                android:rotation="240">
+                <path android:pathData="M19.25,11 H44.75 A5.25,5.25 0 0 1 44.75,21.5 H19.25 A5.25,5.25 0 0 1 19.25,11 Z">
+                    <aapt:attr name="android:fillColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="14"
+                            android:startY="11"
+                            android:endX="50"
+                            android:endY="21.5">
+                            <item android:offset="0" android:color="#D7FBFF" />
+                            <item android:offset="1" android:color="#72D2E3" />
+                        </gradient>
+                    </aapt:attr>
+                </path>
+                <path
+                    android:fillAlpha="0.4"
+                    android:pathData="M17,12 H47 A2,2 0 0 1 47,16 H17 A2,2 0 0 1 17,12 Z">
+                    <aapt:attr name="android:fillColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="0"
+                            android:startY="12"
+                            android:endX="0"
+                            android:endY="16">
+                            <item android:offset="0" android:color="#BFFFFFFF" />
+                            <item android:offset="1" android:color="#00FFFFFF" />
+                        </gradient>
+                    </aapt:attr>
+                </path>
+            </group>
+        </group>
+    </group>
+</vector>

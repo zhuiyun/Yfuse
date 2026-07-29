@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,7 +28,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,13 +67,11 @@ import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
-import com.yfuse.core.sync.ServerSyncManager
-import kotlinx.coroutines.launch
 
 /** Which option sheet is open — the prototype's `settingsSheetTab`. */
 private enum class Sheet { Engine, Decoder, Quality }
 
-private enum class ProfilePage { Downloads, Sync }
+private enum class ProfilePage { Downloads }
 
 /** 个人中心 — `padding:52px 18px 100px; gap:18px`. */
 @Composable
@@ -95,6 +91,8 @@ fun ProfileScreen(component: ProfileComponent) {
     var confirmRemove by remember { mutableStateOf<SavedServer?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
     var userMenuOpen by remember { mutableStateOf(false) }
+    var serversExpanded by remember { mutableStateOf(false) }
+    var migrationExpanded by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf<ProfilePage?>(null) }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
     val palette = LocalPalette.current
@@ -125,9 +123,7 @@ fun ProfileScreen(component: ProfileComponent) {
             ProfileUtilityScreen(
                 page = page!!,
                 onBack = { page = null },
-                onOpenSync = { page = ProfilePage.Sync },
                 offlineManager = component.offlineMedia,
-                syncManager = component.syncManager,
                 onPlayOffline = { offlineToPlay = it },
             )
         } else {
@@ -151,15 +147,25 @@ fun ProfileScreen(component: ProfileComponent) {
                         onAction = ::openAddServer,
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            state.servers.forEach { server ->
-                                ServerRow(
-                                    server = server,
-                                    isCurrent = server.id == state.currentServer?.id,
-                                    onClick = {
-                                        component.store.accept(ProfileIntent.SwitchServer(server.id))
-                                    },
-                                    onLongClick = { confirmRemove = server },
-                                )
+                            CollapsibleSummaryRow(
+                                title = "${state.servers.size} 台服务器",
+                                subtitle = state.currentServer?.serverName ?: "尚未连接",
+                                expanded = serversExpanded,
+                                onClick = { serversExpanded = !serversExpanded },
+                            )
+                            if (serversExpanded) {
+                                state.servers.forEach { server ->
+                                    ServerRow(
+                                        server = server,
+                                        isCurrent = server.id == state.currentServer?.id,
+                                        onClick = {
+                                            component.store.accept(
+                                                ProfileIntent.SwitchServer(server.id),
+                                            )
+                                        },
+                                        onLongClick = { confirmRemove = server },
+                                    )
+                                }
                             }
                         }
                     }
@@ -167,11 +173,21 @@ fun ProfileScreen(component: ProfileComponent) {
 
                 item {
                     Section(title = "服务器迁移") {
-                        ServerBackupTools(
-                            payload = component.exportServers(),
-                            serverCount = state.servers.size,
-                            onImport = component::importServers,
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CollapsibleSummaryRow(
+                                title = "迁移服务器",
+                                subtitle = "${state.servers.size} 个服务器，可迁移登录状态",
+                                expanded = migrationExpanded,
+                                onClick = { migrationExpanded = !migrationExpanded },
+                            )
+                            if (migrationExpanded) {
+                                ServerBackupTools(
+                                    payload = component.exportServers(),
+                                    serverCount = state.servers.size,
+                                    onImport = component::importServers,
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -362,6 +378,69 @@ fun ProfileScreen(component: ProfileComponent) {
                 onDismiss = { confirmClearCache = false },
             )
         }
+    }
+}
+
+@Composable
+private fun CollapsibleSummaryRow(
+    title: String,
+    subtitle: String,
+    expanded: Boolean,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .glass(
+                shape = GlassShapes.card,
+                fill = palette.card2,
+                border = palette.border,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(34.dp)
+                .glass(
+                    shape = RoundedCornerShape(10.dp),
+                    fill = Brand.Primary.copy(alpha = 0.10f),
+                    border = Brand.Primary.copy(alpha = 0.20f),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                AppIcons.Server,
+                contentDescription = null,
+                tint = Brand.Primary,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = sc(12.5f, 700), color = palette.text)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = mr(10.5f, 400),
+                color = palette.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            if (expanded) "收起" else "展开",
+            style = mr(10.5f, 600),
+            color = Brand.Primary,
+        )
+        Icon(
+            AppIcons.ChevronDown,
+            contentDescription = if (expanded) "收起" else "展开",
+            tint = Brand.Primary,
+            modifier = Modifier.size(12.dp),
+        )
     }
 }
 
@@ -753,23 +832,12 @@ private fun DescribedSwitchRow(
 private fun ProfileUtilityScreen(
     page: ProfilePage,
     onBack: () -> Unit,
-    onOpenSync: () -> Unit,
     offlineManager: OfflineMediaManager,
-    syncManager: ServerSyncManager,
     onPlayOffline: (OfflineMedia) -> Unit,
 ) {
     val palette = LocalPalette.current
     val downloads by offlineManager.items.collectAsState()
     val wifiOnly by offlineManager.wifiOnly.collectAsState()
-    val syncState by syncManager.state.collectAsState()
-    val autoSync by syncManager.autoSync.collectAsState()
-    val syncMetadata by syncManager.syncMetadata.collectAsState()
-    val syncProgress by syncManager.syncProgress.collectAsState()
-    val syncArtwork by syncManager.syncArtwork.collectAsState()
-    val syncFavorites by syncManager.syncFavorites.collectAsState()
-    val syncStatus = syncState.statuses.firstOrNull()
-    val syncing = syncState.statuses.any { it.syncing }
-    val scope = rememberCoroutineScope()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding().hideBottomBarOnScroll(),
@@ -801,7 +869,7 @@ private fun ProfileUtilityScreen(
                     )
                 }
                 Text(
-                    if (page == ProfilePage.Downloads) "下载" else "服务器同步",
+                    "下载",
                     style = sc(20f, 700),
                     color = palette.text,
                     modifier = Modifier.padding(start = 12.dp),
@@ -809,8 +877,7 @@ private fun ProfileUtilityScreen(
             }
         }
 
-        if (page == ProfilePage.Downloads) {
-            item {
+        item {
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -884,156 +951,7 @@ private fun ProfileUtilityScreen(
                         onRemove = { offlineManager.remove(download.id) },
                     )
                 }
-            }
-        } else {
-            item {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .glass(RoundedCornerShape(20.dp), palette.card, palette.border)
-                        .padding(16.dp),
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("同步当前服务器", style = sc(14f, 700), color = palette.text)
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                when {
-                                    syncing -> "正在从服务器同步…"
-                                    syncStatus?.online == false ->
-                                        syncStatus.error ?: "服务器离线"
-                                    syncStatus?.lastSyncEpochMs != null ->
-                                        "已同步 ${syncStatus.itemCount} 项 · " +
-                                            "${syncState.pendingCount} 项待回传"
-                                    else -> "尚未同步"
-                                },
-                                style = sc(10.5f, 400),
-                                color = palette.sub2,
-                            )
-                        }
-                        Box(
-                            Modifier
-                                .height(34.dp)
-                                .glass(
-                                    RoundedCornerShape(12.dp),
-                                    Brand.Primary.copy(alpha = 0.68f),
-                                    Color.White.copy(alpha = 0.48f),
-                                )
-                                .clickable(enabled = !syncing) {
-                                    scope.launch { syncManager.syncCurrent() }
-                                }
-                                .padding(horizontal = 14.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (syncing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White,
-                                )
-                            } else {
-                                Text("立即同步", style = sc(11.5f, 700), color = Color.White)
-                            }
-                        }
-                    }
-                }
-            }
-
-            item {
-                SectionBlock {
-                    SwitchRow("自动同步", autoSync, onChange = syncManager::setAutoSync)
-                    SwitchRow("媒体资料", syncMetadata, onChange = syncManager::setMetadata)
-                    SwitchRow("观看进度", syncProgress, onChange = syncManager::setProgress)
-                    SwitchRow("海报与背景图", syncArtwork, onChange = syncManager::setArtwork)
-                    SwitchRow("收藏状态", syncFavorites, onChange = syncManager::setFavorites)
-                }
-            }
-
-            if (syncState.conflicts.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "需要处理的同步冲突",
-                            style = sc(13f, 700),
-                            color = palette.text,
-                        )
-                        syncState.conflicts.forEach { conflict ->
-                            Column(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .glass(GlassShapes.card, palette.card, palette.border)
-                                    .padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(
-                                    conflict.mutation.title,
-                                    style = sc(12.5f, 700),
-                                    color = palette.text,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    "本机与服务器的${if (conflict.mutation.kind.name == "Favorite") "收藏" else "已看"}状态不同",
-                                    style = sc(10.5f, 400),
-                                    color = palette.sub2,
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        "使用本机",
-                                        style = sc(10.5f, 700),
-                                        color = Brand.Primary,
-                                        modifier = Modifier
-                                            .glass(GlassShapes.chip)
-                                            .clickable {
-                                                scope.launch {
-                                                    syncManager.resolveConflict(conflict, true)
-                                                }
-                                            }
-                                            .padding(horizontal = 11.dp, vertical = 7.dp),
-                                    )
-                                    Text(
-                                        "使用服务器",
-                                        style = sc(10.5f, 700),
-                                        color = palette.sub,
-                                        modifier = Modifier
-                                            .glass(GlassShapes.chip)
-                                            .clickable {
-                                                scope.launch {
-                                                    syncManager.resolveConflict(conflict, false)
-                                                }
-                                            }
-                                            .padding(horizontal = 11.dp, vertical = 7.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            item {
-                Text(
-                    "同步会从当前 Emby 服务器更新资料、观看进度与收藏状态。离线下载内容不会被删除。",
-                    style = sc(10.5f, 400, lineHeight = 17f),
-                    color = palette.sub2,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-            }
         }
-    }
-}
-
-@Composable
-private fun SectionBlock(content: @Composable () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().clip(GlassShapes.card),
-        verticalArrangement = Arrangement.spacedBy(1.dp),
-    ) {
-        content()
     }
 }
 

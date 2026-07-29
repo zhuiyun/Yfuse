@@ -96,6 +96,9 @@ class HomeTabComponent(
                 itemId = config.itemId,
                 serverId = config.serverId,
                 onBack = { navigation.pop() },
+                onOpenRelated = { serverId, itemId ->
+                    navigation.push(Config.Detail(serverId, itemId))
+                },
                 onPlay = { serverId, id, ticks ->
                     navigation.push(Config.Player(serverId, id, ticks))
                 },
@@ -122,9 +125,9 @@ class HomeTabComponent(
                 item = config.item,
                 embyItemId = config.embyItemId,
                 onBack = { navigation.pop() },
-                onPlayTarget = { id, ticks ->
+                onPlayTarget = { serverId, id, ticks ->
                     navigation.push(
-                        Config.Player(registry.defaultServer?.id, id, ticks),
+                        Config.Player(serverId, id, ticks),
                     )
                 },
             ),

@@ -10,9 +10,11 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.sync.ServerSyncManager
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 
 data class LibraryState(
     val servers: List<SavedServer> = emptyList(),
@@ -24,6 +26,11 @@ data class LibraryState(
 
 sealed interface LibraryIntent {
     data class SelectServer(val id: String) : LibraryIntent
+    data class ToggleFavorite(
+        val itemId: String,
+        val title: String,
+        val favorite: Boolean,
+    ) : LibraryIntent
     data object Retry : LibraryIntent
 }
 
@@ -35,6 +42,7 @@ private sealed interface Msg {
     data class Data(val servers: List<SavedServer>, val current: SavedServer?) : Msg
     data object Loading : Msg
     data class Loaded(val content: HomeContent) : Msg
+    data class FavoriteChanged(val itemId: String, val favorite: Boolean) : Msg
     data class Failed(val message: String) : Msg
 }
 
@@ -79,10 +87,24 @@ class LibraryStoreFactory(
         override fun executeIntent(intent: LibraryIntent) {
             when (intent) {
                 is LibraryIntent.SelectServer -> registry.setDefault(intent.id)
+                is LibraryIntent.ToggleFavorite -> toggleFavorite(intent)
                 LibraryIntent.Retry -> state().currentServer?.let {
                     loadedServerId = it.id
                     load(it)
                 }
+            }
+        }
+
+        private fun toggleFavorite(intent: LibraryIntent.ToggleFavorite) {
+            val server = state().currentServer ?: return
+            dispatch(Msg.FavoriteChanged(intent.itemId, intent.favorite))
+            scope.launch {
+                GlobalContext.get().get<ServerSyncManager>().setFavorite(
+                    server = server,
+                    itemId = intent.itemId,
+                    title = intent.title,
+                    value = intent.favorite,
+                )
             }
         }
 
@@ -105,6 +127,27 @@ class LibraryStoreFactory(
             )
             Msg.Loading -> copy(loading = true, error = null)
             is Msg.Loaded -> copy(loading = false, content = msg.content, error = null)
+            is Msg.FavoriteChanged -> copy(
+                content = content.copy(
+                    featured = content.featured.map {
+                        if (it.id == msg.itemId) it.copy(isFavorite = msg.favorite) else it
+                    },
+                    resume = content.resume.map {
+                        if (it.id == msg.itemId) it.copy(isFavorite = msg.favorite) else it
+                    },
+                    rows = content.rows.map { row ->
+                        row.copy(
+                            items = row.items.map {
+                                if (it.id == msg.itemId) {
+                                    it.copy(isFavorite = msg.favorite)
+                                } else {
+                                    it
+                                }
+                            },
+                        )
+                    },
+                ),
+            )
             is Msg.Failed -> copy(loading = false, error = msg.message)
         }
     }

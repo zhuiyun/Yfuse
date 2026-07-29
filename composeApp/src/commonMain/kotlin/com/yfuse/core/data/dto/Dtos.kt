@@ -154,6 +154,7 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         playedPercentage = UserData?.PlayedPercentage,
         overview = Overview,
         year = ProductionYear,
+        communityRating = CommunityRating,
         providerIds = ProviderIds.orEmpty(),
         isFavorite = UserData?.IsFavorite == true,
         played = UserData?.Played == true,
@@ -192,6 +193,7 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         source = MediaSources?.firstOrNull()?.toSourceInfo(),
         isFavorite = UserData?.IsFavorite == true,
         played = UserData?.Played == true,
+        providerIds = ProviderIds.orEmpty(),
     )
 }
 

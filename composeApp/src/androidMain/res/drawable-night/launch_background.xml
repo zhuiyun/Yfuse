@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 亮色开屏底：取设计稿 radial-gradient 的中心色，交给 Compose 开屏时不跳。 -->
+<!-- 深色开屏底，对应 radial-gradient(#1B1749 → #08090F) 的外圈色。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#FFFFFF" />
+            <solid android:color="#08090F" />
         </shape>
     </item>
     <item

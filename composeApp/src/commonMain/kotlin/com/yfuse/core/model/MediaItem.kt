@@ -18,6 +18,8 @@ data class MediaItem(
     val overview: String? = null,
     /** Production year shown below poster cards. */
     val year: Int? = null,
+    /** Community score shown by compact recommendation cards. */
+    val communityRating: Double? = null,
     /** External IDs such as TMDB, used to match recommendations precisely. */
     val providerIds: Map<String, String> = emptyMap(),
     /** User-specific Emby state returned through UserData. */

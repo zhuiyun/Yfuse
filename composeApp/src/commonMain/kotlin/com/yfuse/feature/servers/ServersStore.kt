@@ -22,25 +22,59 @@ data class LoginForm(
     /** The prototype defaults the protocol segment to HTTPS. */
     val https: Boolean = true,
     val host: String = "",
-    val port: String = "8096",
+    val port: String = "443",
     val username: String = "",
     val password: String = "",
     val submitting: Boolean = false,
     val error: String? = null,
 ) {
     val url: String
-        get() = buildString {
-            append(if (https) "https://" else "http://")
-            append(host.trim())
-            val p = port.trim()
-            if (p.isNotEmpty()) {
-                append(':')
-                append(p)
+        get() {
+            val parsed = parseServerAddress(host)
+            val resolvedHttps = parsed?.https ?: https
+            val resolvedHost = parsed?.host?.takeIf(String::isNotBlank) ?: host.trim()
+            val resolvedPort = parsed?.port ?: port.trim()
+            return buildString {
+                append(if (resolvedHttps) "https://" else "http://")
+                append(resolvedHost)
+                val p = resolvedPort.trim()
+                if (p.isNotEmpty()) {
+                    append(':')
+                    append(p)
+                }
             }
         }
 
     val canSubmit: Boolean
-        get() = host.isNotBlank() && username.isNotBlank() && !submitting
+        get() = (parseServerAddress(host)?.host ?: host.trim()).isNotBlank() &&
+            username.isNotBlank() && !submitting
+}
+
+internal data class ParsedServerAddress(
+    val https: Boolean?,
+    val host: String,
+    val port: String?,
+)
+
+internal fun defaultServerPort(https: Boolean): String = if (https) "443" else "8096"
+
+/**
+ * Accepts `host`, `host:port`, `http://host` and `https://host:port`.
+ * A partial scheme such as `http://` is deliberately left untouched while typing.
+ */
+internal fun parseServerAddress(value: String): ParsedServerAddress? {
+    val trimmed = value.trim().trimEnd('/')
+    val match = Regex("""^(?:(https?)://)?([^/:?#]+)(?::(\d+))?$""")
+        .matchEntire(trimmed)
+        ?: return null
+    val scheme = match.groupValues[1].takeIf(String::isNotBlank)
+    val host = match.groupValues[2]
+    val port = match.groupValues[3].takeIf(String::isNotBlank)
+    return ParsedServerAddress(
+        https = scheme?.equals("https", ignoreCase = true),
+        host = host,
+        port = port,
+    )
 }
 
 data class ServersState(
@@ -184,8 +218,34 @@ class ServersStoreFactory(
             is Msg.Data -> copy(servers = msg.servers, defaultServerId = msg.defaultId)
             Msg.DialogOpen -> copy(dialogVisible = true, form = LoginForm())
             Msg.DialogClose -> copy(dialogVisible = false, form = LoginForm())
-            is Msg.Protocol -> copy(form = form.copy(https = msg.https, error = null))
-            is Msg.Host -> copy(form = form.copy(host = msg.v, error = null))
+            is Msg.Protocol -> copy(
+                form = form.copy(
+                    https = msg.https,
+                    port = defaultServerPort(msg.https),
+                    error = null,
+                ),
+            )
+            is Msg.Host -> {
+                val parsed = parseServerAddress(msg.v)
+                if (parsed == null) {
+                    copy(form = form.copy(host = msg.v, error = null))
+                } else {
+                    val resolvedHttps = parsed.https ?: form.https
+                    copy(
+                        form = form.copy(
+                            https = resolvedHttps,
+                            host = parsed.host,
+                            port = parsed.port
+                                ?: if (parsed.https != null) {
+                                    defaultServerPort(resolvedHttps)
+                                } else {
+                                    form.port
+                                },
+                            error = null,
+                        ),
+                    )
+                }
+            }
             is Msg.Port -> copy(form = form.copy(port = msg.v, error = null))
             is Msg.Username -> copy(form = form.copy(username = msg.v, error = null))
             is Msg.Password -> copy(form = form.copy(password = msg.v, error = null))
