@@ -2,12 +2,14 @@
 
 Yfuse production APKs are built, signed, and uploaded by
 `.github/workflows/publish-android.yml`. The workflow is manual and runs in the
-protected `production` environment.
+`production` environment.
 
 ## One-time GitHub setup
 
-Create an environment named `production` in the repository settings and require
-at least one reviewer. Add these environment secrets:
+Create an environment named `production` in the repository settings. If the
+repository plan supports required reviewers, add at least one reviewer as an
+additional deployment gate. On plans without that protection rule, the manual
+workflow dispatch is the release gate. Add these environment secrets:
 
 | Secret | Value |
 | --- | --- |
@@ -61,7 +63,8 @@ not reuse a personal SSH key.
 1. Open **Actions → Publish Android update → Run workflow**.
 2. Select the repository default branch.
 3. Enter a new positive `version_code` and the release notes.
-4. Review and approve the `production` deployment.
+4. Review and approve the `production` deployment when required reviewers are
+   available for the repository plan.
 5. Wait for the final server and public-download verification.
 
 The workflow refuses duplicate or older versions when the current update
