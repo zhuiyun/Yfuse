@@ -8,8 +8,8 @@ enum class PlayerEngine(val label: String, val available: Boolean) {
     /** libmpv — widest format/codec coverage. */
     Mpv("MPV", true),
 
-    /** MDK — ships native libs only; needs a JNI bridge before it can be used. */
-    Mdk("MDK", false),
+    /** MDK — hardware-accelerated libmdk renderer and decoder stack. */
+    Mdk("MDK", true),
     ;
 
     companion object {

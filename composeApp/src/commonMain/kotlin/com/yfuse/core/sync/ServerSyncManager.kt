@@ -57,6 +57,7 @@ data class ServerSyncStatus(
 data class ServerSyncState(
     val statuses: List<ServerSyncStatus> = emptyList(),
     val pendingCount: Int = 0,
+    val pendingOperations: List<PendingSyncMutation> = emptyList(),
     val conflicts: List<SyncConflict> = emptyList(),
 )
 
@@ -79,7 +80,12 @@ class ServerSyncManager(
     private val pendingSerializer = ListSerializer(PendingSyncMutation.serializer())
     private val pending = MutableStateFlow(loadPending())
     private val snapshots = mutableMapOf<String, List<SyncedUserItem>>()
-    private val _state = MutableStateFlow(ServerSyncState(pendingCount = pending.value.size))
+    private val _state = MutableStateFlow(
+        ServerSyncState(
+            pendingCount = pending.value.size,
+            pendingOperations = pending.value,
+        ),
+    )
     val state: StateFlow<ServerSyncState> = _state.asStateFlow()
     val autoSync = MutableStateFlow(settings.getBoolean(AUTO_KEY, true))
     val syncMetadata = MutableStateFlow(settings.getBoolean(METADATA_KEY, true))
@@ -214,6 +220,7 @@ class ServerSyncManager(
                 }
                 _state.value = _state.value.copy(
                     pendingCount = pending.value.size,
+                    pendingOperations = pending.value,
                     conflicts = (
                         _state.value.conflicts.filterNot {
                             it.mutation.serverId == server.id
@@ -284,6 +291,7 @@ class ServerSyncManager(
             statuses = _state.value.statuses.filterNot { it.serverId == server.id } +
                 transform(old),
             pendingCount = pending.value.size,
+            pendingOperations = pending.value,
         )
     }
 
@@ -307,6 +315,7 @@ class ServerSyncManager(
         )
         _state.value = _state.value.copy(
             pendingCount = pending.value.size,
+            pendingOperations = pending.value,
             conflicts = _state.value.conflicts.filterNot { it.mutation == mutation },
         )
     }
@@ -314,7 +323,10 @@ class ServerSyncManager(
     private fun commitPending(value: List<PendingSyncMutation>) {
         pending.value = value
         settings.putString(PENDING_KEY, json.encodeToString(pendingSerializer, value))
-        _state.value = _state.value.copy(pendingCount = value.size)
+        _state.value = _state.value.copy(
+            pendingCount = value.size,
+            pendingOperations = value,
+        )
     }
 
     private fun loadPending(): List<PendingSyncMutation> =

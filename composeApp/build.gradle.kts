@@ -37,6 +37,7 @@ kotlin {
             implementation(libs.ktor.content.negotiation)
             implementation(libs.ktor.json)
             implementation(libs.ktor.encoding)
+            implementation(libs.ktor.client.websockets)
 
             implementation(libs.serialization.json)
             implementation(libs.coroutines.core)
@@ -48,6 +49,7 @@ kotlin {
         }
 
         androidMain.dependencies {
+            implementation(project(":mdkAndroid"))
             implementation(libs.ktor.cio)
             implementation(libs.androidx.activity.compose)
             implementation(libs.media3.exoplayer)
@@ -91,11 +93,18 @@ val versionFile = rootProject.file("version.properties")
 val storedVersionCode = Properties().apply {
     versionFile.inputStream().use { load(it) }
 }.getProperty("VERSION_CODE", "1").toInt()
+val requestedVersionCode = providers.gradleProperty("yfuseVersionCode").orNull?.let { rawValue ->
+    require(rawValue.matches(Regex("[1-9]\\d*"))) {
+        "yfuseVersionCode must be a positive integer"
+    }
+    rawValue.toInt()
+}
 val isReleaseBuild = gradle.startParameter.taskNames.any {
     it.contains("Release", ignoreCase = true) &&
         (it.contains("assemble", true) || it.contains("bundle", true) || it.contains("package", true))
 }
-val buildVersionCode = if (isReleaseBuild) storedVersionCode + 1 else storedVersionCode
+val buildVersionCode = requestedVersionCode
+    ?: if (isReleaseBuild) storedVersionCode + 1 else storedVersionCode
 
 android {
     namespace = "com.yfuse"
@@ -164,6 +173,7 @@ android {
         // extracts them on install on our minSdk 26 devices.
         jniLibs {
             useLegacyPackaging = true
+            pickFirsts += "**/libc++_shared.so"
         }
         resources {
             excludes += setOf(
@@ -181,7 +191,11 @@ android {
 tasks.configureEach {
     if (name == "assembleRelease") {
         doLast {
-            if (isReleaseBuild && storedVersionCode < buildVersionCode) {
+            if (
+                requestedVersionCode == null &&
+                isReleaseBuild &&
+                storedVersionCode < buildVersionCode
+            ) {
                 versionFile.writeText("VERSION_CODE=$buildVersionCode\n")
             }
         }

@@ -5,7 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -25,12 +25,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -38,6 +42,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,7 +51,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,8 +79,10 @@ import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** 媒体库 — a 432px hero carousel above `padding:16px 18px 100px; gap:22px` of rows. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
@@ -85,8 +91,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val palette = LocalPalette.current
 
     val slides = state.content.featured.take(4)
-    var slideIndex by remember(slides.size) { mutableStateOf(0) }
-    var carouselInteraction by remember { mutableStateOf(0) }
+    val pagerState = rememberPagerState(pageCount = { slides.size.coerceAtLeast(1) })
+    val slideIndex = pagerState.currentPage.coerceIn(0, (slides.size - 1).coerceAtLeast(0))
+    val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
+    val carouselScope = rememberCoroutineScope()
     val slide = slides.getOrNull(slideIndex)
     val slideUrl = slide?.let { EmbyImages.backdrop(baseUrl, it) ?: EmbyImages.poster(baseUrl, it) }
     val accent = rememberDominantColor(slideUrl, Brand.Primary)
@@ -103,11 +111,11 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     }
     StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
 
-    LaunchedEffect(slides.size, carouselInteraction) {
-        if (slides.size <= 1) return@LaunchedEffect
+    LaunchedEffect(slides.size, carouselDragging) {
+        if (slides.size <= 1 || carouselDragging) return@LaunchedEffect
         while (true) {
             delay(6_000)
-            slideIndex = (slideIndex + 1) % slides.size
+            pagerState.animateScrollToPage((pagerState.currentPage + 1) % slides.size)
         }
     }
 
@@ -136,69 +144,111 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 }
             }
 
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().hideBottomBarOnScroll(),
-                state = listState,
-                contentPadding = PaddingValues(bottom = TabBarInset),
+            else -> PullToRefreshBox(
+                isRefreshing = state.loading,
+                onRefresh = { store.accept(LibraryIntent.Retry) },
+                modifier = Modifier.fillMaxSize(),
             ) {
-                if (slide != null) {
-                    item {
-                        HeroCarousel(
-                            item = slide,
-                            url = slideUrl,
-                            accent = accent,
-                            slideCount = slides.size,
-                            slideIndex = slideIndex,
-                            onSelectSlide = {
-                                slideIndex = it
-                                carouselInteraction++
-                            },
-                            serverName = state.currentServer?.serverName.orEmpty(),
-                            onClick = { component.onOpenItem(slide.id) },
-                            onToggleServerMenu = { serverMenuOpen = !serverMenuOpen },
-                        )
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().hideBottomBarOnScroll(),
+                    state = listState,
+                    contentPadding = PaddingValues(bottom = TabBarInset),
+                ) {
+                    if (slide != null) {
+                        item {
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxWidth().height(432.dp),
+                                beyondViewportPageCount = 1,
+                                key = { page -> slides[page].id },
+                            ) { animatedIndex ->
+                                val animatedItem = slides.getOrNull(animatedIndex) ?: slide
+                                val animatedUrl = EmbyImages.backdrop(baseUrl, animatedItem)
+                                    ?: EmbyImages.poster(baseUrl, animatedItem)
+                                val animatedAccent =
+                                    rememberDominantColor(animatedUrl, Brand.Primary)
+                                HeroCarousel(
+                                    item = animatedItem,
+                                    url = animatedUrl,
+                                    accent = animatedAccent,
+                                    slideCount = slides.size,
+                                    slideIndex = animatedIndex,
+                                    onSelectSlide = {
+                                        carouselScope.launch {
+                                            pagerState.animateScrollToPage(it)
+                                        }
+                                    },
+                                    serverName = state.currentServer?.serverName.orEmpty(),
+                                    onClick = { component.onOpenItem(animatedItem.id) },
+                                    onToggleFavorite = {
+                                        store.accept(
+                                            LibraryIntent.ToggleFavorite(
+                                                itemId = animatedItem.id,
+                                                title = animatedItem.title,
+                                                favorite = !animatedItem.isFavorite,
+                                            ),
+                                        )
+                                    },
+                                    onToggleServerMenu = {
+                                        serverMenuOpen = !serverMenuOpen
+                                    },
+                                )
+                            }
+                        }
                     }
-                }
 
-                item {
-                    // Content wash: `linear-gradient(180deg,{accent 12%} 0,transparent 320px)`.
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .offset(y = (-52).dp)
-                            .background(
-                                cssLinearGradient(
-                                    180f,
-                                    0f to Color.Transparent,
-                                    0.16f to accent.copy(alpha = 0.10f),
-                                    0.34f to palette.background.copy(alpha = 0.86f),
-                                    1f to Color.Transparent,
-                                ),
-                            )
-                            .padding(top = 78.dp),
-                        verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
-                    ) {
-                        if (state.loading && state.content.isEmpty) {
-                            SkeletonRow()
-                        }
+                    item {
+                        // Content wash: `linear-gradient(180deg,{accent 12%} 0,transparent 320px)`.
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .offset(y = (-52).dp)
+                                .background(
+                                    cssLinearGradient(
+                                        180f,
+                                        0f to Color.Transparent,
+                                        0.16f to accent.copy(alpha = 0.10f),
+                                        0.34f to palette.background.copy(alpha = 0.86f),
+                                        1f to Color.Transparent,
+                                    ),
+                                )
+                                .padding(top = 78.dp),
+                            verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
+                        ) {
+                            if (state.loading && state.content.isEmpty) {
+                                SkeletonRow()
+                            }
 
-                        if (state.content.resume.isNotEmpty()) {
-                            PlaybackHistory(
-                                baseUrl = baseUrl,
-                                accessToken = state.currentServer?.accessToken.orEmpty(),
-                                items = state.content.resume,
-                                onItemClick = { component.onOpenItem(it.id) },
-                            )
-                        }
+                            if (state.content.rows.isNotEmpty()) {
+                                CategoryCards(
+                                    baseUrl = baseUrl,
+                                    rows = state.content.rows,
+                                    onOpen = {
+                                        component.onSeeAll(it.libraryId, it.title)
+                                    },
+                                )
+                            }
 
-                        state.content.rows.forEach { row ->
-                            CategorySection(
-                                baseUrl = baseUrl,
-                                row = row,
-                                prominent = false,
-                                onSeeAll = { component.onSeeAll(row.libraryId, row.title) },
-                                onItemClick = { component.onOpenItem(it.id) },
-                            )
+                            if (state.content.resume.isNotEmpty()) {
+                                PlaybackHistory(
+                                    baseUrl = baseUrl,
+                                    accessToken = state.currentServer?.accessToken.orEmpty(),
+                                    items = state.content.resume,
+                                    onItemClick = { component.onOpenItem(it.id) },
+                                )
+                            }
+
+                            state.content.rows.forEach { row ->
+                                CategorySection(
+                                    baseUrl = baseUrl,
+                                    row = row,
+                                    prominent = false,
+                                    onSeeAll = {
+                                        component.onSeeAll(row.libraryId, row.title)
+                                    },
+                                    onItemClick = { component.onOpenItem(it.id) },
+                                )
+                            }
                         }
                     }
                 }
@@ -237,28 +287,13 @@ private fun HeroCarousel(
     onSelectSlide: (Int) -> Unit,
     serverName: String,
     onClick: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onToggleServerMenu: () -> Unit,
 ) {
-    var dragDistance by remember { mutableStateOf(0f) }
     Box(
         Modifier
             .fillMaxWidth()
             .height(432.dp)
-            .pointerInput(slideIndex, slideCount) {
-                detectHorizontalDragGestures(
-                    onDragStart = { dragDistance = 0f },
-                    onHorizontalDrag = { _, amount -> dragDistance += amount },
-                    onDragEnd = {
-                        when {
-                            dragDistance < -48f ->
-                                onSelectSlide((slideIndex + 1).coerceAtMost(slideCount - 1))
-                            dragDistance > 48f ->
-                                onSelectSlide((slideIndex - 1).coerceAtLeast(0))
-                        }
-                        dragDistance = 0f
-                    },
-                )
-            }
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
@@ -404,8 +439,12 @@ private fun HeroCarousel(
                     }
                     Text("立即播放", style = sc(12f, 700), color = Color.White)
                 }
-                HeroCircleAction(AppIcons.Add, "加入收藏")
-                HeroCircleAction(AppIcons.Info, "查看详情")
+                HeroCircleAction(
+                    icon = if (item.isFavorite) AppIcons.HeartFilled else AppIcons.Heart,
+                    description = if (item.isFavorite) "取消收藏" else "加入收藏",
+                    onClick = onToggleFavorite,
+                )
+                HeroCircleAction(AppIcons.Info, "查看详情", onClick)
             }
         }
 
@@ -514,7 +553,7 @@ private fun BoxScope.ServerMenu(
 }
 
 /**
- * Category chips — 118×70, `radius:14px`, the library's own artwork cropped to fill
+ * Category cards — 148×88, using the library's own artwork cropped to fill
  * under the `0deg rgba(0,0,0,.35) → transparent 60%` scrim. Tapping one opens that
  * library's grid.
  */
@@ -535,8 +574,8 @@ private fun CategoryCards(
             }
             Box(
                 Modifier
-                    .width(118.dp)
-                    .height(70.dp)
+                    .width(148.dp)
+                    .height(88.dp)
                     .clip(GlassShapes.poster)
                     .clickable { onOpen(row) },
             ) {
@@ -558,19 +597,19 @@ private fun CategoryCards(
                 )
                 Text(
                     row.title,
-                    style = sc(12f, 700),
+                    style = sc(13f, 700),
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 10.dp, bottom = 8.dp, end = 10.dp),
+                        .padding(start = 12.dp, bottom = 10.dp, end = 12.dp),
                 )
                 Text(
                     "${row.totalCount}部",
-                    style = mr(9f, 600),
+                    style = mr(9.5f, 600),
                     color = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.align(Alignment.TopEnd).padding(end = 10.dp, top = 8.dp),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(end = 12.dp, top = 10.dp),
                 )
             }
         }
@@ -758,6 +797,7 @@ internal fun PosterCard(baseUrl: String, item: MediaItem, showProgress: Boolean,
 private fun HeroCircleAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
+    onClick: () -> Unit,
 ) {
     Box(
         Modifier
@@ -766,7 +806,8 @@ private fun HeroCircleAction(
                 shape = CircleShape,
                 fill = Color.White.copy(alpha = 0.14f),
                 border = Color.White.copy(alpha = 0.34f),
-            ),
+            )
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, description, tint = Color.White, modifier = Modifier.size(14.dp))

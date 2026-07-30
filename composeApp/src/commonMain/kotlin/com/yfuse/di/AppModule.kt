@@ -3,10 +3,15 @@ package com.yfuse.di
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
+import com.yfuse.core.data.DanmakuPreferences
+import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.UserAgentPreferences
+import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.network.createEmbyClient
 import com.yfuse.core.network.createTmdbClient
@@ -15,6 +20,7 @@ import com.yfuse.core.network.createLanDiscovery
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.offline.createOfflineMediaManager
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.createCastManager
 import org.koin.dsl.module
@@ -24,13 +30,22 @@ fun appModule(settings: Settings) = module {
     single { settings }
     single { ServerRegistry(get()) }
     single { ThemePreferences(get()) }
+    single { PlaybackRecoveryStore(get()) }
+    single { UserAgentPreferences(get()) }
+    single { WatchTogetherPreferences(get()) }
+    single { DanmakuPreferences(get()) }
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }
     single<CastManager> { createCastManager() }
     single<OfflineMediaManager> { createOfflineMediaManager(get()) }
-    single { createEmbyClient() }
+    single {
+        val userAgent = get<UserAgentPreferences>()
+        createEmbyClient(customUserAgent = { userAgent.userAgent.value })
+    }
     single { EmbyRepository(get()) }
+    single { DanmakuRepository(get()) }
     single { ServerSyncManager(get(), get(), get()) }
+    single { WatchTogetherClient(get()) }
     // Own client (different host + bearer auth), built inline so Koin keeps a
     // single HttpClient binding.
     single { TmdbRepository(createTmdbClient()) }

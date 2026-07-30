@@ -1,0 +1,350 @@
+name: Publish Android update
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: Android versionCode (must be greater than the published version)
+        required: true
+        type: string
+      release_notes:
+        description: Release notes shown by the in-app updater
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-production-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, sign, and publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment:
+      name: production
+    env:
+      VERSION_CODE: ${{ inputs.version_code }}
+      RELEASE_NOTES: ${{ inputs.release_notes }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_CERT_SHA256: ${{ secrets.ANDROID_CERT_SHA256 }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST || '47.112.219.60' }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'yfuse-deploy' }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '443' }}
+      DEPLOY_REMOTE_DIR: ${{ vars.DEPLOY_REMOTE_DIR || '/srv/yfuse-update/yfuse' }}
+      UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL || 'http://47.112.219.60/yfuse' }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Validate release request
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            echo "::error::Production releases must run from $DEFAULT_BRANCH"
+            exit 1
+          fi
+
+          if [[ ! "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::version_code must be a positive integer"
+            exit 1
+          fi
+
+          required_secrets=(
+            ANDROID_KEYSTORE_BASE64
+            ANDROID_KEYSTORE_PASSWORD
+            ANDROID_KEY_ALIAS
+            ANDROID_KEY_PASSWORD
+            ANDROID_CERT_SHA256
+            DEPLOY_SSH_PRIVATE_KEY
+            DEPLOY_KNOWN_HOSTS
+          )
+          for secret_name in "${required_secrets[@]}"; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "::error::Missing production secret: $secret_name"
+              exit 1
+            fi
+          done
+
+          if [[ ! "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
+            echo "::error::DEPLOY_HOST contains unsupported characters"
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_USER" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::DEPLOY_USER contains unsupported characters"
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]] || (( DEPLOY_PORT > 65535 )); then
+            echo "::error::DEPLOY_PORT must be a valid TCP port"
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_REMOTE_DIR" =~ ^/srv/yfuse-update(/[A-Za-z0-9._-]+)+$ ]]; then
+            echo "::error::DEPLOY_REMOTE_DIR must stay inside /srv/yfuse-update"
+            exit 1
+          fi
+          if [[ ! "$UPDATE_BASE_URL" =~ ^https?://[^[:space:]]+$ ]]; then
+            echo "::error::UPDATE_BASE_URL must be an HTTP(S) URL"
+            exit 1
+          fi
+
+          normalized_update_url="${UPDATE_BASE_URL%/}"
+          echo "UPDATE_BASE_URL=$normalized_update_url" >> "$GITHUB_ENV"
+
+      - name: Reject duplicate or older version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if current_manifest="$(curl -fsSL --connect-timeout 10 "$UPDATE_BASE_URL/update.json")"; then
+            current_version="$(jq -r '.versionCode // 0' <<<"$current_manifest")"
+            if [[ "$current_version" =~ ^[0-9]+$ ]] && (( VERSION_CODE <= current_version )); then
+              echo "::error::version_code $VERSION_CODE is not newer than published version $current_version"
+              exit 1
+            fi
+          else
+            echo "::warning::Current update manifest was unavailable; final verification will still be required"
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install Android build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager \
+            "platforms;android-36" \
+            "ndk;25.2.9519653" \
+            "cmake;3.22.1"
+
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y p7zip-full
+          fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+          test -f composeApp/libs/libmpv-release.aar
+          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+
+      - name: Configure release signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signing
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > signing/yfuse-release.jks
+          chmod 600 signing/yfuse-release.jks
+          {
+            printf 'storeFile=signing/yfuse-release.jks\n'
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > keystore.properties
+          chmod 600 keystore.properties
+
+      - name: Build signed release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :composeApp:assembleRelease \
+            -PyfuseVersionCode="$VERSION_CODE" \
+            --no-daemon
+
+      - name: Verify APK metadata and signing certificate
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apk="composeApp/build/outputs/apk/release/composeApp-release.apk"
+          metadata="composeApp/build/outputs/apk/release/output-metadata.json"
+          test -f "$apk"
+          test -f "$metadata"
+
+          actual_version_code="$(jq -r '.elements[0].versionCode' "$metadata")"
+          actual_version_name="$(jq -r '.elements[0].versionName' "$metadata")"
+          expected_version_name="0.1.$VERSION_CODE"
+          [[ "$actual_version_code" == "$VERSION_CODE" ]]
+          [[ "$actual_version_name" == "$expected_version_name" ]]
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner"
+          signer_output="$("$apksigner" verify --verbose --print-certs "$apk")"
+          actual_cert="$(
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$signer_output" |
+              head -n 1 |
+              tr -d ':[:space:]' |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          expected_cert="$(
+            tr -d ':[:space:]' <<<"$ANDROID_CERT_SHA256" |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          if [[ -z "$actual_cert" || "$actual_cert" != "$expected_cert" ]]; then
+            echo "::error::APK signing certificate does not match ANDROID_CERT_SHA256"
+            exit 1
+          fi
+
+          apk_sha256="$(sha256sum "$apk" | awk '{print $1}')"
+          apk_size="$(stat -c '%s' "$apk")"
+          {
+            echo "path=$apk"
+            echo "sha256=$apk_sha256"
+            echo "size=$apk_size"
+            echo "version_name=$actual_version_name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create update package
+        shell: bash
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
+          APK_SHA256: ${{ steps.apk.outputs.sha256 }}
+          APK_SIZE: ${{ steps.apk.outputs.size }}
+          VERSION_NAME: ${{ steps.apk.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/update
+          cp "$APK_PATH" build/update/Yfuse-latest.apk
+          jq -n \
+            --argjson versionCode "$VERSION_CODE" \
+            --arg versionName "$VERSION_NAME" \
+            --arg apkUrl "$UPDATE_BASE_URL/Yfuse-latest.apk" \
+            --arg sha256 "$APK_SHA256" \
+            --argjson size "$APK_SIZE" \
+            --arg notes "$RELEASE_NOTES" \
+            '{
+              versionCode: $versionCode,
+              versionName: $versionName,
+              apkUrl: $apkUrl,
+              sha256: $sha256,
+              size: $size,
+              notes: $notes
+            }' > build/update/update.json
+
+      - name: Save release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Yfuse-${{ steps.apk.outputs.version_name }}
+          path: build/update/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Configure pinned SSH host
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_deploy"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_deploy" "$HOME/.ssh/known_hosts"
+
+      - name: Publish update atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ssh_options=(
+            -i "$HOME/.ssh/id_deploy"
+            -o "Port=$DEPLOY_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=15
+          )
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          remote_prefix="/tmp/yfuse-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_apk="$remote_prefix.apk"
+          remote_manifest="$remote_prefix.json"
+
+          scp "${ssh_options[@]}" build/update/Yfuse-latest.apk "$target:$remote_apk"
+          scp "${ssh_options[@]}" build/update/update.json "$target:$remote_manifest"
+
+          ssh "${ssh_options[@]}" "$target" bash -s -- \
+            "$DEPLOY_REMOTE_DIR" "$remote_apk" "$remote_manifest" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          remote_dir="$1"
+          apk_tmp="$2"
+          manifest_tmp="$3"
+          trap 'rm -f "$apk_tmp" "$manifest_tmp"' EXIT
+
+          case "$remote_dir" in
+            /srv/yfuse-update/*) ;;
+            *) echo "Unsafe remote directory" >&2; exit 2 ;;
+          esac
+
+          test -d "$remote_dir"
+          test -w "$remote_dir"
+          install -m 0644 "$apk_tmp" "$remote_dir/Yfuse-latest.apk.new"
+          install -m 0644 "$manifest_tmp" "$remote_dir/update.json.new"
+          mv -f "$remote_dir/Yfuse-latest.apk.new" "$remote_dir/Yfuse-latest.apk"
+          mv -f "$remote_dir/update.json.new" "$remote_dir/update.json"
+          find "$remote_dir" \
+            -maxdepth 1 \
+            -type f \
+            -name '*.apk' \
+            ! -name 'Yfuse-latest.apk' \
+            -delete
+          REMOTE_SCRIPT
+
+      - name: Verify server and public download
+        shell: bash
+        env:
+          EXPECTED_SHA256: ${{ steps.apk.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+
+          ssh_options=(
+            -i "$HOME/.ssh/id_deploy"
+            -o "Port=$DEPLOY_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=15
+          )
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          remote_sha="$(
+            ssh "${ssh_options[@]}" "$target" \
+              sha256sum "$DEPLOY_REMOTE_DIR/Yfuse-latest.apk" |
+              awk '{print $1}'
+          )"
+          [[ "$remote_sha" == "$EXPECTED_SHA256" ]]
+
+          curl -fL --retry 3 \
+            "$UPDATE_BASE_URL/Yfuse-latest.apk" \
+            -o build/update/Yfuse-public.apk
+          public_sha="$(sha256sum build/update/Yfuse-public.apk | awk '{print $1}')"
+          [[ "$public_sha" == "$EXPECTED_SHA256" ]]
+
+          public_manifest="$(curl -fsSL --retry 3 "$UPDATE_BASE_URL/update.json")"
+          [[ "$(jq -r '.versionCode' <<<"$public_manifest")" == "$VERSION_CODE" ]]
+          [[ "$(jq -r '.sha256' <<<"$public_manifest")" == "$EXPECTED_SHA256" ]]
+
+          {
+            echo "## Android update published"
+            echo
+            echo "- Version: \`0.1.$VERSION_CODE ($VERSION_CODE)\`"
+            echo "- APK: $UPDATE_BASE_URL/Yfuse-latest.apk"
+            echo "- SHA-256: \`$EXPECTED_SHA256\`"
+          } >> "$GITHUB_STEP_SUMMARY"

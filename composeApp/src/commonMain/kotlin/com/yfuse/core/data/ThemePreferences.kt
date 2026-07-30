@@ -47,7 +47,9 @@ class ThemePreferences(private val settings: Settings) {
     /** Whether an ended item advances to the next queue entry. */
     val autoNext: StateFlow<Boolean> = _autoNext.asStateFlow()
 
-    private val _quality = MutableStateFlow(load(KEY_QUALITY, PlaybackQuality.entries, PlaybackQuality.Auto))
+    private val _quality = MutableStateFlow(
+        load(KEY_QUALITY, PlaybackQuality.entries, PlaybackQuality.Auto),
+    )
     val quality: StateFlow<PlaybackQuality> = _quality.asStateFlow()
 
     private val _reduceTransparency =

@@ -14,6 +14,10 @@ data class TmdbItem(
     val mediaType: String,
     val rating: Double?,
     val releaseDate: String? = null,
+    val voteCount: Int = 0,
+    val popularity: Double = 0.0,
+    val genreIds: List<Int> = emptyList(),
+    val originalLanguage: String? = null,
 )
 
 data class TmdbPerson(

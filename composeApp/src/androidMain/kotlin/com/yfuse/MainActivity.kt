@@ -4,9 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.Modifier
 import com.arkivanov.decompose.retainedComponent
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AnimatedSplashApp
@@ -25,6 +22,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var updateManager: AppUpdateManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Cold starts keep the dedicated fullscreen launch theme until the
+        // Compose splash completes. Configuration recreation skips replay.
+        if (savedInstanceState != null) setTheme(R.style.Theme_Yfuse)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
@@ -44,8 +44,7 @@ class MainActivity : ComponentActivity() {
 
         updateManager = AppUpdateManager(this)
         setContent {
-            Box(Modifier.fillMaxSize()) {
-                AnimatedSplashApp(root)
+            AnimatedSplashApp(root) {
                 AppUpdateOverlay(updateManager)
             }
         }

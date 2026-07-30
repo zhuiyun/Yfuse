@@ -96,6 +96,9 @@ class LibraryComponent(
                 itemId = config.itemId,
                 serverId = config.serverId,
                 onBack = { navigation.pop() },
+                onOpenRelated = { serverId, itemId ->
+                    navigation.push(Config.Detail(serverId, itemId))
+                },
                 onPlay = { serverId, itemId, ticks ->
                     navigation.push(Config.Player(serverId, itemId, ticks))
                 },

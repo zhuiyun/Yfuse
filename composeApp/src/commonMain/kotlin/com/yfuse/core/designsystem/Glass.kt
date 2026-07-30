@@ -119,6 +119,45 @@ fun Modifier.flatGlass(
 }
 
 /**
+ * Liquid-glass surface with a single-colour edge.
+ *
+ * Use this for interactive controls and dense detail-page cards: the surface keeps
+ * the directional sheen that communicates glass, while the outline remains a calm
+ * solid colour instead of becoming a second gradient.
+ */
+@Composable
+fun Modifier.solidGlass(
+    shape: Shape = GlassShapes.card,
+    fill: Color = LocalPalette.current.card,
+    border: Color? = LocalPalette.current.border,
+): Modifier {
+    val palette = LocalPalette.current
+    val accessibility = LocalAccessibilityOptions.current
+    val resolvedFill = if (accessibility.reduceTransparency) {
+        if (palette.isDark) Color(0xFF182235) else Color.White
+    } else {
+        fill
+    }
+    val surface = if (accessibility.reduceTransparency) {
+        Brush.linearGradient(listOf(resolvedFill, resolvedFill))
+    } else {
+        cssLinearGradient(
+            145f,
+            0f to Color.White.copy(alpha = if (palette.isDark) 0.16f else 0.72f),
+            0.30f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f)),
+            0.72f to resolvedFill,
+            1f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.80f).coerceIn(0f, 1f)),
+        )
+    }
+    return this
+        .clip(shape)
+        .background(surface)
+        .let { modifier ->
+            if (border != null) modifier.border(Dimens.hairline, border, shape) else modifier
+        }
+}
+
+/**
  * Stronger liquid glass used above artwork and dense content.
  */
 @Composable

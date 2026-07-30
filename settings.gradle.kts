@@ -30,3 +30,5 @@ dependencyResolutionManagement {
 }
 
 include(":composeApp")
+include(":mdkAndroid")
+include(":watchTogetherServer")

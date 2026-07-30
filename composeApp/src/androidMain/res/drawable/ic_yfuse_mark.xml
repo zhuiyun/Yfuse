@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Yfuse 标识 —— 设计方案 4c「缎带绕环 · 播放头居中」，几何取自设计稿的 200×200 画布。
+
+  环：r=72、stroke-width=26、圆头端点。设计稿用 `stroke-dasharray:336 117` +
+  `rotate(-142)` 开缺口；VectorDrawable 不支持 dasharray，所以直接写成一段
+  从 -142° 起、扫过 267.36° 的弧（端点 43.26,55.67 → 58.29,158.69），缺口留在左侧。
+
+  外层 group 把 200 画布缩到 0.67，让标识在自适应图标与系统闪屏中留出更舒展的
+  安全边距。同一份文件既作 launcher 前景层，也作开屏图标。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+
+    <group
+        android:pivotX="100"
+        android:pivotY="100"
+        android:scaleX="0.67"
+        android:scaleY="0.67">
+
+        <path
+            android:pathData="M43.26,55.67 A72,72 0 1 1 58.29,158.69"
+            android:strokeWidth="26"
+            android:strokeLineCap="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="15"
+                    android:startY="185"
+                    android:endX="185"
+                    android:endY="15">
+                    <item android:offset="0" android:color="#FF9A5C" />
+                    <item android:offset="0.5" android:color="#FF7FA8" />
+                    <item android:offset="1" android:color="#BC8DF2" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <path
+            android:pathData="M80,71 L132,100 L80,129 Z"
+            android:fillColor="#FF7FA8"
+            android:strokeColor="#FF7FA8"
+            android:strokeWidth="14"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

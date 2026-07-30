@@ -1,8 +1,8 @@
 package com.yfuse.core.model
 
 /**
- * Default playback quality. Auto keeps direct play; explicit qualities start
- * with an Emby HLS transcode capped at the selected resolution and bitrate.
+ * Legacy default playback quality. The setting is no longer exposed because
+ * the target servers cannot sustain on-demand resolution transcoding.
  */
 enum class PlaybackQuality(
     val label: String,

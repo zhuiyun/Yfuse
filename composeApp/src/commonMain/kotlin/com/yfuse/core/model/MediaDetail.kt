@@ -56,6 +56,10 @@ data class MediaDetail(
     val source: SourceInfo? = null,
     val isFavorite: Boolean = false,
     val played: Boolean = false,
+    /** External IDs make cross-server matching independent of translated titles. */
+    val providerIds: Map<String, String> = emptyMap(),
+    /** Intro and credits markers supplied by Emby chapter metadata. */
+    val playbackSegments: List<PlaybackSegment> = emptyList(),
 )
 
 /** A concrete, playable target resolved from a detail item. */

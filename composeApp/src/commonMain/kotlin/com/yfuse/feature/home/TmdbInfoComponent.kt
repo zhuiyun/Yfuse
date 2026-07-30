@@ -4,6 +4,7 @@ import com.arkivanov.decompose.ComponentContext
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.TmdbDetail
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.toUserMessage
@@ -19,6 +20,7 @@ data class TmdbInfoState(
     val loading: Boolean = true,
     val playable: Boolean = false,
     val resolvingPlay: Boolean = false,
+    val sources: List<ServerSource> = emptyList(),
     val error: String? = null,
 )
 
@@ -34,7 +36,11 @@ class TmdbInfoComponent(
     item: TmdbItem,
     private val embyItemId: String?,
     val onBack: () -> Unit,
-    private val onPlayTarget: (itemId: String, startPositionTicks: Long) -> Unit,
+    private val onPlayTarget: (
+        serverId: String,
+        itemId: String,
+        startPositionTicks: Long,
+    ) -> Unit,
 ) : ComponentContext by componentContext {
 
     private val scope = componentScope(lifecycle)
@@ -52,27 +58,55 @@ class TmdbInfoComponent(
                 .onSuccess { detail -> _state.update { it.copy(detail = detail, loading = false) } }
                 .onFailure { _state.update { it.copy(loading = false) } }
         }
+        scope.launch {
+            val sources = emby.compareSources(
+                servers = registry.data.value.servers,
+                currentServerId = registry.defaultServer?.id,
+                title = item.title,
+                tmdbId = item.id,
+                mediaType = item.mediaType,
+                year = item.year?.toIntOrNull(),
+            )
+            _state.update {
+                it.copy(
+                    sources = sources,
+                    playable = sources.any { source ->
+                        source.reachable && source.source != null && source.itemId != null
+                    },
+                )
+            }
+        }
     }
 
     fun play() {
-        val id = embyItemId ?: run {
+        val source = _state.value.sources.firstOrNull { it.isCurrent && it.itemId != null }
+            ?: _state.value.sources.firstOrNull { it.itemId != null && it.source != null }
+        val id = source?.itemId ?: embyItemId ?: run {
             _state.update { it.copy(error = "此内容尚未加入你的 Emby 媒体库") }
             return
         }
-        val server = registry.defaultServer ?: run {
+        val server = source?.serverId?.let(registry::serverById) ?: registry.defaultServer ?: run {
             _state.update { it.copy(error = "没有可用的服务器") }
+            return
+        }
+        playSource(server.id, id)
+    }
+
+    fun playSource(serverId: String, itemId: String) {
+        val server = registry.serverById(serverId) ?: run {
+            _state.update { it.copy(error = "服务器已不可用") }
             return
         }
         if (_state.value.resolvingPlay) return
         _state.update { it.copy(resolvingPlay = true, error = null) }
         scope.launch {
-            emby.itemDetail(server, id)
+            emby.itemDetail(server, itemId)
                 .mapCatching { detail ->
                     emby.resolvePlayTarget(server, detail).getOrThrow()
                 }
                 .onSuccess { target ->
                     _state.update { it.copy(resolvingPlay = false) }
-                    onPlayTarget(target.itemId, target.startPositionTicks)
+                    onPlayTarget(server.id, target.itemId, target.startPositionTicks)
                 }
                 .onFailure { error ->
                     _state.update {

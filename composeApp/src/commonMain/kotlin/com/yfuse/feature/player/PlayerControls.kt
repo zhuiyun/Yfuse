@@ -6,6 +6,8 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,16 +41,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.cssLinearGradient
@@ -63,8 +74,14 @@ private const val AUTO_HIDE_MS = 4_000L
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 
-/** The reference exposes only two secondary entries: 字幕 and 更多. */
-private enum class Tab(val label: String) { Subtitle("字幕"), Cast("投屏"), More("更多") }
+/** Settings use one consistent floating panel and one consistent chip family. */
+private enum class Tab(val label: String) {
+    Danmaku("弹幕"),
+    Subtitle("字幕"),
+    Cast("投屏"),
+    Diagnostics("诊断"),
+    More("更多"),
+}
 
 /**
  * The player chrome, transcribed from the prototype's landscape player: a gradient
@@ -107,12 +124,39 @@ fun PlayerControls(
     onDiscoverCast: () -> Unit = {},
     onCastTo: (String) -> Unit = {},
     onStopCast: () -> Unit = {},
+    danmakuConfigured: Boolean = false,
+    danmakuEnabled: Boolean = false,
+    danmakuCount: Int = 0,
+    danmakuLoading: Boolean = false,
+    danmakuError: String? = null,
+    danmakuAreaOptions: List<Pair<String, Boolean>> = emptyList(),
+    danmakuFontOptions: List<Pair<String, Boolean>> = emptyList(),
+    danmakuSpeedOptions: List<Pair<String, Boolean>> = emptyList(),
+    danmakuOpacityOptions: List<Pair<String, Boolean>> = emptyList(),
+    onToggleDanmaku: () -> Unit = {},
+    onSelectDanmakuArea: (Int) -> Unit = {},
+    onSelectDanmakuFont: (Int) -> Unit = {},
+    onSelectDanmakuSpeed: (Int) -> Unit = {},
+    onSelectDanmakuOpacity: (Int) -> Unit = {},
+    skipSegmentLabel: String? = null,
+    onSkipSegment: () -> Unit = {},
+    watchEndpoint: String = "",
+    watchConnecting: Boolean = false,
+    watchConnected: Boolean = false,
+    watchRoomCode: String? = null,
+    watchIsHost: Boolean = false,
+    watchParticipantCount: Int = 0,
+    watchError: String? = null,
+    onCreateWatchRoom: (String) -> Unit = {},
+    onJoinWatchRoom: (String, String) -> Unit = { _, _ -> },
+    onLeaveWatchRoom: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(true) }
     var locked by remember { mutableStateOf(false) }
     var settingsTab by remember { mutableStateOf<Tab?>(null) }
     var drawerOpen by remember { mutableStateOf(false) }
+    var watchDialogOpen by remember { mutableStateOf(false) }
     var gestureHud by remember { mutableStateOf<String?>(null) }
     val haptics = LocalHapticFeedback.current
     // Bumped by every interaction so the auto-hide timer restarts.
@@ -268,12 +312,38 @@ fun PlayerControls(
                 onScrub = { interactions++ },
                 onOpenTab = { poke(); settingsTab = it },
                 casting = castingDeviceId != null,
+                danmakuEnabled = danmakuEnabled,
+                onOpenDanmaku = {
+                    poke()
+                    settingsTab = Tab.Danmaku
+                },
                 onToggleCast = {
                     poke()
                     settingsTab = Tab.Cast
                     if (castDevices.isEmpty()) onDiscoverCast()
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+
+        if (skipSegmentLabel != null) {
+            Text(
+                skipSegmentLabel,
+                style = sc(12.5f, 700),
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 22.dp, bottom = if (visible) 92.dp else 24.dp)
+                    .glass(
+                        shape = RoundedCornerShape(18.dp),
+                        fill = Color.Black.copy(alpha = 0.64f),
+                        border = Color.White.copy(alpha = 0.28f),
+                    )
+                    .noRippleClickable {
+                        poke()
+                        onSkipSegment()
+                    }
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
             )
         }
 
@@ -291,6 +361,15 @@ fun PlayerControls(
                 castingDeviceId = castingDeviceId,
                 castDiscovering = castDiscovering,
                 castError = castError,
+                danmakuConfigured = danmakuConfigured,
+                danmakuEnabled = danmakuEnabled,
+                danmakuCount = danmakuCount,
+                danmakuLoading = danmakuLoading,
+                danmakuError = danmakuError,
+                danmakuAreaOptions = danmakuAreaOptions,
+                danmakuFontOptions = danmakuFontOptions,
+                danmakuSpeedOptions = danmakuSpeedOptions,
+                danmakuOpacityOptions = danmakuOpacityOptions,
                 onTab = { settingsTab = it },
                 onSelectSubtitle = { onSelectSubtitle(it); settingsTab = null },
                 onSelectAudio = { onSelectAudio(it); settingsTab = null },
@@ -300,6 +379,11 @@ fun PlayerControls(
                 onDiscoverCast = onDiscoverCast,
                 onCastTo = onCastTo,
                 onStopCast = onStopCast,
+                onToggleDanmaku = onToggleDanmaku,
+                onSelectDanmakuArea = onSelectDanmakuArea,
+                onSelectDanmakuFont = onSelectDanmakuFont,
+                onSelectDanmakuSpeed = onSelectDanmakuSpeed,
+                onSelectDanmakuOpacity = onSelectDanmakuOpacity,
                 onOpenEpisodes = {
                     settingsTab = null
                     drawerOpen = true
@@ -313,7 +397,32 @@ fun PlayerControls(
                     locked = true
                     visible = true
                 },
+                watchConnected = watchConnected,
+                watchRoomCode = watchRoomCode,
+                onOpenWatchTogether = {
+                    settingsTab = null
+                    watchDialogOpen = true
+                },
                 onDismiss = { settingsTab = null },
+            )
+        }
+
+        if (watchDialogOpen) {
+            WatchTogetherDialog(
+                endpoint = watchEndpoint,
+                connecting = watchConnecting,
+                connected = watchConnected,
+                roomCode = watchRoomCode,
+                isHost = watchIsHost,
+                participantCount = watchParticipantCount,
+                error = watchError,
+                onCreate = onCreateWatchRoom,
+                onJoin = onJoinWatchRoom,
+                onLeave = {
+                    onLeaveWatchRoom()
+                    watchDialogOpen = false
+                },
+                onDismiss = { watchDialogOpen = false },
             )
         }
 
@@ -566,6 +675,8 @@ private fun BottomBar(
     onScrub: () -> Unit,
     onOpenTab: (Tab) -> Unit,
     casting: Boolean,
+    danmakuEnabled: Boolean,
+    onOpenDanmaku: () -> Unit,
     onToggleCast: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -619,6 +730,7 @@ private fun BottomBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Chip("弹幕", active = danmakuEnabled, onClick = onOpenDanmaku)
                 if (state.subtitleTracks.isNotEmpty() || state.audioTracks.size > 1) {
                     Chip("字幕") { onOpenTab(Tab.Subtitle) }
                 }
@@ -694,19 +806,21 @@ private fun SeekBar(
 
 /**
  * `gap:10px`, `rgba(255,255,255,.14)` over `rgba(255,255,255,.22)`, `radius:16px`,
- * `padding:6px 12px`, with a 70×3 level track.
+ * `padding:6px 12px`, with a 70×3 level track. Shares [ChipHeight] with the chip row
+ * opposite it, so the whole bottom row sits on one baseline.
  */
 @Composable
 private fun VolumeChip(volume: Float, onVolume: (Float) -> Unit) {
     var width by remember { mutableStateOf(1f) }
     Row(
         Modifier
+            .height(ChipHeight)
             .glass(
-                shape = RoundedCornerShape(16.dp),
+                shape = ChipShape,
                 fill = PlayerTokens.chipFill,
                 border = Color.White.copy(alpha = 0.24f),
             )
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -741,25 +855,46 @@ private fun VolumeChip(volume: Float, onVolume: (Float) -> Unit) {
     }
 }
 
-/** `radius:14px`, `padding:6px 12px`, `500 11px Manrope`, `rgba(255,255,255,.9)`. */
+/**
+ * 字幕 / 音轨 / 投屏 / 更多 are one control family, so they share one height, one radius
+ * and one material. Only the width flexes — a label needs more room than a glyph, and a
+ * text chip that shrank to fit its text used to sit two thirds the height of the icon
+ * ones next to it.
+ */
+private val ChipHeight = 40.dp
+private val ChipMinWidth = 46.dp
+private val ChipShape = RoundedCornerShape(14.dp)
+
+/** Labelled chip — `radius:14px`, `600 11.5px Manrope`, `rgba(255,255,255,.92)`. */
 @Composable
-private fun Chip(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        style = mr(11f, 500),
-        color = Color.White.copy(alpha = 0.9f),
-        maxLines = 1,
-        modifier = Modifier
+private fun Chip(
+    label: String,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .height(ChipHeight)
+            .widthIn(min = ChipMinWidth)
             .glass(
-                shape = GlassShapes.chip,
-                fill = PlayerTokens.chipFill,
-                border = Color.White.copy(alpha = 0.24f),
+                shape = ChipShape,
+                fill = if (active) Brand.Primary.copy(alpha = 0.7f) else PlayerTokens.chipFill,
+                border = Color.White.copy(alpha = if (active) 0.36f else 0.24f),
             )
             .noRippleClickable(onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = mr(11.5f, 600),
+            color = Color.White.copy(alpha = 0.92f),
+            maxLines = 1,
+        )
+    }
 }
 
+/** Glyph chip — same box as [Chip], sized to [ChipMinWidth] since it holds one icon. */
 @Composable
 private fun IconChip(
     icon: ImageVector,
@@ -769,10 +904,10 @@ private fun IconChip(
 ) {
     Box(
         Modifier
-            .width(46.dp)
-            .height(44.dp)
+            .width(ChipMinWidth)
+            .height(ChipHeight)
             .glass(
-                shape = RoundedCornerShape(14.dp),
+                shape = ChipShape,
                 fill = if (active) {
                     Brand.Primary.copy(alpha = 0.7f)
                 } else {
@@ -883,6 +1018,15 @@ private fun SettingsPanel(
     castingDeviceId: String?,
     castDiscovering: Boolean,
     castError: String?,
+    danmakuConfigured: Boolean,
+    danmakuEnabled: Boolean,
+    danmakuCount: Int,
+    danmakuLoading: Boolean,
+    danmakuError: String?,
+    danmakuAreaOptions: List<Pair<String, Boolean>>,
+    danmakuFontOptions: List<Pair<String, Boolean>>,
+    danmakuSpeedOptions: List<Pair<String, Boolean>>,
+    danmakuOpacityOptions: List<Pair<String, Boolean>>,
     onTab: (Tab) -> Unit,
     onSelectSubtitle: (String) -> Unit,
     onSelectAudio: (String) -> Unit,
@@ -892,83 +1036,144 @@ private fun SettingsPanel(
     onDiscoverCast: () -> Unit,
     onCastTo: (String) -> Unit,
     onStopCast: () -> Unit,
+    onToggleDanmaku: () -> Unit,
+    onSelectDanmakuArea: (Int) -> Unit,
+    onSelectDanmakuFont: (Int) -> Unit,
+    onSelectDanmakuSpeed: (Int) -> Unit,
+    onSelectDanmakuOpacity: (Int) -> Unit,
     onOpenEpisodes: () -> Unit,
     onToggleFill: () -> Unit,
     onLock: () -> Unit,
+    watchConnected: Boolean,
+    watchRoomCode: String?,
+    onOpenWatchTogether: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val tabs = buildList {
+        add(Tab.Danmaku)
         if (state.subtitleTracks.isNotEmpty() || state.audioTracks.isNotEmpty()) add(Tab.Subtitle)
         add(Tab.Cast)
+        add(Tab.Diagnostics)
         add(Tab.More)
     }
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(20.dp)
 
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).noRippleClickable(onDismiss))
+    // Dismiss catcher only — the old full-screen `rgba(0,0,0,.35)` scrim dimmed the film
+    // itself every time a track list opened. The panel earns its separation from its own
+    // material and shadow instead, so the picture behind it stays untouched.
+    Box(Modifier.fillMaxSize().noRippleClickable(onDismiss))
     Box(Modifier.fillMaxSize()) {
         Column(
             Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 120.dp, bottom = 70.dp)
-                .width(230.dp)
+                // Sits directly above the chip row that opens it, on the same right edge.
+                .padding(end = 22.dp, bottom = 84.dp)
+                .width(248.dp)
                 .shadow(Shadows.playerSheet, shape)
                 .glass(
                     shape = shape,
-                    fill = PlayerTokens.sheetFillLandscape,
-                    border = Color.White.copy(alpha = 0.42f),
+                    fill = PlayerTokens.drawerFillLandscape,
+                    border = Color.White.copy(alpha = 0.20f),
                 )
                 .noRippleClickable { }
-                .padding(top = 6.dp, bottom = 12.dp),
+                .padding(top = 8.dp, bottom = 10.dp),
         ) {
-            // Tab row — `padding:12px 14px 6px`, `gap:14px`, hairline underneath.
+            // Segmented tab row. The pill alone carries the active state; the 2px rule
+            // underneath it was a second signal saying the same thing.
             Row(
-                Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 tabs.forEach { entry ->
                     val active = entry == tab
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            entry.label,
-                            style = sc(12.5f, if (active) 700 else 500),
-                            color = if (active) Brand.Primary else Color(0xFF8A93A3),
-                            modifier = Modifier
-                                .glass(
-                                    shape = GlassShapes.thumb,
-                                    fill = if (active) {
-                                        Brand.Primary.copy(alpha = 0.13f)
-                                    } else {
-                                        Color.White.copy(alpha = 0.10f)
-                                    },
-                                    border = if (active) {
-                                        Brand.Primary.copy(alpha = 0.24f)
-                                    } else {
-                                        Color.White.copy(alpha = 0.14f)
-                                    },
-                                )
-                                .noRippleClickable { onTab(entry) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(2.dp)
-                                .background(if (active) Brand.Primary else Color.Transparent),
-                        )
-                    }
+                    Text(
+                        entry.label,
+                        style = sc(12.5f, if (active) 700 else 500),
+                        color = if (active) {
+                            Color.White
+                        } else {
+                            Color.White.copy(alpha = 0.58f)
+                        },
+                        maxLines = 1,
+                        modifier = Modifier
+                            .weight(1f)
+                            .glass(
+                                shape = GlassShapes.thumb,
+                                fill = if (active) {
+                                    Color.White.copy(alpha = 0.18f)
+                                } else {
+                                    Color.Transparent
+                                },
+                                border = if (active) {
+                                    Color.White.copy(alpha = 0.26f)
+                                } else {
+                                    null
+                                },
+                            )
+                            .noRippleClickable { onTab(entry) }
+                            .padding(vertical = 7.dp),
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Color.Black.copy(alpha = 0.06f)))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .height(1.dp)
+                    .background(Color.White.copy(alpha = 0.10f)),
+            )
 
             // `padding:10px 14px 2px; max-height:150px`.
             Column(
                 Modifier
                     .heightIn(max = 210.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 2.dp),
+                    .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 when (tab) {
+                    Tab.Danmaku -> {
+                        GroupLabel("弹幕")
+                        OptionRow(
+                            if (danmakuEnabled) "关闭弹幕" else "开启弹幕",
+                            danmakuEnabled,
+                            onClick = onToggleDanmaku,
+                        )
+                        Text(
+                            when {
+                                !danmakuConfigured -> "请先在个人中心配置弹幕链接"
+                                danmakuLoading -> "正在加载弹幕…"
+                                danmakuError != null -> danmakuError
+                                else -> "已加载 $danmakuCount 条弹幕"
+                            },
+                            style = mr(10.5f, 500),
+                            color = if (danmakuError != null) {
+                                Brand.Danger
+                            } else {
+                                Color.White.copy(alpha = 0.56f)
+                            },
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp),
+                        )
+
+                        GroupLabel("显示区域")
+                        danmakuAreaOptions.forEachIndexed { index, (label, selected) ->
+                            OptionRow(label, selected) { onSelectDanmakuArea(index) }
+                        }
+                        GroupLabel("字体大小")
+                        danmakuFontOptions.forEachIndexed { index, (label, selected) ->
+                            OptionRow(label, selected) { onSelectDanmakuFont(index) }
+                        }
+                        GroupLabel("移动速度")
+                        danmakuSpeedOptions.forEachIndexed { index, (label, selected) ->
+                            OptionRow(label, selected) { onSelectDanmakuSpeed(index) }
+                        }
+                        GroupLabel("透明度")
+                        danmakuOpacityOptions.forEachIndexed { index, (label, selected) ->
+                            OptionRow(label, selected) { onSelectDanmakuOpacity(index) }
+                        }
+                    }
+
                     Tab.Subtitle -> {
                         if (state.subtitleTracks.isNotEmpty()) {
                             GroupLabel("字幕")
@@ -994,6 +1199,15 @@ private fun SettingsPanel(
                         }
                         OptionRow(if (filled) "适应画面" else "填充画面", filled, onClick = onToggleFill)
                         OptionRow("锁定控制", false, onClick = onLock)
+                        OptionRow(
+                            if (watchConnected) {
+                                "一起看 · ${watchRoomCode.orEmpty()}"
+                            } else {
+                                "一起看"
+                            },
+                            watchConnected,
+                            onClick = onOpenWatchTogether,
+                        )
 
                         GroupLabel("播放速度")
                         speeds.forEach { speed ->
@@ -1011,13 +1225,39 @@ private fun SettingsPanel(
                         }
                     }
 
+                    Tab.Diagnostics -> {
+                        val diagnostics = state.diagnostics
+                        GroupLabel("实时播放信息")
+                        DiagnosticRow("内核", diagnostics.engine.ifBlank { "未知" })
+                        DiagnosticRow("解码器", diagnostics.decoder)
+                        DiagnosticRow("播放方式", diagnostics.playMethod)
+                        DiagnosticRow(
+                            "画面",
+                            buildString {
+                                append(if (state.videoHeight > 0) "${state.videoHeight}P" else "未知分辨率")
+                                if (diagnostics.frameRate > 0f) {
+                                    append(" · ")
+                                    append(diagnostics.frameRate.asFrameRate())
+                                }
+                            },
+                        )
+                        DiagnosticRow("视频编码", diagnostics.videoCodec)
+                        DiagnosticRow("当前码率", diagnostics.bitrateBitsPerSecond.asBitrate())
+                        DiagnosticRow("网络速度", diagnostics.networkBitsPerSecond.asBitrate())
+                        DiagnosticRow(
+                            "缓冲",
+                            "${diagnostics.bufferedDurationMs / 1000.0f}s · ${diagnostics.bufferEvents} 次",
+                        )
+                        DiagnosticRow("丢帧", "${diagnostics.droppedFrames} 帧")
+                    }
+
                     Tab.Cast -> {
                         GroupLabel("局域网投屏设备")
                         if (castDiscovering) {
                             Text(
                                 "正在发现 DLNA 设备…",
                                 style = mr(11.5f, 500),
-                                color = Color(0xFF8A93A3),
+                                color = Color.White.copy(alpha = 0.55f),
                                 modifier = Modifier.padding(vertical = 10.dp),
                             )
                         }
@@ -1043,37 +1283,219 @@ private fun SettingsPanel(
     }
 }
 
-/** `600 11px Manrope`, `#8A93A3`, above each group in the 字幕·音轨 tab. */
+@Composable
+private fun WatchTogetherDialog(
+    endpoint: String,
+    connecting: Boolean,
+    connected: Boolean,
+    roomCode: String?,
+    isHost: Boolean,
+    participantCount: Int,
+    error: String?,
+    onCreate: (String) -> Unit,
+    onJoin: (String, String) -> Unit,
+    onLeave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var endpointDraft by remember(endpoint) { mutableStateOf(endpoint) }
+    var roomDraft by remember { mutableStateOf("") }
+    val normalizedEndpoint = endpointDraft.trim().trimEnd('/')
+    val endpointValid =
+        normalizedEndpoint.startsWith("http://") ||
+            normalizedEndpoint.startsWith("https://") ||
+            normalizedEndpoint.startsWith("ws://") ||
+            normalizedEndpoint.startsWith("wss://")
+    val normalizedRoom = roomDraft.filter(Char::isLetterOrDigit).uppercase().take(6)
+    val palette = LocalPalette.current
+
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "一起看",
+            subtitle = if (connected) {
+                "房主控制播放、暂停与进度，其他成员自动跟随。"
+            } else {
+                "视频仍由每个人自己的媒体服务器播放，房间服务只同步状态。"
+            },
+            onClose = onDismiss,
+        )
+        if (connected) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(RoundedCornerShape(14.dp), palette.card2, palette.border)
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Text(
+                    roomCode.orEmpty(),
+                    style = sc(24f, 800),
+                    color = Brand.Primary,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    "${if (isHost) "房主" else "成员"} · $participantCount 人在线",
+                    style = mr(11f, 500),
+                    color = palette.sub2,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                )
+            }
+            error?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, style = sc(10.5f, 500), color = Brand.Danger)
+            }
+            OverlayButton(
+                label = "退出房间",
+                onClick = onLeave,
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                tone = OverlayButtonTone.Destructive,
+            )
+        } else {
+            WatchInput(
+                value = endpointDraft,
+                placeholder = "https://watch.example.com",
+                onValueChange = { endpointDraft = it.take(300) },
+                keyboardType = KeyboardType.Uri,
+            )
+            Spacer(Modifier.height(9.dp))
+            WatchInput(
+                value = normalizedRoom,
+                placeholder = "输入 6 位房间码",
+                onValueChange = { roomDraft = it },
+            )
+            error?.let {
+                Spacer(Modifier.height(7.dp))
+                Text(it, style = sc(10.5f, 500), color = Brand.Danger)
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OverlayButton(
+                    label = if (connecting) "连接中…" else "创建房间",
+                    onClick = { onCreate(normalizedEndpoint) },
+                    modifier = Modifier.weight(1f),
+                    tone = OverlayButtonTone.Primary,
+                    enabled = endpointValid && !connecting,
+                )
+                OverlayButton(
+                    label = "加入房间",
+                    onClick = { onJoin(normalizedEndpoint, normalizedRoom) },
+                    modifier = Modifier.weight(1f),
+                    enabled = endpointValid && normalizedRoom.length == 6 && !connecting,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchInput(
+    value: String,
+    placeholder: String,
+    onValueChange: (String) -> Unit,
+    keyboardType: KeyboardType = KeyboardType.Text,
+) {
+    val palette = LocalPalette.current
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        if (value.isBlank()) {
+            Text(
+                placeholder,
+                style = mr(12f, 500),
+                color = palette.hint,
+                maxLines = 1,
+            )
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = mr(12f, 500).copy(color = palette.text),
+            cursorBrush = SolidColor(Brand.Primary),
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun DiagnosticRow(label: String, value: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .glass(
+                shape = GlassShapes.thumb,
+                fill = Color.White.copy(alpha = 0.06f),
+                border = Color.White.copy(alpha = 0.10f),
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = mr(11f, 500), color = Color.White.copy(alpha = 0.54f))
+        Text(
+            value,
+            style = sc(11.5f, 600),
+            color = Color.White.copy(alpha = 0.90f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 12.dp).weight(1f),
+            textAlign = TextAlign.End,
+        )
+    }
+}
+
+private fun Long.asBitrate(): String {
+    if (this <= 0L) return "等待数据"
+    val tenths = this / 100_000L
+    return "${tenths / 10}.${tenths % 10} Mbps"
+}
+
+private fun Float.asFrameRate(): String {
+    val tenths = (this * 10f).toInt()
+    return "${tenths / 10}.${tenths % 10} fps"
+}
+
+/** `600 11px Manrope`, above each group in the 字幕·音轨 tab. */
 @Composable
 private fun GroupLabel(text: String) {
     Text(
         text,
         style = mr(11f, 600),
-        color = Color(0xFF8A93A3),
-        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+        color = Color.White.copy(alpha = 0.48f),
+        modifier = Modifier.padding(top = 6.dp, bottom = 6.dp),
     )
 }
 
 /**
- * `padding:9px 10px`, `radius:10px`; selected is `700 12.5px` `#3D64C9` over
- * `rgba(61,100,201,.1)`, otherwise `500 12.5px` `#151A22`.
+ * `padding:9px 10px`, `radius:10px`. The panel reads on a dark glass plate over video,
+ * so the selected row takes [Brand.PrimaryGradTop] — the accent's light end. The spec's
+ * `#3D64C9` is a light-theme ink and goes muddy against this fill.
  */
 @Composable
 private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    val accent = Brand.PrimaryGradTop
     Row(
         Modifier
             .fillMaxWidth()
             .glass(
                 shape = GlassShapes.thumb,
                 fill = if (selected) {
-                    Brand.Primary.copy(alpha = 0.13f)
+                    accent.copy(alpha = 0.20f)
                 } else {
-                    Color.White.copy(alpha = 0.08f)
+                    Color.White.copy(alpha = 0.06f)
                 },
                 border = if (selected) {
-                    Brand.Primary.copy(alpha = 0.24f)
+                    accent.copy(alpha = 0.38f)
                 } else {
-                    Color.White.copy(alpha = 0.12f)
+                    Color.White.copy(alpha = 0.10f)
                 },
             )
             .noRippleClickable(onClick)
@@ -1084,13 +1506,13 @@ private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
         Text(
             label,
             style = sc(12.5f, if (selected) 700 else 500),
-            color = if (selected) Brand.Primary else Color(0xFF151A22),
+            color = if (selected) accent else Color.White.copy(alpha = 0.86f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
         if (selected) {
-            Icon(AppIcons.Check, null, tint = Brand.Primary, modifier = Modifier.size(12.dp))
+            Icon(AppIcons.Check, null, tint = accent, modifier = Modifier.size(12.dp))
         }
     }
 }

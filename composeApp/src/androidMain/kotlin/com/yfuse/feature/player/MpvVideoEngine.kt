@@ -32,12 +32,22 @@ class MpvVideoEngine(
     private val decoderMode: DecoderMode,
     private val autoNext: Boolean,
     quality: PlaybackQuality,
+    private val customUserAgent: String,
 ) : VideoEngine {
 
-    private val preferTranscode = quality != PlaybackQuality.Auto
+    // Resolution switching is disabled; native engines always use the original source.
+    private val preferTranscode = false
 
     private val _state = MutableStateFlow(
-        PlaybackState(currentIndex = startIndex, itemCount = items.size.coerceAtLeast(1)),
+        PlaybackState(
+            currentIndex = startIndex,
+            itemCount = items.size.coerceAtLeast(1),
+            diagnostics = PlaybackDiagnostics(
+                engine = "libmpv",
+                decoder = decoderMode.label,
+                playMethod = "直播放",
+            ),
+        ),
     )
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
@@ -51,6 +61,7 @@ class MpvVideoEngine(
     private var attachedSurface: Surface? = null
 
     private var lastPositionMs = -POSITION_STEP_MS
+    private var wasBuffering = true
 
     private val observer = object : MPVLib.EventObserver {
         override fun eventProperty(property: String) = Unit
@@ -59,6 +70,13 @@ class MpvVideoEngine(
             when (property) {
                 "track-list/count" -> readTracks()
                 "video-params/h" -> _state.update { it.copy(videoHeight = value.toInt()) }
+                "decoder-frame-drop-count" -> _state.update {
+                    it.copy(
+                        diagnostics = it.diagnostics.copy(
+                            droppedFrames = value.toInt().coerceAtLeast(0),
+                        ),
+                    )
+                }
             }
         }
 
@@ -73,13 +91,49 @@ class MpvVideoEngine(
 
                 "duration" -> _state.update { it.copy(durationMs = (value * 1000).toLong()) }
                 "speed" -> _state.update { it.copy(speed = value.toFloat()) }
+                "estimated-vf-fps" -> _state.update {
+                    it.copy(diagnostics = it.diagnostics.copy(frameRate = value.toFloat()))
+                }
+                "video-bitrate" -> _state.update {
+                    it.copy(
+                        diagnostics = it.diagnostics.copy(
+                            bitrateBitsPerSecond = value.toLong().coerceAtLeast(0L),
+                        ),
+                    )
+                }
+                "cache-speed" -> _state.update {
+                    it.copy(
+                        diagnostics = it.diagnostics.copy(
+                            networkBitsPerSecond = (value * 8.0).toLong().coerceAtLeast(0L),
+                        ),
+                    )
+                }
+                "demuxer-cache-duration" -> _state.update {
+                    it.copy(
+                        diagnostics = it.diagnostics.copy(
+                            bufferedDurationMs = (value * 1000.0).toLong().coerceAtLeast(0L),
+                        ),
+                    )
+                }
             }
         }
 
         override fun eventProperty(property: String, value: Boolean) {
             when (property) {
                 "pause" -> _state.update { it.copy(playing = !value) }
-                "paused-for-cache" -> _state.update { it.copy(buffering = value) }
+                "paused-for-cache" -> {
+                    val bufferEvent = value && !wasBuffering
+                    wasBuffering = value
+                    _state.update {
+                        it.copy(
+                            buffering = value,
+                            diagnostics = it.diagnostics.copy(
+                                bufferEvents =
+                                    it.diagnostics.bufferEvents + if (bufferEvent) 1 else 0,
+                            ),
+                        )
+                    }
+                }
                 // keep-open=always parks mpv on the last frame instead of
                 // advancing, so the queue is stepped by hand.
                 "eof-reached" -> when {
@@ -92,7 +146,12 @@ class MpvVideoEngine(
 
         override fun eventProperty(property: String, value: String) {
             // aid/sid are read as strings because either can be "no".
-            if (property == "aid" || property == "sid") readTracks()
+            when (property) {
+                "aid", "sid" -> readTracks()
+                "video-codec" -> _state.update {
+                    it.copy(diagnostics = it.diagnostics.copy(videoCodec = value))
+                }
+            }
         }
 
         override fun event(eventId: Int) {
@@ -150,6 +209,9 @@ class MpvVideoEngine(
             )
             instance.setOptionString("keep-open", "always")
             instance.setOptionString("cache", "yes")
+            customUserAgent.trim().takeIf { it.isNotEmpty() }?.let { value ->
+                instance.setOptionString("user-agent", value)
+            }
             instance.setOptionString("keepaspect", "yes")
             instance.setOptionString("panscan", "0")
             if (startPositionMs > 0) {
@@ -166,6 +228,12 @@ class MpvVideoEngine(
             instance.observeProperty("eof-reached", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             instance.observeProperty("track-list/count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("video-params/h", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+            instance.observeProperty("video-codec", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("estimated-vf-fps", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
+            instance.observeProperty("video-bitrate", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
+            instance.observeProperty("cache-speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
+            instance.observeProperty("demuxer-cache-duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
+            instance.observeProperty("decoder-frame-drop-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("aid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
 

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,13 +55,14 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.rememberDominantColor
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaElement
+import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.TmdbImages
 
 /** Full TMDB detail page; Emby availability only controls the play action. */
@@ -73,7 +76,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
     val accent = rememberDominantColor(heroUrl, Brand.Primary)
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val heroHeight = maxHeight * 0.56f
+        val heroHeight = maxHeight * 0.34f
         val density = LocalDensity.current
         val detailSurface = remember(accent, palette.isDark) {
             if (palette.isDark) {
@@ -142,7 +145,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             .statusBarsPadding()
                             .padding(start = 18.dp, top = 12.dp)
                             .size(38.dp)
-                            .glass(
+                            .solidGlass(
                                 shape = CircleShape,
                                 fill = Color(0xFF11151F).copy(alpha = 0.28f),
                                 border = Color.White.copy(alpha = 0.34f),
@@ -171,12 +174,12 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                         Modifier
                             .fillMaxWidth()
                             .shadow(Shadows.sheet, GlassShapes.sheet)
-                            .glass(
-                                shape = GlassShapes.sheet,
-                                fill = if (palette.isDark) {
-                                    palette.glassStrong
-                                } else {
-                                    Color.White.copy(alpha = 0.68f)
+                            .solidGlass(
+                                shape = GlassShapes.card,
+                                    fill = if (palette.isDark) {
+                                        palette.glassStrong
+                                    } else {
+                                        Color(0xFFEAF0FA).copy(alpha = 0.82f)
                                 },
                                 border = if (palette.isDark) {
                                     palette.border
@@ -184,25 +187,24 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                     Color.White.copy(alpha = 0.94f)
                                 },
                             )
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                            .padding(10.dp),
                     ) {
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            verticalAlignment = Alignment.Bottom,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Poster(
                                 url = TmdbImages.poster(item.posterPath)
                                     ?: TmdbImages.backdrop(item.backdropPath, "w780"),
                                 sharedKey = "tmdb-poster-${item.id}",
                                 modifier = Modifier
-                                    .width(84.dp)
-                                    .height(118.dp)
+                                    .width(78.dp)
+                                    .height(110.dp)
                                     .shadow(Shadows.detailPoster, GlassShapes.poster)
                                     .border(2.dp, Color.White, GlassShapes.poster),
                             )
-                            Column(Modifier.weight(1f).padding(bottom = 4.dp)) {
+                            Column(Modifier.weight(1f)) {
                                 Text(
                                     item.title,
                                     style = sc(19f, 800),
@@ -230,7 +232,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         style = mr(10f, 700),
                                         color = Brand.Imdb,
                                         modifier = Modifier
-                                            .glass(
+                                            .solidGlass(
                                                 shape = GlassShapes.thumb,
                                                 fill = Brand.Imdb.copy(alpha = 0.14f),
                                                 border = Brand.Imdb.copy(alpha = 0.24f),
@@ -240,86 +242,23 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                 }
                             }
                         }
+                    }
 
-                        if (state.playable) {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp)
-                                    .glass(
-                                        shape = GlassShapes.card,
-                                        fill = if (palette.isDark) {
-                                            accent.copy(alpha = 0.18f)
-                                        } else {
-                                            accent.copy(alpha = 0.10f)
-                                        },
-                                        border = accent.copy(alpha = if (palette.isDark) 0.38f else 0.30f),
-                                    )
-                                    .clickable(
-                                        enabled = !state.resolvingPlay,
-                                        onClick = component::play,
-                                    ),
-                            ) {
-                                if (state.resolvingPlay) {
-                                    CircularProgressIndicator(
-                                        color = accent,
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(15.dp).align(Alignment.Center),
-                                    )
-                                } else {
-                                    Box(
-                                        Modifier
-                                            .align(Alignment.CenterStart)
-                                            .padding(start = 5.dp)
-                                            .size(36.dp)
-                                            .glass(
-                                                shape = CircleShape,
-                                                fill = Color.White.copy(
-                                                    alpha = if (palette.isDark) 0.18f else 0.66f,
-                                                ),
-                                                border = Color.White.copy(
-                                                    alpha = if (palette.isDark) 0.28f else 0.88f,
-                                                ),
-                                            ),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Icon(
-                                            AppIcons.Play,
-                                            null,
-                                            tint = accent,
-                                            modifier = Modifier.size(13.dp),
-                                        )
-                                    }
-                                    Text(
-                                        "立即播放",
-                                        style = sc(13f, 750),
-                                        color = palette.text,
-                                        modifier = Modifier.align(Alignment.Center),
-                                    )
-                                }
-                            }
-                        } else {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .glass(
-                                        shape = GlassShapes.card,
-                                        fill = if (palette.isDark) {
-                                            palette.card2
-                                        } else {
-                                            Color.White.copy(alpha = 0.52f)
-                                        },
-                                    )
-                                    .padding(14.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    "未加入媒体库 · 以下资料来自 TMDB",
-                                    style = sc(12f, 500),
-                                    color = palette.sub2,
-                                )
-                            }
-                        }
+                    TmdbPlayDock(
+                        playable = state.playable,
+                        resolving = state.resolvingPlay,
+                        accent = Brand.Primary,
+                        onPlay = component::play,
+                    )
+
+                    if (state.sources.any {
+                            it.reachable && it.source != null && it.itemId != null
+                        }) {
+                        TmdbSourceStrip(
+                            sources = state.sources,
+                            accent = Brand.Primary,
+                            onSelect = component::playSource,
+                        )
                     }
 
                     state.error?.let { error ->
@@ -330,7 +269,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             textAlign = TextAlign.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .glass(GlassShapes.card)
+                                .solidGlass(GlassShapes.card)
                                 .clickable(onClick = component::dismissError)
                                 .padding(12.dp),
                         )
@@ -364,7 +303,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                     style = sc(11f, 600),
                                     color = palette.sub,
                                     modifier = Modifier
-                                        .glass(GlassShapes.thumb)
+                                        .solidGlass(GlassShapes.thumb)
                                         .padding(horizontal = 11.dp, vertical = 7.dp),
                                 )
                             }
@@ -430,6 +369,138 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TmdbSourceStrip(
+    sources: List<ServerSource>,
+    accent: Color,
+    onSelect: (serverId: String, itemId: String) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val availableSources = remember(sources) {
+        sources.filter { it.reachable && it.source != null && it.itemId != null }
+    }
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        itemsIndexed(
+            availableSources,
+            key = { index, entry -> "tmdb-source-${entry.serverId}-${entry.itemId}-$index" },
+        ) { _, entry ->
+            Row(
+                Modifier
+                    .width(168.dp)
+                    .heightIn(min = 52.dp)
+                    .solidGlass(
+                        shape = GlassShapes.thumb,
+                        fill = if (palette.isDark) {
+                            Color.White.copy(alpha = 0.07f)
+                        } else {
+                            Color(0xFFEFF3FA).copy(alpha = 0.72f)
+                        },
+                        border = if (palette.isDark) {
+                            Color.White.copy(alpha = 0.20f)
+                        } else {
+                            Color(0xFFD7DDE9)
+                        },
+                    )
+                    .clickable {
+                        entry.itemId?.let { onSelect(entry.serverId, it) }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        entry.serverName,
+                        style = sc(10.8f, 700),
+                        color = palette.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        listOfNotNull(entry.source?.bitrate, entry.source?.size)
+                            .joinToString(" · ")
+                            .ifBlank { "资源信息读取中" },
+                        style = mr(9.8f, 500),
+                        color = palette.sub2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (entry.isCurrent) {
+                    Icon(
+                        AppIcons.Check,
+                        contentDescription = "当前片源",
+                        tint = accent,
+                        modifier = Modifier.size(16.dp),
+                    )
+                } else {
+                    Spacer(Modifier.width(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TmdbPlayDock(
+    playable: Boolean,
+    resolving: Boolean,
+    accent: Color,
+    onPlay: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .solidGlass(
+                shape = GlassShapes.card,
+                fill = if (palette.isDark) {
+                    Color.White.copy(alpha = 0.08f)
+                } else {
+                    Color.White.copy(alpha = 0.72f)
+                },
+                border = if (palette.isDark) palette.border else Color.White.copy(alpha = 0.96f),
+            )
+            .padding(7.dp),
+    ) {
+        if (playable) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .clip(GlassShapes.card)
+                    .background(accent)
+                    .border(1.dp, Color.White.copy(alpha = 0.24f), GlassShapes.card)
+                    .clickable(enabled = !resolving, onClick = onPlay),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (resolving) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(15.dp),
+                    )
+                } else {
+                    Icon(AppIcons.Play, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                }
+                Spacer(Modifier.width(8.dp))
+                Text("立即播放", style = sc(13.5f, 750), color = Color.White)
+            }
+        } else {
+            Box(Modifier.fillMaxWidth().height(46.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    "未加入媒体库 · 以下资料来自 TMDB",
+                    style = sc(12f, 500),
+                    color = palette.sub2,
+                )
             }
         }
     }
