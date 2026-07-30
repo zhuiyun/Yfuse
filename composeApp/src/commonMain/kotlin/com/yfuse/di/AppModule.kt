@@ -14,6 +14,7 @@ import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.network.createEmbyClient
+import com.yfuse.core.network.createDanmakuClient
 import com.yfuse.core.network.createTmdbClient
 import com.yfuse.core.network.LanDiscovery
 import com.yfuse.core.network.createLanDiscovery
@@ -44,7 +45,7 @@ fun appModule(settings: Settings) = module {
         createEmbyClient(customUserAgent = { userAgent.userAgent.value })
     }
     single { EmbyRepository(get()) }
-    single { DanmakuRepository(get()) }
+    single { DanmakuRepository(createDanmakuClient()) }
     single { ServerSyncManager(get(), get(), get()) }
     single { WatchTogetherClient(get()) }
     single { WatchInviteResolver(get(), get()) }

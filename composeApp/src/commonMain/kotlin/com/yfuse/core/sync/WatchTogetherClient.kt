@@ -11,7 +11,6 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
-import kotlin.math.abs
 import kotlin.random.Random
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
@@ -104,10 +103,10 @@ data class WatchTimeline(
 private class RoomUnavailableException(message: String) : Exception(message)
 
 /**
- * Estimates the offset between this device's clock and the server's, from `ping`/`pong`
- * round trips. Comparing the two devices' own wall clocks directly — what v1 did — breaks
- * the moment they disagree by more than a couple of seconds, which is common enough on
- * real phones that it made the latency compensation pure noise.
+ * Maps the server's epoch clock onto this process's monotonic clock from `ping`/`pong`
+ * round trips. Comparing two device wall clocks directly — what v1 did — breaks when they
+ * disagree, while retaining a wall-clock offset also breaks when Android applies an NTP
+ * correction after the sample. A server epoch plus a monotonic mark survives both.
  *
  * Single-sample offset (classic NTP): the server's timestamp is assumed to correspond to
  * the midpoint of the round trip on *our* clock. A rolling median over the last few
@@ -115,41 +114,40 @@ private class RoomUnavailableException(message: String) : Exception(message)
  * outright rather than allowed to skew the median.
  */
 private class ClockSync {
-    private val lock = Any()
-    private val samples = ArrayDeque<Long>()
-    private val inFlight = HashMap<Long, TimeSource.Monotonic.ValueTimeMark>()
-    @Volatile private var offsetMs: Long = 0L
+    private data class ServerSample(
+        val serverAtArrivalMs: Long,
+        val receivedAt: TimeSource.Monotonic.ValueTimeMark,
+    )
 
-    /**
-     * Remembers when a ping actually left, on a clock that cannot be corrected underneath us.
-     * The wall-clock value is only the correlation key — it's what the server echoes back.
-     */
-    fun recordPingSent(clientSentAtMs: Long) {
-        synchronized(lock) {
+    private val lock = Any()
+    private val samples = ArrayDeque<ServerSample>()
+    private val inFlight = HashMap<Long, TimeSource.Monotonic.ValueTimeMark>()
+    private var nextPingId = 0L
+
+    /** Returns an opaque correlation id (the wire keeps its legacy `clientSentAtMs` name). */
+    fun startPing(): Long = synchronized(lock) {
+        val pingId = ++nextPingId
+        if (inFlight.size > MAX_IN_FLIGHT) {
             // A dropped socket leaves its unanswered pings behind; they are never useful again.
-            if (inFlight.size > MAX_IN_FLIGHT) inFlight.clear()
-            inFlight[clientSentAtMs] = TimeSource.Monotonic.markNow()
+            inFlight.clear()
         }
+        inFlight[pingId] = TimeSource.Monotonic.markNow()
+        pingId
     }
 
-    fun recordPong(clientSentAtMs: Long, serverAtMs: Long, clientReceivedAtMs: Long) {
-        val mark = synchronized(lock) { inFlight.remove(clientSentAtMs) } ?: return
+    fun recordPong(pingId: Long, serverAtMs: Long) {
+        val mark = synchronized(lock) { inFlight.remove(pingId) } ?: return
         val rtt = mark.elapsedNow().inWholeMilliseconds
         if (rtt < 0 || rtt > MAX_ACCEPTABLE_RTT_MS) return
-        // The server's timestamp is assumed to land at the midpoint of the round trip. Deriving
-        // that midpoint from the arrival reading minus half a *monotonically* measured trip
-        // stops a wall-clock correction mid-flight from masquerading as latency — which, on a
-        // phone, is exactly what an NTP sync looks like to two subtracted wall-clock reads.
-        val clientNowAtServerSample = clientReceivedAtMs - rtt / 2
-        val offset = serverAtMs - clientNowAtServerSample
+        val sample = ServerSample(
+            // The server stamps the pong around the round-trip midpoint. Project it to the
+            // receive instant, then advance only with monotonic elapsed time from here on.
+            serverAtArrivalMs = serverAtMs + rtt / 2,
+            receivedAt = TimeSource.Monotonic.markNow(),
+        )
         synchronized(lock) {
-            // A device clock correction shifts every future sample at once. The earlier ones
-            // aren't noise to be averaged away, they're simply describing a clock that no
-            // longer exists, so they go rather than dragging the median for a minute.
-            if (samples.isNotEmpty() && abs(offset - offsetMs) > CLOCK_JUMP_MS) samples.clear()
-            samples.addLast(offset)
+            samples.addLast(sample)
             if (samples.size > MAX_SAMPLES) samples.removeFirst()
-            offsetMs = samples.sorted()[samples.size / 2]
         }
     }
 
@@ -158,16 +156,19 @@ private class ClockSync {
             samples.clear()
             inFlight.clear()
         }
-        offsetMs = 0L
     }
 
-    fun serverNow(deviceNowMs: Long): Long = deviceNowMs + offsetMs
+    fun serverNow(): Long = synchronized(lock) {
+        if (samples.isEmpty()) return@synchronized System.currentTimeMillis()
+        samples
+            .map { it.serverAtArrivalMs + it.receivedAt.elapsedNow().inWholeMilliseconds }
+            .sorted()[samples.size / 2]
+    }
 
     private companion object {
         const val MAX_SAMPLES = 7
         const val MAX_ACCEPTABLE_RTT_MS = 4_000L
         const val MAX_IN_FLIGHT = 16
-        const val CLOCK_JUMP_MS = 2_000L
     }
 }
 
@@ -200,15 +201,13 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
     val timeline: StateFlow<WatchTimeline?> = _timeline.asStateFlow()
 
     /** Best estimate of the server's clock right now, for projecting [timeline] forward. */
-    fun estimatedServerNow(): Long = clock.serverNow(System.currentTimeMillis())
+    fun estimatedServerNow(): Long = clock.serverNow()
 
     fun createRoom(endpoint: String, mediaKey: String, name: String = "房主") {
-        preferences.setEndpoint(endpoint)
         start(endpoint, roomCode = null, mediaKey = mediaKey, name = name)
     }
 
     fun joinRoom(endpoint: String, roomCode: String, mediaKey: String, name: String = "访客") {
-        preferences.setEndpoint(endpoint)
         start(endpoint, roomCode.uppercase(), mediaKey, name)
     }
 
@@ -353,8 +352,7 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                 )
                 val pingJob = launch {
                     while (isActive) {
-                        val sentAt = System.currentTimeMillis()
-                        clock.recordPingSent(sentAt)
+                        val sentAt = clock.startPing()
                         runCatching {
                             send(
                                 json.encodeToString(
@@ -370,7 +368,6 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                     var welcomedThisAttempt = false
                     for (frame in incoming) {
                         if (frame !is Frame.Text) continue
-                        val receivedAt = System.currentTimeMillis()
                         val wire = runCatching {
                             json.decodeFromString(WatchWireMessage.serializer(), frame.readText())
                         }.getOrNull() ?: continue
@@ -381,7 +378,7 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                             // latency — anything else can't be turned into an offset sample.
                             if (wire.type == "pong") {
                                 wire.clientSentAtMs?.let { sentAt ->
-                                    clock.recordPong(sentAt, serverAtMs, receivedAt)
+                                    clock.recordPong(sentAt, serverAtMs)
                                 }
                             }
                         }

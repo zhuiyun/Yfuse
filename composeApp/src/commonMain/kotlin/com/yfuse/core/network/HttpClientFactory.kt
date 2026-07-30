@@ -38,3 +38,17 @@ fun createEmbyClient(
             }
         }
     }
+
+/**
+ * Client for arbitrary user-configured danmaku hosts.
+ *
+ * It intentionally carries no Emby identity or stable device id: third-party danmaku
+ * endpoints are outside the user's media server trust boundary.
+ */
+fun createDanmakuClient(
+    engine: HttpClientEngine = embyHttpEngine(),
+): HttpClient =
+    HttpClient(engine) {
+        expectSuccess = true
+        install(ContentEncoding) { gzip() }
+    }

@@ -33,8 +33,8 @@ class PlayerStoreTest {
         val repo = testRepo { request ->
             if (request.url.encodedPath.contains("/Shows/s1/Episodes")) {
                 json(
-                    """{"Items":[{"Id":"e1","Name":"开场","Type":"Episode","IndexNumber":1},""" +
-                        """{"Id":"e2","Name":"转折","Type":"Episode","IndexNumber":2}]}""",
+                    """{"Items":[{"Id":"e1","Name":"开场","Type":"Episode","IndexNumber":1,"ParentIndexNumber":2},""" +
+                        """{"Id":"e2","Name":"转折","Type":"Episode","IndexNumber":2,"ParentIndexNumber":2}]}""",
                 )
             } else {
                 json("""{"Id":"e2","Name":"转折","Type":"Episode","SeriesId":"s1","SeriesName":"某剧"}""")
@@ -51,6 +51,8 @@ class PlayerStoreTest {
         val state = store.states.first { !it.loading }
 
         assertEquals(listOf("e1", "e2"), state.items.map { it.id })
+        assertEquals(listOf(2, 2), state.items.map { it.seasonNumber })
+        assertEquals(listOf(1, 2), state.items.map { it.episodeNumber })
         assertEquals(1, state.startIndex)
         assertEquals(2_500L, state.startPositionMs)
         store.dispose()

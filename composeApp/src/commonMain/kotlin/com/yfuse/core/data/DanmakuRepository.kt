@@ -2,7 +2,11 @@ package com.yfuse.core.data
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.get
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -25,26 +29,46 @@ data class DanmakuComment(
 data class DanmakuMedia(
     val id: String,
     val title: String,
-    val episode: Int,
+    val episode: Int?,
+    val season: Int? = null,
     val serverId: String?,
 )
 
 /**
  * Loads an arbitrary user-provided endpoint. The endpoint can be a direct URL or a template using
- * `{id}`, `{title}`, `{episode}` and `{serverId}`. Bilibili XML, DPlayer tuples and common JSON
- * object formats are accepted.
+ * `{id}`, `{title}`, `{season}`, `{episode}` and `{serverId}`. Bilibili XML, DPlayer tuples
+ * and common JSON object formats are accepted.
  */
 class DanmakuRepository(private val client: HttpClient) {
 
     suspend fun load(template: String, media: DanmakuMedia): Result<List<DanmakuComment>> =
-        runCatching {
-            val url = resolveUrl(template, media)
-            require(url.startsWith("http://") || url.startsWith("https://")) {
-                "弹幕链接必须以 http:// 或 https:// 开头"
+        withContext(Dispatchers.Default) {
+            val url = try {
+                resolveUrl(template, media)
+            } catch (error: IllegalArgumentException) {
+                return@withContext Result.failure(error)
             }
-            val body: String = client.get(url).body()
-            DanmakuParser.parse(body).ifEmpty {
-                error("接口已响应，但没有识别到弹幕数据")
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("弹幕链接必须以 http:// 或 https:// 开头"),
+                )
+            }
+            try {
+                val body: String = client.get(url).body()
+                val comments = DanmakuParser.parse(body)
+                if (comments.isEmpty()) {
+                    Result.failure(IllegalStateException("接口已响应，但没有识别到弹幕数据"))
+                } else {
+                    Result.success(comments)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: ResponseException) {
+                Result.failure(IllegalStateException(error.response.status.value.toDanmakuError()))
+            } catch (_: Throwable) {
+                // Ktor exception messages include the full request URL. A user template may
+                // carry a token, so never surface the raw exception in the player UI.
+                Result.failure(IllegalStateException("弹幕接口连接失败，请检查地址和网络"))
             }
         }
 
@@ -54,7 +78,8 @@ class DanmakuRepository(private val client: HttpClient) {
             return template
                 .replace("{id}", encodeUrlComponent(media.id))
                 .replace("{title}", encodeUrlComponent(media.title))
-                .replace("{episode}", media.episode.toString())
+                .replace("{season}", media.season?.toString().orEmpty())
+                .replace("{episode}", media.episode?.toString().orEmpty())
                 .replace("{serverId}", encodeUrlComponent(media.serverId.orEmpty()))
         }
 
@@ -80,6 +105,15 @@ class DanmakuRepository(private val client: HttpClient) {
         }
 
         private const val HEX = "0123456789ABCDEF"
+
+        private fun Int.toDanmakuError(): String = when (this) {
+            401, 403 -> "弹幕接口拒绝访问（$this）"
+            404 -> "弹幕接口不存在（404）"
+            408 -> "弹幕接口请求超时（408）"
+            429 -> "弹幕接口请求过于频繁（429）"
+            in 500..599 -> "弹幕接口暂时不可用（$this）"
+            else -> "弹幕接口请求失败（$this）"
+        }
     }
 }
 

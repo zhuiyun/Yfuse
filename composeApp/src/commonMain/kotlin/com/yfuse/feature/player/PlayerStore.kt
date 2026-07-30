@@ -21,6 +21,8 @@ data class PlayerMediaItem(
     val fallbackTranscodeUrl: String = transcodeUrl,
     val serverId: String? = null,
     val playbackSegments: List<PlaybackSegment> = emptyList(),
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
     /** Cross-server identity used by watch-together rooms. */
     val watchKey: String = id,
 )
@@ -80,6 +82,8 @@ class PlayerStoreFactory(
                     title: String,
                     playbackSegments: List<PlaybackSegment> = emptyList(),
                     providerIds: Map<String, String> = emptyMap(),
+                    seasonNumber: Int? = null,
+                    episodeNumber: Int? = null,
                 ) = PlayerMediaItem(
                     id = id,
                     url = EmbyStream.directPlay(server.baseUrl, id, server.accessToken),
@@ -92,6 +96,8 @@ class PlayerStoreFactory(
                     ),
                     serverId = server.id,
                     playbackSegments = playbackSegments,
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
                     watchKey = providerIds.watchKey(id),
                 )
 
@@ -107,6 +113,8 @@ class PlayerStoreFactory(
                                 listOfNotNull(ep.indexNumber?.let { "第 $it 集" }, ep.name).joinToString("  "),
                                 ep.playbackSegments,
                                 ep.providerIds,
+                                ep.seasonNumber,
+                                ep.indexNumber,
                             )
                         }
                         val index = items.indexOfFirst { it.id == itemId }.coerceAtLeast(0)

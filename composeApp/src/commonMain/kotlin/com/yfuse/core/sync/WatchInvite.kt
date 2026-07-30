@@ -190,7 +190,8 @@ private const val HEX_DIGITS = "0123456789ABCDEF"
  *
  * Known limitation: for an *episode*, provider ids are frequently absent, so the key
  * degrades to the server-specific fallback. Cross-server watch-together therefore works
- * reliably for films and same-server-only for most series.
+ * reliably for films and same-server-only for most series; the player surfaces an explicit
+ * sync warning when that fallback cannot be matched instead of silently doing nothing.
  */
 fun Map<String, String>.watchKey(fallbackId: String): String {
     val preferred = listOf("Tmdb", "Tvdb", "Imdb")

@@ -44,7 +44,10 @@ class WatchGatedPlayback(
     private val watchTogether: WatchTogetherClient,
     private val items: () -> List<PlayerMediaItem>,
     private val engine: () -> VideoEngine?,
+    private val onLocked: () -> Unit = {},
 ) {
+    private var observedIndex: Int? = null
+
     /**
      * Read straight off the engine rather than from a separately tracked copy: gating
      * decisions compare against "playing right now", and a state mirrored through
@@ -81,6 +84,7 @@ class WatchGatedPlayback(
         if (index !in items().indices) return false
         return gated { engine ->
             engine.selectItem(index)
+            observedIndex = index
             publish(index = index, positionMs = 0L, paused = false)
         }
     }
@@ -89,16 +93,9 @@ class WatchGatedPlayback(
 
     fun selectPrevious(): Boolean = selectItem((state?.currentIndex ?: 0) - 1)
 
-    /**
-     * Speed is deliberately *not* gated. A guest's own rate change is allowed to reach the
-     * engine because the reconcile loop overwrites it back to the room's rate within a tick,
-     * and that is precisely the mechanism by which 倍速 stays shared — no separate lock on
-     * the control is needed. Publishing it stays host-only.
-     */
-    fun setSpeed(speed: Float) {
-        val engine = engine() ?: return
+    fun setSpeed(speed: Float): Boolean = gated { engine ->
         engine.setSpeed(speed)
-        if (!locked) publish(rate = speed)
+        publish(rate = speed)
     }
 
     /**
@@ -106,8 +103,10 @@ class WatchGatedPlayback(
      * through the queue internally when auto-next is on, so an episode ending is the one
      * timeline change no control surface can report.
      */
-    fun publishAutoAdvance(index: Int) {
-        if (locked) return
+    fun onPlaybackIndexChanged(index: Int) {
+        val previous = observedIndex
+        observedIndex = index
+        if (previous == null || previous == index || locked) return
         publish(index = index, positionMs = engine()?.currentPositionMs() ?: 0L, paused = false)
     }
 
@@ -117,8 +116,14 @@ class WatchGatedPlayback(
         publish()
     }
 
+    /** Retry is local recovery, but a guest still must not restart its engine behind the host. */
+    fun retry(): Boolean = gated(VideoEngine::retry)
+
     private inline fun gated(action: (VideoEngine) -> Unit): Boolean {
-        if (locked) return false
+        if (locked) {
+            onLocked()
+            return false
+        }
         val engine = engine() ?: return false
         action(engine)
         return true
@@ -156,9 +161,13 @@ class WatchGatedPlayback(
     private fun nominalRate(): Float {
         val measured = state?.speed ?: 1f
         val room = watchTogether.timeline.value?.rate ?: return measured
-        val band = room * NUDGE_FRACTION + RATE_EPSILON
-        return if (abs(measured - room) <= band) room else measured
+        return nominalWatchRate(measured, room)
     }
+}
+
+internal fun nominalWatchRate(measured: Float, room: Float): Float {
+    val band = room * NUDGE_FRACTION + RATE_EPSILON
+    return if (abs(measured - room) <= band) room else measured
 }
 
 /**
@@ -186,7 +195,7 @@ class WatchMediaMatcher(private val onWarning: (String?) -> Unit) {
         }
         missedTicks++
         if (missedTicks == MISMATCH_GRACE_TICKS) {
-            onWarning("房间在播放你的媒体库里没有的内容,无法同步进度")
+            onWarning("房间在播放你的媒体库里没有的内容，无法同步进度")
         }
         return null
     }

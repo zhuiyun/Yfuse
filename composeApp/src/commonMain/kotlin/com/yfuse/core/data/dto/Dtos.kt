@@ -248,6 +248,7 @@ fun BaseItemDto.toEpisode() = Episode(
     id = Id,
     name = Name ?: "",
     indexNumber = IndexNumber,
+    seasonNumber = ParentIndexNumber,
     seasonId = SeasonId,
     overview = Overview,
     runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },

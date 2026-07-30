@@ -41,9 +41,9 @@ import kotlinx.serialization.json.Json
  * cheaper (near-zero traffic while steady-state playing) and more precise (no 1-second
  * quantization) — see [Timeline].
  *
- * [serverAtMs] is stamped on *every* outgoing message (via [sendMessage]), not just `pong`,
- * so the client can keep refining its clock-offset estimate from ordinary traffic instead
- * of only from dedicated pings.
+ * [serverAtMs] is stamped on every outgoing message for diagnostics and future extensions.
+ * Clock samples use `pong` specifically, because only it echoes the correlation id needed
+ * to measure round-trip latency with the client's monotonic clock.
  */
 @Serializable
 private data class WireMessage(
@@ -124,6 +124,8 @@ private class Room(
 }
 
 private val rooms = ConcurrentHashMap<String, Room>()
+/** Serializes the size check with insertion so [MAX_ROOMS] remains a hard cap under bursts. */
+private val roomCreationLock = Any()
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
 
 private const val ROOM_CODE_LENGTH = 6
@@ -220,10 +222,10 @@ fun Application.watchTogetherModule(
                             val room = if (message.roomCode == null) {
                                 val mediaKey = message.mediaKey?.takeIf { it.isNotBlank() }
                                     ?: return@consumeEach sendError("缺少媒体标识")
-                                if (rooms.size >= MAX_ROOMS) {
-                                    return@consumeEach sendError("一起看服务房间已满,请稍后再试")
-                                }
                                 createRoom(mediaKey, clientId)
+                                    ?: return@consumeEach sendError(
+                                        "一起看服务房间已满，请稍后再试",
+                                    )
                             } else {
                                 rooms[message.roomCode.uppercase()]
                                     ?: return@consumeEach sendError("房间不存在或已关闭")
@@ -426,21 +428,26 @@ private fun CoroutineScope.scheduleHostHandover(room: Room, graceMs: Long) {
     }
 }
 
-private fun createRoom(mediaKey: String, hostId: String): Room {
-    while (true) {
-        val code = buildString {
-            repeat(ROOM_CODE_LENGTH) { append(ROOM_CODE_ALPHABET[Random.nextInt(ROOM_CODE_ALPHABET.length)]) }
+private fun createRoom(mediaKey: String, hostId: String): Room? {
+    synchronized(roomCreationLock) {
+        if (rooms.size >= MAX_ROOMS) return null
+        while (true) {
+            val code = buildString {
+                repeat(ROOM_CODE_LENGTH) {
+                    append(ROOM_CODE_ALPHABET[Random.nextInt(ROOM_CODE_ALPHABET.length)])
+                }
+            }
+            val room = Room(
+                code = code,
+                hostId = hostId,
+                timeline = Timeline(
+                    mediaKey = mediaKey,
+                    anchorPositionMs = 0L,
+                    anchorAtServerMs = System.currentTimeMillis(),
+                ),
+            )
+            if (rooms.putIfAbsent(code, room) == null) return room
         }
-        val room = Room(
-            code = code,
-            hostId = hostId,
-            timeline = Timeline(
-                mediaKey = mediaKey,
-                anchorPositionMs = 0L,
-                anchorAtServerMs = System.currentTimeMillis(),
-            ),
-        )
-        if (rooms.putIfAbsent(code, room) == null) return room
     }
 }
 

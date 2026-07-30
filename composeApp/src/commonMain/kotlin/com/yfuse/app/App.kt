@@ -280,7 +280,7 @@ fun App(root: RootComponent) {
                                 // player picks the room up from its state on start and the
                                 // guest reconcile loop syncs from the timeline — no need to
                                 // thread a room code through the launch path.
-                                watchTogether.joinRoom(
+                                watchTogether.joinRoomFromInvite(
                                     endpoint = invite.endpoint ?: watchEndpoint,
                                     roomCode = invite.roomCode,
                                     mediaKey = invite.mediaKey.orEmpty(),

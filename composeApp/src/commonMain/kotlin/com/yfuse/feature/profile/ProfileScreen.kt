@@ -638,7 +638,7 @@ private fun DanmakuSourceDialog(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            "占位符：{id} 媒体 ID · {title} 标题 · {episode} 集序号 · {serverId} 服务器 ID",
+            "占位符：{id} 媒体 ID · {title} 标题 · {season} 季号 · {episode} 集号 · {serverId} 服务器 ID",
             style = mr(10.5f, 400),
             color = palette.sub2,
         )

@@ -33,17 +33,18 @@ class DanmakuTest {
     @Test
     fun resolves_and_encodes_media_placeholders() {
         val url = DanmakuRepository.resolveUrl(
-            "https://example.com/{serverId}/{id}?title={title}&episode={episode}",
+            "https://example.com/{serverId}/{id}?title={title}&season={season}&episode={episode}",
             DanmakuMedia(
                 id = "a/b",
                 title = "测试 标题",
                 episode = 7,
+                season = 2,
                 serverId = "server 1",
             ),
         )
 
         assertEquals(
-            "https://example.com/server%201/a%2Fb?title=%E6%B5%8B%E8%AF%95%20%E6%A0%87%E9%A2%98&episode=7",
+            "https://example.com/server%201/a%2Fb?title=%E6%B5%8B%E8%AF%95%20%E6%A0%87%E9%A2%98&season=2&episode=7",
             url,
         )
     }

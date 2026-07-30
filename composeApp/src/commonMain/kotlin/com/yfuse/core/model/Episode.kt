@@ -13,6 +13,7 @@ data class Episode(
     val id: String,
     val name: String,
     val indexNumber: Int?,
+    val seasonNumber: Int?,
     val seasonId: String?,
     val overview: String?,
     val runtimeMinutes: Int?,
