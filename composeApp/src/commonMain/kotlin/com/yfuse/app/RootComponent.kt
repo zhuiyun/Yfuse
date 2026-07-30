@@ -11,11 +11,15 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.search.SearchComponent
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * App shell: four always-alive tabs — 首页 / 库 / 搜索 / 我的.
@@ -86,5 +90,40 @@ class RootComponent(
     private fun openSearch() {
         selectTab(Tab.Search)
         search.requestFocus()
+    }
+
+    /**
+     * An invite waiting to be confirmed, or null. Held here rather than routed straight to a
+     * screen because it can arrive at any moment — a cold start from a chat app, or
+     * `onNewIntent` while the player is already open — and the confirmation sheet has to be
+     * able to appear over whatever is on screen at the time.
+     */
+    // A StateFlow rather than Decompose's Value, which requires a non-null type argument.
+    private val _pendingInvite = MutableStateFlow<WatchInvite?>(null)
+    val pendingInvite: StateFlow<WatchInvite?> = _pendingInvite.asStateFlow()
+
+    fun offerInvite(invite: WatchInvite) {
+        _pendingInvite.value = invite
+    }
+
+    fun dismissInvite() {
+        _pendingInvite.value = null
+    }
+
+    /** Lands on the item an accepted invite resolved to, in the tab that owns media detail. */
+    fun openWatchTarget(serverId: String?, itemId: String) {
+        _pendingInvite.value = null
+        selectTab(Tab.Browse)
+        browse.openDetail(serverId, itemId)
+    }
+
+    /**
+     * Fallback when no server has the invited title: drop the user into search with the
+     * field focused. The query isn't prefilled — that would mean threading a term into the
+     * search store, and the title is on screen in the sheet they're coming from.
+     */
+    fun openSearchForInvite() {
+        _pendingInvite.value = null
+        openSearch()
     }
 }

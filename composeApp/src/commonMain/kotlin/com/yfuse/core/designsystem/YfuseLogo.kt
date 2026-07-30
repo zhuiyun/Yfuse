@@ -35,8 +35,8 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 private const val VIEWPORT = 200f
 private const val CENTER = 100f
 
-/** 标志占壳内 82%：ink 直径 164 / 200。留白交给调用方的尺寸。 */
-private const val ContentScale = 1.0f
+/** 标志几何的 ink 直径为 164 / 200，再收至 94%，给外壳多留一圈呼吸空间。 */
+private const val ContentScale = 0.94f
 
 /** 双半弧。 */
 private const val RingRadius = 70f

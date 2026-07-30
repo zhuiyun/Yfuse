@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -25,21 +24,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
@@ -55,10 +50,14 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.heroPanelBrush
+import com.yfuse.core.designsystem.heroScrim
+import com.yfuse.core.designsystem.heroSurface
+import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.rememberDominantColor
+import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.sc
-import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaElement
 import com.yfuse.core.designsystem.solidGlass
@@ -79,32 +78,13 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
         val heroHeight = maxHeight * 0.34f
         val density = LocalDensity.current
         val detailSurface = remember(accent, palette.isDark) {
-            if (palette.isDark) {
-                accent.copy(alpha = 0.10f).compositeOver(Color(0xFF0B111C))
-            } else {
-                Color.White
-            }
+            heroSurface(accent, palette.isDark)
         }
         val panelBrush = remember(detailSurface, density) {
-            Brush.verticalGradient(
-                colorStops = arrayOf(
-                    0f to Color.Transparent,
-                    0.22f to detailSurface.copy(alpha = 0.30f),
-                    0.52f to detailSurface.copy(alpha = 0.86f),
-                    1f to detailSurface.copy(alpha = 0.97f),
-                ),
-                startY = 0f,
-                endY = with(density) { 220.dp.toPx() },
-            )
+            heroPanelBrush(detailSurface, density, height = 220.dp)
         }
         val listState = rememberLazyListState()
-        val lightPageReached by remember(listState, heroHeight, density) {
-            derivedStateOf {
-                val switchOffset = with(density) { (heroHeight - 56.dp).roundToPx() }
-                listState.firstVisibleItemIndex > 0 ||
-                    listState.firstVisibleItemScrollOffset >= switchOffset
-            }
-        }
+        val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
         StatusBarIconStyle(darkIcons = lightPageReached)
         Box(
             Modifier
@@ -127,15 +107,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             .fillMaxSize()
                             .sharedMediaElement("tmdb-backdrop-${item.id}"),
                     )
-                    Box(
-                        Modifier.fillMaxSize().background(
-                            scrim(
-                                0.05f to detailSurface,
-                                0.60f to Color(0xFF140F19).copy(alpha = 0.10f),
-                                1f to Color(0xFF140F19).copy(alpha = 0.35f),
-                            ),
-                        ),
-                    )
+                    Box(Modifier.fillMaxSize().background(heroScrim(detailSurface)))
                     Icon(
                         AppIcons.ChevronLeft,
                         contentDescription = "返回",
@@ -160,7 +132,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .offset(y = (-46).dp)
+                        .liftOverHero(46.dp)
                         .background(panelBrush)
                         .padding(
                             start = Dimens.pageHorizontal,
@@ -297,7 +269,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
 
                     if (detail.genres.isNotEmpty()) {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(detail.genres) { genre ->
+                            items(detail.genres, key = { it }) { genre ->
                                 Text(
                                     genre,
                                     style = sc(11f, 600),

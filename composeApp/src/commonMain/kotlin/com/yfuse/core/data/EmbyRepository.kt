@@ -366,6 +366,50 @@ class EmbyRepository(private val client: HttpClient) {
         dto.Items.firstOrNull()?.toMediaItem()
     }
 
+    /**
+     * Resolves a watch-together `mediaKey` to an item on [server].
+     *
+     * A room identifies its film by provider id (`tmdb:603`, `imdb:tt0133093`) precisely so
+     * that two people on different Emby servers, holding different files, can watch it
+     * together — see `PlayerStore.watchKey`. Joining an invite therefore means asking *my*
+     * servers "which of your items is this?", which is what this does.
+     *
+     * `emby:<id>` keys are the same-server fallback the key scheme falls back to when a
+     * title carries no provider ids at all. They're only meaningful on the server they came
+     * from, so they're looked up as a plain item id and will simply miss elsewhere — which
+     * is the honest answer, and what lets the caller say "你的服务器上没有这部片".
+     */
+    suspend fun findByMediaKey(
+        server: SavedServer,
+        mediaKey: String,
+    ): Result<MediaItem?> = call("find_item_by_media_key") {
+        val provider = mediaKey.substringBefore(':', "")
+        val value = mediaKey.substringAfter(':', "")
+        if (provider.isBlank() || value.isBlank()) {
+            return@call null
+        }
+        if (provider.equals("emby", ignoreCase = true)) {
+            val dto: BaseItemDto = client.get(
+                "${server.baseUrl}/Users/${server.userId}/Items/$value",
+            ) {
+                header("X-Emby-Token", server.accessToken)
+                parameter("Fields", "ProductionYear,Overview,ProviderIds")
+            }.body()
+            return@call dto.toMediaItem()
+        }
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("Recursive", true)
+            parameter("IncludeItemTypes", "Movie,Series,Episode")
+            parameter("AnyProviderIdEquals", "${provider.lowercase()}.$value")
+            parameter("Fields", "ProductionYear,Overview,ProviderIds")
+            parameter("EnableImageTypes", "Primary,Backdrop")
+            parameter("ImageTypeLimit", 2)
+            parameter("Limit", 1)
+        }.body()
+        dto.Items.firstOrNull()?.toMediaItem()
+    }
+
     /** Full detail for a single item. Episodes inherit the series' cast. */
     suspend fun itemDetail(server: SavedServer, itemId: String): Result<MediaDetail> =
         call("item_detail") {

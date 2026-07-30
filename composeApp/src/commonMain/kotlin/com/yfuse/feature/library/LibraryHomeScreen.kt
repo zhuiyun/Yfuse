@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -33,12 +31,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,9 +43,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,24 +59,43 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.GlassBottomSheet
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
-import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDominantColor
+import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.scrim
-import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaElement
 import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * Hero carousel height. The status-bar switch threshold used to repeat this as a literal,
+ * so resizing the hero silently moved the point where the status bar flips its icons.
+ */
+private val HeroHeight = 432.dp
+
+/** How far the content column is pulled up over the lower edge of the hero. */
+private val HeroLift = 52.dp
+
+/** Poster rail column width, shared by the real rails and the loading skeleton. */
+private val PosterWidth = 104.dp
+
+/** `transparent 320px` — how far the artwork's tint reaches into the content. */
+private val ContentWashHeight = 320.dp
 
 /** 媒体库 — a 432px hero carousel above `padding:16px 18px 100px; gap:22px` of rows. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,13 +118,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     var serverMenuOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val density = LocalDensity.current
-    val lightPageReached by remember(listState, density) {
-        derivedStateOf {
-            val switchOffset = with(density) { (432.dp - 56.dp).roundToPx() }
-            listState.firstVisibleItemIndex > 0 ||
-                listState.firstVisibleItemScrollOffset >= switchOffset
-        }
-    }
+    val lightPageReached by rememberScrolledPastHero(listState, HeroHeight)
     StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
 
     LaunchedEffect(slides.size, carouselDragging) {
@@ -121,28 +131,16 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
     Box(Modifier.fillMaxSize()) {
         when {
-            state.currentServer == null -> CenterHint(
+            state.currentServer == null -> PageHint(
                 "还没有默认服务器，请到「我的」添加",
                 Modifier.align(Alignment.Center),
             )
 
-            state.error != null && state.content.isEmpty -> Column(
-                Modifier.align(Alignment.Center).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(state.error!!, style = sc(13f, 400), color = palette.sub, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(8.dp))
-                TextButton(
-                    onClick = { store.accept(LibraryIntent.Retry) },
-                    modifier = Modifier.glass(
-                        shape = GlassShapes.chip,
-                        fill = palette.card2,
-                        border = palette.border,
-                    ),
-                ) {
-                    Text("重试", style = sc(13f, 700), color = Brand.Primary)
-                }
-            }
+            state.error != null && state.content.isEmpty -> ErrorState(
+                message = state.error!!,
+                onRetry = { store.accept(LibraryIntent.Retry) },
+                modifier = Modifier.align(Alignment.Center),
+            )
 
             else -> PullToRefreshBox(
                 isRefreshing = state.loading,
@@ -158,7 +156,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                         item {
                             HorizontalPager(
                                 state = pagerState,
-                                modifier = Modifier.fillMaxWidth().height(432.dp),
+                                modifier = Modifier.fillMaxWidth().height(HeroHeight),
                                 beyondViewportPageCount = 1,
                                 key = { page -> slides[page].id },
                             ) { animatedIndex ->
@@ -198,20 +196,40 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                     }
 
                     item {
-                        // Content wash: `linear-gradient(180deg,{accent 12%} 0,transparent 320px)`.
+                        val liftPx = with(density) { HeroLift.roundToPx() }
+                        // Content wash `…transparent 320px`: the blend from the artwork into
+                        // the page has to be a fixed height. Fractional stops made it a
+                        // fraction of the whole content column, so a server with two
+                        // libraries got a thin smear and one with a dozen got a wash halfway
+                        // down the page — the same gradient reading differently per server.
+                        val wash = remember(accent, palette.background, density) {
+                            Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0f to Color.Transparent,
+                                    0.16f to accent.copy(alpha = 0.10f),
+                                    0.34f to palette.background.copy(alpha = 0.86f),
+                                    1f to Color.Transparent,
+                                ),
+                                startY = 0f,
+                                endY = with(density) { ContentWashHeight.toPx() },
+                            )
+                        }
                         Column(
                             Modifier
                                 .fillMaxWidth()
-                                .offset(y = (-52).dp)
-                                .background(
-                                    cssLinearGradient(
-                                        180f,
-                                        0f to Color.Transparent,
-                                        0.16f to accent.copy(alpha = 0.10f),
-                                        0.34f to palette.background.copy(alpha = 0.86f),
-                                        1f to Color.Transparent,
-                                    ),
-                                )
+                                // `offset` moves the drawing but keeps the measured height,
+                                // so the lift used to leave 52dp of blank page hanging off
+                                // the end of the list. Shrink the slot instead.
+                                .layout { measurable, constraints ->
+                                    val placeable = measurable.measure(constraints)
+                                    layout(
+                                        placeable.width,
+                                        (placeable.height - liftPx).coerceAtLeast(0),
+                                    ) {
+                                        placeable.place(0, -liftPx)
+                                    }
+                                }
+                                .background(wash)
                                 .padding(top = 78.dp),
                             verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                         ) {
@@ -242,7 +260,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 CategorySection(
                                     baseUrl = baseUrl,
                                     row = row,
-                                    prominent = false,
                                     onSeeAll = {
                                         component.onSeeAll(row.libraryId, row.title)
                                     },
@@ -256,8 +273,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
         }
 
         if (serverMenuOpen) {
-            ServerMenu(
-                servers = state.servers.map { Triple(it.id, it.serverName, it.id == state.currentServer?.id) },
+            ServerSheet(
+                servers = state.servers,
+                currentId = state.currentServer?.id,
                 onSelect = {
                     store.accept(LibraryIntent.SelectServer(it))
                     serverMenuOpen = false
@@ -293,7 +311,7 @@ private fun HeroCarousel(
     Box(
         Modifier
             .fillMaxWidth()
-            .height(432.dp)
+            .height(HeroHeight)
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
@@ -483,74 +501,135 @@ private fun HeroCarousel(
 }
 
 /**
- * Server dropdown — `top:96px; right:20px; width:180px`, `rgba(255,255,255,.95)`
- * over `rgba(255,255,255,.9)`, `radius:14px`, `padding:6px`,
- * `0 16px 36px -8px rgba(30,40,70,.3)`.
+ * 切换服务器 — a [GlassBottomSheet], which is what picking one value out of a short
+ * reversible list is supposed to look like in this app.
+ *
+ * What it replaces: a 180dp menu anchored under the hero's switcher chip, hand-rolled
+ * out of a hard-coded `rgba(255,255,255,.95)` plate with `#151A22` text. That is exactly
+ * the "hand-rolled anchored menu" [com.yfuse.core.designsystem.GlassDialog]'s docs call
+ * out as the thing the overlay system exists to replace — the library was simply missed
+ * in that pass. It also broke twice over: a white plate under the dark theme, and 180dp
+ * of width for names that routinely need more.
+ *
+ * The rows carry the same identity as 「我的」's server list (colour tile + initial,
+ * name, account) so the same server looks like itself in both places. Only the current
+ * row gets a status dot: the old menu painted every other row with [Brand.Offline],
+ * which read as "unreachable" when it only ever meant "not selected".
  */
 @Composable
-private fun BoxScope.ServerMenu(
-    servers: List<Triple<String, String, Boolean>>,
+private fun ServerSheet(
+    servers: List<SavedServer>,
+    currentId: String?,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize().clickable(onClick = onDismiss))
-    Column(
-        Modifier
-            .align(Alignment.TopEnd)
-            .statusBarsPadding()
-            .padding(top = 56.dp, end = 20.dp)
-            .width(180.dp)
-            .shadow(Shadows.menu, GlassShapes.chip)
-            .glass(GlassShapes.chip, Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.9f))
-            .padding(6.dp),
-    ) {
-        servers.forEach { (id, name, isCurrent) ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .glass(
-                        shape = GlassShapes.thumb,
-                        fill = if (isCurrent) {
-                            Brand.Primary.copy(alpha = 0.13f)
-                        } else {
-                            Color.White.copy(alpha = 0.08f)
-                        },
-                        border = if (isCurrent) {
-                            Brand.Primary.copy(alpha = 0.28f)
-                        } else {
-                            Color.White.copy(alpha = 0.12f)
-                        },
-                    )
-                    .clickable { onSelect(id) }
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+    val palette = LocalPalette.current
+    GlassBottomSheet(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "切换服务器",
+            subtitle = "已登录 ${servers.size} 个 · 切换后重新载入媒体库",
+            onClose = onDismiss,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            servers.forEach { server ->
+                val isCurrent = server.id == currentId
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .glass(
+                            shape = GlassShapes.chip,
+                            fill = if (isCurrent) {
+                                Brand.Primary.copy(alpha = 0.10f)
+                            } else {
+                                palette.card2
+                            },
+                            border = if (isCurrent) {
+                                Brand.Primary.copy(alpha = 0.30f)
+                            } else {
+                                palette.border
+                            },
+                        )
+                        .pressable(enabled = !isCurrent) { onSelect(server.id) }
+                        .padding(horizontal = 12.dp, vertical = 11.dp),
+                    horizontalArrangement = Arrangement.spacedBy(11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
                         Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(if (isCurrent) Brand.Online else Brand.Offline),
-                    )
-                    Text(
-                        name,
-                        style = sc(12.5f, if (isCurrent) 700 else 500),
-                        color = if (isCurrent) Brand.Primary else Color(0xFF151A22),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (isCurrent) {
-                    Icon(AppIcons.Check, null, tint = Brand.Primary, modifier = Modifier.size(12.dp))
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(serverTileColor(server.id)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            server.serverName.take(1).uppercase(),
+                            style = mr(12f, 700),
+                            color = Color.White,
+                        )
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            server.serverName,
+                            style = sc(12.5f, 700),
+                            color = palette.text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (isCurrent) {
+                                Box(
+                                    Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Brand.Online),
+                                )
+                            }
+                            Text(
+                                if (isCurrent) "当前使用 · ${server.userName}" else server.userName,
+                                style = mr(10f, 400),
+                                color = palette.sub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (isCurrent) {
+                        Icon(
+                            AppIcons.Check,
+                            contentDescription = "当前服务器",
+                            tint = Brand.Primary,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    } else {
+                        Text("切换", style = mr(11f, 600), color = Brand.Primary)
+                    }
                 }
             }
         }
     }
 }
+
+/**
+ * Stable identity colour per server, matching 「我的」's server list. Kept local to the
+ * media library rather than shared, because the profile page owns the same four-colour
+ * ramp; if a third surface ever needs it, that is the moment to lift it into the
+ * design system.
+ */
+private fun serverTileColor(id: String): Color {
+    val index = id.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
+    return ServerTileColors[index % ServerTileColors.size]
+}
+
+private val ServerTileColors = listOf(
+    Color(0xFF6689D3),
+    Color(0xFFC98F5B),
+    Color(0xFF8298C1),
+    Color(0xFF7198CB),
+)
 
 /**
  * Category cards — 148×88, using the library's own artwork cropped to fill
@@ -627,17 +706,8 @@ private fun PlaybackHistory(
     items: List<MediaItem>,
     onItemClick: (MediaItem) -> Unit,
 ) {
-    val palette = LocalPalette.current
     Column {
-        Text(
-            "播放记录",
-            style = sc(18f, 700),
-            color = palette.text,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Dimens.pageHorizontal)
-                .padding(bottom = 11.dp),
-        )
+        SectionHeader("播放记录")
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -678,46 +748,69 @@ private fun PlaybackHistory(
 }
 
 /**
- * Category block — header `700 15px` + `查看更多 ›` at `600 11px Manrope` `#3D64C9`,
- * over a 110×150 poster rail with title/year below each artwork.
+ * One heading scale for the whole page. 播放记录 used to be 18sp while every category
+ * below it was 15sp, so the first row read as a level above its siblings for no reason.
+ * 15sp/700 is the section step used by the detail page and the design's `font:700 15px`.
+ */
+@Composable
+private fun SectionHeader(
+    title: String,
+    onSeeAll: (() -> Unit)? = null,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.pageHorizontal)
+            .padding(bottom = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = sc(15f, 700),
+            color = palette.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (onSeeAll != null) {
+            // 「影视详情页 优化」spells this as `更多 ›` in the secondary ink, not a chip.
+            // The chip it replaces was filled `palette.card2` over a `palette.border`
+            // hairline — both pure white on this page's white, so all it contributed was
+            // a floating label with a smudge behind it.
+            Row(
+                Modifier
+                    .pressable(onClick = onSeeAll)
+                    .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("更多", style = mr(11f, 500), color = palette.sub2)
+                Icon(
+                    AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = palette.hint,
+                    modifier = Modifier.size(11.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Category block — a 15sp header with `更多 ›`, over a 104×150 poster rail with
+ * title/year below each artwork.
  */
 @Composable
 private fun CategorySection(
     baseUrl: String,
     row: HomeRow,
-    prominent: Boolean,
     onSeeAll: () -> Unit,
     onItemClick: (MediaItem) -> Unit,
 ) {
-    val palette = LocalPalette.current
     Column {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Dimens.pageHorizontal)
-                .padding(bottom = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                row.title,
-                style = sc(if (prominent) 18f else 15f, 700),
-                color = palette.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Text(
-                "查看更多 ›",
-                style = mr(11f, 600),
-                color = Brand.Primary,
-                modifier = Modifier
-                    .glass(GlassShapes.chip, palette.card2, palette.border)
-                    .clickable(onClick = onSeeAll)
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-            )
-        }
-
+        SectionHeader(row.title, onSeeAll = onSeeAll)
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -730,15 +823,18 @@ private fun CategorySection(
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
                     sharedKey = "media-poster-${item.id}",
                     onClick = { onItemClick(item) },
-                    modifier = Modifier
-                        .width(if (prominent) 136.dp else 104.dp),
+                    modifier = Modifier.width(PosterWidth),
                 )
             }
         }
     }
 }
 
-/** Loading skeleton: a title bar then three poster-and-caption placeholders. */
+/**
+ * Loading skeleton: a title bar then three poster-and-caption placeholders, sized to the
+ * rail it becomes ([PosterWidth]) so the content does not jump a few dp sideways once
+ * the real rows arrive.
+ */
 @Composable
 private fun SkeletonRow() {
     val palette = LocalPalette.current
@@ -750,7 +846,7 @@ private fun SkeletonRow() {
         Box(Modifier.width(90.dp).height(16.dp).clip(RoundedCornerShape(6.dp)).background(fill))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             repeat(3) {
-                Column(Modifier.width(110.dp)) {
+                Column(Modifier.width(PosterWidth)) {
                     Box(
                         Modifier
                             .fillMaxWidth()

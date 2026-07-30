@@ -4,12 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,11 +22,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -49,11 +47,11 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.Poster
-import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.YfuseMark
 import com.yfuse.core.designsystem.glass
@@ -61,7 +59,6 @@ import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.sharedMediaElement
-import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.EmbyImages
@@ -89,23 +86,11 @@ fun HomeScreen(component: HomeComponent) {
             state.loading && state.content.isEmpty ->
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
 
-            state.error != null && state.content.isEmpty -> Column(
-                Modifier.align(Alignment.Center).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(state.error!!, style = sc(13f, 400), color = palette.sub, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(8.dp))
-                TextButton(
-                    onClick = { component.store.accept(HomeIntent.Retry) },
-                    modifier = Modifier.glass(
-                        shape = GlassShapes.chip,
-                        fill = palette.card2,
-                        border = palette.border,
-                    ),
-                ) {
-                    Text("重试", style = sc(13f, 700))
-                }
-            }
+            state.error != null && state.content.isEmpty -> ErrorState(
+                message = state.error!!,
+                onRetry = { component.store.accept(HomeIntent.Retry) },
+                modifier = Modifier.align(Alignment.Center),
+            )
 
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().hideBottomBarOnScroll(),

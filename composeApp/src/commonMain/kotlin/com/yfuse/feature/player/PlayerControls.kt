@@ -2,12 +2,10 @@ package com.yfuse.feature.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +23,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -42,23 +42,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.cssLinearGradient
@@ -66,8 +67,9 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
-import kotlinx.coroutines.delay
+import com.yfuse.core.sync.WatchInvite
 import kotlin.math.abs
+import kotlinx.coroutines.delay
 
 /** Controls fade out after this long without interaction, while playing. */
 private const val AUTO_HIDE_MS = 4_000L
@@ -143,6 +145,10 @@ fun PlayerControls(
     watchEndpoint: String = "",
     watchConnecting: Boolean = false,
     watchConnected: Boolean = false,
+    /** True while a previously-established room connection is retrying. Distinct from
+     *  [watchConnected] — the room and its controls stay visible throughout, this only
+     *  adds a small "重连中" indicator. */
+    watchReconnecting: Boolean = false,
     watchRoomCode: String? = null,
     watchIsHost: Boolean = false,
     watchParticipantCount: Int = 0,
@@ -170,6 +176,12 @@ fun PlayerControls(
     val latestOnSpeed by rememberUpdatedState(onSpeed)
     val latestOnVolume by rememberUpdatedState(onVolume)
     val latestOnBrightness by rememberUpdatedState(onBrightness)
+    // Timeline controls (play/pause, seek, episode, speed) are read-only for a connected
+    // non-host: the room's host drives them, this device only follows. Volume, brightness,
+    // subtitle/audio track, aspect ratio, cast and danmaku stay untouched by this — those
+    // are per-viewer, not shared.
+    val watchLocked = watchConnected && !watchIsHost
+    val latestWatchLocked by rememberUpdatedState(watchLocked)
 
     fun poke() {
         interactions++
@@ -208,17 +220,25 @@ fun PlayerControls(
                             }
                         },
                         onDoubleTap = { offset ->
-                            val delta = if (offset.x < size.width / 2f) -10_000L else 10_000L
-                            latestOnSeek((latestPosition + delta).coerceIn(0L, latestDuration))
-                            gestureHud = if (delta < 0) "快退 10 秒" else "快进 10 秒"
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (latestWatchLocked) {
+                                gestureHud = "房主控制播放"
+                            } else {
+                                val delta = if (offset.x < size.width / 2f) -10_000L else 10_000L
+                                latestOnSeek((latestPosition + delta).coerceIn(0L, latestDuration))
+                                gestureHud = if (delta < 0) "快退 10 秒" else "快进 10 秒"
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
                             poke()
                         },
                         onLongPress = {
-                            val target = if (latestSpeed >= 1.95f) 1f else 2f
-                            latestOnSpeed(target)
-                            gestureHud = if (target > 1f) "2.0× 倍速" else "恢复正常速度"
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (latestWatchLocked) {
+                                gestureHud = "房主控制播放"
+                            } else {
+                                val target = if (latestSpeed >= 1.95f) 1f else 2f
+                                latestOnSpeed(target)
+                                gestureHud = if (target > 1f) "2.0× 倍速" else "恢复正常速度"
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
                             poke()
                         },
                     )
@@ -238,7 +258,7 @@ fun PlayerControls(
                             seekTarget = latestPosition
                         },
                         onDragEnd = {
-                            if (abs(totalX) > abs(totalY) && latestDuration > 0) {
+                            if (abs(totalX) > abs(totalY) && latestDuration > 0 && !latestWatchLocked) {
                                 latestOnSeek(seekTarget)
                             }
                             poke()
@@ -249,6 +269,12 @@ fun PlayerControls(
                         totalX += amount.x
                         totalY += amount.y
                         if (abs(totalX) > abs(totalY)) {
+                            // Brightness/volume drags stay available to guests; only the
+                            // horizontal scrub is the host's to make.
+                            if (latestWatchLocked) {
+                                gestureHud = "房主控制播放"
+                                return@detectDragGestures
+                            }
                             val span = latestDuration.coerceAtLeast(1L)
                             seekTarget = (
                                 latestPosition + totalX / size.width * span * 0.45f
@@ -298,6 +324,7 @@ fun PlayerControls(
 
             TransportRow(
                 state = state,
+                locked = watchLocked,
                 onPlayPause = { poke(); onPlayPause() },
                 onRewind = { poke(); onSeek((state.positionMs - 10_000L).coerceAtLeast(0L)) },
                 onForward = { poke(); onSeek(state.positionMs + 10_000L) },
@@ -307,6 +334,7 @@ fun PlayerControls(
             BottomBar(
                 state = state,
                 volume = volume,
+                seekLocked = watchLocked,
                 onVolume = { poke(); onVolume(it) },
                 onSeek = { poke(); onSeek(it) },
                 onScrub = { interactions++ },
@@ -420,9 +448,44 @@ fun PlayerControls(
             EpisodeDrawer(
                 titles = titles,
                 currentIndex = state.currentIndex,
-                onSelect = { onSelectItem(it); drawerOpen = false },
+                onSelect = if (watchLocked) {
+                    // Guests can still browse what's in the room's queue; picking is the
+                    // host's move, so tapping explains itself instead of doing nothing.
+                    { gestureHud = "房主控制播放" }
+                } else {
+                    { onSelectItem(it); drawerOpen = false }
+                },
                 onDismiss = { drawerOpen = false },
                 modifier = Modifier.align(Alignment.CenterEnd),
+            )
+        }
+
+        // Standing explanation for why the transport is dimmed. Also the only place the
+        // reconnect state surfaces during playback — the room stays live and controls stay
+        // in place, so a dropped socket reads as "catching up", not as the room vanishing.
+        if (watchConnected && visible) {
+            val roomNote = when {
+                watchReconnecting -> "一起看 · 重连中…"
+                !watchIsHost -> "一起看 · 房主控制播放"
+                else -> "一起看 · 你是房主 · $watchParticipantCount 人"
+            }
+            Text(
+                roomNote,
+                style = sc(11.5f, 600),
+                color = Color.White.copy(alpha = 0.92f),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 74.dp)
+                    .glass(
+                        shape = GlassShapes.chip,
+                        fill = if (watchReconnecting) {
+                            Brand.Danger.copy(alpha = 0.42f)
+                        } else {
+                            Color.Black.copy(alpha = 0.52f)
+                        },
+                        border = Color.White.copy(alpha = 0.24f),
+                    )
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
             )
         }
 
@@ -594,7 +657,7 @@ private fun TopBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (hasEpisodes) {
-                CircleControl(AppIcons.Menu, "剧集列表", 48.dp, 19.dp, onOpenDrawer)
+                CircleControl(AppIcons.Menu, "剧集列表", 48.dp, 19.dp, onClick = onOpenDrawer)
             }
             CircleControl(
                 icon = if (filled) AppIcons.Collapse else AppIcons.Expand,
@@ -607,10 +670,18 @@ private fun TopBar(
     }
 }
 
-/** Centred at `top:44%`, `gap:38px`: 46 / 58 / 46 circles. */
+/**
+ * Centred at `top:44%`, `gap:38px`: 46 / 58 / 46 circles.
+ *
+ * [locked] dims the whole cluster to half opacity and stops it taking taps — a connected
+ * guest can see what the room is doing but does not drive it. Dimming rather than hiding
+ * keeps the transport where the eye expects it and makes the reason legible alongside the
+ * 「房主控制播放」 banner.
+ */
 @Composable
 private fun TransportRow(
     state: PlaybackState,
+    locked: Boolean,
     onPlayPause: () -> Unit,
     onRewind: () -> Unit,
     onForward: () -> Unit,
@@ -618,11 +689,20 @@ private fun TransportRow(
 ) {
     Box(modifier.fillMaxSize()) {
         Row(
-            Modifier.align(Alignment.Center),
+            Modifier
+                .align(Alignment.Center)
+                .graphicsLayer { alpha = if (locked) 0.45f else 1f },
             horizontalArrangement = Arrangement.spacedBy(38.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircleControl(AppIcons.Rewind, "快退 10 秒", 48.dp, 17.dp, onRewind)
+            CircleControl(
+                AppIcons.Rewind,
+                "快退 10 秒",
+                48.dp,
+                17.dp,
+                enabled = !locked,
+                onClick = onRewind,
+            )
 
             if (state.buffering) {
                 Box(Modifier.size(58.dp), contentAlignment = Alignment.Center) {
@@ -638,7 +718,7 @@ private fun TransportRow(
                             fill = PlayerTokens.playFill,
                             border = Color.White.copy(alpha = 0.42f),
                         )
-                        .noRippleClickable(onPlayPause),
+                        .let { if (locked) it else it.noRippleClickable(onPlayPause) },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -650,7 +730,14 @@ private fun TransportRow(
                 }
             }
 
-            CircleControl(AppIcons.Forward, "快进 10 秒", 48.dp, 17.dp, onForward)
+            CircleControl(
+                AppIcons.Forward,
+                "快进 10 秒",
+                48.dp,
+                17.dp,
+                enabled = !locked,
+                onClick = onForward,
+            )
         }
     }
 }
@@ -660,6 +747,8 @@ private fun TransportRow(
 private fun BottomBar(
     state: PlaybackState,
     volume: Float,
+    /** Guest in a room: the scrubber becomes a read-only progress indicator. */
+    seekLocked: Boolean,
     onVolume: (Float) -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
@@ -697,6 +786,7 @@ private fun BottomBar(
             Text(formatTime(shownPosition), style = mr(11f, 400), color = PlayerTokens.timeTextLandscape)
             SeekBar(
                 fraction = fraction,
+                enabled = !seekLocked,
                 onScrubTo = { scrubbed = it; onScrub() },
                 onCommit = {
                     onSeek((it * duration).toLong())
@@ -759,6 +849,7 @@ private fun SeekBar(
     onScrubTo: (Float) -> Unit,
     onCommit: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     var width by remember { mutableStateOf(1f) }
     var dragFraction by remember { mutableStateOf(0f) }
@@ -768,24 +859,28 @@ private fun SeekBar(
             // A 4px bar is unhittable; pad the touch target without moving the bar.
             .padding(vertical = 10.dp)
             .height(4.dp)
-            .pointerInput(Unit) {
-                width = size.width.toFloat().coerceAtLeast(1f)
-                detectTapGestures { offset -> onCommit((offset.x / width).coerceIn(0f, 1f)) }
-            }
-            .pointerInput(Unit) {
-                width = size.width.toFloat().coerceAtLeast(1f)
-                detectHorizontalDragGestures(
-                    onDragStart = { offset ->
-                        dragFraction = (offset.x / width).coerceIn(0f, 1f)
-                        onScrubTo(dragFraction)
-                    },
-                    onDragEnd = { onCommit(dragFraction) },
-                    onDragCancel = { onCommit(dragFraction) },
-                ) { change, dragAmount ->
-                    change.consume()
-                    dragFraction = (dragFraction + dragAmount / width).coerceIn(0f, 1f)
-                    onScrubTo(dragFraction)
-                }
+            .let { base ->
+                if (!enabled) return@let base
+                base
+                    .pointerInput(Unit) {
+                        width = size.width.toFloat().coerceAtLeast(1f)
+                        detectTapGestures { offset -> onCommit((offset.x / width).coerceIn(0f, 1f)) }
+                    }
+                    .pointerInput(Unit) {
+                        width = size.width.toFloat().coerceAtLeast(1f)
+                        detectHorizontalDragGestures(
+                            onDragStart = { offset ->
+                                dragFraction = (offset.x / width).coerceIn(0f, 1f)
+                                onScrubTo(dragFraction)
+                            },
+                            onDragEnd = { onCommit(dragFraction) },
+                            onDragCancel = { onCommit(dragFraction) },
+                        ) { change, dragAmount ->
+                            change.consume()
+                            dragFraction = (dragFraction + dragAmount / width).coerceIn(0f, 1f)
+                            onScrubTo(dragFraction)
+                        }
+                    }
             }
             .clip(RoundedCornerShape(2.dp))
             .background(PlayerTokens.trackFillLandscape),
@@ -934,6 +1029,7 @@ private fun CircleControl(
     description: String,
     size: Dp,
     iconSize: Dp,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     Box(
@@ -944,7 +1040,7 @@ private fun CircleControl(
                 fill = PlayerTokens.controlFill,
                 border = Color.White.copy(alpha = 0.28f),
             )
-            .noRippleClickable(onClick),
+            .let { if (enabled) it.noRippleClickable(onClick) else it },
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(iconSize))
@@ -1275,6 +1371,16 @@ private fun SettingsPanel(
     }
 }
 
+/**
+ * In-player watch-together control. Since the entry points moved to where people actually
+ * decide what to watch — 详情页 for hosting, an invite link for joining — this is now the
+ * recovery path: "we're already watching, pull someone in."
+ *
+ * The relay address is deliberately not asked for here. It's infrastructure with a working
+ * default, it belongs in 「我的」's settings, and putting it in front of someone mid-film (as
+ * a required field, with both buttons disabled until it validated) was the single biggest
+ * obstacle in the old flow.
+ */
 @Composable
 private fun WatchTogetherDialog(
     endpoint: String,
@@ -1289,15 +1395,8 @@ private fun WatchTogetherDialog(
     onLeave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var endpointDraft by remember(endpoint) { mutableStateOf(endpoint) }
     var roomDraft by remember { mutableStateOf("") }
-    val normalizedEndpoint = endpointDraft.trim().trimEnd('/')
-    val endpointValid =
-        normalizedEndpoint.startsWith("http://") ||
-            normalizedEndpoint.startsWith("https://") ||
-            normalizedEndpoint.startsWith("ws://") ||
-            normalizedEndpoint.startsWith("wss://")
-    val normalizedRoom = roomDraft.filter(Char::isLetterOrDigit).uppercase().take(6)
+    val normalizedRoom = WatchInvite.normalizeCode(roomDraft)
     val palette = LocalPalette.current
 
     GlassDialog(onDismiss = onDismiss) {
@@ -1345,13 +1444,6 @@ private fun WatchTogetherDialog(
             )
         } else {
             WatchInput(
-                value = endpointDraft,
-                placeholder = "https://watch.example.com",
-                onValueChange = { endpointDraft = it.take(300) },
-                keyboardType = KeyboardType.Uri,
-            )
-            Spacer(Modifier.height(9.dp))
-            WatchInput(
                 value = normalizedRoom,
                 placeholder = "输入 6 位房间码",
                 onValueChange = { roomDraft = it },
@@ -1366,16 +1458,16 @@ private fun WatchTogetherDialog(
             ) {
                 OverlayButton(
                     label = if (connecting) "连接中…" else "创建房间",
-                    onClick = { onCreate(normalizedEndpoint) },
+                    onClick = { onCreate(endpoint) },
                     modifier = Modifier.weight(1f),
                     tone = OverlayButtonTone.Primary,
-                    enabled = endpointValid && !connecting,
+                    enabled = !connecting,
                 )
                 OverlayButton(
                     label = "加入房间",
-                    onClick = { onJoin(normalizedEndpoint, normalizedRoom) },
+                    onClick = { onJoin(endpoint, normalizedRoom) },
                     modifier = Modifier.weight(1f),
-                    enabled = endpointValid && normalizedRoom.length == 6 && !connecting,
+                    enabled = WatchInvite.isCompleteCode(normalizedRoom) && !connecting,
                 )
             }
         }

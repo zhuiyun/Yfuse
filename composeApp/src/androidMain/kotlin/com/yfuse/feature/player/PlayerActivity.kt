@@ -22,6 +22,7 @@ import android.media.session.PlaybackState as PlatformPlaybackState
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
@@ -106,6 +107,8 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_SERVER_IDS = "yfuse.serverIds"
         private const val EXTRA_SEGMENTS = "yfuse.playbackSegments"
         private const val EXTRA_WATCH_KEYS = "yfuse.watchKeys"
+        private const val EXTRA_SEASONS = "yfuse.seasonNumbers"
+        private const val EXTRA_EPISODES = "yfuse.episodeNumbers"
         private const val EXTRA_INDEX = "yfuse.index"
         private const val EXTRA_POSITION = "yfuse.positionMs"
         private const val EXTRA_ENGINE = "yfuse.engine"
@@ -131,6 +134,8 @@ class PlayerActivity : ComponentActivity() {
             putExtra(EXTRA_SERVER_IDS, items.map { it.serverId.orEmpty() }.toTypedArray())
             putExtra(EXTRA_SEGMENTS, items.map(::encodePlaybackSegments).toTypedArray())
             putExtra(EXTRA_WATCH_KEYS, items.map { it.watchKey }.toTypedArray())
+            putExtra(EXTRA_SEASONS, items.map { it.seasonNumber ?: -1 }.toIntArray())
+            putExtra(EXTRA_EPISODES, items.map { it.episodeNumber ?: -1 }.toIntArray())
             putExtra(EXTRA_INDEX, startIndex)
             putExtra(EXTRA_POSITION, startPositionMs)
             putExtra(EXTRA_ENGINE, engine.name)
@@ -141,6 +146,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private var activeEngine: VideoEngine? = null
+    private var playbackGate: WatchGatedPlayback? = null
     private var activeState = PlaybackState()
     private var sessionTitles: List<String> = emptyList()
     private val pictureInPicture = MutableStateFlow(false)
@@ -153,17 +159,9 @@ class PlayerActivity : ComponentActivity() {
     private val mediaActionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                ACTION_PREVIOUS -> {
-                    val previous = activeState.currentIndex - 1
-                    if (previous >= 0) activeEngine?.selectItem(previous)
-                }
-                ACTION_PLAY_PAUSE -> {
-                    if (activeState.playing) activeEngine?.pause() else activeEngine?.play()
-                }
-                ACTION_NEXT -> {
-                    val next = activeState.currentIndex + 1
-                    if (next < activeState.itemCount) activeEngine?.selectItem(next)
-                }
+                ACTION_PREVIOUS -> playbackGate?.selectPrevious()
+                ACTION_PLAY_PAUSE -> playbackGate?.togglePlayPause()
+                ACTION_NEXT -> playbackGate?.selectNext()
             }
         }
     }
@@ -196,6 +194,8 @@ class PlayerActivity : ComponentActivity() {
         val serverIds = intent.getStringArrayExtra(EXTRA_SERVER_IDS).orEmpty()
         val segmentRows = intent.getStringArrayExtra(EXTRA_SEGMENTS).orEmpty()
         val watchKeys = intent.getStringArrayExtra(EXTRA_WATCH_KEYS).orEmpty()
+        val seasonNumbers = intent.getIntArrayExtra(EXTRA_SEASONS) ?: intArrayOf()
+        val episodeNumbers = intent.getIntArrayExtra(EXTRA_EPISODES) ?: intArrayOf()
         val items = urls.mapIndexed { index, url ->
             PlayerMediaItem(
                 id = ids.getOrElse(index) { index.toString() },
@@ -211,6 +211,8 @@ class PlayerActivity : ComponentActivity() {
                 ),
                 serverId = serverIds.getOrNull(index)?.ifBlank { null },
                 playbackSegments = decodePlaybackSegments(segmentRows.getOrElse(index) { "" }),
+                seasonNumber = seasonNumbers.getOrNull(index)?.takeIf { it >= 0 },
+                episodeNumber = episodeNumbers.getOrNull(index)?.takeIf { it >= 0 },
                 watchKey = watchKeys.getOrElse(index) {
                     "emby:${ids.getOrElse(index) { index.toString() }}"
                 },
@@ -219,21 +221,6 @@ class PlayerActivity : ComponentActivity() {
         pictureInPicture.value = isInPictureInPictureMode
         pipWasVisible = isInPictureInPictureMode
         sessionTitles = items.map { it.title }
-        ActivePlayback.bind(
-            toggle = {
-                if (activeState.playing) activeEngine?.pause() else activeEngine?.play()
-            },
-            open = {
-                startActivity(
-                    Intent(this, PlayerActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
-                )
-            },
-            close = {
-                stopPlaybackAndFinish()
-            },
-        )
-
         createMediaSession()
         createPlaybackNotificationChannel()
         registerMediaActionReceiver()
@@ -247,6 +234,26 @@ class PlayerActivity : ComponentActivity() {
         val customUserAgent = koin.get<UserAgentPreferences>().userAgent.value
         val watchTogether = koin.get<WatchTogetherClient>()
         val watchTogetherPreferences = koin.get<WatchTogetherPreferences>()
+        playbackGate = WatchGatedPlayback(
+            watchTogether = watchTogether,
+            items = { items },
+            engine = { activeEngine },
+            onLocked = {
+                runOnUiThread {
+                    Toast.makeText(this, "当前由房主控制播放", Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
+        ActivePlayback.bind(
+            toggle = { playbackGate?.togglePlayPause() },
+            open = {
+                startActivity(
+                    Intent(this, PlayerActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+                )
+            },
+            close = ::stopPlaybackAndFinish,
+        )
         val accent = preferences?.accent?.value ?: AccentColor.Blue
         val playbackSink = runCatching {
             val registry = koin.get<ServerRegistry>()
@@ -278,6 +285,7 @@ class PlayerActivity : ComponentActivity() {
                     customUserAgent = customUserAgent,
                     watchTogether = watchTogether,
                     watchTogetherPreferences = watchTogetherPreferences,
+                    playbackGate = requireNotNull(playbackGate),
                     onEngineAttached = { engine -> activeEngine = engine },
                     onEngineDetached = { engine ->
                         if (activeEngine === engine) activeEngine = null
@@ -379,6 +387,7 @@ class PlayerActivity : ComponentActivity() {
         stopRequested = true
         activeEngine?.release()
         activeEngine = null
+        playbackGate = null
         ActivePlayback.clear()
         stopService(Intent(this, PlaybackKeepAliveService::class.java))
         finishAndRemoveTask()
@@ -389,25 +398,23 @@ class PlayerActivity : ComponentActivity() {
             setCallback(
                 object : MediaSession.Callback() {
                     override fun onPlay() {
-                        activeEngine?.play()
+                        playbackGate?.play()
                     }
 
                     override fun onPause() {
-                        activeEngine?.pause()
+                        playbackGate?.pause()
                     }
 
                     override fun onSeekTo(pos: Long) {
-                        activeEngine?.seekTo(pos)
+                        playbackGate?.seekTo(pos)
                     }
 
                     override fun onSkipToNext() {
-                        val next = activeState.currentIndex + 1
-                        if (next < activeState.itemCount) activeEngine?.selectItem(next)
+                        playbackGate?.selectNext()
                     }
 
                     override fun onSkipToPrevious() {
-                        val previous = activeState.currentIndex - 1
-                        if (previous >= 0) activeEngine?.selectItem(previous)
+                        playbackGate?.selectPrevious()
                     }
                 },
             )
@@ -587,6 +594,21 @@ private fun decodePlaybackSegments(raw: String): List<PlaybackSegment> =
         )
     }
 
+/** How often a guest re-checks its drift against the room's timeline. */
+private const val GUEST_RECONCILE_TICK_MS = 1_000L
+
+/** Below this, drift is imperceptible and left alone. */
+private const val NUDGE_THRESHOLD_MS = 50L
+
+/** Above this, nudging would take too long to feel right — jump instead. */
+private const val HARD_SEEK_THRESHOLD_MS = 2_000L
+
+/** Speed offset used to close a nudge-range gap without an audible/visible jump. */
+private const val NUDGE_FRACTION = 0.02f
+
+/** Avoids reissuing `setSpeed` every tick for a rate that hasn't materially changed. */
+private const val RATE_EPSILON = 0.001f
+
 /**
  * Owns the live engine and the shared control layer. Switching engines reads
  * the outgoing engine's position first, so the replacement picks up where it
@@ -610,6 +632,7 @@ private fun PlayerRoot(
     customUserAgent: String,
     watchTogether: WatchTogetherClient,
     watchTogetherPreferences: WatchTogetherPreferences,
+    playbackGate: WatchGatedPlayback,
     onEngineAttached: (VideoEngine) -> Unit,
     onEngineDetached: (VideoEngine) -> Unit,
     onPlaybackState: (PlaybackState) -> Unit,
@@ -699,7 +722,8 @@ private fun PlayerRoot(
             media = DanmakuMedia(
                 id = item.id,
                 title = item.title,
-                episode = state.currentIndex + 1,
+                season = item.seasonNumber,
+                episode = item.episodeNumber,
                 serverId = item.serverId,
             ),
         ).fold(
@@ -710,43 +734,74 @@ private fun PlayerRoot(
     }
     val latestEngine by rememberUpdatedState(engine)
     val latestPlaybackState by rememberUpdatedState(state)
-    LaunchedEffect(watchTogether) {
-        watchTogether.playbackUpdates.collect { update ->
-            val room = watchTogether.state.value
-            if (!room.connected || room.isHost) return@collect
-            val playback = latestPlaybackState
-            val targetIndex = items.indexOfFirst { it.watchKey == update.itemId }
-                .takeIf { it >= 0 } ?: update.itemIndex.takeIf { it in items.indices }
-                ?: return@collect
-            if (targetIndex != playback.currentIndex) {
-                latestEngine.selectItem(targetIndex)
+    val mediaMatcher = remember(watchTogether) {
+        WatchMediaMatcher(watchTogether::setSyncWarning)
+    }
+
+    // Guest side: the room's timeline is server-authoritative and near-silent between
+    // events (see WatchTogetherClient), so following it needs a tick of our own rather
+    // than only reacting to messages. Position drift is corrected in three tiers instead
+    // of always hard-seeking: under NUDGE_THRESHOLD_MS is imperceptible and left alone;
+    // under HARD_SEEK_THRESHOLD_MS is closed by nudging playback speed ±2% so the catch-up
+    // is invisible; only a gap that large — a fresh join, a long stall — jumps outright.
+    // The rate this computes is also enforced every tick regardless of drift, which is
+    // what keeps 倍速 shared: a guest's own speed change (menu or the long-press gesture)
+    // gets quietly overwritten back to the room's rate within one tick instead of needing
+    // a separate lock on that control.
+    LaunchedEffect(watchState.connected, watchState.reconnecting, watchState.isHost) {
+        if (!watchState.connected || watchState.isHost) {
+            mediaMatcher.reset()
+            return@LaunchedEffect
+        }
+        var lastAppliedRate: Float? = null
+        var lastNominalRate: Float? = null
+        try {
+            while (isActive) {
+                val timeline = watchTogether.timeline.value
+                if (timeline != null) {
+                    lastNominalRate = timeline.rate
+                    val targetIndex = mediaMatcher.resolve(items, timeline.mediaKey)
+                    if (targetIndex != null) {
+                        if (targetIndex != latestPlaybackState.currentIndex) {
+                            latestEngine.selectItem(targetIndex)
+                        }
+                        val expected = timeline.expectedPositionMs(watchTogether.estimatedServerNow())
+                        val diff = expected - latestEngine.currentPositionMs()
+                        val desiredRate = when {
+                            kotlin.math.abs(diff) >= HARD_SEEK_THRESHOLD_MS -> {
+                                latestEngine.seekTo(expected)
+                                timeline.rate
+                            }
+                            kotlin.math.abs(diff) >= NUDGE_THRESHOLD_MS ->
+                                timeline.rate * (1f + if (diff > 0) NUDGE_FRACTION else -NUDGE_FRACTION)
+                            else -> timeline.rate
+                        }
+                        if (
+                            lastAppliedRate == null ||
+                            kotlin.math.abs(desiredRate - lastAppliedRate!!) > RATE_EPSILON
+                        ) {
+                            latestEngine.setSpeed(desiredRate)
+                            lastAppliedRate = desiredRate
+                        }
+                        if (timeline.paused && latestPlaybackState.playing) latestEngine.pause()
+                        if (!timeline.paused && !latestPlaybackState.playing) latestEngine.play()
+                    }
+                }
+                delay(GUEST_RECONCILE_TICK_MS)
             }
-            val latency = if (update.playing) {
-                (System.currentTimeMillis() - update.sentAtEpochMs).coerceIn(0L, 2_000L)
-            } else {
-                0L
-            }
-            val targetPosition = (update.positionMs + latency).coerceAtLeast(0L)
-            if (kotlin.math.abs(latestEngine.currentPositionMs() - targetPosition) > 750L) {
-                latestEngine.seekTo(targetPosition)
-            }
-            if (update.playing) latestEngine.play() else latestEngine.pause()
+        } finally {
+            mediaMatcher.reset()
+            lastNominalRate?.let(latestEngine::setSpeed)
         }
     }
-    LaunchedEffect(watchState.connected, watchState.isHost, currentItem?.id, engine) {
-        if (!watchState.connected || !watchState.isHost) return@LaunchedEffect
-        while (isActive) {
-            val playback = latestPlaybackState
-            val item = items.getOrNull(playback.currentIndex)
-            if (item != null) {
-                watchTogether.sendPlayback(
-                    itemId = item.watchKey,
-                    itemIndex = playback.currentIndex,
-                    positionMs = latestEngine.currentPositionMs(),
-                    playing = playback.playing,
-                )
-            }
-            delay(1_000L)
+
+    // Host side: publish a fresh anchor whenever we (re)gain control of the room, so a
+    // reconnect refreshes the timeline to where playback actually is instead of leaving
+    // guests following a stale pre-disconnect anchor. Every other publish happens at the
+    // point of the action itself (play/pause/seek/select/speed below) — never on a timer.
+    LaunchedEffect(watchState.connected, watchState.reconnecting, watchState.isHost) {
+        if (watchState.connected && !watchState.reconnecting && watchState.isHost) {
+            playbackGate.publishCurrent()
         }
     }
     val latestState by rememberUpdatedState(state)
@@ -756,6 +811,7 @@ private fun PlayerRoot(
     LaunchedEffect(state, reporter) {
         reporter?.update(state)
         onPlaybackState(state)
+        playbackGate.onPlaybackIndexChanged(state.currentIndex)
         val item = items.getOrNull(state.currentIndex)
         when {
             state.ended -> playbackRecovery.clear()
@@ -845,49 +901,13 @@ private fun PlayerRoot(
                 titles = items.map { it.title },
                 filled = filled,
                 onBack = onBack,
-                onPlayPause = {
-                    if (!watchState.connected || watchState.isHost) {
-                        if (state.playing) engine.pause() else engine.play()
-                        currentItem?.let { item ->
-                            watchTogether.sendPlayback(
-                                itemId = item.watchKey,
-                                itemIndex = state.currentIndex,
-                                positionMs = engine.currentPositionMs(),
-                                playing = !state.playing,
-                            )
-                        }
-                    }
-                },
-                onRetry = engine::retry,
-                onSeek = { position ->
-                    if (!watchState.connected || watchState.isHost) {
-                        engine.seekTo(position)
-                        currentItem?.let { item ->
-                            watchTogether.sendPlayback(
-                                itemId = item.watchKey,
-                                itemIndex = state.currentIndex,
-                                positionMs = position,
-                                playing = state.playing,
-                            )
-                        }
-                    }
-                },
-                onSelectItem = { index ->
-                    if (!watchState.connected || watchState.isHost) {
-                        engine.selectItem(index)
-                        items.getOrNull(index)?.let { item ->
-                            watchTogether.sendPlayback(
-                                itemId = item.watchKey,
-                                itemIndex = index,
-                                positionMs = 0L,
-                                playing = true,
-                            )
-                        }
-                    }
-                },
+                onPlayPause = { playbackGate.togglePlayPause() },
+                onRetry = { playbackGate.retry() },
+                onSeek = playbackGate::seekTo,
+                onSelectItem = playbackGate::selectItem,
                 onSelectAudio = engine::selectAudioTrack,
                 onSelectSubtitle = engine::selectSubtitleTrack,
-                onSpeed = engine::setSpeed,
+                onSpeed = { newSpeed -> playbackGate.setSpeed(newSpeed) },
                 onToggleFill = {
                     filled = !filled
                     (engine as? MpvVideoEngine)?.setFill(filled)
@@ -912,13 +932,15 @@ private fun PlayerRoot(
                     val item = items.getOrNull(state.currentIndex) ?: return@PlayerControls
                     scope.launch {
                         castManager.play(deviceId, item.url, item.title)
-                        if (castManager.state.value.activeDeviceId == deviceId) engine.pause()
+                        if (castManager.state.value.activeDeviceId == deviceId) {
+                            playbackGate.pause()
+                        }
                     }
                 },
                 onStopCast = {
                     scope.launch {
                         castManager.stop()
-                        engine.play()
+                        playbackGate.play()
                     }
                 },
                 danmakuConfigured = danmakuUrl.isNotBlank(),
@@ -955,29 +977,30 @@ private fun PlayerRoot(
                 },
                 skipSegmentLabel = activeSegment?.type?.skipLabel,
                 onSkipSegment = {
-                    if (!watchState.connected || watchState.isHost) {
-                        when (activeSegment?.type) {
-                            PlaybackSegmentType.Intro -> {
-                                activeSegment.endMs?.let(engine::seekTo)
-                            }
-                            PlaybackSegmentType.Credits -> {
-                                if (state.hasNext) {
-                                    engine.selectItem(state.currentIndex + 1)
-                                } else {
-                                    engine.seekTo((state.durationMs - 500L).coerceAtLeast(0L))
-                                }
-                            }
-                            null -> Unit
+                    when (activeSegment?.type) {
+                        PlaybackSegmentType.Intro -> {
+                            activeSegment.endMs?.let(playbackGate::seekTo)
                         }
+                        PlaybackSegmentType.Credits -> {
+                            if (state.hasNext) {
+                                playbackGate.selectNext()
+                            } else {
+                                playbackGate.seekTo(
+                                    (state.durationMs - 500L).coerceAtLeast(0L),
+                                )
+                            }
+                        }
+                        null -> Unit
                     }
                 },
                 watchEndpoint = watchEndpoint,
                 watchConnecting = watchState.connecting,
                 watchConnected = watchState.connected,
+                watchReconnecting = watchState.reconnecting,
                 watchRoomCode = watchState.roomCode,
                 watchIsHost = watchState.isHost,
                 watchParticipantCount = watchState.participantCount,
-                watchError = watchState.error,
+                watchError = watchState.error ?: watchState.syncWarning,
                 onCreateWatchRoom = { endpoint ->
                     currentItem?.let { item ->
                         watchTogether.createRoom(endpoint, item.watchKey)

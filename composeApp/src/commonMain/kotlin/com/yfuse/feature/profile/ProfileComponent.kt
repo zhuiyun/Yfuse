@@ -3,20 +3,22 @@ package com.yfuse.feature.profile
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
-import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.DanmakuPreferences
-import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
+import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.LanDiscovery
-import com.yfuse.core.util.clearImageCache
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.ServerSyncManager
-import com.yfuse.feature.servers.ServersStoreFactory
+import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.core.util.clearImageCache
 import com.yfuse.feature.player.PlayerMediaItem
-import com.yfuse.core.network.EmbyStream
+import com.yfuse.feature.servers.ServersStoreFactory
 import org.koin.core.context.GlobalContext
 
 class ProfileComponent(
@@ -45,6 +47,8 @@ class ProfileComponent(
     val playbackRecovery: PlaybackRecoveryStore = GlobalContext.get().get()
     val userAgentPreferences: UserAgentPreferences = GlobalContext.get().get()
     val danmakuPreferences: DanmakuPreferences = GlobalContext.get().get()
+    val watchTogetherPreferences: WatchTogetherPreferences = GlobalContext.get().get()
+    val watchTogether: WatchTogetherClient = GlobalContext.get().get()
 
     /** 下载与缓存 · 清除全部缓存. */
     fun onClearCache() = clearImageCache()

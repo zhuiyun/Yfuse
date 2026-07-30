@@ -7,9 +7,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class WatchTogetherPreferences(private val settings: Settings) {
-    private companion object {
-        const val ENDPOINT_KEY = "watchTogether.endpoint"
-        const val CLIENT_ID_KEY = "watchTogether.clientId"
+    companion object {
+        private const val ENDPOINT_KEY = "watchTogether.endpoint"
+        private const val CLIENT_ID_KEY = "watchTogether.clientId"
+
+        /**
+         * Public so invite links can omit the relay when it's this one — a shared link only
+         * carries an `e=` parameter (and only then warns the recipient) when the host is on
+         * a relay the recipient might not expect.
+         */
         const val DEFAULT_ENDPOINT = "http://47.112.219.60"
     }
 

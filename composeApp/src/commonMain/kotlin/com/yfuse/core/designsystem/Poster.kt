@@ -1,7 +1,6 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -70,7 +69,11 @@ fun Poster(
                         onClick = { onClick?.invoke() },
                         onLongClick = onLongClick,
                     )
-                    onClick != null -> it.clickable(onClick = onClick)
+                    // 触摸反馈全应用统一走 [pressable]：压缩 0.97、无涟漪、跟随
+                    // 「减弱动态效果」。这里原来是裸 clickable，也就是 Material 涟漪，
+                    // 于是同一个海报组件在首页/媒体库点下去是涟漪、在详情页（外层套了
+                    // pressable）是缩放。长按那一支仍需 combinedClickable。
+                    onClick != null -> it.pressable(onClick = onClick)
                     else -> it
                 }
             },
@@ -173,8 +176,10 @@ fun CaptionedPoster(
 ) {
     val palette = LocalPalette.current
     Column(
+        // The press lands on the whole tile, caption included — scaling only the artwork
+        // and leaving the title behind reads as the image slipping out from under it.
         modifier.let { base ->
-            if (onClick != null) base.clickable(onClick = onClick) else base
+            if (onClick != null) base.pressable(onClick = onClick) else base
         },
     ) {
         Poster(

@@ -39,6 +39,17 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!--
+              一起看邀请深链：yfuse://watch/<房间码>?k=<mediaKey>&t=<标题>
+              A custom scheme rather than an Android App Link because the relay is reached
+              by bare IP — there's no domain to host the assetlinks.json an App Link needs.
+            -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="yfuse" android:host="watch" />
+            </intent-filter>
         </activity>
 
         <activity

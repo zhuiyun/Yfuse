@@ -4,8 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +22,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +46,9 @@ import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.app.hideBottomBarOnScroll
+import com.yfuse.core.data.PlaybackRecoverySnapshot
+import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
@@ -53,9 +56,9 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
+import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Shadows
@@ -66,23 +69,22 @@ import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
-import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.SavedServer
-import com.yfuse.core.data.PlaybackRecoverySnapshot
-import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.OfflineMediaManager
-import com.yfuse.feature.player.PlayerLauncher
-import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.SyncMutationKind
+import com.yfuse.core.sync.WatchInvite
+import com.yfuse.feature.player.PlayerLauncher
+import com.yfuse.feature.player.PlayerMediaItem
+import com.yfuse.feature.servers.ServersIntent
 import kotlinx.coroutines.launch
 
 /** Which option sheet is open — the prototype's `settingsSheetTab`. */
-private enum class Sheet { Engine, Decoder, DanmakuSource, UserAgent }
+private enum class Sheet { Engine, Decoder, DanmakuSource, UserAgent, WatchTogether, WatchEndpoint }
 
 private enum class ProfilePage { Downloads, Recovery }
 
@@ -95,6 +97,9 @@ fun ProfileScreen(component: ProfileComponent) {
     val engine by prefs.engine.collectAsState()
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
+    val watchTogether = component.watchTogether
+    val watchState by watchTogether.state.collectAsState()
+    val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
     val danmakuUrl by component.danmakuPreferences.urlTemplate.collectAsState()
     val customUserAgent by component.userAgentPreferences.userAgent.collectAsState()
     val offlineItems by component.offlineMedia.items.collectAsState()
@@ -270,6 +275,32 @@ fun ProfileScreen(component: ProfileComponent) {
                                 embedded = true,
                                 onClick = { page = ProfilePage.Recovery },
                             )
+                            SettingsDivider()
+                            // The findable home for joining by hand — the link is the primary
+                            // path, this is what's left when a messenger won't linkify it.
+                            SettingRow(
+                                "加入一起看",
+                                if (watchState.connected) {
+                                    "房间 ${watchState.roomCode.orEmpty()} ›"
+                                } else {
+                                    "输入房间码 ›"
+                                },
+                                embedded = true,
+                                onClick = { sheet = Sheet.WatchTogether },
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                "一起看服务器",
+                                if (watchEndpoint.trimEnd('/') ==
+                                    WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
+                                ) {
+                                    "默认 ›"
+                                } else {
+                                    "自定义 ›"
+                                },
+                                embedded = true,
+                                onClick = { sheet = Sheet.WatchEndpoint },
+                            )
                         }
                     }
                 }
@@ -395,6 +426,40 @@ fun ProfileScreen(component: ProfileComponent) {
                 },
                 onClear = {
                     component.userAgentPreferences.setUserAgent("")
+                    sheet = null
+                },
+                onDismiss = { sheet = null },
+            )
+
+            Sheet.WatchTogether -> WatchJoinDialog(
+                connected = watchState.connected,
+                roomCode = watchState.roomCode,
+                participantCount = watchState.participantCount,
+                error = watchState.error,
+                onJoin = { code ->
+                    // Joining from here has no media context, so the room is entered without
+                    // a mediaKey — the timeline's own mediaKey then tells the player what to
+                    // follow once the user opens that title.
+                    watchTogether.joinRoom(watchEndpoint, code, mediaKey = "")
+                    sheet = null
+                },
+                onLeave = {
+                    watchTogether.leave()
+                    sheet = null
+                },
+                onDismiss = { sheet = null },
+            )
+
+            Sheet.WatchEndpoint -> WatchEndpointDialog(
+                current = watchEndpoint,
+                onSave = {
+                    component.watchTogetherPreferences.setEndpoint(it)
+                    sheet = null
+                },
+                onReset = {
+                    component.watchTogetherPreferences.setEndpoint(
+                        WatchTogetherPreferences.DEFAULT_ENDPOINT,
+                    )
                     sheet = null
                 },
                 onDismiss = { sheet = null },
@@ -573,7 +638,7 @@ private fun DanmakuSourceDialog(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            "占位符：{id} 媒体 ID · {title} 标题 · {episode} 集序号 · {serverId} 服务器 ID",
+            "占位符：{id} 媒体 ID · {title} 标题 · {season} 季号 · {episode} 集号 · {serverId} 服务器 ID",
             style = mr(10.5f, 400),
             color = palette.sub2,
         )
@@ -598,6 +663,196 @@ private fun DanmakuSourceDialog(
                 )
             } else {
                 OverlayButton("取消", onDismiss, Modifier.weight(1f))
+            }
+            OverlayButton(
+                label = "保存",
+                onClick = { onSave(normalized) },
+                modifier = Modifier.weight(1f),
+                tone = OverlayButtonTone.Primary,
+                enabled = valid,
+            )
+        }
+    }
+}
+
+/**
+ * Manual join-by-code. The invite link is the primary path (it resolves the title on the
+ * joiner's own servers and needs no typing at all); this exists for when a messenger
+ * refuses to linkify a custom scheme, or the code arrives by voice.
+ *
+ * Pasted text is accepted as-is: [WatchInvite.parseFromText] pulls a code out of a whole
+ * forwarded invite block, so people don't have to trim it down to six characters.
+ */
+@Composable
+private fun WatchJoinDialog(
+    connected: Boolean,
+    roomCode: String?,
+    participantCount: Int,
+    error: String?,
+    onJoin: (String) -> Unit,
+    onLeave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by remember { mutableStateOf("") }
+    val parsed = remember(draft) { WatchInvite.parseFromText(draft) }
+    val code = parsed?.roomCode ?: WatchInvite.normalizeCode(draft)
+    val palette = LocalPalette.current
+
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = if (connected) "一起看" else "加入一起看",
+            subtitle = if (connected) {
+                "已在房间中，视频由你自己的服务器播放。"
+            } else {
+                "粘贴邀请或输入 6 位房间码。"
+            },
+            onClose = onDismiss,
+        )
+        if (connected) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                    .padding(vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(roomCode.orEmpty(), style = sc(22f, 800), color = Brand.Primary)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "$participantCount 人在线",
+                    style = mr(10.5f, 500),
+                    color = palette.sub2,
+                )
+            }
+            OverlayButton(
+                label = "退出房间",
+                onClick = onLeave,
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                tone = OverlayButtonTone.Destructive,
+            )
+        } else {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (draft.isBlank()) {
+                        Text(
+                            "房间码或邀请链接",
+                            style = mr(12f, 500),
+                            color = palette.hint,
+                            maxLines = 1,
+                        )
+                    }
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = { draft = it.take(300) },
+                        singleLine = true,
+                        textStyle = mr(12f, 500).copy(color = palette.text),
+                        cursorBrush = SolidColor(Brand.Primary),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            if (code.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "将加入房间 $code",
+                    style = mr(10.5f, 500),
+                    color = palette.sub2,
+                )
+            }
+            error?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, style = sc(10.5f, 500), color = Brand.Danger)
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OverlayButton("取消", onDismiss, Modifier.weight(1f))
+                OverlayButton(
+                    label = "加入",
+                    onClick = { onJoin(code) },
+                    modifier = Modifier.weight(1f),
+                    tone = OverlayButtonTone.Primary,
+                    enabled = WatchInvite.isCompleteCode(code),
+                )
+            }
+        }
+    }
+}
+
+/** Relay address — infrastructure, so it lives in settings rather than in the player. */
+@Composable
+private fun WatchEndpointDialog(
+    current: String,
+    onSave: (String) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by remember(current) { mutableStateOf(current) }
+    val normalized = draft.trim().trimEnd('/')
+    val valid = listOf("http://", "https://", "ws://", "wss://").any { normalized.startsWith(it) }
+    val isDefault = current.trimEnd('/') ==
+        WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
+    val palette = LocalPalette.current
+
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "一起看服务器",
+            subtitle = "只转发房间状态，不经过视频。留空或恢复默认即使用内置地址。",
+            onClose = onDismiss,
+        )
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            Box(contentAlignment = Alignment.CenterStart) {
+                if (draft.isBlank()) {
+                    Text(
+                        "https://watch.example.com",
+                        style = mr(12f, 500),
+                        color = palette.hint,
+                        maxLines = 1,
+                    )
+                }
+                BasicTextField(
+                    value = draft,
+                    onValueChange = { draft = it.take(300) },
+                    singleLine = true,
+                    textStyle = mr(12f, 500).copy(color = palette.text),
+                    cursorBrush = SolidColor(Brand.Primary),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+        if (normalized.isNotEmpty() && !valid) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "地址必须以 http://、https://、ws:// 或 wss:// 开头",
+                style = sc(10.5f, 500),
+                color = Brand.Danger,
+            )
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (isDefault) {
+                OverlayButton("取消", onDismiss, Modifier.weight(1f))
+            } else {
+                OverlayButton(
+                    label = "恢复默认",
+                    onClick = onReset,
+                    modifier = Modifier.weight(1f),
+                    tone = OverlayButtonTone.Destructive,
+                )
             }
             OverlayButton(
                 label = "保存",

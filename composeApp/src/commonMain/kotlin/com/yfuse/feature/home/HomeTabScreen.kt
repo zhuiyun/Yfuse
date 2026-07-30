@@ -10,7 +10,10 @@ import com.yfuse.feature.player.PlayerScreen
 @Composable
 fun HomeTabScreen(component: HomeTabComponent) {
     val stack by component.stack.subscribeAsState()
-    SharedElementTransitionContainer(targetState = stack.active.instance) { instance ->
+    SharedElementTransitionContainer(
+        targetState = stack.active.instance,
+        routeKey = ::routeKey,
+    ) { instance ->
         when (instance) {
             is HomeTabComponent.Child.Home -> HomeScreen(instance.component)
             is HomeTabComponent.Child.Detail -> DetailScreen(instance.component)
@@ -18,4 +21,12 @@ fun HomeTabScreen(component: HomeTabComponent) {
             is HomeTabComponent.Child.Info -> TmdbInfoScreen(instance.component)
         }
     }
+}
+
+/** Keeps each route's scrolled position while it waits in the back stack. */
+private fun routeKey(child: HomeTabComponent.Child): String = when (child) {
+    is HomeTabComponent.Child.Home -> "home"
+    is HomeTabComponent.Child.Detail -> "detail"
+    is HomeTabComponent.Child.Player -> "player"
+    is HomeTabComponent.Child.Info -> "info"
 }
