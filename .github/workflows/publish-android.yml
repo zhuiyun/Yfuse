@@ -129,8 +129,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager \
+
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(
+              find "$android_sdk/cmdline-tools" \
+                -type f \
+                -name sdkmanager \
+                -print \
+                -quit
+            )"
+          fi
+          if [[ ! -x "$sdkmanager" ]]; then
+            echo "::error::Unable to locate sdkmanager below $android_sdk"
+            exit 1
+          fi
+
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" \
             "platforms;android-36" \
             "ndk;25.2.9519653" \
             "cmake;3.22.1"
