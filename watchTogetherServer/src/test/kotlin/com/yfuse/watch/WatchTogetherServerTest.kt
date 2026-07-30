@@ -1,11 +1,15 @@
 package com.yfuse.watch
 
 import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.request.get
 import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -23,6 +27,27 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 
 class WatchTogetherServerTest {
+    @Test
+    fun health_and_update_files_share_the_watch_server() {
+        val updateRoot = Files.createTempDirectory("yfuse-watch-test").toFile()
+        try {
+            updateRoot.resolve("update.json").writeText("""{"versionCode":29}""")
+            testApplication {
+                application { watchTogetherModule(updateRoot) }
+
+                val health = client.get("/health")
+                assertEquals(HttpStatusCode.OK, health.status)
+                assertEquals("ok", health.bodyAsText())
+
+                val update = client.get("/yfuse/update.json")
+                assertEquals(HttpStatusCode.OK, update.status)
+                assertEquals("""{"versionCode":29}""", update.bodyAsText())
+            }
+        } finally {
+            updateRoot.deleteRecursively()
+        }
+    }
+
     @Test
     fun host_state_is_broadcast_to_joined_guest() = testApplication {
         application { watchTogetherModule() }

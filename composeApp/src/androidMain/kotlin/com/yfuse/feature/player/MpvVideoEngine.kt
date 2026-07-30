@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import android.content.Context
 import android.util.Log
 import android.view.Surface
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import dev.jdtech.mpv.MPVLib
@@ -183,7 +184,15 @@ class MpvVideoEngine(
         attachedSurface = surface
         mpv?.let { existing ->
             runCatching { existing.attachSurface(surface) }
-                .onFailure { Log.e(TAG, "mpv re-attach failed", it) }
+                .onFailure {
+                    Log.e(TAG, "mpv re-attach failed", it)
+                    AppLog.error(
+                        category = "player.mpv",
+                        event = "surface_reattach_failed",
+                        message = "mpv surface re-attach failed",
+                        throwable = it,
+                    )
+                }
             return
         }
 
@@ -191,6 +200,11 @@ class MpvVideoEngine(
             val instance = MPVLib.create(context)
             if (instance == null) {
                 Log.e(TAG, "MPVLib.create returned null")
+                AppLog.error(
+                    category = "player.mpv",
+                    event = "initialization_failed",
+                    message = "MPVLib.create returned null",
+                )
                 _state.update { it.copy(error = "无法初始化 mpv", buffering = false) }
                 return
             }
@@ -243,6 +257,13 @@ class MpvVideoEngine(
             Log.i(TAG, "mpv loadfile issued")
         }.onFailure {
             Log.e(TAG, "mpv start failed", it)
+            AppLog.error(
+                category = "player.mpv",
+                event = "start_failed",
+                message = "mpv failed to start playback",
+                throwable = it,
+                attributes = mapOf("itemIndex" to _state.value.currentIndex.toString()),
+            )
             _state.update { state -> state.copy(error = "mpv 启动失败", buffering = false) }
         }
     }
@@ -323,7 +344,15 @@ class MpvVideoEngine(
             instance.removeObserver(observer)
             instance.command(arrayOf("stop"))
             instance.destroy()
-        }.onFailure { Log.w(TAG, "mpv teardown failed", it) }
+        }.onFailure {
+            Log.w(TAG, "mpv teardown failed", it)
+            AppLog.warning(
+                category = "player.mpv",
+                event = "teardown_failed",
+                message = "mpv teardown failed",
+                throwable = it,
+            )
+        }
     }
 
     private fun currentUrl(): String =
@@ -373,7 +402,15 @@ class MpvVideoEngine(
             }
 
             _state.update { it.copy(audioTracks = audio, subtitleTracks = subtitles) }
-        }.onFailure { Log.w(TAG, "reading track-list failed", it) }
+        }.onFailure {
+            Log.w(TAG, "reading track-list failed", it)
+            AppLog.warning(
+                category = "player.mpv",
+                event = "track_list_failed",
+                message = "Failed to read mpv track list",
+                throwable = it,
+            )
+        }
     }
 
     private fun readVideoSize() {
@@ -387,6 +424,14 @@ class MpvVideoEngine(
     /** mpv calls throw once the handle is gone; every call site tolerates a miss. */
     private inline fun withMpv(block: (MPVLib) -> Unit) {
         val instance = mpv ?: return
-        runCatching { block(instance) }.onFailure { Log.w(TAG, "mpv call failed", it) }
+        runCatching { block(instance) }.onFailure {
+            Log.w(TAG, "mpv call failed", it)
+            AppLog.warning(
+                category = "player.mpv",
+                event = "engine_call_failed",
+                message = "mpv engine call failed",
+                throwable = it,
+            )
+        }
     }
 }

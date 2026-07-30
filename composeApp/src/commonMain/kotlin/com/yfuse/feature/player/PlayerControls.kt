@@ -352,8 +352,6 @@ fun PlayerControls(
                 tab = tab,
                 state = state,
                 speeds = SPEEDS,
-                filled = filled,
-                hasEpisodes = state.itemCount > 1,
                 engineOptions = engineOptions,
                 transcodeLabel = transcodeLabel,
                 transcodeActive = transcodeActive,
@@ -384,14 +382,6 @@ fun PlayerControls(
                 onSelectDanmakuFont = onSelectDanmakuFont,
                 onSelectDanmakuSpeed = onSelectDanmakuSpeed,
                 onSelectDanmakuOpacity = onSelectDanmakuOpacity,
-                onOpenEpisodes = {
-                    settingsTab = null
-                    drawerOpen = true
-                },
-                onToggleFill = {
-                    onToggleFill()
-                    settingsTab = null
-                },
                 onLock = {
                     settingsTab = null
                     locked = true
@@ -731,11 +721,17 @@ private fun BottomBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Chip("弹幕", active = danmakuEnabled, onClick = onOpenDanmaku)
-                if (state.subtitleTracks.isNotEmpty() || state.audioTracks.size > 1) {
-                    Chip("字幕") { onOpenTab(Tab.Subtitle) }
-                }
-                if (state.audioTracks.size > 1) {
-                    Chip("音轨") { onOpenTab(Tab.Subtitle) }
+                // 字幕与音轨在同一个面板 tab 里（[Tab.Subtitle] 两组都列），所以这里
+                // 只出一个 chip；先前的两个 chip 打开的是同一块面板，纯粹重复。
+                val hasSubtitles = state.subtitleTracks.isNotEmpty()
+                val hasAudioChoice = state.audioTracks.size > 1
+                if (hasSubtitles || hasAudioChoice) {
+                    val label = when {
+                        hasSubtitles && hasAudioChoice -> "字幕 / 音轨"
+                        hasSubtitles -> "字幕"
+                        else -> "音轨"
+                    }
+                    Chip(label) { onOpenTab(Tab.Subtitle) }
                 }
                 IconChip(
                     icon = AppIcons.Cast,
@@ -1009,8 +1005,6 @@ private fun SettingsPanel(
     tab: Tab,
     state: PlaybackState,
     speeds: List<Float>,
-    filled: Boolean,
-    hasEpisodes: Boolean,
     engineOptions: List<Pair<String, Boolean>>,
     transcodeLabel: String?,
     transcodeActive: Boolean,
@@ -1041,8 +1035,6 @@ private fun SettingsPanel(
     onSelectDanmakuFont: (Int) -> Unit,
     onSelectDanmakuSpeed: (Int) -> Unit,
     onSelectDanmakuOpacity: (Int) -> Unit,
-    onOpenEpisodes: () -> Unit,
-    onToggleFill: () -> Unit,
     onLock: () -> Unit,
     watchConnected: Boolean,
     watchRoomCode: String?,
@@ -1051,7 +1043,9 @@ private fun SettingsPanel(
 ) {
     val tabs = buildList {
         add(Tab.Danmaku)
-        if (state.subtitleTracks.isNotEmpty() || state.audioTracks.isNotEmpty()) add(Tab.Subtitle)
+        // A lone audio track is not a choice — matching the chip's condition keeps the
+        // tab from appearing with nothing switchable in it.
+        if (state.subtitleTracks.isNotEmpty() || state.audioTracks.size > 1) add(Tab.Subtitle)
         add(Tab.Cast)
         add(Tab.Diagnostics)
         add(Tab.More)
@@ -1193,11 +1187,9 @@ private fun SettingsPanel(
                     }
 
                     Tab.More -> {
+                        // 剧集列表与画面比例都在顶栏有常驻圆钮，这里不再重复列一遍；
+                        // 只留顶栏没有的入口。
                         GroupLabel("播放")
-                        if (hasEpisodes) {
-                            OptionRow("剧集列表", false, onClick = onOpenEpisodes)
-                        }
-                        OptionRow(if (filled) "适应画面" else "填充画面", filled, onClick = onToggleFill)
                         OptionRow("锁定控制", false, onClick = onLock)
                         OptionRow(
                             if (watchConnected) {

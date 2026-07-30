@@ -22,6 +22,7 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import kotlinx.coroutines.CoroutineScope
@@ -238,12 +239,29 @@ class ExoVideoEngine(
             // Video present but undecodable (e.g. Dolby Vision P5) -> transcode.
             if (videoGroups.isNotEmpty() && !anySupported) {
                 Log.w(TAG, "no supported video track; switching to transcode")
+                AppLog.warning(
+                    category = "player.exo",
+                    event = "unsupported_video_tracks",
+                    message = "No supported video track; attempting server transcode",
+                    attributes = mapOf("itemIndex" to player.currentMediaItemIndex.toString()),
+                )
                 switchToTranscode()
             }
         }
 
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "playback failed: ${error.errorCodeName}", error)
+            AppLog.error(
+                category = "player.exo",
+                event = "playback_failed",
+                message = "ExoPlayer playback failed",
+                throwable = error,
+                attributes = mapOf(
+                    "errorCode" to error.errorCodeName,
+                    "itemIndex" to player.currentMediaItemIndex.toString(),
+                    "transcoding" to _transcoding.value.toString(),
+                ),
+            )
             when (error.errorCode) {
                 PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
                 -> if (!switchToProgressiveTranscode()) {
@@ -420,6 +438,12 @@ class ExoVideoEngine(
             )
         }
         Log.i(TAG, "falling back to transcode for index=$index")
+        AppLog.info(
+            category = "player.exo",
+            event = "transcode_fallback",
+            message = "Switching from direct play to server transcode",
+            attributes = mapOf("itemIndex" to index.toString()),
+        )
         player.replaceMediaItem(index, mediaItem(item.transcodeUrl, item.title))
         player.prepare()
         player.seekTo(index, position)
@@ -437,6 +461,12 @@ class ExoVideoEngine(
         val position = player.currentPosition
         _state.update { it.copy(error = null, buffering = true) }
         Log.i(TAG, "HLS manifest invalid; falling back to progressive transcode for index=$index")
+        AppLog.info(
+            category = "player.exo",
+            event = "progressive_transcode_fallback",
+            message = "Switching from HLS to progressive transcode",
+            attributes = mapOf("itemIndex" to index.toString()),
+        )
         player.replaceMediaItem(index, mediaItem(item.fallbackTranscodeUrl, item.title))
         player.prepare()
         player.seekTo(index, position)

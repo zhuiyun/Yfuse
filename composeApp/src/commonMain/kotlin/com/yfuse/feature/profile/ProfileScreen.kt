@@ -308,6 +308,12 @@ fun ProfileScreen(component: ProfileComponent) {
                     }
                 }
 
+                item {
+                    Section(title = "问题诊断") {
+                        DiagnosticLogTools()
+                    }
+                }
+
             }
         }
 

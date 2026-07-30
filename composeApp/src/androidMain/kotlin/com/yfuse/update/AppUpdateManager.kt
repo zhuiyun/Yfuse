@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.yfuse.BuildConfig
+import com.yfuse.core.logging.AppLog
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -70,8 +71,14 @@ class AppUpdateManager(private val activity: Activity) {
                 } else {
                     UpdateState.Current
                 }
-            }.onFailure {
+            }.onFailure { error ->
                 // Startup remains usable when the private update host is offline.
+                AppLog.warning(
+                    category = "update",
+                    event = "check_failed",
+                    message = "Update check failed",
+                    throwable = error,
+                )
                 _state.value = UpdateState.Error("暂时无法连接升级服务器")
             }
         }
@@ -112,8 +119,15 @@ class AppUpdateManager(private val activity: Activity) {
             }.onSuccess {
                 _state.value = UpdateState.Ready(manifest, it)
                 install(it)
-            }.onFailure {
-                _state.value = UpdateState.Error(it.message ?: "下载失败", manifest)
+            }.onFailure { error ->
+                AppLog.error(
+                    category = "update",
+                    event = "download_failed",
+                    message = "Update package download failed",
+                    throwable = error,
+                    attributes = mapOf("targetVersion" to manifest.versionName),
+                )
+                _state.value = UpdateState.Error(error.message ?: "下载失败", manifest)
             }
         }
     }
@@ -131,15 +145,31 @@ class AppUpdateManager(private val activity: Activity) {
             )
             return
         }
-        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.updates", apk)
-        activity.startActivity(
-            Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                clipData = ClipData.newRawUri("Yfuse update", uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            },
-        )
-        pendingInstall = null
+        runCatching {
+            val uri = FileProvider.getUriForFile(
+                activity,
+                "${activity.packageName}.updates",
+                apk,
+            )
+            activity.startActivity(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    clipData = ClipData.newRawUri("Yfuse update", uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+            )
+        }.onSuccess {
+            pendingInstall = null
+        }.onFailure { error ->
+            AppLog.error(
+                category = "update",
+                event = "installer_launch_failed",
+                message = "Failed to open Android package installer",
+                throwable = error,
+            )
+            val manifest = (_state.value as? UpdateState.Ready)?.manifest
+            _state.value = UpdateState.Error("无法打开系统安装程序", manifest)
+        }
     }
 
     fun resumeInstall() {

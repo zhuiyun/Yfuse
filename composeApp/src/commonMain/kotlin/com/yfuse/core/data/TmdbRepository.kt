@@ -1,5 +1,6 @@
 package com.yfuse.core.data
 
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbDetail
 import com.yfuse.core.model.TmdbItem
@@ -14,6 +15,7 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -255,7 +257,15 @@ class TmdbRepository(private val client: HttpClient) {
 
             Result.success(TmdbHome(featured = featured, rows = rows))
         }
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Throwable) {
+        AppLog.error(
+            category = "tmdb",
+            event = "home_failed",
+            message = "TMDB home feed failed",
+            throwable = e,
+        )
         Result.failure(EmbyErrorException(e.toError()))
     }
 
@@ -296,7 +306,16 @@ class TmdbRepository(private val client: HttpClient) {
                     },
             ),
         )
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Throwable) {
+        AppLog.error(
+            category = "tmdb",
+            event = "detail_failed",
+            message = "TMDB detail failed",
+            throwable = e,
+            attributes = mapOf("mediaType" to item.mediaType),
+        )
         Result.failure(EmbyErrorException(e.toError()))
     }
 
@@ -306,7 +325,7 @@ class TmdbRepository(private val client: HttpClient) {
         fallbackType: String,
         parameters: Map<String, String> = emptyMap(),
     ): List<TmdbItem> =
-        runCatching {
+        try {
             client.get("$TMDB_BASE$path") {
                 parameter("language", language)
                 parameters.forEach { (name, value) -> parameter(name, value) }
@@ -316,7 +335,17 @@ class TmdbRepository(private val client: HttpClient) {
                 .map { it.toItem(fallbackType) }
                 .filter { it.title.isNotBlank() }
                 .filter { it.posterPath != null || it.backdropPath != null }
-        }.getOrDefault(emptyList())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            AppLog.warning(
+                category = "tmdb",
+                event = "feed_request_failed",
+                message = "TMDB feed request failed: $path",
+                throwable = e,
+            )
+            emptyList()
+        }
 
     private fun interleave(first: List<TmdbItem>, second: List<TmdbItem>): List<TmdbItem> =
         buildList {

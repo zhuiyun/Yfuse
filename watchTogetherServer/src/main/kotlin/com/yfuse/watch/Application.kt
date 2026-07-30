@@ -1,9 +1,13 @@
 package com.yfuse.watch
 
 import io.ktor.server.application.Application
+import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.cio.CIO
+import io.ktor.server.http.content.staticFiles
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.webSocket
@@ -11,6 +15,7 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 import kotlinx.coroutines.channels.consumeEach
@@ -56,7 +61,9 @@ fun main() {
     }.start(wait = true)
 }
 
-fun Application.watchTogetherModule() {
+fun Application.watchTogetherModule(
+    updateRoot: File = File(System.getenv("UPDATE_ROOT") ?: "/srv/yfuse-update/yfuse"),
+) {
     install(WebSockets) {
         pingPeriodMillis = 20_000L
         timeoutMillis = 40_000L
@@ -64,6 +71,10 @@ fun Application.watchTogetherModule() {
         masking = false
     }
     routing {
+        get("/health") {
+            call.respondText("ok")
+        }
+        staticFiles("/yfuse", updateRoot)
         webSocket("/watch") {
             var joinedRoom: Room? = null
             var joinedClientId: String? = null
