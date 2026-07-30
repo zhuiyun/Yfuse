@@ -90,14 +90,23 @@ val releaseSigningReady = releaseSigningProperties.getProperty("storeFile")
     ?.exists() == true
 
 val versionFile = rootProject.file("version.properties")
-val storedVersionCode = Properties().apply {
+val versionProperties = Properties().apply {
     versionFile.inputStream().use { load(it) }
-}.getProperty("VERSION_CODE", "1").toInt()
+}
+val storedVersionCode = versionProperties.getProperty("VERSION_CODE", "1").toInt()
+val storedVersionName = versionProperties.getProperty("VERSION_NAME", "0.1.$storedVersionCode")
 val requestedVersionCode = providers.gradleProperty("yfuseVersionCode").orNull?.let { rawValue ->
     require(rawValue.matches(Regex("[1-9]\\d*"))) {
         "yfuseVersionCode must be a positive integer"
     }
     rawValue.toInt()
+}
+val requestedVersionName = providers.gradleProperty("yfuseVersionName").orNull?.let { rawValue ->
+    val normalized = rawValue.trim()
+    require(normalized.matches(Regex("""[0-9]+\.[0-9]+\.[0-9]+"""))) {
+        "yfuseVersionName must use numeric major.minor.patch format"
+    }
+    normalized
 }
 val isReleaseBuild = gradle.startParameter.taskNames.any {
     it.contains("Release", ignoreCase = true) &&
@@ -105,6 +114,7 @@ val isReleaseBuild = gradle.startParameter.taskNames.any {
 }
 val buildVersionCode = requestedVersionCode
     ?: if (isReleaseBuild) storedVersionCode + 1 else storedVersionCode
+val buildVersionName = requestedVersionName ?: storedVersionName
 
 android {
     namespace = "com.yfuse"
@@ -120,7 +130,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = buildVersionCode
-        versionName = "0.1.$buildVersionCode"
+        versionName = buildVersionName
 
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
 
@@ -196,7 +206,9 @@ tasks.configureEach {
                 isReleaseBuild &&
                 storedVersionCode < buildVersionCode
             ) {
-                versionFile.writeText("VERSION_CODE=$buildVersionCode\n")
+                versionFile.writeText(
+                    "VERSION_CODE=$buildVersionCode\nVERSION_NAME=$buildVersionName\n",
+                )
             }
         }
     }

@@ -15,7 +15,8 @@ $versionFile = Join-Path $projectRoot "version.properties"
 if (!(Test-Path $apk)) { throw "Release APK not found: $apk" }
 
 $versionCode = [int]((Get-Content $versionFile | Select-String "VERSION_CODE=(\d+)").Matches[0].Groups[1].Value)
-$versionName = "0.1.$versionCode"
+$versionName = (Get-Content $versionFile |
+    Select-String "VERSION_NAME=([0-9]+\.[0-9]+\.[0-9]+)").Matches[0].Groups[1].Value
 $sha = (Get-FileHash $apk -Algorithm SHA256).Hash.ToLowerInvariant()
 $size = (Get-Item $apk).Length
 $stage = Join-Path $projectRoot "build/update"

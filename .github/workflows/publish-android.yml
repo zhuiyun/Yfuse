@@ -7,6 +7,10 @@ on:
         description: Android versionCode (must be greater than the published version)
         required: true
         type: string
+      version_name:
+        description: Public version name (numeric major.minor.patch, for example 0.2.01)
+        required: true
+        type: string
       release_notes:
         description: Release notes shown by the in-app updater
         required: true
@@ -28,6 +32,7 @@ jobs:
       name: production
     env:
       VERSION_CODE: ${{ inputs.version_code }}
+      VERSION_NAME: ${{ inputs.version_name }}
       RELEASE_NOTES: ${{ inputs.release_notes }}
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -60,6 +65,10 @@ jobs:
 
           if [[ ! "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error::version_code must be a positive integer"
+            exit 1
+          fi
+          if [[ ! "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version_name must use numeric major.minor.patch format"
             exit 1
           fi
 
@@ -186,6 +195,7 @@ jobs:
           set -euo pipefail
           ./gradlew :composeApp:assembleRelease \
             -PyfuseVersionCode="$VERSION_CODE" \
+            -PyfuseVersionName="$VERSION_NAME" \
             --no-daemon
 
       - name: Verify APK metadata and signing certificate
@@ -201,9 +211,8 @@ jobs:
 
           actual_version_code="$(jq -r '.elements[0].versionCode' "$metadata")"
           actual_version_name="$(jq -r '.elements[0].versionName' "$metadata")"
-          expected_version_name="0.1.$VERSION_CODE"
           [[ "$actual_version_code" == "$VERSION_CODE" ]]
-          [[ "$actual_version_name" == "$expected_version_name" ]]
+          [[ "$actual_version_name" == "$VERSION_NAME" ]]
 
           apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$apksigner"
@@ -361,7 +370,7 @@ jobs:
           {
             echo "## Android update published"
             echo
-            echo "- Version: \`0.1.$VERSION_CODE ($VERSION_CODE)\`"
+            echo "- Version: \`$VERSION_NAME ($VERSION_CODE)\`"
             echo "- APK: $UPDATE_BASE_URL/Yfuse-latest.apk"
             echo "- SHA-256: \`$EXPECTED_SHA256\`"
           } >> "$GITHUB_STEP_SUMMARY"

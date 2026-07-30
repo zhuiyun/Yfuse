@@ -64,7 +64,8 @@ reuse a personal SSH key.
 
 1. Open **Actions → Publish Android update → Run workflow**.
 2. Select the repository default branch.
-3. Enter a new positive `version_code` and the release notes.
+3. Enter a new positive `version_code`, a numeric `version_name` such as
+   `0.2.01`, and the release notes.
 4. Review and approve the `production` deployment when required reviewers are
    available for the repository plan.
 5. Wait for the final server and public-download verification.
