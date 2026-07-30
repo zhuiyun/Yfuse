@@ -7,6 +7,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.sync.watchKey
@@ -73,6 +74,11 @@ class PlayerStoreFactory(
             val startMs = startPositionTicks / 10_000L
             scope.launch {
                 if (server == null) {
+                    AppLog.error(
+                        category = "feature.player",
+                        event = "server_missing",
+                        message = "Playback queue could not be built because no server is available",
+                    )
                     dispatch(PlayerMsg.Failed("没有可用的服务器"))
                     return@launch
                 }
@@ -101,11 +107,31 @@ class PlayerStoreFactory(
                     watchKey = providerIds.watchKey(id),
                 )
 
-                val detail = repo.itemDetail(server, itemId).getOrNull()
+                val detailResult = repo.itemDetail(server, itemId)
+                detailResult.onFailure {
+                    AppLog.warning(
+                        category = "feature.player",
+                        event = "item_detail_failed",
+                        message = "Playback queue item detail failed to load",
+                        throwable = it,
+                        attributes = mapOf("serverId" to server.id),
+                    )
+                }
+                val detail = detailResult.getOrNull()
                 val seriesId = detail?.seriesId
 
                 if (detail?.type == "Episode" && seriesId != null) {
-                    val episodes = repo.episodes(server, seriesId, null).getOrDefault(emptyList())
+                    val episodesResult = repo.episodes(server, seriesId, null)
+                    episodesResult.onFailure {
+                        AppLog.warning(
+                            category = "feature.player",
+                            event = "episode_queue_failed",
+                            message = "Episode playback queue failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                    }
+                    val episodes = episodesResult.getOrDefault(emptyList())
                     if (episodes.isNotEmpty()) {
                         val items = episodes.map { ep ->
                             itemOf(
@@ -118,6 +144,12 @@ class PlayerStoreFactory(
                             )
                         }
                         val index = items.indexOfFirst { it.id == itemId }.coerceAtLeast(0)
+                        AppLog.info(
+                            category = "feature.player",
+                            event = "queue_ready",
+                            message = "Episode playback queue prepared",
+                            attributes = mapOf("itemCount" to items.size.toString()),
+                        )
                         dispatch(PlayerMsg.Ready(items, index, startMs))
                         return@launch
                     }
@@ -136,6 +168,12 @@ class PlayerStoreFactory(
                         0,
                         startMs,
                     ),
+                )
+                AppLog.info(
+                    category = "feature.player",
+                    event = "queue_ready",
+                    message = "Single-item playback queue prepared",
+                    attributes = mapOf("detailAvailable" to (detail != null).toString()),
                 )
             }
         }

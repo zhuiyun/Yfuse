@@ -61,6 +61,7 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.logging.AppLog
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
@@ -77,13 +78,41 @@ actual fun ServerBackupTools(
     var showQr by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     val qrPayload = remember(payload) { encodeQrPayload(payload) }
-    val qrBitmap = remember(qrPayload) { runCatching { qrBitmap(qrPayload) }.getOrNull() }
+    val qrBitmap = remember(qrPayload) {
+        runCatching { qrBitmap(qrPayload) }
+            .onFailure {
+                AppLog.warning(
+                    category = "server.migration",
+                    event = "qr_generation_failed",
+                    message = "Server migration QR code generation failed",
+                    throwable = it,
+                    attributes = mapOf("payloadChars" to qrPayload.length.toString()),
+                )
+            }
+            .getOrNull()
+    }
 
     fun importText(text: String) {
         runCatching { decodeQrPayload(text) }
             .mapCatching { onImport(it).getOrThrow() }
-            .onSuccess { message = "已导入 $it 个服务器" }
-            .onFailure { message = it.message ?: "导入失败" }
+            .onSuccess {
+                AppLog.info(
+                    category = "server.migration",
+                    event = "content_imported",
+                    message = "Server migration content imported",
+                    attributes = mapOf("serverCount" to it.toString()),
+                )
+                message = "已导入 $it 个服务器"
+            }
+            .onFailure {
+                AppLog.warning(
+                    category = "server.migration",
+                    event = "content_import_failed",
+                    message = "Server migration content import failed",
+                    throwable = it,
+                )
+                message = it.message ?: "导入失败"
+            }
     }
 
     val exportFile = rememberLauncherForActivityResult(
@@ -93,8 +122,22 @@ actual fun ServerBackupTools(
             runCatching {
                 context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(payload) }
                     ?: error("无法写入文件")
-            }.onSuccess { message = "服务器备份已保存" }
-                .onFailure { message = it.message ?: "保存失败" }
+            }.onSuccess {
+                AppLog.info(
+                    category = "server.migration",
+                    event = "file_exported",
+                    message = "Server backup file exported",
+                )
+                message = "服务器备份已保存"
+            }.onFailure {
+                AppLog.error(
+                    category = "server.migration",
+                    event = "file_export_failed",
+                    message = "Server backup file export failed",
+                    throwable = it,
+                )
+                message = it.message ?: "保存失败"
+            }
         }
     }
     val importFile = rememberLauncherForActivityResult(
@@ -105,7 +148,15 @@ actual fun ServerBackupTools(
                 context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                     ?: error("无法读取文件")
             }.onSuccess(::importText)
-                .onFailure { message = it.message ?: "读取失败" }
+                .onFailure {
+                    AppLog.warning(
+                        category = "server.migration",
+                        event = "file_read_failed",
+                        message = "Server backup file could not be read",
+                        throwable = it,
+                    )
+                    message = it.message ?: "读取失败"
+                }
         }
     }
     val saveQr = rememberLauncherForActivityResult(
@@ -116,8 +167,22 @@ actual fun ServerBackupTools(
                 context.contentResolver.openOutputStream(uri)?.use {
                     check(qrBitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
                 } ?: error("无法写入图片")
-            }.onSuccess { message = "二维码已保存" }
-                .onFailure { message = it.message ?: "保存失败" }
+            }.onSuccess {
+                AppLog.info(
+                    category = "server.migration",
+                    event = "qr_exported",
+                    message = "Server migration QR image exported",
+                )
+                message = "二维码已保存"
+            }.onFailure {
+                AppLog.error(
+                    category = "server.migration",
+                    event = "qr_export_failed",
+                    message = "Server migration QR image export failed",
+                    throwable = it,
+                )
+                message = it.message ?: "保存失败"
+            }
         }
     }
     val importQrImage = rememberLauncherForActivityResult(
@@ -129,7 +194,15 @@ actual fun ServerBackupTools(
                     ?: error("无法读取图片")
                 decodeQrBitmap(bitmap)
             }.onSuccess(::importText)
-                .onFailure { message = "未识别到有效的服务器二维码" }
+                .onFailure {
+                    AppLog.warning(
+                        category = "server.migration",
+                        event = "qr_image_unrecognized",
+                        message = "Selected image did not contain a valid server migration QR code",
+                        throwable = it,
+                    )
+                    message = "未识别到有效的服务器二维码"
+                }
         }
     }
     val scanner = rememberLauncherForActivityResult(
@@ -143,6 +216,11 @@ actual fun ServerBackupTools(
         if (granted) {
             scanner.launch(Intent(context, QrScannerActivity::class.java))
         } else {
+            AppLog.warning(
+                category = "server.migration",
+                event = "camera_permission_denied",
+                message = "Camera permission denied for server migration scanner",
+            )
             message = "需要相机权限才能扫码；仍可从相册导入二维码"
         }
     }

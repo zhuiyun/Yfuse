@@ -7,6 +7,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.launch
@@ -55,12 +56,26 @@ class LibraryGridStoreFactory(
             dispatch(GridMsg.Loading)
             scope.launch {
                 if (server == null) {
+                    AppLog.warning(
+                        category = "feature.library",
+                        event = "grid_server_missing",
+                        message = "Library grid could not load because no server is available",
+                    )
                     dispatch(GridMsg.Failed("没有可用的服务器"))
                     return@launch
                 }
                 repo.libraryItems(server, libraryId)
                     .onSuccess { dispatch(GridMsg.Loaded(it)) }
-                    .onFailure { dispatch(GridMsg.Failed(it.toUserMessage("加载失败"))) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "feature.library",
+                            event = "grid_load_failed",
+                            message = "Library grid failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(GridMsg.Failed(it.toUserMessage("加载失败")))
+                    }
             }
         }
     }

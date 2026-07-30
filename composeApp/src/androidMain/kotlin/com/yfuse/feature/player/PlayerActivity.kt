@@ -228,7 +228,16 @@ class PlayerActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
 
         val koin = GlobalContext.get()
-        val preferences = runCatching { koin.get<ThemePreferences>() }.getOrNull()
+        val preferences = runCatching { koin.get<ThemePreferences>() }
+            .onFailure {
+                AppLog.warning(
+                    category = "feature.player",
+                    event = "activity_preferences_unavailable",
+                    message = "Player activity could not load theme preferences",
+                    throwable = it,
+                )
+            }
+            .getOrNull()
         val danmakuPreferences = koin.get<DanmakuPreferences>()
         val danmakuRepository = koin.get<DanmakuRepository>()
         val playbackRecovery = koin.get<PlaybackRecoveryStore>()
@@ -264,6 +273,13 @@ class PlayerActivity : ComponentActivity() {
             val server = selectedServerId?.let(registry::serverById) ?: registry.defaultServer
             val repo = koin.get<EmbyRepository>()
             server?.let { EmbyPlaybackEventSink(repo, it) }
+        }.onFailure {
+            AppLog.warning(
+                category = "feature.player",
+                event = "playback_reporting_unavailable",
+                message = "Server playback reporting could not be initialized",
+                throwable = it,
+            )
         }.getOrNull()
 
         setContent {

@@ -1,6 +1,7 @@
 package com.yfuse.core.sync
 
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.embyHttpEngine
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.WebSockets
@@ -273,6 +274,14 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
     }
 
     fun leave() {
+        if (_state.value.roomCode != null || _state.value.connected || _state.value.connecting) {
+            AppLog.info(
+                category = "watch_together",
+                event = "room_left",
+                message = "Left watch-together room",
+                attributes = mapOf("wasHost" to _state.value.isHost.toString()),
+            )
+        }
         leaveInternal()
         _state.value = WatchTogetherState()
         _timeline.value = null
@@ -286,7 +295,16 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         job?.cancel()
         if (session != null) {
             scope.launch {
-                runCatching { session.close(CloseReason(CloseReason.Codes.NORMAL, "leave")) }
+                runCatching {
+                    session.close(CloseReason(CloseReason.Codes.NORMAL, "leave"))
+                }.onFailure {
+                    AppLog.warning(
+                        category = "watch_together",
+                        event = "socket_close_failed",
+                        message = "Failed to close watch-together socket cleanly",
+                        throwable = it,
+                    )
+                }
             }
         }
     }
@@ -294,6 +312,11 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
     private fun start(endpoint: String, roomCode: String?, mediaKey: String, name: String) {
         val url = endpoint.toWebSocketUrl()
         if (url == null) {
+            AppLog.warning(
+                category = "watch_together",
+                event = "endpoint_invalid",
+                message = "Watch-together endpoint is invalid",
+            )
             _state.value = WatchTogetherState(error = "一起看服务地址无效")
             return
         }
@@ -307,6 +330,15 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         pendingName = name
         _state.value = WatchTogetherState(connecting = true)
         _timeline.value = null
+        AppLog.info(
+            category = "watch_together",
+            event = "connection_started",
+            message = "Watch-together connection started",
+            attributes = mapOf(
+                "role" to if (roomCode == null) "host" else "guest",
+                "secure" to url.startsWith("wss://").toString(),
+            ),
+        )
         connectionJob = scope.launch { connectionLoop() }
     }
 
@@ -320,6 +352,13 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
 
             val roomGone = outcome.exceptionOrNull() is RoomUnavailableException
             if (roomGone || !everWelcomed) {
+                AppLog.error(
+                    category = "watch_together",
+                    event = if (roomGone) "room_unavailable" else "initial_connection_failed",
+                    message = "Watch-together connection could not enter a room",
+                    throwable = outcome.exceptionOrNull(),
+                    attributes = mapOf("roomGone" to roomGone.toString()),
+                )
                 _state.value = WatchTogetherState(
                     error = outcome.exceptionOrNull()?.message?.takeIf { it.isNotBlank() }
                         ?: "一起看连接失败",
@@ -328,8 +367,19 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
             }
 
             reconnectAttempt++
+            val retryDelayMs = backoffDelayMs(reconnectAttempt)
+            AppLog.warning(
+                category = "watch_together",
+                event = "connection_lost",
+                message = "Watch-together connection lost; reconnect scheduled",
+                throwable = outcome.exceptionOrNull(),
+                attributes = mapOf(
+                    "attempt" to reconnectAttempt.toString(),
+                    "retryDelayMs" to retryDelayMs.toString(),
+                ),
+            )
             _state.update { it.copy(connecting = false, reconnecting = true, error = null) }
-            delay(backoffDelayMs(reconnectAttempt))
+            delay(retryDelayMs)
         }
     }
 
@@ -368,9 +418,21 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                     var welcomedThisAttempt = false
                     for (frame in incoming) {
                         if (frame !is Frame.Text) continue
-                        val wire = runCatching {
-                            json.decodeFromString(WatchWireMessage.serializer(), frame.readText())
-                        }.getOrNull() ?: continue
+                        val frameText = frame.readText()
+                        val decoded = runCatching {
+                            json.decodeFromString(WatchWireMessage.serializer(), frameText)
+                        }
+                        if (decoded.isFailure) {
+                            AppLog.warning(
+                                category = "watch_together",
+                                event = "message_invalid",
+                                message = "Watch-together server sent an invalid message",
+                                throwable = decoded.exceptionOrNull(),
+                                attributes = mapOf("frameChars" to frameText.length.toString()),
+                            )
+                            continue
+                        }
+                        val wire = decoded.getOrThrow()
 
                         wire.serverAtMs?.let { serverAtMs ->
                             // Every server message is timestamped, but only `pong` carries
@@ -389,6 +451,16 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                                     welcomedThisAttempt = true
                                     everWelcomed = true
                                     reconnectAttempt = 0
+                                    AppLog.info(
+                                        category = "watch_together",
+                                        event = "room_joined",
+                                        message = "Watch-together room joined",
+                                        attributes = mapOf(
+                                            "isHost" to (wire.isHost ?: false).toString(),
+                                            "participantCount" to
+                                                (wire.participantCount ?: 0).toString(),
+                                        ),
+                                    )
                                 }
                                 applyRoomSnapshot(wire)
                             }
@@ -414,6 +486,14 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                                 }
                             }
                             "error" -> {
+                                AppLog.warning(
+                                    category = "watch_together",
+                                    event = "server_error",
+                                    message = "Watch-together server reported an error",
+                                    attributes = mapOf(
+                                        "duringHandshake" to (!welcomedThisAttempt).toString(),
+                                    ),
+                                )
                                 if (!welcomedThisAttempt) {
                                     throw RoomUnavailableException(wire.message ?: "房间不存在或已关闭")
                                 }
@@ -473,6 +553,16 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                 val active = currentSession ?: return@withLock
                 runCatching {
                     active.send(json.encodeToString(WatchWireMessage.serializer(), message))
+                }.onFailure {
+                    if (message.type != "sync") {
+                        AppLog.warning(
+                            category = "watch_together",
+                            event = "send_failed",
+                            message = "Failed to send watch-together message",
+                            throwable = it,
+                            attributes = mapOf("messageType" to message.type),
+                        )
+                    }
                 }
             }
         }

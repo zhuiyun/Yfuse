@@ -8,6 +8,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.dto.PublicUserDto
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.DiscoveredServer
 import com.yfuse.core.network.LanDiscovery
@@ -177,7 +178,25 @@ class ServersStoreFactory(
         private fun scan() {
             dispatch(Msg.ScanStarted)
             scope.launch {
-                dispatch(Msg.ScanDone(runCatching { discovery.discover() }.getOrDefault(emptyList())))
+                val result = runCatching { discovery.discover() }
+                result
+                    .onSuccess {
+                        AppLog.info(
+                            category = "server.discovery",
+                            event = "scan_completed",
+                            message = "Local server discovery completed",
+                            attributes = mapOf("serverCount" to it.size.toString()),
+                        )
+                    }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "server.discovery",
+                            event = "scan_failed",
+                            message = "Local server discovery failed",
+                            throwable = it,
+                        )
+                    }
+                dispatch(Msg.ScanDone(result.getOrDefault(emptyList())))
             }
         }
 
@@ -193,7 +212,16 @@ class ServersStoreFactory(
             dispatch(Msg.Host(host))
             dispatch(Msg.Port(port))
             scope.launch {
-                dispatch(Msg.PublicUsers(repo.publicUsers(server.address).getOrDefault(emptyList())))
+                val result = repo.publicUsers(server.address)
+                result.onFailure {
+                    AppLog.warning(
+                        category = "server.auth",
+                        event = "public_users_failed",
+                        message = "Failed to load public users from discovered server",
+                        throwable = it,
+                    )
+                }
+                dispatch(Msg.PublicUsers(result.getOrDefault(emptyList())))
             }
         }
 
@@ -204,11 +232,29 @@ class ServersStoreFactory(
             scope.launch {
                 repo.authenticate(form.url, form.username.trim(), form.password)
                     .onSuccess {
-                        registry.addOrUpdate(it.toSavedServer())
+                        val savedServer = it.toSavedServer()
+                        registry.addOrUpdate(savedServer)
+                        AppLog.info(
+                            category = "server.auth",
+                            event = "login_succeeded",
+                            message = "Server login succeeded",
+                            attributes = mapOf("serverId" to savedServer.id),
+                        )
                         dispatch(Msg.SubmitDone)
                         publish(ServersLabel.ServerAdded)
                     }
-                    .onFailure { dispatch(Msg.SubmitError(it.toUserMessage("登录失败"))) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "server.auth",
+                            event = "login_failed",
+                            message = "Server login failed",
+                            throwable = it,
+                            attributes = mapOf(
+                                "scheme" to if (form.https) "https" else "http",
+                            ),
+                        )
+                        dispatch(Msg.SubmitError(it.toUserMessage("登录失败")))
+                    }
             }
         }
     }

@@ -7,6 +7,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
@@ -127,6 +128,11 @@ class DetailStoreFactory(
             dispatch(DetailMsg.Loading)
             scope.launch {
                 if (server == null) {
+                    AppLog.warning(
+                        category = "feature.detail",
+                        event = "server_missing",
+                        message = "Detail screen could not load because no server is available",
+                    )
                     dispatch(DetailMsg.Failed("没有可用的服务器"))
                     return@launch
                 }
@@ -137,7 +143,16 @@ class DetailStoreFactory(
                         loadSources(server, detail)
                         loadRelated(server, detail)
                     }
-                    .onFailure { dispatch(DetailMsg.Failed(it.toUserMessage("加载失败"))) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "load_failed",
+                            message = "Detail screen failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(DetailMsg.Failed(it.toUserMessage("加载失败")))
+                    }
             }
         }
 
@@ -169,7 +184,16 @@ class DetailStoreFactory(
             scope.launch {
                 repo.similarItems(server, detail.id)
                     .onSuccess { dispatch(DetailMsg.RelatedLoaded(it)) }
-                    .onFailure { dispatch(DetailMsg.RelatedLoaded(emptyList())) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "related_load_failed",
+                            message = "Related media failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(DetailMsg.RelatedLoaded(emptyList()))
+                    }
             }
         }
 
@@ -181,7 +205,15 @@ class DetailStoreFactory(
                         dispatch(DetailMsg.SeasonsLoaded(seasons, selected))
                         loadEpisodes(server, seriesId, selected)
                     }
-                    .onFailure { /* episode list is optional; keep the page usable */ }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "seasons_load_failed",
+                            message = "Series seasons failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                    }
             }
         }
 
@@ -190,7 +222,16 @@ class DetailStoreFactory(
             scope.launch {
                 repo.episodes(server, seriesId, seasonId)
                     .onSuccess { dispatch(DetailMsg.EpisodesLoaded(it)) }
-                    .onFailure { dispatch(DetailMsg.EpisodesLoaded(emptyList())) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "episodes_load_failed",
+                            message = "Series episodes failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(DetailMsg.EpisodesLoaded(emptyList()))
+                    }
             }
         }
 
@@ -216,6 +257,13 @@ class DetailStoreFactory(
                         publish(DetailLabel.Play(server.id, it.itemId, it.startPositionTicks))
                     }
                     .onFailure {
+                        AppLog.error(
+                            category = "feature.detail",
+                            event = "play_target_failed",
+                            message = "Failed to resolve media playback target",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
                         dispatch(DetailMsg.Resolving(false))
                         dispatch(DetailMsg.Failed(it.toUserMessage("无法播放")))
                     }
@@ -268,6 +316,13 @@ class DetailStoreFactory(
                 repo.addToWatchLater(server, detail.id)
                     .onSuccess { dispatch(DetailMsg.ActionMessage("已加入稍后观看")) }
                     .onFailure {
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "watch_later_failed",
+                            message = "Failed to add media to watch-later list",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
                         dispatch(DetailMsg.ActionMessage(it.toUserMessage("加入稍后观看失败")))
                     }
             }

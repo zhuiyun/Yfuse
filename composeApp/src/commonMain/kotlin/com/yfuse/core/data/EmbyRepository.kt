@@ -82,10 +82,17 @@ class EmbyRepository(private val client: HttpClient) {
             contentType(ContentType.Application.Json)
             setBody(AuthRequestDto(Username = username, Pw = password))
         }.body()
-        val serverName = runCatching {
+        val serverInfo = runCatching {
             client.get("$url/System/Info/Public").body<PublicInfoDto>().ServerName
-        }.getOrNull()
-        AuthedServer(url, serverName ?: url, auth.User.Id, auth.User.Name, auth.AccessToken)
+        }.onFailure {
+            AppLog.warning(
+                category = "emby",
+                event = "server_info_degraded",
+                message = "Authentication succeeded but public server info failed",
+                throwable = it,
+            )
+        }
+        AuthedServer(url, serverInfo.getOrNull() ?: url, auth.User.Id, auth.User.Name, auth.AccessToken)
     }
 
     suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> =
@@ -205,12 +212,53 @@ class EmbyRepository(private val client: HttpClient) {
             val views = fetchViews(server)
             // A single library (or the resume row) failing must not blank the
             // whole home screen — degrade to an empty row instead.
-            val resumeDeferred = async { runCatching { fetchResume(server) }.getOrDefault(emptyList()) }
+            val resumeDeferred = async {
+                runCatching { fetchResume(server) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "emby",
+                            event = "home_section_degraded",
+                            message = "Continue-watching section failed and was omitted",
+                            throwable = it,
+                            attributes = mapOf(
+                                "serverId" to server.id,
+                                "section" to "resume",
+                            ),
+                        )
+                    }
+                    .getOrDefault(emptyList())
+            }
             val rowDeferred = views.map { view ->
                 async {
-                    val items = runCatching { fetchLatest(server, view.id) }.getOrDefault(emptyList())
+                    val items = runCatching { fetchLatest(server, view.id) }
+                        .onFailure {
+                            AppLog.warning(
+                                category = "emby",
+                                event = "home_section_degraded",
+                                message = "Library latest-items section failed and was omitted",
+                                throwable = it,
+                                attributes = mapOf(
+                                    "serverId" to server.id,
+                                    "section" to "latest",
+                                    "libraryId" to view.id,
+                                ),
+                            )
+                        }
+                        .getOrDefault(emptyList())
                     // The chip shows the library's real size, not the loaded page.
                     val total = runCatching { fetchLibraryCount(server, view.id) }
+                        .onFailure {
+                            AppLog.warning(
+                                category = "emby",
+                                event = "library_count_degraded",
+                                message = "Library count failed; loaded item count used as fallback",
+                                throwable = it,
+                                attributes = mapOf(
+                                    "serverId" to server.id,
+                                    "libraryId" to view.id,
+                                ),
+                            )
+                        }
                         .getOrDefault(items.size)
                     HomeRow(view.id, view.name, items, total)
                 }
@@ -425,12 +473,21 @@ class EmbyRepository(private val client: HttpClient) {
 
         // Emby returns no cast on episodes; borrow the series' cast instead.
         if (detail.type == "Episode" && detail.people.isEmpty() && detail.seriesId != null) {
-            val series = runCatching {
+            val seriesResult = runCatching {
                 client.get("${server.baseUrl}/Users/${server.userId}/Items/${detail.seriesId}") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("Fields", "People")
                 }.body<BaseItemDto>()
-            }.getOrNull()
+            }.onFailure {
+                AppLog.warning(
+                    category = "emby",
+                    event = "episode_cast_degraded",
+                    message = "Episode detail loaded but series cast lookup failed",
+                    throwable = it,
+                    attributes = mapOf("serverId" to server.id),
+                )
+            }
+            val series = seriesResult.getOrNull()
             detail.copy(people = series?.People?.map { it.toPerson() } ?: emptyList())
         } else {
             detail
@@ -489,9 +546,28 @@ class EmbyRepository(private val client: HttpClient) {
                         titleMatches && yearMatches && typeMatches
                     } ?: candidates.firstOrNull()
                 }
+                lookup.onFailure {
+                    AppLog.warning(
+                        category = "emby",
+                        event = "source_lookup_failed",
+                        message = "Cross-server source lookup failed",
+                        throwable = it,
+                        attributes = mapOf("serverId" to server.id),
+                    )
+                }
                 val item = lookup.getOrNull()
                 val source = item?.let {
-                    runCatching { fetchComparableSource(server, it) }.getOrNull()
+                    runCatching { fetchComparableSource(server, it) }
+                        .onFailure { error ->
+                            AppLog.warning(
+                                category = "emby",
+                                event = "source_metadata_degraded",
+                                message = "Cross-server source metadata lookup failed",
+                                throwable = error,
+                                attributes = mapOf("serverId" to server.id),
+                            )
+                        }
+                        .getOrNull()
                         // A matching library entry is still a resource even if
                         // this server withholds its stream metadata.
                         ?: SourceInfo("已有资源", null, null)

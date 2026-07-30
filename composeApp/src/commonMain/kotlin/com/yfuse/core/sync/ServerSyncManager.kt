@@ -99,6 +99,15 @@ class ServerSyncManager(
     fun start(scope: CoroutineScope) {
         if (automaticJob != null) return
         automaticScope = scope
+        AppLog.info(
+            category = "sync",
+            event = "automatic_sync_started",
+            message = "Automatic server synchronization started",
+            attributes = mapOf(
+                "enabled" to autoSync.value.toString(),
+                "pendingCount" to pending.value.size.toString(),
+            ),
+        )
         automaticJob = scope.launch {
             while (true) {
                 if (autoSync.value && registry.data.value.servers.isNotEmpty()) syncAll()
@@ -166,9 +175,33 @@ class ServerSyncManager(
                 SyncMutationKind.Played ->
                     repo.setPlayed(server, mutation.itemId, mutation.desired)
             }
-            result.onSuccess { removePending(mutation) }
+            result
+                .onSuccess {
+                    removePending(mutation)
+                    AppLog.info(
+                        category = "sync",
+                        event = "conflict_resolved",
+                        message = "Synchronization conflict resolved with local value",
+                        attributes = mapOf("kind" to mutation.kind.name),
+                    )
+                }
+                .onFailure {
+                    AppLog.warning(
+                        category = "sync",
+                        event = "conflict_resolution_failed",
+                        message = "Failed to resolve synchronization conflict",
+                        throwable = it,
+                        attributes = mapOf("kind" to mutation.kind.name),
+                    )
+                }
         } else {
             removePending(conflict.mutation)
+            AppLog.info(
+                category = "sync",
+                event = "conflict_resolved",
+                message = "Synchronization conflict resolved with server value",
+                attributes = mapOf("kind" to conflict.mutation.kind.name),
+            )
             Result.success(Unit)
         }
     }
@@ -196,11 +229,34 @@ class ServerSyncManager(
             createdAtEpochMs = System.currentTimeMillis(),
         )
         addPending(mutation)
+        AppLog.info(
+            category = "sync",
+            event = "mutation_queued",
+            message = "User state mutation queued for synchronization",
+            attributes = mapOf(
+                "serverId" to server.id,
+                "kind" to kind.name,
+                "desired" to desired.toString(),
+            ),
+        )
         val result = when (kind) {
             SyncMutationKind.Favorite -> repo.setFavorite(server, itemId, desired)
             SyncMutationKind.Played -> repo.setPlayed(server, itemId, desired)
         }
-        result.onSuccess { removePending(mutation) }
+        result
+            .onSuccess { removePending(mutation) }
+            .onFailure {
+                AppLog.warning(
+                    category = "sync",
+                    event = "mutation_deferred",
+                    message = "User state mutation remains queued after request failure",
+                    throwable = it,
+                    attributes = mapOf(
+                        "serverId" to server.id,
+                        "kind" to kind.name,
+                    ),
+                )
+            }
         return result
     }
 
@@ -226,6 +282,28 @@ class ServerSyncManager(
                         _state.value.conflicts.filterNot {
                             it.mutation.serverId == server.id
                         } + conflicts
+                    ),
+                )
+                if (conflicts.isNotEmpty()) {
+                    AppLog.warning(
+                        category = "sync",
+                        event = "conflicts_detected",
+                        message = "Synchronization conflicts detected",
+                        attributes = mapOf(
+                            "serverId" to server.id,
+                            "conflictCount" to conflicts.size.toString(),
+                        ),
+                    )
+                }
+                AppLog.info(
+                    category = "sync",
+                    event = "server_sync_completed",
+                    message = "Server synchronization completed",
+                    attributes = mapOf(
+                        "serverId" to server.id,
+                        "itemCount" to remote.size.toString(),
+                        "conflictCount" to conflicts.size.toString(),
+                        "pendingCount" to pending.value.size.toString(),
                     ),
                 )
                 replayNonConflicting(server, conflicts)
@@ -263,7 +341,20 @@ class ServerSyncManager(
                     SyncMutationKind.Played ->
                         repo.setPlayed(server, mutation.itemId, mutation.desired)
                 }
-                result.onSuccess { removePending(mutation) }
+                result
+                    .onSuccess { removePending(mutation) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "sync",
+                            event = "pending_replay_failed",
+                            message = "Queued synchronization mutation replay failed",
+                            throwable = it,
+                            attributes = mapOf(
+                                "serverId" to server.id,
+                                "kind" to mutation.kind.name,
+                            ),
+                        )
+                    }
             }
     }
 
@@ -330,15 +421,34 @@ class ServerSyncManager(
 
     private fun commitPending(value: List<PendingSyncMutation>) {
         pending.value = value
-        settings.putString(PENDING_KEY, json.encodeToString(pendingSerializer, value))
+        runCatching {
+            settings.putString(PENDING_KEY, json.encodeToString(pendingSerializer, value))
+        }.onFailure {
+            AppLog.error(
+                category = "sync",
+                event = "pending_persist_failed",
+                message = "Failed to persist queued synchronization mutations",
+                throwable = it,
+                attributes = mapOf("pendingCount" to value.size.toString()),
+            )
+        }
         _state.value = _state.value.copy(
             pendingCount = value.size,
             pendingOperations = value,
         )
     }
 
-    private fun loadPending(): List<PendingSyncMutation> =
-        settings.getStringOrNull(PENDING_KEY)
-            ?.let { runCatching { json.decodeFromString(pendingSerializer, it) }.getOrNull() }
-            .orEmpty()
+    private fun loadPending(): List<PendingSyncMutation> {
+        val raw = settings.getStringOrNull(PENDING_KEY) ?: return emptyList()
+        return runCatching {
+            json.decodeFromString(pendingSerializer, raw)
+        }.onFailure {
+            AppLog.error(
+                category = "sync",
+                event = "stored_pending_invalid",
+                message = "Stored synchronization queue could not be decoded",
+                throwable = it,
+            )
+        }.getOrDefault(emptyList())
+    }
 }

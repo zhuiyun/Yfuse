@@ -4,6 +4,7 @@ import com.arkivanov.decompose.ComponentContext
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.TmdbDetail
 import com.yfuse.core.model.TmdbItem
@@ -56,7 +57,16 @@ class TmdbInfoComponent(
         scope.launch {
             tmdb.detail(item)
                 .onSuccess { detail -> _state.update { it.copy(detail = detail, loading = false) } }
-                .onFailure { _state.update { it.copy(loading = false) } }
+                .onFailure {
+                    AppLog.warning(
+                        category = "feature.tmdb_detail",
+                        event = "metadata_load_failed",
+                        message = "TMDB detail metadata failed to load",
+                        throwable = it,
+                        attributes = mapOf("mediaType" to item.mediaType),
+                    )
+                    _state.update { it.copy(loading = false) }
+                }
         }
         scope.launch {
             val sources = emby.compareSources(
@@ -109,6 +119,13 @@ class TmdbInfoComponent(
                     onPlayTarget(server.id, target.itemId, target.startPositionTicks)
                 }
                 .onFailure { error ->
+                    AppLog.error(
+                        category = "feature.tmdb_detail",
+                        event = "play_target_failed",
+                        message = "TMDB detail failed to resolve playback target",
+                        throwable = error,
+                        attributes = mapOf("serverId" to server.id),
+                    )
                     _state.update {
                         it.copy(
                             resolvingPlay = false,

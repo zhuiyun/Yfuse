@@ -2,6 +2,7 @@ package com.yfuse.feature.watch
 
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
@@ -32,6 +33,11 @@ class WatchInviteResolver(
 
         val servers = orderedServers()
         if (servers.isEmpty()) {
+            AppLog.warning(
+                category = "watch_together",
+                event = "invite_server_missing",
+                message = "Watch-together invite could not resolve without a configured server",
+            )
             return InviteResolution.Failed("还没有添加服务器，请先到「我的」登录一台 Emby 服务器。")
         }
 
@@ -40,6 +46,13 @@ class WatchInviteResolver(
             val result = repo.findByMediaKey(server, mediaKey)
             val item = result.getOrElse {
                 sawFailure = true
+                AppLog.warning(
+                    category = "watch_together",
+                    event = "invite_lookup_failed",
+                    message = "Watch-together invite lookup failed on a server",
+                    throwable = it,
+                    attributes = mapOf("serverId" to server.id),
+                )
                 null
             } ?: continue
             return InviteResolution.Found(
@@ -51,8 +64,20 @@ class WatchInviteResolver(
         }
 
         return if (sawFailure) {
+            AppLog.error(
+                category = "watch_together",
+                event = "invite_resolution_failed",
+                message = "Watch-together invite lookup could not complete",
+                attributes = mapOf("serverCount" to servers.size.toString()),
+            )
             InviteResolution.Failed("无法确认这部片是否在你的服务器上，稍后重试。")
         } else {
+            AppLog.info(
+                category = "watch_together",
+                event = "invite_media_missing",
+                message = "Watch-together invite media was not found on configured servers",
+                attributes = mapOf("serverCount" to servers.size.toString()),
+            )
             InviteResolution.Missing(invite.title)
         }
     }
@@ -60,9 +85,20 @@ class WatchInviteResolver(
     /** Same lookup, but returning the pieces the player needs rather than display copy. */
     suspend fun resolveTarget(invite: WatchInvite): ResolvedInvite? {
         val mediaKey = invite.mediaKey ?: return null
+        var failures = 0
         for (server in orderedServers()) {
-            val item = repo.findByMediaKey(server, mediaKey).getOrNull() ?: continue
+            val result = repo.findByMediaKey(server, mediaKey)
+            if (result.isFailure) failures++
+            val item = result.getOrNull() ?: continue
             return ResolvedInvite(server, item)
+        }
+        if (failures > 0) {
+            AppLog.warning(
+                category = "watch_together",
+                event = "invite_target_unresolved",
+                message = "Watch-together playback target could not be resolved",
+                attributes = mapOf("failedServerCount" to failures.toString()),
+            )
         }
         return null
     }
