@@ -37,7 +37,7 @@ jobs:
       DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST || '47.112.219.60' }}
-      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'admin' }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'yfuse-deploy' }}
       DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '443' }}
       DEPLOY_REMOTE_DIR: ${{ vars.DEPLOY_REMOTE_DIR || '/srv/yfuse-update/yfuse' }}
       UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL || 'http://47.112.219.60/yfuse' }}
@@ -294,8 +294,8 @@ jobs:
             *) echo "Unsafe remote directory" >&2; exit 2 ;;
           esac
 
-          sudo -n mkdir -p "$remote_dir"
-          sudo -n chown "$(id -un):$(id -gn)" "$remote_dir"
+          test -d "$remote_dir"
+          test -w "$remote_dir"
           install -m 0644 "$apk_tmp" "$remote_dir/Yfuse-latest.apk.new"
           install -m 0644 "$manifest_tmp" "$remote_dir/update.json.new"
           mv -f "$remote_dir/Yfuse-latest.apk.new" "$remote_dir/Yfuse-latest.apk"

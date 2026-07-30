@@ -27,7 +27,7 @@ environment variables can override it:
 | Variable | Default |
 | --- | --- |
 | `DEPLOY_HOST` | `47.112.219.60` |
-| `DEPLOY_USER` | `admin` |
+| `DEPLOY_USER` | `yfuse-deploy` |
 | `DEPLOY_PORT` | `443` |
 | `DEPLOY_REMOTE_DIR` | `/srv/yfuse-update/yfuse` |
 | `UPDATE_BASE_URL` | `http://47.112.219.60/yfuse` |
@@ -55,8 +55,10 @@ ssh-keyscan -p 443 47.112.219.60 | ssh-keygen -lf -
 ssh-keyscan -p 443 47.112.219.60
 ```
 
-Use a deployment-only SSH key with access limited to the update directory. Do
-not reuse a personal SSH key.
+Use a deployment-only SSH key for the unprivileged `yfuse-deploy` account. The
+account must own the update directory, must not have sudo access, and its
+authorized key should disable forwarding and interactive terminals. Do not
+reuse a personal SSH key.
 
 ## Publishing
 
