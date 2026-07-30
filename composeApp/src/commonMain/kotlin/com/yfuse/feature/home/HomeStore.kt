@@ -8,6 +8,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
@@ -85,13 +86,31 @@ class HomeStoreFactory(
             scope.launch {
                 tmdb.home()
                     .onSuccess { dispatch(Msg.Loaded(it)) }
-                    .onFailure { dispatch(Msg.Failed(it.toUserMessage("推荐内容加载失败"))) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "feature.home",
+                            event = "recommendations_load_failed",
+                            message = "Home recommendations failed to load",
+                            throwable = it,
+                        )
+                        dispatch(Msg.Failed(it.toUserMessage("推荐内容加载失败")))
+                    }
             }
             // 继续观看 comes from the signed-in server; a failure here just leaves
             // the row empty rather than failing the whole screen.
             val server = registry.defaultServer ?: return
             scope.launch {
-                emby.homeContent(server).onSuccess { dispatch(Msg.ResumeLoaded(it.resume)) }
+                emby.homeContent(server)
+                    .onSuccess { dispatch(Msg.ResumeLoaded(it.resume)) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "feature.home",
+                            event = "resume_load_failed",
+                            message = "Continue-watching row failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                    }
             }
         }
 
@@ -149,6 +168,13 @@ class HomeStoreFactory(
                     emby.setFavorite(server, match.id, true)
                         .onSuccess { dispatch(Msg.ActionMessage("已加入收藏")) }
                         .onFailure {
+                            AppLog.warning(
+                                category = "feature.home",
+                                event = "favorite_failed",
+                                message = "Home favorite action failed",
+                                throwable = it,
+                                attributes = mapOf("serverId" to server.id),
+                            )
                             dispatch(Msg.ActionMessage(it.toUserMessage("收藏失败")))
                         }
                 }

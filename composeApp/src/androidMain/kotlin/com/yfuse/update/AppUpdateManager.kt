@@ -57,6 +57,15 @@ class AppUpdateManager(private val activity: Activity) {
     fun check() {
         scope.launch {
             _state.value = UpdateState.Checking
+            AppLog.info(
+                category = "update",
+                event = "check_started",
+                message = "Application update check started",
+                attributes = mapOf(
+                    "currentVersionName" to BuildConfig.VERSION_NAME,
+                    "currentVersionCode" to BuildConfig.VERSION_CODE.toString(),
+                ),
+            )
             runCatching {
                 withContext(Dispatchers.IO) {
                     val connection = (URL(UPDATE_MANIFEST).openConnection() as HttpURLConnection).apply {
@@ -70,8 +79,26 @@ class AppUpdateManager(private val activity: Activity) {
                 }
             }.onSuccess {
                 _state.value = if (it.versionCode > BuildConfig.VERSION_CODE) {
+                    AppLog.info(
+                        category = "update",
+                        event = "update_available",
+                        message = "Application update is available",
+                        attributes = mapOf(
+                            "targetVersionName" to it.versionName,
+                            "targetVersionCode" to it.versionCode.toString(),
+                        ),
+                    )
                     UpdateState.Available(it)
                 } else {
+                    AppLog.info(
+                        category = "update",
+                        event = "already_current",
+                        message = "Application is already current",
+                        attributes = mapOf(
+                            "publishedVersionName" to it.versionName,
+                            "publishedVersionCode" to it.versionCode.toString(),
+                        ),
+                    )
                     UpdateState.Current
                 }
             }.onFailure { error ->
@@ -89,6 +116,16 @@ class AppUpdateManager(private val activity: Activity) {
 
     fun download(manifest: UpdateManifest) {
         scope.launch {
+            AppLog.info(
+                category = "update",
+                event = "download_started",
+                message = "Application update download started",
+                attributes = mapOf(
+                    "targetVersionName" to manifest.versionName,
+                    "targetVersionCode" to manifest.versionCode.toString(),
+                    "expectedBytes" to manifest.size.toString(),
+                ),
+            )
             runCatching {
                 withContext(Dispatchers.IO) {
                     val dir = File(activity.cacheDir, "updates").apply { mkdirs() }
@@ -120,6 +157,12 @@ class AppUpdateManager(private val activity: Activity) {
                     target
                 }
             }.onSuccess {
+                AppLog.info(
+                    category = "update",
+                    event = "download_verified",
+                    message = "Application update downloaded and verified",
+                    attributes = mapOf("targetVersionName" to manifest.versionName),
+                )
                 _state.value = UpdateState.Ready(manifest, it)
                 install(it)
             }.onFailure { error ->
@@ -140,12 +183,28 @@ class AppUpdateManager(private val activity: Activity) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             !activity.packageManager.canRequestPackageInstalls()
         ) {
-            activity.startActivity(
-                Intent(
-                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:${activity.packageName}"),
-                ),
+            AppLog.info(
+                category = "update",
+                event = "install_permission_required",
+                message = "Unknown-app install permission is required",
             )
+            runCatching {
+                activity.startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:${activity.packageName}"),
+                    ),
+                )
+            }.onFailure { error ->
+                AppLog.error(
+                    category = "update",
+                    event = "install_permission_screen_failed",
+                    message = "Failed to open unknown-app install permission screen",
+                    throwable = error,
+                )
+                val manifest = (_state.value as? UpdateState.Ready)?.manifest
+                _state.value = UpdateState.Error("无法打开安装权限设置", manifest)
+            }
             return
         }
         runCatching {
@@ -162,6 +221,11 @@ class AppUpdateManager(private val activity: Activity) {
                 },
             )
         }.onSuccess {
+            AppLog.info(
+                category = "update",
+                event = "installer_launched",
+                message = "Android package installer launched",
+            )
             pendingInstall = null
         }.onFailure { error ->
             AppLog.error(

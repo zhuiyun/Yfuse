@@ -75,6 +75,21 @@ internal class AndroidOfflineMediaManager(
             }
         }
         commit(recovered)
+        val resetCount = _items.value.count { it.status == DownloadStatus.Queued }
+        val missingCount = _items.value.count {
+            it.status == DownloadStatus.Failed && it.error == "离线文件不存在"
+        }
+        if (resetCount > 0 || missingCount > 0) {
+            AppLog.warning(
+                category = "offline",
+                event = "index_recovered",
+                message = "Offline download index required recovery",
+                attributes = mapOf(
+                    "requeuedCount" to resetCount.toString(),
+                    "missingFileCount" to missingCount.toString(),
+                ),
+            )
+        }
         if (recovered.any { it.status == DownloadStatus.Queued }) kick()
     }
 
@@ -95,17 +110,28 @@ internal class AndroidOfflineMediaManager(
             updatedAtEpochMs = System.currentTimeMillis(),
         )
         commit(_items.value.filterNot { it.id == id } + next)
+        AppLog.info(
+            category = "offline",
+            event = "download_enqueued",
+            message = "Offline download enqueued",
+            attributes = mapOf(
+                "itemId" to request.itemId,
+                "alreadyPlayable" to next.playable.toString(),
+            ),
+        )
         if (!next.playable) kick()
     }
 
     override fun pause(id: String) {
         update(id) { it.copy(status = DownloadStatus.Paused, updatedAtEpochMs = now()) }
+        AppLog.info("offline", "download_paused", "Offline download paused")
     }
 
     override fun resume(id: String) {
         update(id) {
             it.copy(status = DownloadStatus.Queued, error = null, updatedAtEpochMs = now())
         }
+        AppLog.info("offline", "download_resumed", "Offline download resumed")
         kick()
     }
 
@@ -115,6 +141,7 @@ internal class AndroidOfflineMediaManager(
             partFile(item).delete()
         }
         commit(_items.value.filterNot { it.id == id })
+        AppLog.info("offline", "download_removed", "Offline download removed")
     }
 
     override fun setWifiOnly(value: Boolean) {
@@ -146,6 +173,11 @@ internal class AndroidOfflineMediaManager(
                         it.status == DownloadStatus.WaitingForWifi
                 } ?: break
                 if (_wifiOnly.value && !onWifi()) {
+                    AppLog.info(
+                        category = "offline",
+                        event = "waiting_for_wifi",
+                        message = "Offline download is waiting for Wi-Fi",
+                    )
                     update(next.id) {
                         it.copy(
                             status = DownloadStatus.WaitingForWifi,
@@ -177,6 +209,15 @@ internal class AndroidOfflineMediaManager(
 
         var connection: HttpURLConnection? = null
         try {
+            AppLog.info(
+                category = "offline",
+                event = "download_started",
+                message = "Offline media download started",
+                attributes = mapOf(
+                    "itemId" to snapshot.itemId,
+                    "resumeBytes" to existing.toString(),
+                ),
+            )
             connection = (URL(snapshot.sourceUrl).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 20_000
                 readTimeout = 30_000
@@ -232,6 +273,15 @@ internal class AndroidOfflineMediaManager(
                     updatedAtEpochMs = now(),
                 )
             }
+            AppLog.info(
+                category = "offline",
+                event = "download_completed",
+                message = "Offline media download completed",
+                attributes = mapOf(
+                    "itemId" to snapshot.itemId,
+                    "bytes" to target.length().toString(),
+                ),
+            )
         } catch (error: Throwable) {
             val currentStatus = _items.value.firstOrNull { it.id == snapshot.id }?.status
             if (currentStatus != DownloadStatus.Paused) {
@@ -281,10 +331,19 @@ internal class AndroidOfflineMediaManager(
         settings.putString(INDEX_KEY, json.encodeToString(serializer, _items.value))
     }
 
-    private fun loadIndex(): List<OfflineMedia> =
-        settings.getStringOrNull(INDEX_KEY)
-            ?.let { runCatching { json.decodeFromString(serializer, it) }.getOrNull() }
-            .orEmpty()
+    private fun loadIndex(): List<OfflineMedia> {
+        val raw = settings.getStringOrNull(INDEX_KEY) ?: return emptyList()
+        return runCatching {
+            json.decodeFromString(serializer, raw)
+        }.onFailure {
+            AppLog.error(
+                category = "offline",
+                event = "stored_index_invalid",
+                message = "Stored offline download index could not be decoded",
+                throwable = it,
+            )
+        }.getOrDefault(emptyList())
+    }
 
     private fun partFile(item: OfflineMedia) =
         File(directory, safeFileName(item.id) + ".part")

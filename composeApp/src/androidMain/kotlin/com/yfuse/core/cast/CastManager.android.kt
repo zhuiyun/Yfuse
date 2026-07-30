@@ -1,5 +1,6 @@
 package com.yfuse.core.cast
 
+import com.yfuse.core.logging.AppLog
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.HttpURLConnection
@@ -56,10 +57,39 @@ private class DlnaCastManager : CastManager {
                         ?.groupValues?.get(1)?.trim()?.let(locations::add)
                 }
             }
+            var descriptionFailures = 0
             locations.forEach { location ->
-                readTarget(location)?.let { targets[it.public.id] = it }
+                runCatching { readTarget(location) }
+                    .onSuccess { target ->
+                        target?.let { targets[it.public.id] = it }
+                    }
+                    .onFailure { error ->
+                        descriptionFailures++
+                        AppLog.warning(
+                            category = "cast",
+                            event = "device_description_failed",
+                            message = "Failed to read a discovered DLNA device",
+                            throwable = error,
+                        )
+                    }
             }
-        }.onFailure {
+            AppLog.info(
+                category = "cast",
+                event = "discovery_completed",
+                message = "DLNA discovery completed",
+                attributes = mapOf(
+                    "locationCount" to locations.size.toString(),
+                    "deviceCount" to targets.size.toString(),
+                    "descriptionFailures" to descriptionFailures.toString(),
+                ),
+            )
+        }.onFailure { error ->
+            AppLog.warning(
+                category = "cast",
+                event = "discovery_failed",
+                message = "DLNA discovery failed",
+                throwable = error,
+            )
             mutableState.value = mutableState.value.copy(error = "未发现可用的 DLNA 投屏设备")
         }
         mutableState.value = mutableState.value.copy(
@@ -71,7 +101,14 @@ private class DlnaCastManager : CastManager {
 
     override suspend fun play(deviceId: String, mediaUrl: String, title: String) =
         withContext(Dispatchers.IO) {
-            val target = targets[deviceId] ?: return@withContext
+            val target = targets[deviceId] ?: run {
+                AppLog.warning(
+                    category = "cast",
+                    event = "target_missing",
+                    message = "Selected DLNA device is no longer available",
+                )
+                return@withContext
+            }
             runCatching {
                 soap(
                     target.controlUrl,
@@ -86,9 +123,22 @@ private class DlnaCastManager : CastManager {
                     "<InstanceID>0</InstanceID><Speed>1</Speed>",
                 )
             }.onSuccess {
+                AppLog.info(
+                    category = "cast",
+                    event = "play_started",
+                    message = "DLNA playback started",
+                )
                 mutableState.value = mutableState.value.copy(activeDeviceId = deviceId, error = null)
-            }.onFailure {
-                mutableState.value = mutableState.value.copy(error = "投屏失败：${it.message ?: "设备拒绝播放"}")
+            }.onFailure { error ->
+                AppLog.error(
+                    category = "cast",
+                    event = "play_failed",
+                    message = "DLNA playback request failed",
+                    throwable = error,
+                )
+                mutableState.value = mutableState.value.copy(
+                    error = "投屏失败：${error.message ?: "设备拒绝播放"}",
+                )
             }
         }
 
@@ -96,6 +146,19 @@ private class DlnaCastManager : CastManager {
         val target = targets[mutableState.value.activeDeviceId] ?: return@withContext
         runCatching {
             soap(target.controlUrl, "Stop", "<InstanceID>0</InstanceID>")
+        }.onSuccess {
+            AppLog.info(
+                category = "cast",
+                event = "playback_stopped",
+                message = "DLNA playback stopped",
+            )
+        }.onFailure { error ->
+            AppLog.warning(
+                category = "cast",
+                event = "stop_failed",
+                message = "Failed to stop DLNA playback",
+                throwable = error,
+            )
         }
         mutableState.value = mutableState.value.copy(activeDeviceId = null)
     }

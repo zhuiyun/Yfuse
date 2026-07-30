@@ -71,6 +71,7 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlaybackSegment
@@ -227,7 +228,16 @@ class PlayerActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
 
         val koin = GlobalContext.get()
-        val preferences = runCatching { koin.get<ThemePreferences>() }.getOrNull()
+        val preferences = runCatching { koin.get<ThemePreferences>() }
+            .onFailure {
+                AppLog.warning(
+                    category = "feature.player",
+                    event = "activity_preferences_unavailable",
+                    message = "Player activity could not load theme preferences",
+                    throwable = it,
+                )
+            }
+            .getOrNull()
         val danmakuPreferences = koin.get<DanmakuPreferences>()
         val danmakuRepository = koin.get<DanmakuRepository>()
         val playbackRecovery = koin.get<PlaybackRecoveryStore>()
@@ -263,6 +273,13 @@ class PlayerActivity : ComponentActivity() {
             val server = selectedServerId?.let(registry::serverById) ?: registry.defaultServer
             val repo = koin.get<EmbyRepository>()
             server?.let { EmbyPlaybackEventSink(repo, it) }
+        }.onFailure {
+            AppLog.warning(
+                category = "feature.player",
+                event = "playback_reporting_unavailable",
+                message = "Server playback reporting could not be initialized",
+                throwable = it,
+            )
         }.getOrNull()
 
         setContent {
@@ -685,11 +702,29 @@ private fun PlayerRoot(
         }
     }
 
-    DisposableEffect(engine) {
+    DisposableEffect(engine, kind) {
+        AppLog.info(
+            category = "player",
+            event = "engine_attached",
+            message = "Playback engine attached",
+            attributes = mapOf(
+                "engine" to kind.name,
+                "implementation" to engine::class.java.name,
+            ),
+        )
         onEngineAttached(engine)
         onDispose {
             onEngineDetached(engine)
             engine.release()
+            AppLog.info(
+                category = "player",
+                event = "engine_detached",
+                message = "Playback engine detached",
+                attributes = mapOf(
+                    "engine" to kind.name,
+                    "implementation" to engine::class.java.name,
+                ),
+            )
         }
     }
 
@@ -735,8 +770,8 @@ private fun PlayerRoot(
     val latestEngine by rememberUpdatedState(engine)
     val latestPlaybackState by rememberUpdatedState(state)
     val mediaMatcher = remember(watchTogether) {
-        WatchMediaMatcher(watchTogether::setSyncWarning)
-    }
+        mutableStateOf(WatchMediaMatcher { warning -> watchTogether.setSyncWarning(warning) })
+    }.value
 
     // Guest side: the room's timeline is server-authoritative and near-silent between
     // events (see WatchTogetherClient), so following it needs a tick of our own rather
@@ -848,7 +883,19 @@ private fun PlayerRoot(
         if (target == kind) return
         // Read the position before the old engine is torn down.
         engine.pause()
-        resume = state.currentIndex to engine.currentPositionMs()
+        val positionMs = engine.currentPositionMs()
+        AppLog.info(
+            category = "player",
+            event = "engine_switch_requested",
+            message = "Playback engine switch requested",
+            attributes = mapOf(
+                "from" to kind.name,
+                "to" to target.name,
+                "itemIndex" to state.currentIndex.toString(),
+                "positionMs" to positionMs.toString(),
+            ),
+        )
+        resume = state.currentIndex to positionMs
         kind = target
     }
 

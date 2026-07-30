@@ -1,5 +1,6 @@
 package com.yfuse.core.data
 
+import com.yfuse.core.logging.AppLog
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
@@ -46,9 +47,20 @@ class DanmakuRepository(private val client: HttpClient) {
             val url = try {
                 resolveUrl(template, media)
             } catch (error: IllegalArgumentException) {
+                AppLog.warning(
+                    category = "danmaku",
+                    event = "template_invalid",
+                    message = "Danmaku URL template is invalid",
+                    throwable = error,
+                )
                 return@withContext Result.failure(error)
             }
             if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                AppLog.warning(
+                    category = "danmaku",
+                    event = "scheme_invalid",
+                    message = "Danmaku URL uses an unsupported scheme",
+                )
                 return@withContext Result.failure(
                     IllegalArgumentException("弹幕链接必须以 http:// 或 https:// 开头"),
                 )
@@ -57,17 +69,42 @@ class DanmakuRepository(private val client: HttpClient) {
                 val body: String = client.get(url).body()
                 val comments = DanmakuParser.parse(body)
                 if (comments.isEmpty()) {
+                    AppLog.warning(
+                        category = "danmaku",
+                        event = "response_unrecognized",
+                        message = "Danmaku endpoint returned no recognized comments",
+                        attributes = mapOf("responseChars" to body.length.toString()),
+                    )
                     Result.failure(IllegalStateException("接口已响应，但没有识别到弹幕数据"))
                 } else {
+                    AppLog.info(
+                        category = "danmaku",
+                        event = "loaded",
+                        message = "Danmaku comments loaded",
+                        attributes = mapOf("commentCount" to comments.size.toString()),
+                    )
                     Result.success(comments)
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: ResponseException) {
+                AppLog.warning(
+                    category = "danmaku",
+                    event = "http_failed",
+                    message = "Danmaku endpoint returned an HTTP error",
+                    throwable = error,
+                    attributes = mapOf("status" to error.response.status.value.toString()),
+                )
                 Result.failure(IllegalStateException(error.response.status.value.toDanmakuError()))
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
                 // Ktor exception messages include the full request URL. A user template may
                 // carry a token, so never surface the raw exception in the player UI.
+                AppLog.error(
+                    category = "danmaku",
+                    event = "request_failed",
+                    message = "Danmaku endpoint request failed",
+                    throwable = error,
+                )
                 Result.failure(IllegalStateException("弹幕接口连接失败，请检查地址和网络"))
             }
         }

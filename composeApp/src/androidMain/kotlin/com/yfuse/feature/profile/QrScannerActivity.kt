@@ -17,6 +17,7 @@ import com.google.zxing.DecodeHintType
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
+import com.yfuse.core.logging.AppLog
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -34,6 +35,11 @@ class QrScannerActivity : Activity(), SurfaceHolder.Callback, Camera.PreviewCall
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            AppLog.warning(
+                category = "server.migration",
+                event = "scanner_permission_missing",
+                message = "QR scanner opened without camera permission",
+            )
             setResult(RESULT_CANCELED)
             finish()
             return
@@ -76,6 +82,12 @@ class QrScannerActivity : Activity(), SurfaceHolder.Callback, Camera.PreviewCall
                 }
             }
         }.onFailure {
+            AppLog.error(
+                category = "server.migration",
+                event = "camera_open_failed",
+                message = "Failed to open camera for QR scanning",
+                throwable = it,
+            )
             setResult(RESULT_CANCELED)
             finish()
         }

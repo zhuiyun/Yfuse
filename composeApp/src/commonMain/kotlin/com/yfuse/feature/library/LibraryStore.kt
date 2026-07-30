@@ -7,6 +7,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.toUserMessage
@@ -113,7 +114,16 @@ class LibraryStoreFactory(
             scope.launch {
                 repo.homeContent(server)
                     .onSuccess { dispatch(Msg.Loaded(it)) }
-                    .onFailure { dispatch(Msg.Failed(it.toUserMessage("加载失败"))) }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "feature.library",
+                            event = "load_failed",
+                            message = "Media library home failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(Msg.Failed(it.toUserMessage("加载失败")))
+                    }
             }
         }
     }

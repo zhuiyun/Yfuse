@@ -13,6 +13,10 @@ class DiagnosticRedactorTest {
             Authorization=Basic YWRtaW46c2VjcmV0
             {"AccessToken":"server-token","name":"safe"}
             password=hunter2
+            refresh_token=refresh-me
+            client_secret=client-secret
+            Cookie: session=private-session
+            Set-Cookie: auth=private-cookie
             https://admin:private@example.test/path
         """.trimIndent()
 
@@ -23,6 +27,10 @@ class DiagnosticRedactorTest {
         assertFalse("server-token" in redacted)
         assertFalse("YWRtaW46c2VjcmV0" in redacted)
         assertFalse("hunter2" in redacted)
+        assertFalse("refresh-me" in redacted)
+        assertFalse("client-secret" in redacted)
+        assertFalse("private-session" in redacted)
+        assertFalse("private-cookie" in redacted)
         assertFalse("admin:private" in redacted)
         assertTrue(redacted.count { it == '<' } >= 5)
         assertTrue("item=42" in redacted)
@@ -34,11 +42,13 @@ class DiagnosticRedactorTest {
         val redacted = redactDiagnosticAttributes(
             mapOf(
                 "accessToken" to "secret",
+                "set-cookie" to "private-cookie",
                 "operation" to "load_detail",
             ),
         )
 
         assertFalse(redacted.getValue("accessToken").contains("secret"))
+        assertFalse(redacted.getValue("set-cookie").contains("private-cookie"))
         assertTrue(redacted.getValue("operation") == "load_detail")
     }
 }

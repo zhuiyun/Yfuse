@@ -7,6 +7,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.Job
@@ -125,6 +126,11 @@ class SearchStoreFactory(
 
             val servers = registry.data.value.servers
             if (servers.isEmpty()) {
+                AppLog.warning(
+                    category = "feature.search",
+                    event = "server_missing",
+                    message = "Search could not start because no server is available",
+                )
                 dispatch(SearchMsg.Failed(query, "还没有可用的服务器，请先到「我的」添加服务器"))
                 return
             }
@@ -154,9 +160,27 @@ class SearchStoreFactory(
                         }
                     }.awaitAll()
                 }
+                val failedCount = groups.count { it.error != null }
                 if (groups.all { it.error != null }) {
+                    AppLog.error(
+                        category = "feature.search",
+                        event = "all_servers_failed",
+                        message = "Search failed on every configured server",
+                        attributes = mapOf("serverCount" to servers.size.toString()),
+                    )
                     dispatch(SearchMsg.Failed(query, "所有服务器均无法完成搜索"))
                 } else {
+                    if (failedCount > 0) {
+                        AppLog.warning(
+                            category = "feature.search",
+                            event = "partial_failure",
+                            message = "Search completed with server failures",
+                            attributes = mapOf(
+                                "serverCount" to servers.size.toString(),
+                                "failedCount" to failedCount.toString(),
+                            ),
+                        )
+                    }
                     dispatch(SearchMsg.Loaded(query, groups))
                     if (groups.any { it.items.isNotEmpty() }) {
                         history?.remember(query)?.let { terms ->

@@ -159,7 +159,7 @@ jobs:
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" \
             "platforms;android-36" \
-            "ndk;25.2.9519653" \
+            "ndk;29.0.14206865" \
             "cmake;3.22.1"
 
       - name: Download player engines

@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Process
 import android.os.SystemClock
+import android.util.Log
 import com.yfuse.BuildConfig
 import java.io.File
 import java.io.OutputStream
@@ -16,6 +17,8 @@ import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.serialization.Serializable
@@ -48,6 +51,7 @@ internal data class DiagnosticLogStats(
 )
 
 internal object DiagnosticLogStore {
+    private const val LogTag = "YfuseDiagnostics"
     private const val MaxFileBytes = 1024L * 1024L
     private const val MaxTotalBytes = 5L * 1024L * 1024L
     private const val MaxFiles = 8
@@ -63,6 +67,8 @@ internal object DiagnosticLogStore {
     }
     private val dayFormatter = DateTimeFormatter.BASIC_ISO_DATE
     private val lastWriteByFingerprint = mutableMapOf<String, Long>()
+    private val writeFailureCount = AtomicInteger(0)
+    private val lastWriteFailure = AtomicReference<String?>(null)
 
     @Volatile
     private var initialized = false
@@ -105,6 +111,16 @@ internal object DiagnosticLogStore {
         executor.execute {
             runCatching {
                 writeBlocking(level, category, event, message, throwable, attributes)
+            }.onFailure { error ->
+                val failures = writeFailureCount.incrementAndGet()
+                lastWriteFailure.set(error.javaClass.name)
+                if (failures == 1 || failures % 25 == 0) {
+                    Log.e(
+                        LogTag,
+                        "Failed to persist diagnostic log entry (count=$failures)",
+                        error,
+                    )
+                }
             }
         }
     }
@@ -302,6 +318,8 @@ internal object DiagnosticLogStore {
             appendLine("logFiles=${stats.fileCount}")
             appendLine("logEntries=${stats.entryCount}")
             appendLine("logBytes=${stats.totalBytes}")
+            appendLine("logWriteFailures=${writeFailureCount.get()}")
+            lastWriteFailure.get()?.let { appendLine("lastLogWriteFailure=$it") }
             appendLine("format=JSON Lines; one JSON object per line")
             appendLine("retention=7 days, at most $MaxFiles files / ${MaxTotalBytes / 1024 / 1024} MiB")
             appendLine("privacy=Known tokens, API keys, passwords and URL credentials are redacted.")

@@ -1,6 +1,7 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
+import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +34,7 @@ class PlaybackRecoveryStore(private val settings: Settings) {
     val snapshot: StateFlow<PlaybackRecoverySnapshot?> = _snapshot.asStateFlow()
     private var lastWriteEpochMs = 0L
     private var lastItemId: String? = _snapshot.value?.itemId
+    private var persistenceFailureReported = false
 
     fun record(
         itemId: String,
@@ -57,22 +59,59 @@ class PlaybackRecoveryStore(private val settings: Settings) {
         )
         _snapshot.value = value
         if (!force && !changedItem && now - lastWriteEpochMs < WRITE_INTERVAL_MS) return
-        settings.putString(KEY, json.encodeToString(PlaybackRecoverySnapshot.serializer(), value))
-        lastWriteEpochMs = now
-        lastItemId = itemId
+        runCatching {
+            settings.putString(KEY, json.encodeToString(PlaybackRecoverySnapshot.serializer(), value))
+        }.onSuccess {
+            if (persistenceFailureReported) {
+                AppLog.info(
+                    category = "playback.recovery",
+                    event = "persistence_recovered",
+                    message = "Playback recovery persistence recovered",
+                )
+            }
+            persistenceFailureReported = false
+            lastWriteEpochMs = now
+            lastItemId = itemId
+        }.onFailure {
+            if (!persistenceFailureReported) {
+                AppLog.error(
+                    category = "playback.recovery",
+                    event = "persist_failed",
+                    message = "Failed to persist playback recovery checkpoint",
+                    throwable = it,
+                    attributes = mapOf("engine" to engine),
+                )
+            }
+            persistenceFailureReported = true
+        }
     }
 
     fun clear() {
         _snapshot.value = null
-        settings.remove(KEY)
+        runCatching { settings.remove(KEY) }
+            .onFailure {
+                AppLog.warning(
+                    category = "playback.recovery",
+                    event = "clear_failed",
+                    message = "Failed to clear playback recovery checkpoint",
+                    throwable = it,
+                )
+            }
         lastItemId = null
         lastWriteEpochMs = 0L
     }
 
-    private fun load(): PlaybackRecoverySnapshot? =
-        settings.getStringOrNull(KEY)?.let { raw ->
-            runCatching {
-                json.decodeFromString(PlaybackRecoverySnapshot.serializer(), raw)
-            }.getOrNull()
-        }
+    private fun load(): PlaybackRecoverySnapshot? {
+        val raw = settings.getStringOrNull(KEY) ?: return null
+        return runCatching {
+            json.decodeFromString(PlaybackRecoverySnapshot.serializer(), raw)
+        }.onFailure {
+            AppLog.warning(
+                category = "playback.recovery",
+                event = "stored_checkpoint_invalid",
+                message = "Stored playback recovery checkpoint could not be decoded",
+                throwable = it,
+            )
+        }.getOrNull()
+    }
 }
