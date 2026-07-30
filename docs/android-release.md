@@ -17,9 +17,12 @@ workflow dispatch is the release gate. Add these environment secrets:
 | `ANDROID_KEYSTORE_PASSWORD` | Release keystore password |
 | `ANDROID_KEY_ALIAS` | Release signing alias |
 | `ANDROID_KEY_PASSWORD` | Release key password |
-| `ANDROID_CERT_SHA256` | SHA-256 fingerprint of the expected signing certificate |
 | `DEPLOY_SSH_PRIVATE_KEY` | Private key for the restricted deployment account |
 | `DEPLOY_KNOWN_HOSTS` | Verified `known_hosts` entry for the deployment server on port 443 |
+
+The public signing-certificate SHA-256 fingerprint is pinned directly in the
+workflow and must match the currently published APK. Changing it requires an
+explicit signing-key migration; it is not a secret.
 
 The workflow defaults to the existing deployment server. These repository or
 environment variables can override it:

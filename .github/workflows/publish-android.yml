@@ -38,7 +38,9 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      ANDROID_CERT_SHA256: ${{ secrets.ANDROID_CERT_SHA256 }}
+      # Public certificate fingerprint pinned from the currently published APK.
+      # Changing this requires an explicit signing-key migration.
+      EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
       DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST || '47.112.219.60' }}
@@ -77,7 +79,6 @@ jobs:
             ANDROID_KEYSTORE_PASSWORD
             ANDROID_KEY_ALIAS
             ANDROID_KEY_PASSWORD
-            ANDROID_CERT_SHA256
             DEPLOY_SSH_PRIVATE_KEY
             DEPLOY_KNOWN_HOSTS
           )
@@ -224,11 +225,11 @@ jobs:
               tr '[:upper:]' '[:lower:]'
           )"
           expected_cert="$(
-            tr -d ':[:space:]' <<<"$ANDROID_CERT_SHA256" |
+            tr -d ':[:space:]' <<<"$EXPECTED_ANDROID_CERT_SHA256" |
               tr '[:upper:]' '[:lower:]'
           )"
           if [[ -z "$actual_cert" || "$actual_cert" != "$expected_cert" ]]; then
-            echo "::error::APK signing certificate does not match ANDROID_CERT_SHA256"
+            echo "::error::APK signing certificate does not match the pinned production certificate"
             exit 1
           fi
 
