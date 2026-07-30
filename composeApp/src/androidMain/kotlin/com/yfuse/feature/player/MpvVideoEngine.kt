@@ -170,6 +170,7 @@ class MpvVideoEngine(
                 }
 
                 MPVLib.MpvEvent.MPV_EVENT_VIDEO_RECONFIG -> readVideoSize()
+                MPVLib.MpvEvent.MPV_EVENT_END_FILE -> handleEndFile()
             }
         }
     }
@@ -273,6 +274,12 @@ class MpvVideoEngine(
         attachedSurface = null
     }
 
+    /** Keep mpv's Android render target in sync with SurfaceView size changes. */
+    fun resize(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        withMpv { it.setPropertyString("android-surface-size", "${width}x$height") }
+    }
+
     /** Crop-to-fill instead of letterboxing, for the 全屏 toggle. */
     fun setFill(fill: Boolean) {
         withMpv { it.setPropertyDouble("panscan", if (fill) 1.0 else 0.0) }
@@ -365,6 +372,29 @@ class MpvVideoEngine(
     private fun playNextIfAny() {
         val next = _state.value.currentIndex + 1
         if (next < items.size) selectItem(next)
+    }
+
+    private fun handleEndFile() {
+        val reachedEof = runCatching {
+            mpv?.getPropertyBoolean("eof-reached") == true
+        }.getOrDefault(false)
+        if (reachedEof) return
+
+        Log.e(TAG, "mpv ended playback before reaching EOF")
+        AppLog.error(
+            category = "player.mpv",
+            event = "playback_failed",
+            message = "mpv ended playback before reaching EOF",
+            attributes = mapOf("itemIndex" to _state.value.currentIndex.toString()),
+        )
+        _state.update {
+            it.copy(
+                playing = false,
+                buffering = false,
+                ended = false,
+                error = "mpv 无法播放此媒体",
+            )
+        }
     }
 
     private fun selectTrack(property: String, id: String) {

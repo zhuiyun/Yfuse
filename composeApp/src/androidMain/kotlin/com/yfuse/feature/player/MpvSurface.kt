@@ -25,7 +25,14 @@ fun MpvSurface(
                         engine.attach(holder.surface)
                     }
 
-                    override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, height: Int) = Unit
+                    override fun surfaceChanged(
+                        holder: SurfaceHolder,
+                        format: Int,
+                        width: Int,
+                        height: Int,
+                    ) {
+                        engine.resize(width, height)
+                    }
 
                     override fun surfaceDestroyed(holder: SurfaceHolder) {
                         engine.detach()

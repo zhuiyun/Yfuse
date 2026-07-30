@@ -248,11 +248,12 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeSetDecoderMode(
     if (value == nullptr) {
         return;
     }
-    if (mode == 1) {
-        value->setDecoders(MediaType::Video, {"FFmpeg", "dav1d"});
-    } else {
+    if (mode == 0) {
         value->setDecoders(MediaType::Video, {"AMediaCodec", "FFmpeg", "dav1d"});
+    } else if (mode == 1) {
+        value->setDecoders(MediaType::Video, {"FFmpeg", "dav1d"});
     }
+    // Automatic mode deliberately keeps MDK's own decoder selection policy.
 }
 
 extern "C" JNIEXPORT void JNICALL

@@ -5,7 +5,7 @@ plugins {
 android {
     namespace = "com.mediadevkit.sdk"
     compileSdk = 36
-    ndkVersion = "25.2.9519653"
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         minSdk = 26

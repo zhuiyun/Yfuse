@@ -11,7 +11,6 @@
     <style name="Theme.Yfuse.Launch" parent="Theme.Yfuse">
         <item name="android:windowFullscreen">true</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 
     <style name="Theme.Yfuse.Player" parent="android:Theme.Material.NoActionBar">
