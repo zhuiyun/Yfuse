@@ -3,6 +3,7 @@ package com.yfuse.core.sync
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -230,6 +231,13 @@ class ServerSyncManager(
                 replayNonConflicting(server, conflicts)
             },
             onFailure = { error ->
+                AppLog.warning(
+                    category = "sync",
+                    event = "server_sync_failed",
+                    message = "Server synchronization failed",
+                    throwable = error,
+                    attributes = mapOf("serverId" to server.id),
+                )
                 setStatus(server) {
                     it.copy(
                         syncing = false,

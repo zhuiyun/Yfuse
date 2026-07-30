@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import com.yfuse.core.logging.AppLog
 import android.os.IBinder
 import com.russhwolf.settings.Settings
 import com.yfuse.MainActivity
@@ -232,6 +233,16 @@ internal class AndroidOfflineMediaManager(
                 )
             }
         } catch (error: Throwable) {
+            val currentStatus = _items.value.firstOrNull { it.id == snapshot.id }?.status
+            if (currentStatus != DownloadStatus.Paused) {
+                AppLog.error(
+                    category = "offline",
+                    event = "download_failed",
+                    message = "Offline media download failed",
+                    throwable = error,
+                    attributes = mapOf("itemId" to snapshot.itemId),
+                )
+            }
             update(snapshot.id) {
                 if (it.status == DownloadStatus.Paused) {
                     it

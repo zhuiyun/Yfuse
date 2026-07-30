@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import android.util.Log
 import android.view.SurfaceView
 import com.mediadevkit.sdk.MDKPlayer
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import kotlinx.coroutines.CoroutineScope
@@ -170,7 +171,15 @@ class MdkVideoEngine(
         runCatching {
             instance?.setSurfaceView(null)
             instance?.close()
-        }.onFailure { Log.w(MDK_TAG, "MDK teardown failed", it) }
+        }.onFailure {
+            Log.w(MDK_TAG, "MDK teardown failed", it)
+            AppLog.warning(
+                category = "player.mdk",
+                event = "teardown_failed",
+                message = "MDK teardown failed",
+                throwable = it,
+            )
+        }
     }
 
     private fun ensurePlayer(): MDKPlayer? {
@@ -186,6 +195,12 @@ class MdkVideoEngine(
             }
         }.onFailure {
             Log.e(MDK_TAG, "MDK initialization failed", it)
+            AppLog.error(
+                category = "player.mdk",
+                event = "initialization_failed",
+                message = "MDK initialization failed",
+                throwable = it,
+            )
             _state.update { state ->
                 state.copy(error = "无法初始化 MDK 播放器", buffering = false)
             }
@@ -199,6 +214,13 @@ class MdkVideoEngine(
             instance.setState(MDKPlayer.STATE_PLAYING)
         }.onFailure {
             Log.e(MDK_TAG, "MDK load failed", it)
+            AppLog.error(
+                category = "player.mdk",
+                event = "load_failed",
+                message = "MDK failed to load media",
+                throwable = it,
+                attributes = mapOf("itemIndex" to _state.value.currentIndex.toString()),
+            )
             _state.update { state ->
                 state.copy(error = "MDK 启动失败", buffering = false)
             }
@@ -265,6 +287,12 @@ class MdkVideoEngine(
         }.onFailure {
             if (!released) {
                 Log.w(MDK_TAG, "MDK state polling failed", it)
+                AppLog.warning(
+                    category = "player.mdk",
+                    event = "state_poll_failed",
+                    message = "MDK state polling failed",
+                    throwable = it,
+                )
                 _state.update { state ->
                     state.copy(error = "MDK 播放异常", buffering = false)
                 }
@@ -305,6 +333,12 @@ class MdkVideoEngine(
         val instance = player ?: return
         runCatching { block(instance) }.onFailure {
             Log.w(MDK_TAG, "MDK call failed", it)
+            AppLog.warning(
+                category = "player.mdk",
+                event = "engine_call_failed",
+                message = "MDK engine call failed",
+                throwable = it,
+            )
         }
     }
 }

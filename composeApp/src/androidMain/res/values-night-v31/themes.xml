@@ -2,10 +2,11 @@
 <resources>
     <style name="Theme.Yfuse" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">#08090F</item>
+        <item name="android:navigationBarColor">#05070C</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_yfuse_mark</item>
-        <item name="android:windowSplashScreenBackground">#08090F</item>
+        <!-- 深色开屏底 —— 与图标壳同色，接 Compose 开屏的 DarkSkin。 -->
+        <item name="android:windowSplashScreenBackground">#05070C</item>
         <item name="android:windowSplashScreenAnimationDuration">300</item>
     </style>
 </resources>

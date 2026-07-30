@@ -90,6 +90,9 @@ import com.yfuse.core.network.EmbyImages
 /** How far the information sheet is pulled up over the lower edge of the artwork. */
 private val HeroOverlap = 46.dp
 
+/** `rgba(18,22,32,…)` — the ink the hero wash darkens towards under the status bar. */
+private val HeroInk = Color(0xFF121620)
+
 /** Height of the collapsing top bar's content row, above the status bar inset. */
 private val TopBarHeight = 52.dp
 
@@ -435,9 +438,15 @@ private fun rememberTopBarProgress(
 // ---------------------------------------------------------------- chrome
 
 /**
- * Backdrop under the annotated wash `0deg {page} 5%, rgba(20,15,25,.1) 60%,
- * rgba(20,15,25,.35)`. It lags the list on scroll and grows on over-drag; the back
+ * Backdrop under the annotated wash
+ * `0deg {page} 3%, {page}55% 22%, rgba(18,22,32,.12) 62%, rgba(18,22,32,.42)`
+ * (「影视详情页 优化」). It lags the list on scroll and grows on over-drag; the back
  * affordance lives in [DetailTopBar] so it survives past the artwork.
+ *
+ * The middle stop matters: dropping it and running the page colour straight into the
+ * dark stop — as this did — keeps the wash above 50% opaque all the way to mid-hero,
+ * so the artwork was only ever visible in its top third. Reaching 55% by 22% instead
+ * confines the blend to the strip the information sheet actually sits over.
  */
 @Composable
 private fun Hero(
@@ -467,9 +476,10 @@ private fun Hero(
         Box(
             Modifier.fillMaxSize().background(
                 scrim(
-                    0.05f to surfaceColor,
-                    0.60f to Color(0xFF140F19).copy(alpha = 0.10f),
-                    1f to Color(0xFF140F19).copy(alpha = 0.35f),
+                    0.03f to surfaceColor,
+                    0.22f to surfaceColor.copy(alpha = 0.55f),
+                    0.62f to HeroInk.copy(alpha = 0.12f),
+                    1f to HeroInk.copy(alpha = 0.42f),
                 ),
             ),
         )
@@ -609,31 +619,33 @@ private fun InfoCard(baseUrl: String, detail: MediaDetail) {
             ),
     ) {
         Box(Modifier.matchParentSize().background(sheen))
-        TitleBlock(baseUrl, detail, Modifier.padding(12.dp))
+        TitleBlock(baseUrl, detail, Modifier.padding(16.dp))
     }
 }
 
 /**
- * Poster + title cluster — `gap:14px`, vertically centred; poster 84×122 with a 2px
- * white border and `0 10px 24px rgba(0,0,0,.25)`. The community score reads as a
- * labelled figure (`TMDB 8.7`) rather than a badge, per the reference.
+ * Poster + title cluster — `gap:16px`, vertically centred; poster 96×142 under
+ * `0 10px 24px -12px rgba(28,36,58,.5)`. The community score reads as a labelled
+ * figure (`TMDB 8.7`) rather than a badge, per the reference.
+ *
+ * No white keyline on the poster: the card it sits on is itself 92% white, so a 2px
+ * white border only ate 4dp of artwork and blurred the poster's own edge.
  */
 @Composable
 private fun TitleBlock(baseUrl: String, detail: MediaDetail, modifier: Modifier = Modifier) {
     val palette = LocalPalette.current
     Row(
         modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Poster(
             url = EmbyImages.poster(baseUrl, detail),
             sharedKey = "media-poster-${detail.id}",
             modifier = Modifier
-                .width(84.dp)
-                .height(122.dp)
-                .shadow(Shadows.detailPoster, GlassShapes.poster)
-                .border(2.dp, Color.White, GlassShapes.poster),
+                .width(96.dp)
+                .height(142.dp)
+                .shadow(Shadows.detailPoster, GlassShapes.poster),
         )
         Column(Modifier.weight(1f)) {
             Text(
@@ -956,7 +968,15 @@ private fun OverviewSection(
     }
 }
 
-/** Compact solid-glass resource cards; unavailable servers stay hidden. */
+/**
+ * 资源对比 — one card per server that holds this title; unreachable servers stay hidden.
+ *
+ * The cards used to carry a `rgba(255,255,255,.82)` keyline, which is invisible on a
+ * white page: the row read as loose text floating between two titled sections, with no
+ * card boundary at all. 「影视详情页 优化」 draws the boundary in ink instead — idle
+ * `rgba(20,26,38,.06)` over a barely-there fill, selected a 1.5px accent ring — so that
+ * is what these use, and the block gets the section header every other block has.
+ */
 @Composable
 private fun SourceSection(
     sources: List<ServerSource>,
@@ -968,67 +988,107 @@ private fun SourceSection(
     val availableSources = remember(sources) {
         sources.filter { it.reachable && it.source != null && it.itemId != null }
     }
-    LazyRow(
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        itemsIndexed(
-            availableSources,
-            key = { index, entry -> "source-${entry.serverId}-${entry.itemId}-$index" },
-        ) { _, entry ->
-            Row(
-                Modifier
-                    .width(132.dp)
-                    .heightIn(min = 48.dp)
-                    .pressable {
-                        entry.itemId?.let { onSelect(entry.serverId, it) }
-                    }
-                    .solidGlass(
-                        shape = GlassShapes.thumb,
-                        fill = if (palette.isDark) {
-                            Color.White.copy(alpha = 0.08f)
-                        } else {
-                            Color.White.copy(alpha = 0.58f)
-                        },
-                        border = if (palette.isDark) {
-                            Color.White.copy(alpha = 0.18f)
-                        } else {
-                            Color.White.copy(alpha = 0.82f)
-                        },
-                    )
-                    .padding(horizontal = 9.dp, vertical = 7.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        entry.serverName,
-                        style = sc(10.5f, 700),
-                        color = palette.text,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        listOfNotNull(entry.source?.bitrate, entry.source?.size)
-                            .joinToString(" · ")
-                            .ifBlank { "读取中" },
-                        style = mr(9.5f, 500),
-                        color = palette.sub2,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (entry.isCurrent) {
-                    Icon(
-                        AppIcons.Check,
-                        contentDescription = "当前片源",
-                        tint = accent,
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
+    Column(modifier) {
+        SectionHeader(
+            title = "资源对比",
+            modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+        ) {
+            Text(
+                "${availableSources.size} 个媒体库 · 横向滑动",
+                style = mr(10.5f, 500),
+                color = palette.sub2,
+            )
+        }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            itemsIndexed(
+                availableSources,
+                key = { index, entry -> "source-${entry.serverId}-${entry.itemId}-$index" },
+            ) { _, entry ->
+                SourceCard(
+                    entry = entry,
+                    accent = accent,
+                    onSelect = { entry.itemId?.let { onSelect(entry.serverId, it) } },
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun SourceCard(entry: ServerSource, accent: Color, onSelect: () -> Unit) {
+    val palette = LocalPalette.current
+    val selected = entry.isCurrent
+    // 1.5dp on the selected ring, so switching sources moves the edge as well as the
+    // colour — `solidGlass` is fixed at `Dimens.hairline`, hence the explicit border.
+    val edge = when {
+        selected -> accent
+        palette.isDark -> Color.White.copy(alpha = 0.16f)
+        else -> Color(0xFF141A26).copy(alpha = 0.12f)
+    }
+    val fill = when {
+        selected -> accent.copy(alpha = if (palette.isDark) 0.16f else 0.09f)
+        palette.isDark -> Color.White.copy(alpha = 0.06f)
+        else -> Color(0xFF141A26).copy(alpha = 0.035f)
+    }
+    Column(
+        Modifier
+            .width(140.dp)
+            .heightIn(min = 60.dp)
+            .clip(GlassShapes.thumb)
+            .background(fill)
+            .border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.thumb)
+            .pressable(onClick = onSelect)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 可达性圆点 —— the list is already filtered to reachable servers, so this
+            // is a positive confirmation rather than a warning.
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF5ECB84)),
+            )
+            Text(
+                entry.serverName,
+                style = sc(11.5f, 700),
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (selected) {
+                Icon(
+                    AppIcons.Check,
+                    contentDescription = "当前片源",
+                    tint = accent,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+        }
+        Text(
+            entry.source?.quality.orEmpty().ifBlank { "未知画质" },
+            style = mr(10.5f, 600),
+            color = if (selected) accent else palette.body,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            listOfNotNull(entry.source?.bitrate, entry.source?.size)
+                .joinToString(" · ")
+                .ifBlank { "读取中" },
+            style = mr(9.5f, 500),
+            color = palette.sub2,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1297,8 +1357,8 @@ private fun DetailSkeleton(heroHeight: Dp) {
                 .padding(top = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Box(Modifier.width(84.dp).height(118.dp).clip(GlassShapes.poster).background(fill))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(Modifier.width(96.dp).height(142.dp).clip(GlassShapes.poster).background(fill))
                 Column(
                     Modifier.weight(1f).padding(top = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),

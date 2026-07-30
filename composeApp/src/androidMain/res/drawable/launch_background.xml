@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 亮色开屏底：取设计稿 radial-gradient 的中心色，交给 Compose 开屏时不跳。 -->
+<!--
+  亮色开屏底 —— 设计稿 9c 的画框底色 #F7F8FB，和 Compose 开屏第一帧同色，交接时不跳。
+  168dp 的方框让标识 ink 落到约 110dp，与 Compose 侧 132dp 舞台里的 108dp 基本对齐。
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#FFFFFF" />
+            <solid android:color="#F7F8FB" />
         </shape>
     </item>
     <item

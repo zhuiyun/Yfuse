@@ -15,6 +15,7 @@ import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.data.dto.toPerson
 import com.yfuse.core.data.dto.toSeason
 import com.yfuse.core.data.dto.toSourceInfo
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.Season
@@ -70,11 +71,12 @@ data class AuthedServer(
  */
 class EmbyRepository(private val client: HttpClient) {
 
-    suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> = call {
+    suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> = call("public_users") {
         client.get("${normalizeBaseUrl(baseUrl)}/Users/Public").body()
     }
 
-    suspend fun authenticate(baseUrl: String, username: String, password: String): Result<AuthedServer> = call {
+    suspend fun authenticate(baseUrl: String, username: String, password: String): Result<AuthedServer> =
+        call("authenticate") {
         val url = normalizeBaseUrl(baseUrl)
         val auth: AuthResultDto = client.post("$url/Users/AuthenticateByName") {
             contentType(ContentType.Application.Json)
@@ -86,13 +88,14 @@ class EmbyRepository(private val client: HttpClient) {
         AuthedServer(url, serverName ?: url, auth.User.Id, auth.User.Name, auth.AccessToken)
     }
 
-    suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> = call { fetchViews(server) }
+    suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> =
+        call("libraries") { fetchViews(server) }
 
     suspend fun setFavorite(
         server: SavedServer,
         itemId: String,
         favorite: Boolean,
-    ): Result<Unit> = call {
+    ): Result<Unit> = call("set_favorite") {
         val url = "${server.baseUrl}/Users/${server.userId}/FavoriteItems/$itemId"
         if (favorite) {
             client.post(url) { header("X-Emby-Token", server.accessToken) }
@@ -106,7 +109,7 @@ class EmbyRepository(private val client: HttpClient) {
         server: SavedServer,
         itemId: String,
         played: Boolean,
-    ): Result<Unit> = call {
+    ): Result<Unit> = call("set_played") {
         val url = "${server.baseUrl}/Users/${server.userId}/PlayedItems/$itemId"
         if (played) {
             client.post(url) { header("X-Emby-Token", server.accessToken) }
@@ -120,7 +123,8 @@ class EmbyRepository(private val client: HttpClient) {
      * Emby has no special “watch later” flag. It is represented by a real
      * user playlist so it follows the account across clients and servers.
      */
-    suspend fun addToWatchLater(server: SavedServer, itemId: String): Result<Unit> = call {
+    suspend fun addToWatchLater(server: SavedServer, itemId: String): Result<Unit> =
+        call("add_to_watch_later") {
         val playlists: ItemsResponseDto =
             client.get("${server.baseUrl}/Users/${server.userId}/Items") {
                 header("X-Emby-Token", server.accessToken)
@@ -196,7 +200,7 @@ class EmbyRepository(private val client: HttpClient) {
     )
 
     /** Aggregates the home screen: continue-watching, latest-per-library, featured. */
-    suspend fun homeContent(server: SavedServer): Result<HomeContent> = call {
+    suspend fun homeContent(server: SavedServer): Result<HomeContent> = call("home_content") {
         coroutineScope {
             val views = fetchViews(server)
             // A single library (or the resume row) failing must not blank the
@@ -222,7 +226,8 @@ class EmbyRepository(private val client: HttpClient) {
     }
 
     /** All movies/series in a library, for the "see all" grid. */
-    suspend fun libraryItems(server: SavedServer, libraryId: String): Result<List<MediaItem>> = call {
+    suspend fun libraryItems(server: SavedServer, libraryId: String): Result<List<MediaItem>> =
+        call("library_items") {
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
             header("X-Emby-Token", server.accessToken)
             parameter("ParentId", libraryId)
@@ -247,7 +252,7 @@ class EmbyRepository(private val client: HttpClient) {
         server: SavedServer,
         itemId: String,
         limit: Int = 12,
-    ): Result<List<MediaItem>> = call {
+    ): Result<List<MediaItem>> = call("similar_items") {
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Items/$itemId/Similar") {
             header("X-Emby-Token", server.accessToken)
             parameter("UserId", server.userId)
@@ -268,7 +273,8 @@ class EmbyRepository(private val client: HttpClient) {
      * themselves; a series plays its "next up" episode (falling back to the
      * first episode), carrying that episode's resume position.
      */
-    suspend fun resolvePlayTarget(server: SavedServer, detail: MediaDetail): Result<PlayTarget> = call {
+    suspend fun resolvePlayTarget(server: SavedServer, detail: MediaDetail): Result<PlayTarget> =
+        call("resolve_play_target") {
         if (detail.type != "Series") {
             PlayTarget(detail.id, detail.resumePositionTicks ?: 0L)
         } else {
@@ -298,7 +304,8 @@ class EmbyRepository(private val client: HttpClient) {
     }
 
     /** Title search, used by the search tab and to match TMDB picks to the library. */
-    suspend fun search(server: SavedServer, query: String, limit: Int = 24): Result<List<MediaItem>> = call {
+    suspend fun search(server: SavedServer, query: String, limit: Int = 24): Result<List<MediaItem>> =
+        call("search") {
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
             header("X-Emby-Token", server.accessToken)
             parameter("SearchTerm", query)
@@ -317,7 +324,8 @@ class EmbyRepository(private val client: HttpClient) {
     }
 
     /** Complete user-state snapshot used by the real multi-server sync coordinator. */
-    suspend fun userLibrarySnapshot(server: SavedServer): Result<List<SyncedUserItem>> = call {
+    suspend fun userLibrarySnapshot(server: SavedServer): Result<List<SyncedUserItem>> =
+        call("user_library_snapshot") {
         val dto: ItemsResponseDto =
             client.get("${server.baseUrl}/Users/${server.userId}/Items") {
                 header("X-Emby-Token", server.accessToken)
@@ -344,7 +352,7 @@ class EmbyRepository(private val client: HttpClient) {
         server: SavedServer,
         tmdbId: Int,
         mediaType: String,
-    ): Result<MediaItem?> = call {
+    ): Result<MediaItem?> = call("find_item_by_provider") {
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
             header("X-Emby-Token", server.accessToken)
             parameter("Recursive", true)
@@ -359,7 +367,8 @@ class EmbyRepository(private val client: HttpClient) {
     }
 
     /** Full detail for a single item. Episodes inherit the series' cast. */
-    suspend fun itemDetail(server: SavedServer, itemId: String): Result<MediaDetail> = call {
+    suspend fun itemDetail(server: SavedServer, itemId: String): Result<MediaDetail> =
+        call("item_detail") {
         val dto: BaseItemDto = client.get("${server.baseUrl}/Users/${server.userId}/Items/$itemId") {
             header("X-Emby-Token", server.accessToken)
             parameter(
@@ -481,7 +490,8 @@ class EmbyRepository(private val client: HttpClient) {
     }
 
     /** Seasons of a series. */
-    suspend fun seasons(server: SavedServer, seriesId: String): Result<List<Season>> = call {
+    suspend fun seasons(server: SavedServer, seriesId: String): Result<List<Season>> =
+        call("seasons") {
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/$seriesId/Seasons") {
             header("X-Emby-Token", server.accessToken)
             parameter("UserId", server.userId)
@@ -490,7 +500,11 @@ class EmbyRepository(private val client: HttpClient) {
     }
 
     /** Episodes of a season (or of the whole series when [seasonId] is null). */
-    suspend fun episodes(server: SavedServer, seriesId: String, seasonId: String?): Result<List<Episode>> = call {
+    suspend fun episodes(
+        server: SavedServer,
+        seriesId: String,
+        seasonId: String?,
+    ): Result<List<Episode>> = call("episodes") {
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/$seriesId/Episodes") {
             header("X-Emby-Token", server.accessToken)
             parameter("UserId", server.userId)
@@ -561,7 +575,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId: String,
         positionTicks: Long,
         isPaused: Boolean,
-    ): Result<Unit> = call {
+    ): Result<Unit> = call("report_playback") {
         client.post("${normalizeBaseUrl(server.baseUrl)}$path") {
             header("X-Emby-Token", server.accessToken)
             contentType(ContentType.Application.Json)
@@ -577,13 +591,24 @@ class EmbyRepository(private val client: HttpClient) {
         Unit
     }
 
-    private inline fun <T> call(block: () -> T): Result<T> =
+    private inline fun <T> call(operation: String, block: () -> T): Result<T> =
         try {
             Result.success(block())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            Result.failure(EmbyErrorException(e.toEmbyError()))
+            val mapped = e.toEmbyError()
+            AppLog.error(
+                category = "emby",
+                event = "request_failed",
+                message = "Emby operation failed",
+                throwable = e,
+                attributes = mapOf(
+                    "operation" to operation,
+                    "error" to mapped.toString(),
+                ),
+            )
+            Result.failure(EmbyErrorException(mapped))
         }
 
     private fun Throwable.toEmbyError(): EmbyError = when (this) {

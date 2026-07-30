@@ -9,6 +9,8 @@ import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
+import com.yfuse.core.logging.DiagnosticLogStore
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.core.offline.offlineApplicationContext
 import com.yfuse.di.appModule
@@ -19,6 +21,8 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        DiagnosticLogStore.initialize(this)
+        AppLog.info("app", "initializing", "Initializing application dependencies")
         imageCacheContext = this
         offlineApplicationContext = this
         val prefs = getSharedPreferences("yfuse", MODE_PRIVATE)

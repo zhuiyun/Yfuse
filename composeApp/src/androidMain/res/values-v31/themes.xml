@@ -2,10 +2,11 @@
 <resources>
     <style name="Theme.Yfuse" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:navigationBarColor">#F7F8FB</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_yfuse_mark</item>
-        <item name="android:windowSplashScreenBackground">#FFFFFF</item>
+        <!-- 设计稿 9c 的浅色画框底，接着交给 Compose 开屏的同色第一帧。 -->
+        <item name="android:windowSplashScreenBackground">#F7F8FB</item>
         <item name="android:windowSplashScreenAnimationDuration">300</item>
     </style>
 </resources>

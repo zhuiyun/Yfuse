@@ -1,13 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Yfuse 标识 —— 设计方案 4c「缎带绕环 · 播放头居中」，几何取自设计稿的 200×200 画布。
+  Yfuse 标识 —— 设计文件「Yfuse Logo 重做」定稿 9「单半弧」，几何取自设计稿的 200×200 画布。
 
-  环：r=72、stroke-width=26、圆头端点。设计稿用 `stroke-dasharray:336 117` +
-  `rotate(-142)` 开缺口；VectorDrawable 不支持 dasharray，所以直接写成一段
-  从 -142° 起、扫过 267.36° 的弧（端点 43.26,55.67 → 58.29,158.69），缺口留在左侧。
+  火弧（上）`M31.53,85.45 A70,70 0 0 1 168.47,85.45`、水弧（下）
+  `M168.47,114.55 A70,70 0 0 1 31.53,114.55`：同心 r=70、stroke-width=24、圆头端点，
+  左右各留一道 24° 等宽缺口。播放头 `M82,70 L137,100 L82,130 Z` 配 13 宽圆角描边抹圆
+  三个尖角，再用两个 clip-path 沿 y=99 / y=101 上下分色（火 #FF4A0F / 水 #0B49BE）。
+  clip 边界是水平的，所以不吃 VectorDrawable clip-path 不抗锯齿的亏。
 
-  外层 group 把 200 画布缩到 0.67，让标识在自适应图标与系统闪屏中留出更舒展的
-  安全边距。同一份文件既作 launcher 前景层，也作开屏图标。
+  外层 group 把 200 画布缩到 0.74：ink 半径 82（含圆头端点）在 108dp 画布上折算成
+  2×82×0.74×(108/200) ≈ 65.5dp，落在自适应图标 66dp 安全区内。**不要再往上调**——
+  0.80 得到 71dp，而遮罩可见区只有约 72dp，左右两端的圆头端点会被削平（真机验过）。
+  设计导出的 SVG 里写的是 0.82，那是 200×200 满幅贴片、四周不裁的语境，不适用于这里。
+
+  浅色 / 深色**共用这一份前景层**：设计导出的 `yfuse-icon-light.svg` 与
+  `yfuse-icon-dark.svg` 只差壳色，标志本身同色，壳在 `ic_launcher_background` 里分主题。
+  同一份文件既作 launcher 前景层，也作 API 31+ 开屏图标。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -19,32 +27,63 @@
     <group
         android:pivotX="100"
         android:pivotY="100"
-        android:scaleX="0.67"
-        android:scaleY="0.67">
+        android:scaleX="0.74"
+        android:scaleY="0.74">
 
         <path
-            android:pathData="M43.26,55.67 A72,72 0 1 1 58.29,158.69"
-            android:strokeWidth="26"
+            android:pathData="M31.53,85.45 A70,70 0 0 1 168.47,85.45"
+            android:strokeWidth="24"
             android:strokeLineCap="round">
             <aapt:attr name="android:strokeColor">
                 <gradient
                     android:type="linear"
-                    android:startX="15"
-                    android:startY="185"
-                    android:endX="185"
-                    android:endY="15">
-                    <item android:offset="0" android:color="#FF9A5C" />
-                    <item android:offset="0.5" android:color="#FF7FA8" />
-                    <item android:offset="1" android:color="#BC8DF2" />
+                    android:startX="35.6"
+                    android:startY="97.5"
+                    android:endX="164.4"
+                    android:endY="18">
+                    <item android:offset="0" android:color="#E5290B" />
+                    <item android:offset="0.5" android:color="#FF6A16" />
+                    <item android:offset="1" android:color="#FFB524" />
                 </gradient>
             </aapt:attr>
         </path>
 
         <path
-            android:pathData="M80,71 L132,100 L80,129 Z"
-            android:fillColor="#FF7FA8"
-            android:strokeColor="#FF7FA8"
-            android:strokeWidth="14"
-            android:strokeLineJoin="round" />
+            android:pathData="M168.47,114.55 A70,70 0 0 1 31.53,114.55"
+            android:strokeWidth="24"
+            android:strokeLineCap="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="164.4"
+                    android:startY="102.5"
+                    android:endX="35.6"
+                    android:endY="182">
+                    <item android:offset="0" android:color="#5BE3FF" />
+                    <item android:offset="0.5" android:color="#14A9F0" />
+                    <item android:offset="1" android:color="#0A3BB5" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <group>
+            <clip-path android:pathData="M0,0 H200 V99 H0 Z" />
+            <path
+                android:pathData="M82,70 L137,100 L82,130 Z"
+                android:fillColor="#FF4A0F"
+                android:strokeColor="#FF4A0F"
+                android:strokeWidth="13"
+                android:strokeLineJoin="round" />
+        </group>
+
+        <group>
+            <clip-path android:pathData="M0,101 H200 V200 H0 Z" />
+            <path
+                android:pathData="M82,70 L137,100 L82,130 Z"
+                android:fillColor="#0B49BE"
+                android:strokeColor="#0B49BE"
+                android:strokeWidth="13"
+                android:strokeLineJoin="round" />
+        </group>
     </group>
 </vector>

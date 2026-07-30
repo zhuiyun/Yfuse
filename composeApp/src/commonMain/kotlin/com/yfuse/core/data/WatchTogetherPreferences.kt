@@ -10,9 +10,10 @@ class WatchTogetherPreferences(private val settings: Settings) {
     private companion object {
         const val ENDPOINT_KEY = "watchTogether.endpoint"
         const val CLIENT_ID_KEY = "watchTogether.clientId"
+        const val DEFAULT_ENDPOINT = "http://47.112.219.60"
     }
 
-    private val _endpoint = MutableStateFlow(settings.getString(ENDPOINT_KEY, ""))
+    private val _endpoint = MutableStateFlow(settings.getString(ENDPOINT_KEY, DEFAULT_ENDPOINT))
     val endpoint: StateFlow<String> = _endpoint.asStateFlow()
 
     val clientId: String = settings.getStringOrNull(CLIENT_ID_KEY) ?: buildString {

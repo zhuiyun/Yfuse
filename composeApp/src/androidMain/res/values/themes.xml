@@ -3,7 +3,8 @@
     <style name="Theme.Yfuse" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">#FFFFFF</item>
+        <!-- 与开屏底 #F7F8FB 同色，否则导航栏会在开屏那几帧亮出一条纯白边。 -->
+        <item name="android:navigationBarColor">#F7F8FB</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
 
