@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.FileProvider
 import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
@@ -24,6 +25,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 private const val UPDATE_MANIFEST = "http://47.112.219.60/yfuse/update.json"
+
+val LocalAppUpdateManager = staticCompositionLocalOf<AppUpdateManager?> { null }
 
 @Serializable
 data class UpdateManifest(

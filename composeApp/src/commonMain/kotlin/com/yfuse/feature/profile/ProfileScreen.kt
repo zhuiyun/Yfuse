@@ -314,6 +314,14 @@ fun ProfileScreen(component: ProfileComponent) {
                     }
                 }
 
+                item {
+                    AppUpdateTools()
+                }
+
+                item {
+                    AppVersionFooter()
+                }
+
             }
         }
 
@@ -670,7 +678,7 @@ private fun CollapsibleSummaryRow(
  * optional trailing action at `600 11px Manrope`, `#3D64C9`.
  */
 @Composable
-private fun Section(
+internal fun Section(
     title: String,
     action: String? = null,
     onAction: () -> Unit = {},
@@ -783,7 +791,7 @@ private fun ServerRow(
 
 /** Settings row — `--pg-card2`, `padding:13px 16px`, `500 13px` / `400 12px Manrope`. */
 @Composable
-private fun SettingRow(
+internal fun SettingRow(
     title: String,
     value: String,
     embedded: Boolean = false,

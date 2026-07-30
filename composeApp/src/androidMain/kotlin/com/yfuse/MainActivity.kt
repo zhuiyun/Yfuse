@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.CompositionLocalProvider
 import com.arkivanov.decompose.retainedComponent
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AnimatedSplashApp
@@ -16,6 +17,7 @@ import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
+import com.yfuse.update.LocalAppUpdateManager
 import org.koin.core.context.GlobalContext
 
 class MainActivity : ComponentActivity() {
@@ -44,8 +46,10 @@ class MainActivity : ComponentActivity() {
 
         updateManager = AppUpdateManager(this)
         setContent {
-            AnimatedSplashApp(root) {
-                AppUpdateOverlay(updateManager)
+            CompositionLocalProvider(LocalAppUpdateManager provides updateManager) {
+                AnimatedSplashApp(root) {
+                    AppUpdateOverlay(updateManager)
+                }
             }
         }
         updateManager.check()

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -28,6 +29,9 @@ import com.yfuse.core.designsystem.sc
 fun AppUpdateOverlay(manager: AppUpdateManager) {
     val state by manager.state.collectAsState()
     var dismissedVersion by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(state) {
+        if (state is UpdateState.Checking) dismissedVersion = -1
+    }
     val manifest = when (val value = state) {
         is UpdateState.Available -> value.manifest
         is UpdateState.Downloading -> value.manifest
