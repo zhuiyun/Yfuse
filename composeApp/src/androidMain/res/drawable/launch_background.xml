@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   亮色开屏底 —— 设计稿 9c 的画框底色 #F7F8FB，和 Compose 开屏第一帧同色，交接时不跳。
-  168dp 的方框让标识 ink 落到约 110dp，与 Compose 侧 132dp 舞台里的 108dp 基本对齐。
+  168dp 的方框让标识 ink 落到约 96dp，与 Compose 侧收小后的动画标识自然衔接。
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>

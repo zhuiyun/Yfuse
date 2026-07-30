@@ -1,5 +1,6 @@
 package com.yfuse
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,6 +16,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.WatchInvite
 import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager
@@ -22,6 +24,7 @@ import org.koin.core.context.GlobalContext
 
 class MainActivity : ComponentActivity() {
     private lateinit var updateManager: AppUpdateManager
+    private var rootComponent: RootComponent? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Cold starts keep the dedicated fullscreen launch theme until the
@@ -44,6 +47,8 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        rootComponent = root
+
         updateManager = AppUpdateManager(this)
         setContent {
             CompositionLocalProvider(LocalAppUpdateManager provides updateManager) {
@@ -53,6 +58,29 @@ class MainActivity : ComponentActivity() {
             }
         }
         updateManager.check()
+
+        // A cold start from a shared link arrives here rather than in onNewIntent.
+        consumeInviteIntent(intent)
+    }
+
+    /**
+     * The activity is `singleTask`, so a link tapped while Yfuse is already running is
+     * delivered here instead of creating a second instance — including while the player is
+     * in the foreground on top of us.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeInviteIntent(intent)
+    }
+
+    private fun consumeInviteIntent(intent: Intent?) {
+        val data = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data ?: return
+        val invite = WatchInvite.parse(data.toString()) ?: return
+        rootComponent?.offerInvite(invite)
+        // Clear the payload so a configuration change or a later resume doesn't re-offer an
+        // invite the user already dealt with.
+        intent.data = null
     }
 
     override fun onResume() {

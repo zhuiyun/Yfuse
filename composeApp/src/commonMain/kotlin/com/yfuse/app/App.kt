@@ -23,11 +23,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -43,6 +45,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
+import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AccessibilityOptions
@@ -64,9 +67,15 @@ import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.library.LibraryScreen
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.profile.ProfileTabScreen
+import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.feature.search.SearchScreen
 import com.yfuse.feature.player.ActivePlayback
+import com.yfuse.feature.watch.InviteResolution
+import com.yfuse.feature.watch.WatchInviteResolver
+import com.yfuse.feature.watch.WatchInviteSheet
+import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 
 private data class TabItem(val tab: Tab, val label: String, val icon: ImageVector)
 
@@ -149,6 +158,34 @@ fun App(root: RootComponent) {
         val searchStack by root.search.stack.subscribeAsState()
         val profileStack by root.profile.stack.subscribeAsState()
         val miniPlayback by ActivePlayback.state.collectAsState()
+        val scope = rememberCoroutineScope()
+
+        // Watch-together lives above the tabs: an invite can arrive from a chat app at any
+        // moment, and an active room has to stay visible after the player is dismissed —
+        // the client is a singleton, so without this the user could be in a room with no
+        // indication anywhere in the app.
+        val watchTogether = remember { GlobalContext.get().get<WatchTogetherClient>() }
+        val inviteResolver = remember { GlobalContext.get().get<WatchInviteResolver>() }
+        val watchPreferences = remember { GlobalContext.get().get<WatchTogetherPreferences>() }
+        val watchState by watchTogether.state.collectAsState()
+        val watchEndpoint by watchPreferences.endpoint.collectAsState()
+        val pendingInvite by root.pendingInvite.collectAsState()
+
+        var inviteResolution by remember {
+            mutableStateOf<InviteResolution>(InviteResolution.Resolving)
+        }
+        LaunchedEffect(pendingInvite) {
+            val invite = pendingInvite ?: return@LaunchedEffect
+            inviteResolution = InviteResolution.Resolving
+            inviteResolution = inviteResolver.resolve(invite)
+        }
+
+        val watchRoomNote = when {
+            !watchState.connected -> null
+            watchState.reconnecting -> "一起看 · 重连中"
+            watchState.isHost -> "一起看 · 房主 · ${watchState.participantCount} 人"
+            else -> "一起看 · ${watchState.participantCount} 人"
+        }
 
         // The bar belongs to the four roots; any pushed page (detail, grid, add
         // server, player) owns the whole screen.
@@ -212,6 +249,7 @@ fun App(root: RootComponent) {
                         MiniPlayer(
                             title = miniPlayback.title,
                             playing = miniPlayback.playing,
+                            roomNote = watchRoomNote,
                             progress = if (miniPlayback.durationMs > 0L) {
                                 miniPlayback.positionMs.toFloat() / miniPlayback.durationMs
                             } else {
@@ -228,6 +266,32 @@ fun App(root: RootComponent) {
                         )
                     }
                 }
+
+                pendingInvite?.let { invite ->
+                    WatchInviteSheet(
+                        roomCode = invite.roomCode,
+                        resolution = inviteResolution,
+                        unfamiliarEndpoint = invite.endpoint
+                            ?.takeIf { it.trimEnd('/') != watchEndpoint.trimEnd('/') },
+                        onJoin = {
+                            scope.launch {
+                                val target = inviteResolver.resolveTarget(invite) ?: return@launch
+                                // Join before navigating: the client is a singleton, so the
+                                // player picks the room up from its state on start and the
+                                // guest reconcile loop syncs from the timeline — no need to
+                                // thread a room code through the launch path.
+                                watchTogether.joinRoom(
+                                    endpoint = invite.endpoint ?: watchEndpoint,
+                                    roomCode = invite.roomCode,
+                                    mediaKey = invite.mediaKey.orEmpty(),
+                                )
+                                root.openWatchTarget(target.server.id, target.item.id)
+                            }
+                        },
+                        onSearchByName = root::openSearchForInvite,
+                        onDismiss = root::dismissInvite,
+                    )
+                }
             }
         }
     }
@@ -242,6 +306,9 @@ private fun MiniPlayer(
     onToggle: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Non-null while a watch-together room is live — this is the only place an active
+     *  room is visible once the player has been dismissed. */
+    roomNote: String? = null,
 ) {
     Row(
         modifier
@@ -269,6 +336,10 @@ private fun MiniPlayer(
         }
         Column(Modifier.weight(1f)) {
             Text(title.ifBlank { "正在播放" }, style = mr(11.5f, 650), color = Color.White, maxLines = 1)
+            if (roomNote != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(roomNote, style = mr(9.5f, 500), color = Brand.Primary, maxLines = 1)
+            }
             Spacer(Modifier.height(6.dp))
             Box(Modifier.fillMaxWidth().height(2.dp).background(Color.White.copy(alpha = 0.18f))) {
                 Box(

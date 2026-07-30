@@ -11,7 +11,10 @@ import com.yfuse.feature.player.PlayerScreen
 @Composable
 fun LibraryScreen(component: LibraryComponent) {
     val stack by component.stack.subscribeAsState()
-    SharedElementTransitionContainer(targetState = stack.active.instance) { instance ->
+    SharedElementTransitionContainer(
+        targetState = stack.active.instance,
+        routeKey = ::routeKey,
+    ) { instance ->
         when (instance) {
             is LibraryComponent.Child.Home -> LibraryHomeScreen(instance.component)
             is LibraryComponent.Child.Grid -> LibraryGridScreen(instance.component)
@@ -19,4 +22,12 @@ fun LibraryScreen(component: LibraryComponent) {
             is LibraryComponent.Child.Player -> PlayerScreen(instance.component)
         }
     }
+}
+
+/** Keeps each route's scrolled position while it waits in the back stack. */
+private fun routeKey(child: LibraryComponent.Child): String = when (child) {
+    is LibraryComponent.Child.Home -> "home"
+    is LibraryComponent.Child.Grid -> "grid"
+    is LibraryComponent.Child.Detail -> "detail"
+    is LibraryComponent.Child.Player -> "player"
 }

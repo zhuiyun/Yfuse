@@ -60,6 +60,15 @@ class LibraryComponent(
         navigation.pop()
     }
 
+    /**
+     * Opens a specific item's detail page from outside this tab — used when a watch-together
+     * invite has been resolved to an item on one of the user's own servers, so accepting the
+     * invite lands on the film rather than on whatever tab happened to be open.
+     */
+    fun openDetail(serverId: String?, itemId: String) {
+        navigation.push(Config.Detail(serverId, itemId))
+    }
+
     private fun child(config: Config, context: ComponentContext): Child = when (config) {
         Config.Home -> Child.Home(
             LibraryHomeComponent(

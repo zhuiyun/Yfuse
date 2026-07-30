@@ -31,7 +31,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
@@ -43,9 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -60,23 +57,28 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.cssLinearGradient
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.cssRadialGradient
 import com.yfuse.core.designsystem.cssShadow
+import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.heroPanelBrush
+import com.yfuse.core.designsystem.heroScrim
+import com.yfuse.core.designsystem.heroSurface
+import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDominantColor
 import com.yfuse.core.designsystem.sc
-import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaElement
 import com.yfuse.core.designsystem.solidGlass
@@ -86,12 +88,15 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.sync.WatchInvite
+import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.core.sync.watchKey
+import com.yfuse.core.util.rememberShareHandler
+import com.yfuse.feature.watch.WatchInviteShareSheet
+import org.koin.core.context.GlobalContext
 
 /** How far the information sheet is pulled up over the lower edge of the artwork. */
 private val HeroOverlap = 46.dp
-
-/** `rgba(18,22,32,…)` — the ink the hero wash darkens towards under the status bar. */
-private val HeroInk = Color(0xFF121620)
 
 /** Height of the collapsing top bar's content row, above the status bar inset. */
 private val TopBarHeight = 52.dp
@@ -110,32 +115,24 @@ fun DetailScreen(component: DetailComponent) {
     var seasonPickerOpen by remember { mutableStateOf(false) }
     var overviewExpanded by remember { mutableStateOf(false) }
 
+    val watchTogether = remember { GlobalContext.get().get<WatchTogetherClient>() }
+    val watchPreferences = remember { GlobalContext.get().get<WatchTogetherPreferences>() }
+    val watchState by watchTogether.state.collectAsState()
+    val watchEndpoint by watchPreferences.endpoint.collectAsState()
+    val share = rememberShareHandler()
+    var shareSheetOpen by remember { mutableStateOf(false) }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val heroHeight = maxHeight * 0.34f
         val heroHeightPx = with(density) { heroHeight.toPx() }
 
-        // The page carries the artwork's colour under both themes; the light theme used to
-        // fall back to flat white, which dropped the ambient tint the design asks for.
         val detailSurface = remember(accent, palette.isDark) {
-            if (palette.isDark) {
-                accent.copy(alpha = 0.10f).compositeOver(Color(0xFF0B111C))
-            } else {
-                Color.White
-            }
+            heroSurface(accent, palette.isDark)
         }
         // Blend band between the artwork and the page, drawn behind the floating sheet.
         val panelBrush = remember(detailSurface, density) {
-            Brush.verticalGradient(
-                colorStops = arrayOf(
-                    0f to Color.Transparent,
-                    0.30f to detailSurface.copy(alpha = 0.42f),
-                    0.66f to detailSurface.copy(alpha = 0.90f),
-                    1f to detailSurface,
-                ),
-                startY = 0f,
-                endY = with(density) { 170.dp.toPx() },
-            )
+            heroPanelBrush(detailSurface, density)
         }
 
         val listState = rememberLazyListState()
@@ -150,28 +147,11 @@ fun DetailScreen(component: DetailComponent) {
         when {
             state.loading && detail == null -> DetailSkeleton(heroHeight)
 
-            detail == null -> Column(
-                Modifier.align(Alignment.Center).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    state.error ?: "加载失败",
-                    style = sc(13f, 400),
-                    color = palette.sub,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(8.dp))
-                TextButton(
-                    onClick = { component.store.accept(DetailIntent.Retry) },
-                    modifier = Modifier.solidGlass(
-                        shape = GlassShapes.chip,
-                        fill = palette.card2,
-                        border = palette.border,
-                    ),
-                ) {
-                    Text("重试", style = sc(13f, 700), color = Brand.Primary)
-                }
-            }
+            detail == null -> ErrorState(
+                message = state.error ?: "加载失败",
+                onRetry = { component.store.accept(DetailIntent.Retry) },
+                modifier = Modifier.align(Alignment.Center),
+            )
 
             else -> LazyColumn(
                 Modifier.fillMaxSize(),
@@ -190,21 +170,10 @@ fun DetailScreen(component: DetailComponent) {
                 }
 
                 item(key = "sheet") {
-                    val overlapPx = with(density) { HeroOverlap.roundToPx() }
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            // `offset` would leave the item's measured height behind as dead
-                            // space at the end of the list; shrink the slot instead.
-                            .layout { measurable, constraints ->
-                                val placeable = measurable.measure(constraints)
-                                layout(
-                                    placeable.width,
-                                    (placeable.height - overlapPx).coerceAtLeast(0),
-                                ) {
-                                    placeable.place(0, -overlapPx)
-                                }
-                            }
+                            .liftOverHero(HeroOverlap)
                             .background(panelBrush)
                             .padding(horizontal = Dimens.pageHorizontal),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -226,6 +195,16 @@ fun DetailScreen(component: DetailComponent) {
                             },
                             onTogglePlayed = {
                                 component.store.accept(DetailIntent.TogglePlayed)
+                            },
+                            onWatchTogether = {
+                                // Create the room from here and immediately start playing:
+                                // one tap from "watch this with someone" to "invite ready".
+                                watchTogether.createRoom(
+                                    endpoint = watchEndpoint,
+                                    mediaKey = detail.providerIds.watchKey(detail.id),
+                                )
+                                shareSheetOpen = true
+                                component.store.accept(DetailIntent.Play)
                             },
                         )
                         state.actionMessage?.let { message ->
@@ -338,6 +317,28 @@ fun DetailScreen(component: DetailComponent) {
         if (state.resolvingPlay) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
+
+        if (shareSheetOpen && watchState.roomCode != null) {
+            val invite = WatchInvite(
+                roomCode = watchState.roomCode.orEmpty(),
+                mediaKey = detail?.let { it.providerIds.watchKey(it.id) },
+                title = detail?.title,
+                // Only travel the endpoint when it isn't the built-in default, so the common
+                // case produces a short link and no "unfamiliar relay" warning on the far end.
+                endpoint = watchEndpoint.takeIf {
+                    it.trimEnd('/') != WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
+                },
+            )
+            WatchInviteShareSheet(
+                roomCode = invite.roomCode,
+                title = detail?.title,
+                participantCount = watchState.participantCount,
+                shareText = invite.shareText(),
+                onShare = share::shareText,
+                onCopy = share::copyText,
+                onDismiss = { shareSheetOpen = false },
+            )
+        }
     }
 }
 
@@ -438,15 +439,8 @@ private fun rememberTopBarProgress(
 // ---------------------------------------------------------------- chrome
 
 /**
- * Backdrop under the annotated wash
- * `0deg {page} 3%, {page}55% 22%, rgba(18,22,32,.12) 62%, rgba(18,22,32,.42)`
- * (「影视详情页 优化」). It lags the list on scroll and grows on over-drag; the back
- * affordance lives in [DetailTopBar] so it survives past the artwork.
- *
- * The middle stop matters: dropping it and running the page colour straight into the
- * dark stop — as this did — keeps the wash above 50% opaque all the way to mid-hero,
- * so the artwork was only ever visible in its top third. Reaching 55% by 22% instead
- * confines the blend to the strip the information sheet actually sits over.
+ * Backdrop under [heroScrim]. It lags the list on scroll and grows on over-drag; the
+ * back affordance lives in [DetailTopBar] so it survives past the artwork.
  */
 @Composable
 private fun Hero(
@@ -473,16 +467,7 @@ private fun Hero(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().sharedMediaElement(sharedKey),
         )
-        Box(
-            Modifier.fillMaxSize().background(
-                scrim(
-                    0.03f to surfaceColor,
-                    0.22f to surfaceColor.copy(alpha = 0.55f),
-                    0.62f to HeroInk.copy(alpha = 0.12f),
-                    1f to HeroInk.copy(alpha = 0.42f),
-                ),
-            ),
-        )
+        Box(Modifier.fillMaxSize().background(heroScrim(surfaceColor)))
     }
 }
 
@@ -727,6 +712,7 @@ private fun DetailActionDock(
     onDownload: () -> Unit,
     onWatchLater: () -> Unit,
     onTogglePlayed: () -> Unit,
+    onWatchTogether: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val ink = remember(accent) {
@@ -843,6 +829,21 @@ private fun DetailActionDock(
                     onTogglePlayed,
                 )
             }
+        }
+        // 一起看 sits with the play affordances rather than in the settings of a player you
+        // must already have open: deciding to watch something *with* someone happens here,
+        // at the point you decide to watch it at all.
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            DockAction(
+                icon = AppIcons.User,
+                label = "一起看",
+                accent = accent,
+                modifier = Modifier.weight(1f),
+                onClick = onWatchTogether,
+            )
         }
     }
 }

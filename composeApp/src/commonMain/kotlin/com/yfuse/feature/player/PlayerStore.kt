@@ -9,6 +9,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.model.PlaybackSegment
+import com.yfuse.core.sync.watchKey
 import kotlinx.coroutines.launch
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
@@ -147,13 +148,4 @@ class PlayerStoreFactory(
     }
 }
 
-private fun Map<String, String>.watchKey(fallbackId: String): String {
-    val preferred = listOf("Tmdb", "Tvdb", "Imdb")
-    for (provider in preferred) {
-        entries.firstOrNull { it.key.equals(provider, ignoreCase = true) }
-            ?.value
-            ?.takeIf { it.isNotBlank() }
-            ?.let { return "${provider.lowercase()}:$it" }
-    }
-    return "emby:$fallbackId"
-}
+// watchKey now lives in com.yfuse.core.sync alongside the invite payload that carries it.

@@ -26,7 +26,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -49,6 +48,7 @@ import com.yfuse.app.hideBottomBarOnScroll
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
@@ -68,13 +68,23 @@ import com.yfuse.feature.player.PlayerScreen
 fun SearchScreen(component: SearchComponent) {
     val focusRequest by component.focusRequest.subscribeAsState()
     val stack by component.stack.subscribeAsState()
-    SharedElementTransitionContainer(targetState = stack.active.instance) { instance ->
+    SharedElementTransitionContainer(
+        targetState = stack.active.instance,
+        routeKey = ::routeKey,
+    ) { instance ->
         when (instance) {
             is SearchComponent.Child.Home -> SearchHomeScreen(instance.component, focusRequest)
             is SearchComponent.Child.Detail -> DetailScreen(instance.component)
             is SearchComponent.Child.Player -> PlayerScreen(instance.component)
         }
     }
+}
+
+/** Keeps each route's scrolled position while it waits in the back stack. */
+private fun routeKey(child: SearchComponent.Child): String = when (child) {
+    is SearchComponent.Child.Home -> "home"
+    is SearchComponent.Child.Detail -> "detail"
+    is SearchComponent.Child.Player -> "player"
 }
 
 /** 搜索 — `padding:52px 18px 100px; gap:20px`. */
@@ -120,27 +130,11 @@ private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) 
                         modifier = Modifier.padding(bottom = 10.dp),
                     )
                     when {
-                        state.error != null -> Column(
-                            Modifier.fillMaxWidth().padding(vertical = 20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text(
-                                state.error!!,
-                                style = mr(12f, 400),
-                                color = palette.hint,
-                                textAlign = TextAlign.Center,
-                            )
-                            TextButton(
-                                onClick = { store.accept(SearchIntent.Retry) },
-                                modifier = Modifier.glass(
-                                    shape = GlassShapes.chip,
-                                    fill = palette.card2,
-                                    border = palette.border,
-                                ),
-                            ) {
-                                Text("重试", style = sc(12.5f, 700), color = Brand.Primary)
-                            }
-                        }
+                        state.error != null -> ErrorState(
+                            message = state.error!!,
+                            onRetry = { store.accept(SearchIntent.Retry) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
 
                         // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
                         state.hasSearched && state.items.isEmpty() && !state.loading -> Column(

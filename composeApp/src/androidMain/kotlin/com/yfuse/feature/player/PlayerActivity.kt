@@ -587,6 +587,21 @@ private fun decodePlaybackSegments(raw: String): List<PlaybackSegment> =
         )
     }
 
+/** How often a guest re-checks its drift against the room's timeline. */
+private const val GUEST_RECONCILE_TICK_MS = 1_000L
+
+/** Below this, drift is imperceptible and left alone. */
+private const val NUDGE_THRESHOLD_MS = 50L
+
+/** Above this, nudging would take too long to feel right — jump instead. */
+private const val HARD_SEEK_THRESHOLD_MS = 2_000L
+
+/** Speed offset used to close a nudge-range gap without an audible/visible jump. */
+private const val NUDGE_FRACTION = 0.02f
+
+/** Avoids reissuing `setSpeed` every tick for a rate that hasn't materially changed. */
+private const val RATE_EPSILON = 0.001f
+
 /**
  * Owns the live engine and the shared control layer. Switching engines reads
  * the outgoing engine's position first, so the replacement picks up where it
@@ -710,43 +725,65 @@ private fun PlayerRoot(
     }
     val latestEngine by rememberUpdatedState(engine)
     val latestPlaybackState by rememberUpdatedState(state)
-    LaunchedEffect(watchTogether) {
-        watchTogether.playbackUpdates.collect { update ->
-            val room = watchTogether.state.value
-            if (!room.connected || room.isHost) return@collect
-            val playback = latestPlaybackState
-            val targetIndex = items.indexOfFirst { it.watchKey == update.itemId }
-                .takeIf { it >= 0 } ?: update.itemIndex.takeIf { it in items.indices }
-                ?: return@collect
-            if (targetIndex != playback.currentIndex) {
-                latestEngine.selectItem(targetIndex)
+
+    // Guest side: the room's timeline is server-authoritative and near-silent between
+    // events (see WatchTogetherClient), so following it needs a tick of our own rather
+    // than only reacting to messages. Position drift is corrected in three tiers instead
+    // of always hard-seeking: under NUDGE_THRESHOLD_MS is imperceptible and left alone;
+    // under HARD_SEEK_THRESHOLD_MS is closed by nudging playback speed ±2% so the catch-up
+    // is invisible; only a gap that large — a fresh join, a long stall — jumps outright.
+    // The rate this computes is also enforced every tick regardless of drift, which is
+    // what keeps 倍速 shared: a guest's own speed change (menu or the long-press gesture)
+    // gets quietly overwritten back to the room's rate within one tick instead of needing
+    // a separate lock on that control.
+    LaunchedEffect(watchState.isHost) {
+        if (watchState.isHost) return@LaunchedEffect
+        var lastAppliedRate: Float? = null
+        while (isActive) {
+            val timeline = watchTogether.timeline.value
+            if (timeline != null) {
+                val targetIndex = items.indexOfFirst { it.watchKey == timeline.mediaKey }
+                if (targetIndex >= 0) {
+                    if (targetIndex != latestPlaybackState.currentIndex) {
+                        latestEngine.selectItem(targetIndex)
+                    }
+                    val expected = timeline.expectedPositionMs(watchTogether.estimatedServerNow())
+                    val diff = expected - latestEngine.currentPositionMs()
+                    val desiredRate = when {
+                        kotlin.math.abs(diff) >= HARD_SEEK_THRESHOLD_MS -> {
+                            latestEngine.seekTo(expected)
+                            timeline.rate
+                        }
+                        kotlin.math.abs(diff) >= NUDGE_THRESHOLD_MS ->
+                            timeline.rate * (1f + if (diff > 0) NUDGE_FRACTION else -NUDGE_FRACTION)
+                        else -> timeline.rate
+                    }
+                    if (lastAppliedRate == null || kotlin.math.abs(desiredRate - lastAppliedRate!!) > RATE_EPSILON) {
+                        latestEngine.setSpeed(desiredRate)
+                        lastAppliedRate = desiredRate
+                    }
+                    if (timeline.paused && latestPlaybackState.playing) latestEngine.pause()
+                    if (!timeline.paused && !latestPlaybackState.playing) latestEngine.play()
+                }
             }
-            val latency = if (update.playing) {
-                (System.currentTimeMillis() - update.sentAtEpochMs).coerceIn(0L, 2_000L)
-            } else {
-                0L
-            }
-            val targetPosition = (update.positionMs + latency).coerceAtLeast(0L)
-            if (kotlin.math.abs(latestEngine.currentPositionMs() - targetPosition) > 750L) {
-                latestEngine.seekTo(targetPosition)
-            }
-            if (update.playing) latestEngine.play() else latestEngine.pause()
+            delay(GUEST_RECONCILE_TICK_MS)
         }
     }
-    LaunchedEffect(watchState.connected, watchState.isHost, currentItem?.id, engine) {
-        if (!watchState.connected || !watchState.isHost) return@LaunchedEffect
-        while (isActive) {
-            val playback = latestPlaybackState
-            val item = items.getOrNull(playback.currentIndex)
-            if (item != null) {
-                watchTogether.sendPlayback(
-                    itemId = item.watchKey,
-                    itemIndex = playback.currentIndex,
+
+    // Host side: publish a fresh anchor whenever we (re)gain control of the room, so a
+    // reconnect refreshes the timeline to where playback actually is instead of leaving
+    // guests following a stale pre-disconnect anchor. Every other publish happens at the
+    // point of the action itself (play/pause/seek/select/speed below) — never on a timer.
+    LaunchedEffect(watchState.connected, watchState.reconnecting, watchState.isHost) {
+        if (watchState.connected && !watchState.reconnecting && watchState.isHost) {
+            currentItem?.let { item ->
+                watchTogether.publishTimeline(
+                    mediaKey = item.watchKey,
                     positionMs = latestEngine.currentPositionMs(),
-                    playing = playback.playing,
+                    paused = !latestPlaybackState.playing,
+                    rate = latestPlaybackState.speed,
                 )
             }
-            delay(1_000L)
         }
     }
     val latestState by rememberUpdatedState(state)
@@ -847,13 +884,14 @@ private fun PlayerRoot(
                 onBack = onBack,
                 onPlayPause = {
                     if (!watchState.connected || watchState.isHost) {
-                        if (state.playing) engine.pause() else engine.play()
+                        val willPlay = !state.playing
+                        if (willPlay) engine.play() else engine.pause()
                         currentItem?.let { item ->
-                            watchTogether.sendPlayback(
-                                itemId = item.watchKey,
-                                itemIndex = state.currentIndex,
+                            watchTogether.publishTimeline(
+                                mediaKey = item.watchKey,
                                 positionMs = engine.currentPositionMs(),
-                                playing = !state.playing,
+                                paused = !willPlay,
+                                rate = state.speed,
                             )
                         }
                     }
@@ -863,11 +901,11 @@ private fun PlayerRoot(
                     if (!watchState.connected || watchState.isHost) {
                         engine.seekTo(position)
                         currentItem?.let { item ->
-                            watchTogether.sendPlayback(
-                                itemId = item.watchKey,
-                                itemIndex = state.currentIndex,
+                            watchTogether.publishTimeline(
+                                mediaKey = item.watchKey,
                                 positionMs = position,
-                                playing = state.playing,
+                                paused = !state.playing,
+                                rate = state.speed,
                             )
                         }
                     }
@@ -876,18 +914,30 @@ private fun PlayerRoot(
                     if (!watchState.connected || watchState.isHost) {
                         engine.selectItem(index)
                         items.getOrNull(index)?.let { item ->
-                            watchTogether.sendPlayback(
-                                itemId = item.watchKey,
-                                itemIndex = index,
+                            watchTogether.publishTimeline(
+                                mediaKey = item.watchKey,
                                 positionMs = 0L,
-                                playing = true,
+                                paused = false,
+                                rate = state.speed,
                             )
                         }
                     }
                 },
                 onSelectAudio = engine::selectAudioTrack,
                 onSelectSubtitle = engine::selectSubtitleTrack,
-                onSpeed = engine::setSpeed,
+                onSpeed = { newSpeed ->
+                    engine.setSpeed(newSpeed)
+                    if (watchState.isHost) {
+                        currentItem?.let { item ->
+                            watchTogether.publishTimeline(
+                                mediaKey = item.watchKey,
+                                positionMs = engine.currentPositionMs(),
+                                paused = !state.playing,
+                                rate = newSpeed,
+                            )
+                        }
+                    }
+                },
                 onToggleFill = {
                     filled = !filled
                     (engine as? MpvVideoEngine)?.setFill(filled)
@@ -958,13 +1008,41 @@ private fun PlayerRoot(
                     if (!watchState.connected || watchState.isHost) {
                         when (activeSegment?.type) {
                             PlaybackSegmentType.Intro -> {
-                                activeSegment.endMs?.let(engine::seekTo)
+                                activeSegment.endMs?.let { end ->
+                                    engine.seekTo(end)
+                                    currentItem?.let { item ->
+                                        watchTogether.publishTimeline(
+                                            mediaKey = item.watchKey,
+                                            positionMs = end,
+                                            paused = !state.playing,
+                                            rate = state.speed,
+                                        )
+                                    }
+                                }
                             }
                             PlaybackSegmentType.Credits -> {
                                 if (state.hasNext) {
-                                    engine.selectItem(state.currentIndex + 1)
+                                    val nextIndex = state.currentIndex + 1
+                                    engine.selectItem(nextIndex)
+                                    items.getOrNull(nextIndex)?.let { item ->
+                                        watchTogether.publishTimeline(
+                                            mediaKey = item.watchKey,
+                                            positionMs = 0L,
+                                            paused = false,
+                                            rate = state.speed,
+                                        )
+                                    }
                                 } else {
-                                    engine.seekTo((state.durationMs - 500L).coerceAtLeast(0L))
+                                    val end = (state.durationMs - 500L).coerceAtLeast(0L)
+                                    engine.seekTo(end)
+                                    currentItem?.let { item ->
+                                        watchTogether.publishTimeline(
+                                            mediaKey = item.watchKey,
+                                            positionMs = end,
+                                            paused = !state.playing,
+                                            rate = state.speed,
+                                        )
+                                    }
                                 }
                             }
                             null -> Unit
@@ -974,6 +1052,7 @@ private fun PlayerRoot(
                 watchEndpoint = watchEndpoint,
                 watchConnecting = watchState.connecting,
                 watchConnected = watchState.connected,
+                watchReconnecting = watchState.reconnecting,
                 watchRoomCode = watchState.roomCode,
                 watchIsHost = watchState.isHost,
                 watchParticipantCount = watchState.participantCount,

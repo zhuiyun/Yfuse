@@ -21,6 +21,7 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.offline.createOfflineMediaManager
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.feature.watch.WatchInviteResolver
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.createCastManager
 import org.koin.dsl.module
@@ -46,6 +47,7 @@ fun appModule(settings: Settings) = module {
     single { DanmakuRepository(get()) }
     single { ServerSyncManager(get(), get(), get()) }
     single { WatchTogetherClient(get()) }
+    single { WatchInviteResolver(get(), get()) }
     // Own client (different host + bearer auth), built inline so Koin keeps a
     // single HttpClient binding.
     single { TmdbRepository(createTmdbClient()) }
