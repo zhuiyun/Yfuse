@@ -234,9 +234,10 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         communityRating = CommunityRating,
         posterItemId = posterId,
         posterTag = posterTag,
-        // The strip shows the item's own artwork; a series' backdrops inherited by an
-        // episode are the *show's*, and repeating them under every episode says nothing.
-        backdropTags = BackdropImageTags.orEmpty(),
+        // An episode carries no artwork of its own; the show's is the artwork for it, and
+        // an empty strip under every episode would be worse than a repeated one.
+        backdropTags = BackdropImageTags?.takeIf { it.isNotEmpty() }
+            ?: ParentBackdropImageTags.orEmpty(),
         dateCreated = DateCreated?.take(10)?.takeIf { it.length == 10 },
         backdropItemId = backdropId,
         backdropTag = backdropTag,
@@ -269,6 +270,9 @@ fun MediaSourceDto.toSourceInfo(): SourceInfo? {
         quality = if (hdr != null) "$quality $hdr" else quality,
         size = Size?.takeIf { it > 0 }?.let { formatBytes(it) },
         bitrate = Bitrate?.takeIf { it > 0 }?.let { "${it / 1_000_000} Mbps" },
+        audioTrackCount = MediaStreams.orEmpty().count { it.Type == "Audio" },
+        subtitleTrackCount = MediaStreams.orEmpty().count { it.Type == "Subtitle" },
+        sizeBytes = Size?.takeIf { it > 0 },
     )
 }
 

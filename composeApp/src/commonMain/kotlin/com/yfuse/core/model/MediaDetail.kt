@@ -16,6 +16,11 @@ data class SourceInfo(
     val quality: String,
     val size: String?,
     val bitrate: String?,
+    /** How many of each the file carries — the counts the 资源 card puts under the name. */
+    val audioTrackCount: Int = 0,
+    val subtitleTrackCount: Int = 0,
+    /** Raw bytes, kept alongside the formatted [size] so cards can be ranked. */
+    val sizeBytes: Long? = null,
 ) {
     /** `4K HDR · 42.3 GB · 68 Mbps` */
     val summary: String get() = listOfNotNull(quality, size, bitrate).joinToString(" · ")

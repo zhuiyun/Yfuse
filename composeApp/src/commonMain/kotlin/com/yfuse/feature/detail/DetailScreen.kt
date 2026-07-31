@@ -259,11 +259,14 @@ fun DetailScreen(component: DetailComponent) {
                     }
                 }
 
-                if (detail.backdropTags.size > 1) {
+                if (detail.backdropTags.isNotEmpty()) {
                     item(key = "artwork") {
                         ArtworkSection(
+                            // Whichever item owns the artwork — the episode's own, or the
+                            // show's when the episode has none. The index addresses that
+                            // item's backdrop list, so it has to be that item's id.
                             baseUrl = baseUrl,
-                            itemId = detail.id,
+                            itemId = detail.backdropItemId,
                             tags = detail.backdropTags,
                             modifier = Modifier.padding(top = Dimens.sectionGap),
                         )
@@ -791,37 +794,42 @@ private fun DetailActionDock(
     val ink = remember(accent) {
         if (accent.luminance() > 0.55f) Color(0xFF141A26) else Color.White
     }
-    // The reference's play key is a pill with a light-to-accent ramp, not a flat fill.
-    val playFill = remember(accent) {
-        cssLinearGradient(120f, 0f to lerp(accent, Color.White, 0.20f), 1f to accent)
-    }
     Column(
         Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // A plain white key over the artwork's own colour, as the reference has it. The
+        // accent is not spent here: it is the page's one highlight colour and is worth more
+        // on 收藏 / 已观看 and the selected version, where it distinguishes a *state*, than
+        // on the button whose position and size already make it unmistakable.
+        val playInk = if (palette.isDark) Color(0xFF141A26) else Color(0xFF141A26)
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .height(52.dp)
                 .pressable(enabled = !resolving, onClick = onPlay)
                 .cssShadow(
                     offsetY = 8.dp,
-                    blur = 20.dp,
-                    color = accent.copy(alpha = 0.32f),
+                    blur = 22.dp,
+                    color = Color(0xFF1C243A).copy(alpha = 0.18f),
                     shape = CircleShape,
                 )
                 .clip(CircleShape)
-                .background(playFill),
+                .background(Color.White),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (resolving) {
-                CircularProgressIndicator(Modifier.size(15.dp), color = ink, strokeWidth = 2.dp)
+                CircularProgressIndicator(
+                    Modifier.size(15.dp),
+                    color = playInk,
+                    strokeWidth = 2.dp,
+                )
             } else {
-                Icon(AppIcons.Play, null, tint = ink, modifier = Modifier.size(14.dp))
+                Icon(AppIcons.Play, null, tint = playInk, modifier = Modifier.size(15.dp))
             }
-            Spacer(Modifier.width(8.dp))
-            Text(label, style = sc(14f, 750), color = ink)
+            Spacer(Modifier.width(9.dp))
+            Text(label, style = sc(14.5f, 750), color = playInk)
         }
         Spacer(Modifier.height(16.dp))
         // Only the two states worth reading at a glance stay on the page. 下载, 稍后观看 and
@@ -1034,6 +1042,10 @@ private fun MediaInfoSection(
     val palette = LocalPalette.current
     Column(modifier) {
         SectionHeader("媒体信息", Modifier.padding(horizontal = Dimens.pageHorizontal))
+        // Two cards fill the width, as in the reference; a third and beyond (a release with
+        // several audio tracks) scroll in from the right rather than shrinking the pair.
+        BoxWithConstraints {
+        val cardWidth = (maxWidth - Dimens.pageHorizontal * 2 - 10.dp) / 2
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
@@ -1043,6 +1055,7 @@ private fun MediaInfoSection(
                     SpecCard(
                         icon = AppIcons.Play,
                         title = "视频",
+                        width = cardWidth,
                         rows = listOfNotNull(
                             video.displayTitle?.let { "显示标题" to it },
                             video.language?.let { "语言" to it },
@@ -1067,6 +1080,7 @@ private fun MediaInfoSection(
                 SpecCard(
                     icon = AppIcons.Volume,
                     title = if (version.audioTracks.size > 1) "音频 ${index + 1}" else "音频",
+                    width = cardWidth,
                     rows = listOfNotNull(
                         audio.displayTitle?.let { "标题" to it },
                         audio.language?.let { "语言" to it },
@@ -1082,6 +1096,7 @@ private fun MediaInfoSection(
                     ),
                 )
             }
+        }
         }
         val footer = listOfNotNull(
             version.container?.uppercase(),
@@ -1126,12 +1141,13 @@ private fun MediaInfoSection(
 private fun SpecCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
+    width: Dp,
     rows: List<Pair<String, String>>,
 ) {
     val palette = LocalPalette.current
     Column(
         Modifier
-            .width(240.dp)
+            .width(width)
             .solidGlass(
                 shape = GlassShapes.card,
                 fill = if (palette.isDark) {
@@ -1227,22 +1243,11 @@ private fun OverviewSection(
 }
 
 /**
- * 资源对比 — one card per server that holds this title; unreachable servers stay hidden.
+ * 版本 — which of the server's several files for this title plays.
  *
- * The cards used to carry a `rgba(255,255,255,.82)` keyline, which is invisible on a
- * white page: the row read as loose text floating between two titled sections, with no
- * card boundary at all. 「影视详情页 优化」 draws the boundary in ink instead — idle
- * `rgba(20,26,38,.06)` over a barely-there fill, selected a 1.5px accent ring — so that
- * is what these use, and the block gets the section header every other block has.
- */
-/**
- * 版本与规格 — which file plays, and what is actually inside it.
- *
- * Two jobs in one block because they answer the same question. "Is this the 4K or the
- * 1080p?" and "does it have a Chinese audio track?" were both unanswerable before: only the
- * first of the server's files was ever read, and nothing below resolution and size was ever
- * parsed. A library holding one file still gets the specs; the picker only appears when
- * there is a choice to make.
+ * Only a picker now. It used to carry a 规格 summary as well, which 媒体信息 states in far
+ * more detail a couple of sections further down; two accounts of the same file, one of them
+ * partial, is worse than one.
  */
 @Composable
 private fun VersionSection(
@@ -1253,69 +1258,30 @@ private fun VersionSection(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    val selected = versions.firstOrNull { it.id == selectedId } ?: versions.firstOrNull() ?: return
+    // Nothing to choose between, nothing to show: 媒体信息 now spells the file out in full,
+    // so a 规格 summary here would state the same facts twice, less completely.
+    if (versions.size <= 1) return
+    val selected = versions.firstOrNull { it.id == selectedId } ?: versions.first()
     Column(modifier) {
         SectionHeader(
-            title = if (versions.size > 1) "版本与规格" else "规格",
+            title = "版本",
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         ) {
-            if (versions.size > 1) {
-                Text("${versions.size} 个版本", style = mr(10.5f, 500), color = palette.sub2)
-            }
+            Text("${versions.size} 个版本", style = mr(10.5f, 500), color = palette.sub2)
         }
-
-        if (versions.size > 1) {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(versions, key = { it.id }) { version ->
-                    VersionCard(
-                        version = version,
-                        selected = version.id == selected.id,
-                        accent = accent,
-                        onSelect = { onSelect(version.id) },
-                    )
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-        }
-
-        Column(
-            Modifier
-                .padding(horizontal = Dimens.pageHorizontal)
-                .fillMaxWidth()
-                .glass(GlassShapes.card, palette.card2, palette.border)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SpecRow("画面", listOfNotNull(selected.qualityLabel, selected.videoCodec?.uppercase()))
-            SpecRow("文件", listOfNotNull(selected.sizeLabel, selected.bitrateLabel, selected.container?.uppercase()))
-            SpecRow("音轨", selected.audioTracks.map { it.label })
-            SpecRow("字幕", selected.subtitleTracks.map { it.label })
+            items(versions, key = { it.id }) { version ->
+                VersionCard(
+                    version = version,
+                    selected = version.id == selected.id,
+                    accent = accent,
+                    onSelect = { onSelect(version.id) },
+                )
+            }
         }
-    }
-}
-
-/** One label plus everything under it, wrapped rather than truncated — the values are why
- *  the block exists, so a fourth audio track has to be readable, not clipped. */
-@Composable
-private fun SpecRow(label: String, values: List<String>) {
-    val palette = LocalPalette.current
-    if (values.isEmpty()) return
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            label,
-            style = mr(11f, 600),
-            color = palette.sub2,
-            modifier = Modifier.width(34.dp),
-        )
-        Text(
-            values.joinToString("、"),
-            style = mr(11f, 400),
-            color = palette.text,
-            modifier = Modifier.weight(1f),
-        )
     }
 }
 
@@ -1386,72 +1352,95 @@ private fun SourceSection(
     }
     Column(modifier) {
         SectionHeader(
-            title = "资源对比",
+            title = "资源",
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         ) {
             Text(
-                "${availableSources.size} 个媒体库 · 横向滑动",
+                "${availableSources.size} 个媒体库",
                 style = mr(10.5f, 500),
                 color = palette.sub2,
             )
         }
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            itemsIndexed(
-                availableSources,
-                key = { index, entry -> "source-${entry.serverId}-${entry.itemId}-$index" },
-            ) { _, entry ->
-                SourceCard(
-                    entry = entry,
-                    accent = accent,
-                    onSelect = { entry.itemId?.let { onSelect(entry.serverId, it) } },
-                )
+        // The biggest file is called out, because that is the question the row exists to
+        // answer: given the same title on two servers, which copy is the better one.
+        val bestServerId = remember(availableSources) {
+            availableSources
+                .filter { it.source?.sizeBytes != null }
+                .maxByOrNull { it.source?.sizeBytes ?: 0L }
+                ?.takeIf { availableSources.size > 1 }
+                ?.serverId
+        }
+        BoxWithConstraints {
+            val cardWidth = (maxWidth - Dimens.pageHorizontal * 2 - 10.dp) / 2
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                itemsIndexed(
+                    availableSources,
+                    key = { index, entry -> "source-${entry.serverId}-${entry.itemId}-$index" },
+                ) { _, entry ->
+                    SourceCard(
+                        entry = entry,
+                        accent = accent,
+                        best = entry.serverId == bestServerId,
+                        width = cardWidth,
+                        onSelect = { entry.itemId?.let { onSelect(entry.serverId, it) } },
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SourceCard(entry: ServerSource, accent: Color, onSelect: () -> Unit) {
+private fun SourceCard(
+    entry: ServerSource,
+    accent: Color,
+    best: Boolean,
+    width: Dp,
+    onSelect: () -> Unit,
+) {
     val palette = LocalPalette.current
     val selected = entry.isCurrent
+    val source = entry.source
     // 1.5dp on the selected ring, so switching sources moves the edge as well as the
     // colour — `solidGlass` is fixed at `Dimens.hairline`, hence the explicit border.
     val edge = when {
         selected -> accent
         palette.isDark -> Color.White.copy(alpha = 0.16f)
-        else -> Color(0xFF141A26).copy(alpha = 0.12f)
-    }
-    val fill = when {
-        selected -> accent.copy(alpha = if (palette.isDark) 0.16f else 0.09f)
-        palette.isDark -> Color.White.copy(alpha = 0.06f)
-        else -> Color(0xFF141A26).copy(alpha = 0.035f)
+        else -> Color(0xFF141A26).copy(alpha = 0.10f)
     }
     Column(
         Modifier
-            .width(140.dp)
-            .heightIn(min = 60.dp)
-            .clip(GlassShapes.thumb)
-            .background(fill)
-            .border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.thumb)
+            .width(width)
+            .clip(GlassShapes.card)
+            .background(
+                if (palette.isDark) Color.White.copy(alpha = 0.06f) else Color.White,
+            )
+            .border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
             .pressable(onClick = onSelect)
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+            .padding(horizontal = 11.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 可达性圆点 —— the list is already filtered to reachable servers, so this
-            // is a positive confirmation rather than a warning.
             Box(
                 Modifier
-                    .size(6.dp)
+                    .size(22.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF5ECB84)),
-            )
+                    .background(serverTint(entry.serverId)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    entry.serverName.take(1).uppercase(),
+                    style = mr(10f, 700),
+                    color = Color.White,
+                )
+            }
             Text(
                 entry.serverName,
                 style = sc(11.5f, 700),
@@ -1460,32 +1449,91 @@ private fun SourceCard(entry: ServerSource, accent: Color, onSelect: () -> Unit)
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
-            if (selected) {
-                Icon(
-                    AppIcons.Check,
-                    contentDescription = "当前片源",
-                    tint = accent,
-                    modifier = Modifier.size(13.dp),
+            if (best) {
+                Text(
+                    "Best",
+                    style = mr(9f, 700),
+                    color = Color(0xFF9A6B12),
+                    modifier = Modifier
+                        .clip(GlassShapes.chip)
+                        .background(Color(0xFFF5C86A).copy(alpha = 0.30f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }
-        Text(
-            entry.source?.quality.orEmpty().ifBlank { "未知画质" },
-            style = mr(10.5f, 600),
-            color = if (selected) accent else palette.body,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            listOfNotNull(entry.source?.bitrate, entry.source?.size)
-                .joinToString(" · ")
-                .ifBlank { "读取中" },
-            style = mr(9.5f, 500),
-            color = palette.sub2,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CountChip(AppIcons.Volume, source?.audioTrackCount ?: 0)
+            CountChip(AppIcons.Subtitle, source?.subtitleTrackCount ?: 0)
+            Spacer(Modifier.weight(1f))
+            source?.quality?.takeIf { it.isNotBlank() }?.let { quality ->
+                Text(
+                    quality,
+                    style = mr(9f, 700),
+                    color = if (selected) accent else palette.sub,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(GlassShapes.chip)
+                        .background(
+                            if (selected) {
+                                accent.copy(alpha = 0.12f)
+                            } else {
+                                Color(0xFF141A26).copy(alpha = 0.05f)
+                            },
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                source?.size ?: "—",
+                style = mr(10f, 600),
+                color = palette.body,
+                maxLines = 1,
+            )
+            Text(
+                source?.bitrate ?: "—",
+                style = mr(10f, 600),
+                color = palette.body,
+                maxLines = 1,
+            )
+        }
     }
+}
+
+/** `♪ 2` — a stream count small enough to sit three-to-a-row on a half-width card. */
+@Composable
+private fun CountChip(icon: androidx.compose.ui.graphics.vector.ImageVector, count: Int) {
+    val palette = LocalPalette.current
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = palette.sub2, modifier = Modifier.size(11.dp))
+        Text(count.toString(), style = mr(9.5f, 600), color = palette.sub2)
+    }
+}
+
+/**
+ * A stable colour per server, so the same library keeps the same tile wherever it appears.
+ * Derived from the id rather than stored: servers are added and removed, and a palette
+ * index would drift every time the list changed.
+ */
+private fun serverTint(serverId: String): Color {
+    val palette = listOf(
+        Color(0xFF4C7DF0), Color(0xFF41A98A), Color(0xFFD1705C),
+        Color(0xFF8B6FD1), Color(0xFFD19A3F), Color(0xFF3FA3C4),
+    )
+    val index = (serverId.hashCode().toLong() and 0xFFFFFFFFL) % palette.size
+    return palette[index.toInt()]
 }
 
 /**

@@ -485,9 +485,11 @@ class EmbyRepository(private val client: HttpClient) {
             parameter(
                 "Fields",
                 // Path and DateCreated are opt-in, and the 媒体信息 block is built out of
-                // them; BackdropImageTags is what the 艺术图 strip enumerates.
+                // them. BackdropImageTags is deliberately absent: it is not an ItemFields
+                // value — image tags come back on their own — and naming one Emby doesn't
+                // know risks the whole request rather than adding a field.
                 "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
-                    "BackdropImageTags,SeriesPrimaryImageTag,MediaSources,MediaStreams," +
+                    "SeriesPrimaryImageTag,MediaSources,MediaStreams," +
                     "Path,DateCreated,Chapters,ProviderIds",
             )
         }.body()
