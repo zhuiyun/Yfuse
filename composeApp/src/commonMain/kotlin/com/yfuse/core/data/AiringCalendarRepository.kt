@@ -23,6 +23,7 @@ class AiringCalendarRepository(
     private val tmdb: TmdbRepository,
     private val emby: EmbyRepository,
     private val registry: ServerRegistry,
+    private val scheduleCache: AiringScheduleCache,
 ) {
     /**
      * The calendar for a window around today.
@@ -39,9 +40,13 @@ class AiringCalendarRepository(
     ): Result<List<CalendarDay>> {
         val from = shiftIsoDate(today, -pastDays)
         val to = shiftIsoDate(today, futureDays)
-        val episodes = tmdb.airingCalendar(fromDate = from, toDate = to).getOrElse {
-            return Result.failure(it)
-        }
+        val window = "$from..$to"
+        // Schedule from cache when it was fetched today; status is always resolved fresh
+        // below, because 未入库 → 可播放 is exactly what the user is watching for.
+        val episodes = scheduleCache.read(today, window)
+            ?: tmdb.airingCalendar(fromDate = from, toDate = to)
+                .onSuccess { scheduleCache.write(today, window, it) }
+                .getOrElse { return Result.failure(it) }
         val entries = resolveStatus(episodes, today)
         return Result.success(
             entries

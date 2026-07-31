@@ -64,6 +64,13 @@ internal data class TmdbShowScheduleDto(
     @SerialName("last_episode_to_air") val lastEpisode: TmdbEpisodeStubDto? = null,
 )
 
+/** `/tv/{id}/season/{n}` — every episode of one season, with its broadcast date. */
+@Serializable
+internal data class TmdbSeasonDto(
+    @SerialName("season_number") val seasonNumber: Int? = null,
+    val episodes: List<TmdbEpisodeStubDto> = emptyList(),
+)
+
 @Serializable
 internal data class TmdbGenreDto(val name: String)
 
@@ -402,21 +409,38 @@ class TmdbRepository(private val client: HttpClient) {
             val episodes = shows
                 .map { show ->
                     async {
-                        schedule(show.id, language)?.let { dto ->
-                            val origin = if (show.id in domesticIds) {
-                                ShowOrigin.Domestic
-                            } else {
-                                ShowOrigin.Foreign
-                            }
-                            listOfNotNull(dto.lastEpisode, dto.nextEpisode).mapNotNull { stub ->
-                                stub.toAiringEpisode(
-                                    showTmdbId = dto.id,
-                                    showTitle = dto.name ?: show.title,
-                                    posterPath = dto.posterPath ?: show.posterPath,
-                                    origin = origin,
-                                )
-                            }
-                        }.orEmpty()
+                        val dto = schedule(show.id, language) ?: return@async emptyList()
+                        val origin = if (show.id in domesticIds) {
+                            ShowOrigin.Domestic
+                        } else {
+                            ShowOrigin.Foreign
+                        }
+                        val showTitle = dto.name ?: show.title
+                        val poster = dto.posterPath ?: show.posterPath
+                        // The season the show is currently in. Its whole episode list is
+                        // what a 日更 drama needs — last and next alone would leave every
+                        // day between them blank on a show that posts one a day. The extra
+                        // request per show is affordable because the schedule is fetched
+                        // once a day and cached, not on every open.
+                        val currentSeason = (dto.nextEpisode ?: dto.lastEpisode)?.seasonNumber
+                        val seasonEpisodes = currentSeason
+                            ?.let { season(show.id, it, language) }
+                            ?.episodes
+                            .orEmpty()
+                        val stubs = seasonEpisodes.ifEmpty {
+                            listOfNotNull(dto.lastEpisode, dto.nextEpisode)
+                        }
+                        stubs.mapNotNull { stub ->
+                            stub.toAiringEpisode(
+                                showTmdbId = dto.id,
+                                showTitle = showTitle,
+                                posterPath = poster,
+                                origin = origin,
+                                // A season payload omits the season number on its episodes;
+                                // it is the season that was asked for.
+                                fallbackSeason = currentSeason,
+                            )
+                        }
                     }
                 }
                 .awaitAll()
@@ -458,14 +482,34 @@ class TmdbRepository(private val client: HttpClient) {
             null
         }
 
+    private suspend fun season(showId: Int, seasonNumber: Int, language: String): TmdbSeasonDto? =
+        try {
+            client.get("$TMDB_BASE/tv/$showId/season/$seasonNumber") {
+                parameter("language", language)
+            }.body<TmdbSeasonDto>()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Falls back to the show's last and next episode, which is still a calendar.
+            AppLog.warning(
+                category = "tmdb",
+                event = "season_request_failed",
+                message = "TMDB season request failed",
+                throwable = e,
+                attributes = mapOf("showId" to showId.toString()),
+            )
+            null
+        }
+
     private fun TmdbEpisodeStubDto.toAiringEpisode(
         showTmdbId: Int,
         showTitle: String,
         posterPath: String?,
         origin: ShowOrigin,
+        fallbackSeason: Int? = null,
     ): AiringEpisode? {
         val date = airDate?.takeIf { it.isNotBlank() } ?: return null
-        val season = seasonNumber ?: return null
+        val season = seasonNumber ?: fallbackSeason ?: return null
         val episode = episodeNumber ?: return null
         if (showTitle.isBlank()) return null
         return AiringEpisode(
