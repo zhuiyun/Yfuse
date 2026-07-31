@@ -61,8 +61,39 @@ class MpvVideoEngine(
     @Volatile
     private var attachedSurface: Surface? = null
 
+    @Volatile
+    private var pendingSeekMs = startPositionMs.coerceAtLeast(0L)
+
     private var lastPositionMs = -POSITION_STEP_MS
     private var wasBuffering = true
+
+    private val logObserver = object : MPVLib.LogObserver {
+        override fun logMessage(prefix: String, level: Int, text: String) {
+            if (level > MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN) return
+            val details = text.trim().take(600)
+            if (details.isEmpty()) return
+            val attributes = mapOf(
+                "prefix" to prefix,
+                "level" to level.toString(),
+                "details" to details,
+            )
+            if (level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_ERROR) {
+                AppLog.error(
+                    category = "player.mpv.native",
+                    event = "native_error",
+                    message = "libmpv reported an error",
+                    attributes = attributes,
+                )
+            } else {
+                AppLog.warning(
+                    category = "player.mpv.native",
+                    event = "native_warning",
+                    message = "libmpv reported a warning",
+                    attributes = attributes,
+                )
+            }
+        }
+    }
 
     private val observer = object : MPVLib.EventObserver {
         override fun eventProperty(property: String) = Unit
@@ -161,15 +192,44 @@ class MpvVideoEngine(
                     _state.update { it.copy(buffering = true, error = null, ended = false) }
 
                 MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
-                    // `start` is a global option; clear it so the next episode
-                    // does not also jump to the resume point.
-                    withMpv { it.setOptionString("start", "none") }
+                    val seekMs = pendingSeekMs
+                    pendingSeekMs = -1L
+                    if (seekMs > 0L) {
+                        withMpv {
+                            it.command(
+                                arrayOf(
+                                    "seek",
+                                    (seekMs / 1000.0).toString(),
+                                    "absolute",
+                                ),
+                            )
+                        }
+                    }
                     _state.update { it.copy(buffering = false) }
                     readTracks()
                     readVideoSize()
+                    logAudioOutput()
+                    AppLog.info(
+                        category = "player.mpv",
+                        event = "file_loaded",
+                        message = "mpv loaded the selected media",
+                        attributes = mapOf(
+                            "itemIndex" to _state.value.currentIndex.toString(),
+                            "resumePositionMs" to seekMs.coerceAtLeast(0L).toString(),
+                        ),
+                    )
                 }
 
                 MPVLib.MpvEvent.MPV_EVENT_VIDEO_RECONFIG -> readVideoSize()
+                MPVLib.MpvEvent.MPV_EVENT_AUDIO_RECONFIG -> logAudioOutput()
+                MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> AppLog.info(
+                    category = "player.mpv",
+                    event = "playback_started",
+                    message = "mpv restarted media playback",
+                    attributes = mapOf(
+                        "itemIndex" to _state.value.currentIndex.toString(),
+                    ),
+                )
                 MPVLib.MpvEvent.MPV_EVENT_END_FILE -> handleEndFile()
             }
         }
@@ -184,7 +244,11 @@ class MpvVideoEngine(
         if (released) return
         attachedSurface = surface
         mpv?.let { existing ->
-            runCatching { existing.attachSurface(surface) }
+            runCatching {
+                existing.attachSurface(surface)
+                existing.setPropertyString("force-window", "yes")
+                existing.setPropertyString("vo", "gpu")
+            }
                 .onFailure {
                     Log.e(TAG, "mpv re-attach failed", it)
                     AppLog.error(
@@ -197,6 +261,7 @@ class MpvVideoEngine(
             return
         }
 
+        var created: MPVLib? = null
         runCatching {
             val instance = MPVLib.create(context)
             if (instance == null) {
@@ -209,12 +274,12 @@ class MpvVideoEngine(
                 _state.update { it.copy(error = "无法初始化 mpv", buffering = false) }
                 return
             }
-            mpv = instance
+            created = instance
             // Don't read the user's mpv config from disk.
-            instance.setOptionString("config", "no")
-            instance.setOptionString("vo", "gpu")
-            instance.setOptionString("gpu-context", "android")
-            instance.setOptionString(
+            instance.requireOption("config", "no")
+            instance.requireOption("vo", "gpu")
+            instance.requireOption("gpu-context", "android")
+            instance.requireOption(
                 "hwdec",
                 when (decoderMode) {
                     DecoderMode.Hardware -> "auto-safe"
@@ -222,19 +287,24 @@ class MpvVideoEngine(
                     DecoderMode.Auto -> "auto"
                 },
             )
-            instance.setOptionString("keep-open", "always")
-            instance.setOptionString("cache", "yes")
+            // libmpv otherwise has a race where it can shut down before the
+            // Surface callback gets a chance to issue the first loadfile.
+            instance.requireOption("idle", "yes")
+            instance.requireOption("keep-open", "always")
+            instance.requireOption("cache", "yes")
+            // Use Android's media stream deterministically. This keeps native
+            // playback on the same STREAM_MUSIC volume path as ExoPlayer/MDK.
+            instance.requireOption("ao", "audiotrack")
             customUserAgent.trim().takeIf { it.isNotEmpty() }?.let { value ->
-                instance.setOptionString("user-agent", value)
+                instance.requireOption("user-agent", value)
             }
-            instance.setOptionString("keepaspect", "yes")
-            instance.setOptionString("panscan", "0")
-            if (startPositionMs > 0) {
-                instance.setOptionString("start", "+${startPositionMs / 1000}")
-            }
+            instance.requireOption("keepaspect", "yes")
+            instance.requireOption("panscan", "0")
             instance.init()
 
+            mpv = instance
             instance.addObserver(observer)
+            instance.addLogObserver(logObserver)
             instance.observeProperty("time-pos", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
@@ -253,10 +323,27 @@ class MpvVideoEngine(
             instance.observeProperty("sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
 
             instance.attachSurface(surface)
-            instance.setOptionString("force-window", "yes")
+            instance.setPropertyString("force-window", "yes")
             instance.command(arrayOf("loadfile", currentUrl()))
             Log.i(TAG, "mpv loadfile issued")
+            AppLog.info(
+                category = "player.mpv",
+                event = "load_requested",
+                message = "mpv loadfile command was issued",
+                attributes = mapOf(
+                    "itemIndex" to _state.value.currentIndex.toString(),
+                    "decoderMode" to decoderMode.name,
+                ),
+            )
         }.onFailure {
+            mpv = null
+            created?.let { failed ->
+                runCatching {
+                    failed.removeObserver(observer)
+                    failed.removeLogObserver(logObserver)
+                    failed.destroy()
+                }
+            }
             Log.e(TAG, "mpv start failed", it)
             AppLog.error(
                 category = "player.mpv",
@@ -270,7 +357,13 @@ class MpvVideoEngine(
     }
 
     fun detach() {
-        withMpv { it.detachSurface() }
+        withMpv {
+            // Stop the VO before releasing the Android Surface. Detaching a
+            // Surface that the GPU context is still using can race/crash.
+            it.setPropertyString("vo", "null")
+            it.setPropertyString("force-window", "no")
+            it.detachSurface()
+        }
         attachedSurface = null
     }
 
@@ -310,6 +403,7 @@ class MpvVideoEngine(
 
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
+        pendingSeekMs = 0L
         lastPositionMs = -POSITION_STEP_MS
         _state.update {
             it.copy(
@@ -329,17 +423,13 @@ class MpvVideoEngine(
 
     override fun retry() {
         val position = _state.value.positionMs
+        pendingSeekMs = position.coerceAtLeast(0L)
         _state.update { it.copy(error = null, buffering = true, ended = false) }
         if (mpv == null) {
             attachedSurface?.let(::attach)
             return
         }
-        withMpv { instance ->
-            if (position > 0L) {
-                instance.setOptionString("start", "+${position / 1000.0}")
-            }
-            instance.command(arrayOf("loadfile", currentUrl()))
-        }
+        withMpv { it.command(arrayOf("loadfile", currentUrl())) }
     }
 
     override fun release() {
@@ -349,6 +439,7 @@ class MpvVideoEngine(
         mpv = null
         runCatching {
             instance.removeObserver(observer)
+            instance.removeLogObserver(logObserver)
             instance.command(arrayOf("stop"))
             instance.destroy()
         }.onFailure {
@@ -376,7 +467,7 @@ class MpvVideoEngine(
 
     private fun handleEndFile() {
         val reachedEof = runCatching {
-            mpv?.getPropertyBoolean("eof-reached") == true
+            _state.value.ended || mpv?.getPropertyBoolean("eof-reached") == true
         }.getOrDefault(false)
         if (reachedEof) return
 
@@ -449,6 +540,34 @@ class MpvVideoEngine(
                 _state.update { it.copy(videoHeight = height) }
             }
         }
+    }
+
+    private fun logAudioOutput() {
+        val instance = mpv ?: return
+        runCatching {
+            AppLog.info(
+                category = "player.mpv",
+                event = "audio_output_configured",
+                message = "mpv audio output was configured",
+                attributes = mapOf(
+                    "output" to (instance.getPropertyString("current-ao") ?: "unknown"),
+                    "codec" to (instance.getPropertyString("audio-codec-name") ?: "unknown"),
+                    "track" to (instance.getPropertyString("aid") ?: "unknown"),
+                ),
+            )
+        }.onFailure {
+            AppLog.warning(
+                category = "player.mpv",
+                event = "audio_output_probe_failed",
+                message = "Could not read mpv audio output diagnostics",
+                throwable = it,
+            )
+        }
+    }
+
+    private fun MPVLib.requireOption(name: String, value: String) {
+        val result = setOptionString(name, value)
+        check(result >= 0) { "mpv rejected option $name (error $result)" }
     }
 
     /** mpv calls throw once the handle is gone; every call site tolerates a miss. */
