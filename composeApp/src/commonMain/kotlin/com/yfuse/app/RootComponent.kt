@@ -38,9 +38,13 @@ class RootComponent(
 
     enum class Tab { Home, Browse, Search, Profile }
 
-    // Every cold start lands on 首页. Server setup remains available from
-    // “我的”, but the absence of a server must not hijack the launch route.
-    private val _activeTab = MutableValue(Tab.Home)
+    // Someone who has already connected a server opens this app to watch what is on it, so
+    // that is where a cold start lands. 首页 is TMDB recommendations — the right first
+    // screen only while there is no library to show yet, which doubles as the prompt to go
+    // and add one.
+    private val _activeTab = MutableValue(
+        if (registry.data.value.servers.isEmpty()) Tab.Home else Tab.Browse,
+    )
     val activeTab: Value<Tab> = _activeTab
 
     init {

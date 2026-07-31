@@ -97,6 +97,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
+import kotlin.time.TimeSource
 
 /**
  * Fullscreen playback lives in its own activity so landscape is declared in the
@@ -851,6 +852,15 @@ private const val NUDGE_THRESHOLD_MS = 50L
 /** Above this, nudging would take too long to feel right — jump instead. */
 private const val HARD_SEEK_THRESHOLD_MS = 2_000L
 
+/**
+ * How long a guest waits for its own correction to take effect before correcting again.
+ *
+ * Long enough for a seek into an unbuffered part of a remote file — several seconds on a
+ * slow link — and short enough that a correction the engine silently dropped doesn't strand
+ * the guest out of sync for the rest of the film.
+ */
+private const val CORRECTION_SETTLE_TIMEOUT_MS = 8_000L
+
 /** Speed offset used to close a nudge-range gap without an audible/visible jump. */
 private const val NUDGE_FRACTION = 0.02f
 
@@ -1104,6 +1114,20 @@ private fun PlayerRoot(
         }
         var lastAppliedRate: Float? = null
         var lastNominalRate: Float? = null
+        // What the last correction asked for, and when. A correction is a request, not an
+        // event: a seek into an unbuffered part of a remote file, or an entry change, takes
+        // longer than one tick, and the engine keeps reporting the old position until it
+        // lands. Re-correcting in the meantime restarts the work — which is how a guest
+        // joining a film already in progress ended up pinned on a black frame with its
+        // timeline readout advancing, correcting forever and never rendering.
+        var awaitedPositionMs: Long? = null
+        var awaitedIndex: Int? = null
+        var awaitingSince = TimeSource.Monotonic.markNow()
+        fun awaitCorrection(positionMs: Long?, index: Int?) {
+            awaitedPositionMs = positionMs
+            awaitedIndex = index
+            awaitingSince = TimeSource.Monotonic.markNow()
+        }
         try {
             while (isActive) {
                 val timeline = watchTogether.timeline.value
@@ -1111,14 +1135,37 @@ private fun PlayerRoot(
                     lastNominalRate = timeline.rate
                     val targetIndex = mediaMatcher.resolve(items, timeline.mediaKey)
                     if (targetIndex != null) {
+                        val position = latestEngine.currentPositionMs()
+                        val landed = awaitedIndex.let { it == null || it == latestPlaybackState.currentIndex } &&
+                            awaitedPositionMs.let {
+                                it == null || kotlin.math.abs(position - it) < HARD_SEEK_THRESHOLD_MS
+                            }
+                        // Give up waiting eventually: a seek can also fail outright, and a
+                        // guest stuck behind one correction forever is no better off.
+                        val settling = !landed &&
+                            awaitingSince.elapsedNow().inWholeMilliseconds < CORRECTION_SETTLE_TIMEOUT_MS
+                        if (landed) awaitCorrection(null, null)
+                        // Buffering means the engine is still working — on the last
+                        // correction, or on the stream itself. Either way it has not yet
+                        // shown where it really is, so there is nothing to correct against.
+                        if (settling || latestPlaybackState.buffering) {
+                            if (timeline.paused && latestPlaybackState.playing) latestEngine.pause()
+                            delay(GUEST_RECONCILE_TICK_MS)
+                            continue
+                        }
+
                         if (targetIndex != latestPlaybackState.currentIndex) {
                             latestEngine.selectItem(targetIndex)
+                            awaitCorrection(positionMs = null, index = targetIndex)
+                            delay(GUEST_RECONCILE_TICK_MS)
+                            continue
                         }
                         val expected = timeline.expectedPositionMs(watchTogether.estimatedServerNow())
-                        val diff = expected - latestEngine.currentPositionMs()
+                        val diff = expected - position
                         val desiredRate = when {
                             kotlin.math.abs(diff) >= HARD_SEEK_THRESHOLD_MS -> {
                                 latestEngine.seekTo(expected)
+                                awaitCorrection(positionMs = expected, index = null)
                                 timeline.rate
                             }
                             kotlin.math.abs(diff) >= NUDGE_THRESHOLD_MS ->

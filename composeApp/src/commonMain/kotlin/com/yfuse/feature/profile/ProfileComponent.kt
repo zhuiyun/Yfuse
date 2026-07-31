@@ -5,6 +5,7 @@ import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ServerRegistry
@@ -49,6 +50,7 @@ class ProfileComponent(
     val userAgentPreferences: UserAgentPreferences = GlobalContext.get().get()
     val danmakuPreferences: DanmakuPreferences = GlobalContext.get().get()
     val skipSegmentPreferences: SkipSegmentPreferences = GlobalContext.get().get()
+    private val libraryCache: LibraryCache = GlobalContext.get().get()
     val watchTogetherPreferences: WatchTogetherPreferences = GlobalContext.get().get()
     val watchTogether: WatchTogetherClient = GlobalContext.get().get()
 
@@ -56,7 +58,12 @@ class ProfileComponent(
     fun onClearCache() = clearImageCache()
 
     /** Long-pressing a non-current server row removes it. */
-    fun onRemoveServer(id: String) = registry.remove(id)
+    fun onRemoveServer(id: String) {
+        registry.remove(id)
+        // The cached library would otherwise outlive the server it was read from, taking up
+        // room for a shelf nobody can open any more.
+        libraryCache.clear(id)
+    }
 
     fun exportServers(): String = registry.exportBackup()
 

@@ -6,6 +6,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
@@ -51,6 +52,7 @@ class LibraryStoreFactory(
     private val storeFactory: StoreFactory,
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
+    private val cache: LibraryCache,
 ) {
     fun create(): Store<LibraryIntent, LibraryState, Nothing> =
         storeFactory.create(
@@ -79,6 +81,10 @@ class LibraryStoreFactory(
                         loadedServerId = null
                     } else if (server.id != loadedServerId) {
                         loadedServerId = server.id
+                        // Paint whatever this server last served before the request goes
+                        // out. Msg.Data has just cleared `content` for a server change, so
+                        // without this the library shows a skeleton on every cold start.
+                        cache.read(server.id)?.let { dispatch(Msg.Loaded(it)) }
                         load(server)
                     }
                 }
@@ -113,7 +119,10 @@ class LibraryStoreFactory(
             dispatch(Msg.Loading)
             scope.launch {
                 repo.homeContent(server)
-                    .onSuccess { dispatch(Msg.Loaded(it)) }
+                    .onSuccess {
+                        cache.write(server.id, it)
+                        dispatch(Msg.Loaded(it))
+                    }
                     .onFailure {
                         AppLog.warning(
                             category = "feature.library",

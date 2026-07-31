@@ -1,6 +1,14 @@
 package com.yfuse.core.model
 
-/** A single browsable/playable media item (movie, series, episode). */
+import kotlinx.serialization.Serializable
+
+/**
+ * A single browsable/playable media item (movie, series, episode).
+ *
+ * Serializable because [HomeContent] is cached to disk between launches (see
+ * `LibraryCache`); nothing here is sent anywhere.
+ */
+@Serializable
 data class MediaItem(
     val id: String,
     val title: String,
@@ -28,6 +36,7 @@ data class MediaItem(
 )
 
 /** One horizontal row on the home screen (e.g. "电影-国产电影 · 最新"). */
+@Serializable
 data class HomeRow(
     val libraryId: String,
     val title: String,
@@ -37,6 +46,7 @@ data class HomeRow(
 )
 
 /** Aggregated content for the media library home screen. */
+@Serializable
 data class HomeContent(
     val featured: List<MediaItem> = emptyList(),
     val resume: List<MediaItem> = emptyList(),

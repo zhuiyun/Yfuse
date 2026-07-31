@@ -253,9 +253,20 @@ fun AddServerDialog(
                 }
             }
 
-            if (form.error != null) {
-                Text(form.error, style = mr(10.5f, 500), color = Brand.Danger)
-            }
+        }
+
+        // Outside the scrolling form, immediately above the button that produced it. As the
+        // form's last child it was drawn past the bottom of a 400dp scroll box that the
+        // fields already overflow, so a failed connection looked like the button simply
+        // stopped spinning — the one moment the dialog has something to say and it was the
+        // one thing the user could not see.
+        if (form.error != null) {
+            Text(
+                form.error,
+                style = mr(10.5f, 500),
+                color = Brand.Danger,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            )
         }
 
         OverlayButton(

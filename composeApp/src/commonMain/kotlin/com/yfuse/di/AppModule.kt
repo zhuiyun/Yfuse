@@ -6,6 +6,7 @@ import com.russhwolf.settings.Settings
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
@@ -38,6 +39,7 @@ fun appModule(settings: Settings) = module {
     single { WatchTogetherPreferences(get()) }
     single { DanmakuPreferences(get()) }
     single { SkipSegmentPreferences(get()) }
+    single { LibraryCache(get()) }
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }
     single<CastManager> { createCastManager() }
