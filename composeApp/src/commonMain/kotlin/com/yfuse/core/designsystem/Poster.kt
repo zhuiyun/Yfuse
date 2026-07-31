@@ -31,6 +31,47 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 
 /**
+ * An image that is allowed a second (and third) guess.
+ *
+ * Artwork in this app comes from hosts that fail one URL at a time rather than all of
+ * them: an Emby item whose backdrop is missing but whose poster is not, a TMDB size that
+ * `image.tmdb.org` will not serve when `media.themoviedb.org` will. A bare `AsyncImage`
+ * turns any of those into a permanently blank tile, which is what "部分图片不显示" looked
+ * like from the outside. Give it every URL that would do and it walks the list on error.
+ *
+ * Nulls and blanks are dropped by the caller's convenience, so builders that return
+ * `String?` can be listed inline.
+ */
+@Composable
+fun FallbackImage(
+    urls: List<String?>,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+) {
+    val candidates = remember(urls) { urls.filterNotNull().filter { it.isNotBlank() }.distinct() }
+    var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
+    candidates.getOrNull(candidateIndex)?.let { candidate ->
+        val requestIndex = candidateIndex
+        key(candidate) {
+            AsyncImage(
+                model = candidate,
+                contentDescription = contentDescription,
+                contentScale = contentScale,
+                modifier = modifier,
+                onError = {
+                    // A disposed request can finish after its replacement. Only
+                    // advance when the callback still belongs to the visible URL.
+                    if (candidateIndex == requestIndex && requestIndex < candidates.lastIndex) {
+                        candidateIndex = requestIndex + 1
+                    }
+                },
+            )
+        }
+    }
+}
+
+/**
  * `.poster` — a rounded, cropped artwork tile, optionally captioned by
  * `.poster-title` and underlined by the 继续观看 progress bar.
  */
@@ -57,7 +98,6 @@ fun Poster(
     val candidates = remember(url, fallbackUrl, fallbackUrls) {
         (listOfNotNull(url, fallbackUrl) + fallbackUrls).filter { it.isNotBlank() }.distinct()
     }
-    var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
     Box(
         modifier
             .sharedMediaElement(sharedKey)
@@ -78,24 +118,11 @@ fun Poster(
                 }
             },
     ) {
-        candidates.getOrNull(candidateIndex)?.let { candidate ->
-            val requestIndex = candidateIndex
-            key(candidate) {
-                AsyncImage(
-                    model = candidate,
-                    contentDescription = contentDescription,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                    onError = {
-                        // A disposed request can finish after its replacement. Only
-                        // advance when the callback still belongs to the visible URL.
-                        if (candidateIndex == requestIndex && requestIndex < candidates.lastIndex) {
-                            candidateIndex = requestIndex + 1
-                        }
-                    },
-                )
-            }
-        }
+        FallbackImage(
+            urls = candidates,
+            contentDescription = contentDescription,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         overlay()
 

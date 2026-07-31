@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -25,8 +26,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -45,13 +48,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.AppIcons
@@ -59,7 +60,8 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
-import com.yfuse.core.designsystem.GlassBottomSheet
+import com.yfuse.core.designsystem.FallbackImage
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
@@ -103,6 +105,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val store = component.store
     val baseUrl = state.currentServer?.baseUrl.orEmpty()
+    // Image endpoints answer 401 without it on a server that requires authentication, so
+    // the token travels with the base URL to every artwork on this page — not just to
+    // 播放记录, which was the only row that had it.
+    val accessToken = state.currentServer?.accessToken.orEmpty()
     val palette = LocalPalette.current
 
     val slides = state.content.featured.take(4)
@@ -111,7 +117,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
     val slide = slides.getOrNull(slideIndex)
-    val slideUrl = slide?.let { EmbyImages.backdrop(baseUrl, it) ?: EmbyImages.poster(baseUrl, it) }
+    val slideUrl = slide?.let {
+        EmbyImages.backdrop(baseUrl, it, accessToken = accessToken)
+            ?: EmbyImages.poster(baseUrl, it, accessToken = accessToken)
+    }
     val accent = rememberDominantColor(slideUrl, Brand.Primary)
 
     var serverMenuOpen by remember { mutableStateOf(false) }
@@ -160,13 +169,28 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 key = { page -> slides[page].id },
                             ) { animatedIndex ->
                                 val animatedItem = slides.getOrNull(animatedIndex) ?: slide
-                                val animatedUrl = EmbyImages.backdrop(baseUrl, animatedItem)
-                                    ?: EmbyImages.poster(baseUrl, animatedItem)
-                                val animatedAccent =
-                                    rememberDominantColor(animatedUrl, Brand.Primary)
+                                // Backdrop first, poster as the understudy: an item can
+                                // carry a backdrop id whose image the server no longer has,
+                                // and the hero used to go blank rather than fall back.
+                                val animatedUrls = listOf(
+                                    EmbyImages.backdrop(
+                                        baseUrl,
+                                        animatedItem,
+                                        accessToken = accessToken,
+                                    ),
+                                    EmbyImages.poster(
+                                        baseUrl,
+                                        animatedItem,
+                                        accessToken = accessToken,
+                                    ),
+                                )
+                                val animatedAccent = rememberDominantColor(
+                                    animatedUrls.firstOrNull { it != null },
+                                    Brand.Primary,
+                                )
                                 HeroCarousel(
                                     item = animatedItem,
-                                    url = animatedUrl,
+                                    urls = animatedUrls,
                                     accent = animatedAccent,
                                     slideCount = slides.size,
                                     slideIndex = animatedIndex,
@@ -239,6 +263,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                             if (state.content.rows.isNotEmpty()) {
                                 CategoryCards(
                                     baseUrl = baseUrl,
+                                    accessToken = accessToken,
                                     rows = state.content.rows,
                                     onOpen = {
                                         component.onSeeAll(it.libraryId, it.title)
@@ -249,7 +274,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                             if (state.content.resume.isNotEmpty()) {
                                 PlaybackHistory(
                                     baseUrl = baseUrl,
-                                    accessToken = state.currentServer?.accessToken.orEmpty(),
+                                    accessToken = accessToken,
                                     items = state.content.resume,
                                     onItemClick = { component.onOpenItem(it.id) },
                                 )
@@ -258,6 +283,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                             state.content.rows.forEach { row ->
                                 CategorySection(
                                     baseUrl = baseUrl,
+                                    accessToken = accessToken,
                                     row = row,
                                     onSeeAll = {
                                         component.onSeeAll(row.libraryId, row.title)
@@ -297,7 +323,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 @Composable
 private fun HeroCarousel(
     item: MediaItem,
-    url: String?,
+    urls: List<String?>,
     accent: Color,
     slideCount: Int,
     slideIndex: Int,
@@ -313,10 +339,9 @@ private fun HeroCarousel(
             .height(HeroHeight)
             .clickable(onClick = onClick),
     ) {
-        AsyncImage(
-            model = url,
+        FallbackImage(
+            urls = urls,
             contentDescription = item.title,
-            contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxSize()
                 .sharedMediaElement("media-backdrop-${item.id}"),
@@ -500,8 +525,15 @@ private fun HeroCarousel(
 }
 
 /**
- * 切换服务器 — a [GlassBottomSheet], which is what picking one value out of a short
- * reversible list is supposed to look like in this app.
+ * 切换服务器 — a centred [GlassDialog].
+ *
+ * It started as a [com.yfuse.core.designsystem.GlassBottomSheet], on the rule that picking
+ * one value out of a short reversible list belongs within thumb reach. It is centred
+ * instead because of where it is opened from: the switcher chip sits at the top right of
+ * the hero, and a panel that answers it from the bottom edge of a 432px hero leaves the
+ * eye to travel the whole screen and back. Switching servers also throws the page away
+ * and reloads the library, which is the weight [com.yfuse.core.designsystem.GlassDialog]
+ * is for.
  *
  * What it replaces: a 180dp menu anchored under the hero's switcher chip, hand-rolled
  * out of a hard-coded `rgba(255,255,255,.95)` plate with `#151A22` text. That is exactly
@@ -523,13 +555,20 @@ private fun ServerSheet(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    GlassBottomSheet(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "切换服务器",
             subtitle = "已登录 ${servers.size} 个 · 切换后重新载入媒体库",
             onClose = onDismiss,
         )
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // A centred panel has no edge to grow against, so a long server list scrolls
+        // inside the dialog instead of running off both ends of the screen.
+        Column(
+            modifier = Modifier
+                .heightIn(max = 360.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             servers.forEach { server ->
                 val isCurrent = server.id == currentId
                 Row(
@@ -638,6 +677,7 @@ private val ServerTileColors = listOf(
 @Composable
 private fun CategoryCards(
     baseUrl: String,
+    accessToken: String,
     rows: List<HomeRow>,
     onOpen: (HomeRow) -> Unit,
 ) {
@@ -648,7 +688,8 @@ private fun CategoryCards(
         items(rows, key = { it.libraryId }) { row ->
             val cover = row.items.firstOrNull()
             val coverUrl = cover?.let {
-                EmbyImages.backdrop(baseUrl, it, maxWidth = 480) ?: EmbyImages.poster(baseUrl, it)
+                EmbyImages.backdrop(baseUrl, it, maxWidth = 480, accessToken = accessToken)
+                    ?: EmbyImages.poster(baseUrl, it, accessToken = accessToken)
             }
             Box(
                 Modifier
@@ -657,14 +698,11 @@ private fun CategoryCards(
                     .clip(GlassShapes.poster)
                     .clickable { onOpen(row) },
             ) {
-                if (coverUrl != null) {
-                    AsyncImage(
-                        model = coverUrl,
-                        contentDescription = row.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+                FallbackImage(
+                    urls = listOf(coverUrl),
+                    contentDescription = row.title,
+                    modifier = Modifier.fillMaxSize(),
+                )
                 Box(
                     Modifier.fillMaxSize().background(
                         scrim(
@@ -804,6 +842,7 @@ private fun SectionHeader(
 @Composable
 private fun CategorySection(
     baseUrl: String,
+    accessToken: String,
     row: HomeRow,
     onSeeAll: () -> Unit,
     onItemClick: (MediaItem) -> Unit,
@@ -816,7 +855,7 @@ private fun CategorySection(
         ) {
             items(row.items, key = { it.id }) { item ->
                 CaptionedPoster(
-                    url = EmbyImages.poster(baseUrl, item),
+                    url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
                     title = item.title,
                     year = item.year?.toString(),
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
@@ -876,9 +915,15 @@ private fun CenterHint(text: String, modifier: Modifier = Modifier) {
 
 /** Shared poster tile with title/year below, reused by the library grid. */
 @Composable
-internal fun PosterCard(baseUrl: String, item: MediaItem, showProgress: Boolean, onClick: () -> Unit) {
+internal fun PosterCard(
+    baseUrl: String,
+    accessToken: String,
+    item: MediaItem,
+    showProgress: Boolean,
+    onClick: () -> Unit,
+) {
     CaptionedPoster(
-        url = EmbyImages.poster(baseUrl, item),
+        url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
         title = item.title,
         year = item.year?.toString(),
         progress = if (showProgress) item.playedPercentage?.let { (it / 100.0).toFloat() } else null,

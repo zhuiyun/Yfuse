@@ -52,6 +52,7 @@ import com.yfuse.core.designsystem.shadow
 fun LibraryGridScreen(component: LibraryGridComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val baseUrl = component.serverBaseUrl
+    val accessToken = component.serverAccessToken
     val palette = LocalPalette.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
     var sort by remember { mutableStateOf("最近添加") }
@@ -189,6 +190,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     items(sortedItems, key = { it.id }) { item ->
                         PosterCard(
                             baseUrl = baseUrl,
+                            accessToken = accessToken,
                             item = item,
                             showProgress = false,
                             onClick = { component.onOpenItem(item.id) },

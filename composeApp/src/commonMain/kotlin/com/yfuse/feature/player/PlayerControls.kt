@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -85,6 +86,25 @@ private const val AUTO_HIDE_MS = 4_000L
 private const val VOLUME_SLIDER_HIDE_MS = 1_600L
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+
+/**
+ * 长按快进/快退 — how fast the playhead runs while a press is held down.
+ *
+ * Holding used to jump to 2× playback, which is a different thing than it looks like:
+ * the picture keeps playing and the finger has to stay down to keep it there, so
+ * skipping a minute of credits meant holding for thirty seconds and watching them. A
+ * held press now runs along the timeline instead, at [HOLD_SEEK_STEP_MS] per
+ * [HOLD_SEEK_TICK_MS] — 20× to start, [HOLD_SEEK_FAST_STEP_MS] (60×) once the press has
+ * lasted [HOLD_SEEK_RAMP_MS], so a short hold nudges and a long one crosses an episode.
+ *
+ * Like the horizontal drag, this previews: the HUD tracks the target and the engine is
+ * only asked to seek once, on release. Seeking every tick would mean twenty seeks a
+ * second at a remote server that answers each one by rebuilding the stream.
+ */
+private const val HOLD_SEEK_TICK_MS = 150L
+private const val HOLD_SEEK_STEP_MS = 3_000L
+private const val HOLD_SEEK_FAST_STEP_MS = 9_000L
+private const val HOLD_SEEK_RAMP_MS = 3_000L
 
 /** Settings use one consistent floating panel and one consistent chip family. */
 private enum class Tab(val label: String) {
@@ -201,16 +221,18 @@ fun PlayerControls(
     var drawerOpen by remember { mutableStateOf(false) }
     var watchDialogOpen by remember { mutableStateOf(false) }
     var gestureHud by remember { mutableStateOf<String?>(null) }
+    // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
+    // is held. [holdSeekTarget] is where the timeline has run to, committed on release.
+    var holdSeekDirection by remember { mutableIntStateOf(0) }
+    var holdSeekTarget by remember { mutableLongStateOf(0L) }
     val haptics = LocalHapticFeedback.current
     // Bumped by every interaction so the auto-hide timer restarts.
     var interactions by remember { mutableIntStateOf(0) }
     val latestPosition by rememberUpdatedState(state.positionMs)
     val latestDuration by rememberUpdatedState(state.durationMs)
-    val latestSpeed by rememberUpdatedState(state.speed)
     val latestVolume by rememberUpdatedState(volume)
     val latestBrightness by rememberUpdatedState(brightness)
     val latestOnSeek by rememberUpdatedState(onSeek)
-    val latestOnSpeed by rememberUpdatedState(onSpeed)
     val latestOnVolume by rememberUpdatedState(onVolume)
     val latestOnBrightness by rememberUpdatedState(onBrightness)
     // Timeline controls (play/pause, seek, episode, speed) are read-only for a connected
@@ -236,6 +258,23 @@ fun PlayerControls(
             gestureHud = null
         }
     }
+    // Runs for as long as the press is held; cancelled by the release setting the
+    // direction back to 0. Re-stamping the HUD every tick also keeps the 850ms
+    // auto-clear above from taking it away mid-hold.
+    LaunchedEffect(holdSeekDirection) {
+        val direction = holdSeekDirection
+        if (direction == 0) return@LaunchedEffect
+        var heldMs = 0L
+        while (true) {
+            val span = latestDuration.coerceAtLeast(1L)
+            val step = if (heldMs < HOLD_SEEK_RAMP_MS) HOLD_SEEK_STEP_MS else HOLD_SEEK_FAST_STEP_MS
+            holdSeekTarget = (holdSeekTarget + direction * step).coerceIn(0L, span)
+            gestureHud = "${if (direction < 0) "快退" else "快进"} " +
+                "${holdSeekTarget.asClock()} / ${span.asClock()}"
+            delay(HOLD_SEEK_TICK_MS)
+            heldMs += HOLD_SEEK_TICK_MS
+        }
+    }
 
     // The volume rocker raises the slider; touching the slider keeps it up. Counted
     // separately from `interactions` so that tapping anywhere else on the picture doesn't
@@ -258,12 +297,26 @@ fun PlayerControls(
         Box(
             Modifier
                 .fillMaxSize()
-                .pointerInput(
-                    settingsTab,
-                    drawerOpen,
-                    visible,
-                ) {
+                // Keyed on nothing: `settingsTab`, `drawerOpen` and `visible` are read
+                // through their state delegates below, so the detector already sees the
+                // current values without being torn down. Keying on them meant any of
+                // them changing restarted the gesture stream mid-press — which the hold
+                // to fast-forward cannot survive, since it is the release that lands the
+                // seek and `poke()` flips `visible` the moment the hold starts.
+                .pointerInput(Unit) {
                     detectTapGestures(
+                        onPress = {
+                            // Fires on every press; only a press that turned into a hold
+                            // has a seek to land. `tryAwaitRelease` also returns after the
+                            // long-press path consumes its way to the up event.
+                            tryAwaitRelease()
+                            if (holdSeekDirection != 0) {
+                                val target = holdSeekTarget
+                                holdSeekDirection = 0
+                                latestOnSeek(target)
+                                poke()
+                            }
+                        },
                         onTap = {
                             when {
                                 settingsTab != null -> settingsTab = null
@@ -283,14 +336,17 @@ fun PlayerControls(
                             }
                             poke()
                         },
-                        onLongPress = {
-                            if (latestWatchLocked) {
-                                gestureHud = "房主控制播放"
-                            } else {
-                                val target = if (latestSpeed >= 1.95f) 1f else 2f
-                                latestOnSpeed(target)
-                                gestureHud = if (target > 1f) "2.0× 倍速" else "恢复正常速度"
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongPress = { offset ->
+                            // Left half rewinds, right half fast-forwards — the same split
+                            // the double tap already uses, so one gesture explains the other.
+                            when {
+                                latestWatchLocked -> gestureHud = "房主控制播放"
+                                latestDuration <= 0L -> Unit
+                                else -> {
+                                    holdSeekTarget = latestPosition
+                                    holdSeekDirection = if (offset.x < size.width / 2f) -1 else 1
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                }
                             }
                             poke()
                         },
@@ -315,7 +371,12 @@ fun PlayerControls(
                             brightnessAtDragStart = latestBrightness
                         },
                         onDragEnd = {
-                            if (abs(totalX) > abs(totalY) && latestDuration > 0 && !latestWatchLocked) {
+                            if (
+                                holdSeekDirection == 0 &&
+                                abs(totalX) > abs(totalY) &&
+                                latestDuration > 0 &&
+                                !latestWatchLocked
+                            ) {
                                 latestOnSeek(seekTarget)
                             }
                             poke()
@@ -323,6 +384,9 @@ fun PlayerControls(
                         onDragCancel = { gestureHud = null },
                     ) { change, amount ->
                         change.consume()
+                        // A finger that drifts while held is still holding, not scrubbing:
+                        // the hold owns the timeline until it lets go.
+                        if (holdSeekDirection != 0) return@detectDragGestures
                         totalX += amount.x
                         totalY += amount.y
                         if (abs(totalX) > abs(totalY)) {

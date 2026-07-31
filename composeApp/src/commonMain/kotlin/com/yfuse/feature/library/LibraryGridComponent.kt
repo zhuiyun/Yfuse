@@ -19,6 +19,9 @@ class LibraryGridComponent(
 
     val serverBaseUrl: String = registry.defaultServer?.baseUrl.orEmpty()
 
+    /** Emby image endpoints need the session token when the server requires auth. */
+    val serverAccessToken: String = registry.defaultServer?.accessToken.orEmpty()
+
     val store = LibraryGridStoreFactory(storeFactory, repo, registry, libraryId).create()
 
     init {

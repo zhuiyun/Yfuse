@@ -57,7 +57,11 @@ class DetailComponent(
                     detail.id,
                     server.accessToken,
                 ),
-                posterUrl = EmbyImages.poster(server.baseUrl, detail),
+                posterUrl = EmbyImages.poster(
+                    server.baseUrl,
+                    detail,
+                    accessToken = server.accessToken,
+                ),
             ),
         )
     }

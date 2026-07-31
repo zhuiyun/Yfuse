@@ -201,6 +201,9 @@ private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) 
                                         group.items.forEach { item ->
                                             ResultRow(
                                                 baseUrl = component.serverBaseUrl(group.serverId),
+                                                accessToken = component.serverAccessToken(
+                                                    group.serverId,
+                                                ),
                                                 item = item,
                                                 onClick = {
                                                     component.onOpenItem(group.serverId, item.id)
@@ -295,7 +298,12 @@ private fun SearchField(
  * Result row — exact 56×80 poster, 11px gap, 8px inset and compact two-line identity.
  */
 @Composable
-private fun ResultRow(baseUrl: String, item: MediaItem, onClick: () -> Unit) {
+private fun ResultRow(
+    baseUrl: String,
+    accessToken: String,
+    item: MediaItem,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     Row(
         Modifier
@@ -306,7 +314,7 @@ private fun ResultRow(baseUrl: String, item: MediaItem, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
         Poster(
-            url = EmbyImages.poster(baseUrl, item, maxHeight = 360),
+            url = EmbyImages.poster(baseUrl, item, maxHeight = 360, accessToken = accessToken),
             sharedKey = "media-poster-${item.id}",
             modifier = Modifier.width(60.dp).height(90.dp),
         )

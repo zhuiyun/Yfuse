@@ -35,16 +35,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
@@ -71,7 +70,15 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
     val detail = state.detail
     val item = detail.item
     val palette = LocalPalette.current
-    val heroUrl = TmdbImages.backdrop(item.backdropPath)
+    // image.tmdb.org is the primary CDN and media.themoviedb.org the official mirror for
+    // when it is unreachable; the dominant-colour probe follows whichever one is showing.
+    val heroUrls = listOf(
+        TmdbImages.backdrop(item.backdropPath),
+        TmdbImages.media(item.backdropPath, "w1280"),
+        TmdbImages.poster(item.posterPath, "w780"),
+        TmdbImages.media(item.posterPath, "w780"),
+    )
+    val heroUrl = heroUrls.firstOrNull { it != null }
     val accent = rememberDominantColor(heroUrl, Brand.Primary)
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -99,10 +106,9 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
         ) {
             item {
                 Box(Modifier.fillMaxWidth().height(heroHeight)) {
-                    AsyncImage(
-                        model = heroUrl,
+                    FallbackImage(
+                        urls = heroUrls,
                         contentDescription = item.title,
-                        contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxSize()
                             .sharedMediaElement("tmdb-backdrop-${item.id}"),
@@ -167,8 +173,12 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Poster(
-                                url = TmdbImages.poster(item.posterPath)
-                                    ?: TmdbImages.backdrop(item.backdropPath, "w780"),
+                                url = TmdbImages.poster(item.posterPath),
+                                fallbackUrls = listOfNotNull(
+                                    TmdbImages.media(item.posterPath),
+                                    TmdbImages.backdrop(item.backdropPath, "w780"),
+                                    TmdbImages.media(item.backdropPath, "w780"),
+                                ),
                                 sharedKey = "tmdb-poster-${item.id}",
                                 modifier = Modifier
                                     .width(78.dp)
@@ -291,10 +301,12 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         Modifier.width(70.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                     ) {
-                                        AsyncImage(
-                                            model = TmdbImages.poster(person.profilePath, "w185"),
+                                        FallbackImage(
+                                            urls = listOf(
+                                                TmdbImages.poster(person.profilePath, "w185"),
+                                                TmdbImages.media(person.profilePath, "w185"),
+                                            ),
                                             contentDescription = person.name,
-                                            contentScale = ContentScale.Crop,
                                             modifier = Modifier
                                                 .size(58.dp)
                                                 .clip(CircleShape)

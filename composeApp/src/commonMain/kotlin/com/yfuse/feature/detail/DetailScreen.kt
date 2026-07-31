@@ -47,7 +47,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -56,13 +55,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassBottomSheet
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
@@ -110,9 +109,18 @@ fun DetailScreen(component: DetailComponent) {
     val palette = LocalPalette.current
     val detail = state.detail
     val baseUrl = state.server?.baseUrl.orEmpty()
+    // Emby answers 401 for artwork without it when the server requires authentication, so
+    // every image on this page — hero, 艺术图, 剧集, 主演, 相关推荐 — is built with it.
+    val accessToken = state.server?.accessToken.orEmpty()
 
-    val heroUrl = detail?.let { EmbyImages.backdrop(baseUrl, it) ?: EmbyImages.poster(baseUrl, it) }
-    val accent = rememberDominantColor(heroUrl, Brand.Primary)
+    // The backdrop is the hero, the poster is what stands in when the item has none.
+    val heroUrls = detail?.let {
+        listOf(
+            EmbyImages.backdrop(baseUrl, it, accessToken = accessToken),
+            EmbyImages.poster(baseUrl, it, accessToken = accessToken),
+        )
+    }.orEmpty()
+    val accent = rememberDominantColor(heroUrls.firstOrNull { it != null }, Brand.Primary)
 
     var seasonPickerOpen by remember { mutableStateOf(false) }
     var overviewExpanded by remember { mutableStateOf(false) }
@@ -163,7 +171,7 @@ fun DetailScreen(component: DetailComponent) {
             ) {
                 item(key = "hero") {
                     Hero(
-                        url = heroUrl,
+                        urls = heroUrls,
                         title = detail.title,
                         height = heroHeight,
                         surfaceColor = detailSurface,
@@ -268,6 +276,7 @@ fun DetailScreen(component: DetailComponent) {
                             // show's when the episode has none. The index addresses that
                             // item's backdrop list, so it has to be that item's id.
                             baseUrl = baseUrl,
+                            accessToken = accessToken,
                             itemId = detail.backdropItemId,
                             tags = detail.backdropTags,
                             modifier = Modifier.padding(top = Dimens.sectionGap),
@@ -298,6 +307,7 @@ fun DetailScreen(component: DetailComponent) {
                     item(key = "episodes") {
                         EpisodeSection(
                             baseUrl = baseUrl,
+                            accessToken = accessToken,
                             episodes = state.episodes,
                             accent = Brand.Primary,
                             seasonLabel = state.seasons
@@ -327,7 +337,12 @@ fun DetailScreen(component: DetailComponent) {
 
                 if (detail.people.isNotEmpty()) {
                     item(key = "cast") {
-                        CastRow(baseUrl, detail.people, Modifier.padding(top = Dimens.sectionGap))
+                        CastRow(
+                            baseUrl = baseUrl,
+                            accessToken = accessToken,
+                            people = detail.people,
+                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                        )
                     }
                 }
 
@@ -335,6 +350,7 @@ fun DetailScreen(component: DetailComponent) {
                     item(key = "related") {
                         RelatedSection(
                             baseUrl = baseUrl,
+                            accessToken = accessToken,
                             items = state.related,
                             onOpen = { itemId ->
                                 state.server?.id?.let { component.onOpenRelated(it, itemId) }
@@ -442,6 +458,7 @@ fun DetailScreen(component: DetailComponent) {
 @Composable
 private fun RelatedSection(
     baseUrl: String,
+    accessToken: String,
     items: List<MediaItem>,
     onOpen: (String) -> Unit,
 ) {
@@ -470,6 +487,7 @@ private fun RelatedSection(
                             itemId = item.posterItemId,
                             tag = item.posterTag,
                             maxHeight = 480,
+                            accessToken = accessToken,
                         ),
                         shape = GlassShapes.poster,
                         modifier = Modifier.fillMaxWidth().height(140.dp),
@@ -541,7 +559,7 @@ private fun rememberTopBarProgress(
  */
 @Composable
 private fun Hero(
-    url: String?,
+    urls: List<String?>,
     title: String,
     height: Dp,
     surfaceColor: Color,
@@ -558,10 +576,9 @@ private fun Hero(
                 translationY = scroll.value * 0.35f
             },
     ) {
-        AsyncImage(
-            model = url,
+        FallbackImage(
+            urls = urls,
             contentDescription = title,
-            contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().sharedMediaElement(sharedKey),
         )
         Box(Modifier.fillMaxSize().background(heroScrim(surfaceColor)))
@@ -971,6 +988,7 @@ private fun GenreSection(genres: List<String>, modifier: Modifier = Modifier) {
 @Composable
 private fun ArtworkSection(
     baseUrl: String,
+    accessToken: String,
     itemId: String,
     tags: List<String>,
     modifier: Modifier = Modifier,
@@ -982,10 +1000,18 @@ private fun ArtworkSection(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         ) {
             itemsIndexed(tags, key = { _, tag -> tag }) { index, tag ->
-                AsyncImage(
-                    model = EmbyImages.backdropAt(baseUrl, itemId, index, tag, maxWidth = 720),
+                FallbackImage(
+                    urls = listOf(
+                        EmbyImages.backdropAt(
+                            baseUrl,
+                            itemId,
+                            index,
+                            tag,
+                            maxWidth = 720,
+                            accessToken = accessToken,
+                        ),
+                    ),
                     contentDescription = null,
-                    contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .width(232.dp)
                         .height(130.dp)
@@ -1666,6 +1692,7 @@ private fun EpisodeHeader(
 @Composable
 private fun EpisodeSection(
     baseUrl: String,
+    accessToken: String,
     episodes: List<Episode>,
     accent: Color,
     seasonLabel: String,
@@ -1697,7 +1724,7 @@ private fun EpisodeSection(
                 episodes,
                 key = { index, episode -> "ep-${episode.id}-$index" },
             ) { _, episode ->
-                EpisodeCard(baseUrl, episode, accent) { onPlayEpisode(episode) }
+                EpisodeCard(baseUrl, accessToken, episode, accent) { onPlayEpisode(episode) }
             }
         }
     }
@@ -1706,6 +1733,7 @@ private fun EpisodeSection(
 @Composable
 private fun EpisodeCard(
     baseUrl: String,
+    accessToken: String,
     episode: Episode,
     accent: Color,
     onPlay: () -> Unit,
@@ -1733,7 +1761,13 @@ private fun EpisodeCard(
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Poster(
-            url = EmbyImages.primary(baseUrl, episode.id, episode.primaryTag, maxHeight = 240),
+            url = EmbyImages.primary(
+                baseUrl,
+                episode.id,
+                episode.primaryTag,
+                maxHeight = 240,
+                accessToken = accessToken,
+            ),
             shape = GlassShapes.thumb,
             progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
             modifier = Modifier.fillMaxWidth().height(86.dp),
@@ -1776,7 +1810,12 @@ private fun EpisodeCard(
 
 /** 主演 — `gap:14px`; 52px round avatars with `500 10px Manrope` names 6px below. */
 @Composable
-private fun CastRow(baseUrl: String, people: List<Person>, modifier: Modifier = Modifier) {
+private fun CastRow(
+    baseUrl: String,
+    accessToken: String,
+    people: List<Person>,
+    modifier: Modifier = Modifier,
+) {
     val palette = LocalPalette.current
     Column(modifier) {
         SectionHeader("主演", Modifier.padding(horizontal = Dimens.pageHorizontal))
@@ -1790,7 +1829,7 @@ private fun CastRow(baseUrl: String, people: List<Person>, modifier: Modifier = 
             ) { _, person ->
                 Column(Modifier.width(66.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Poster(
-                        url = EmbyImages.avatar(baseUrl, person),
+                        url = EmbyImages.avatar(baseUrl, person, accessToken = accessToken),
                         shape = CircleShape,
                         modifier = Modifier
                             .size(52.dp)

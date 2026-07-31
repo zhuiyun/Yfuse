@@ -28,10 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.data.isPast
@@ -41,6 +39,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PageHint
@@ -229,10 +228,12 @@ private fun EntryRow(entry: CalendarEntry, onOpen: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AsyncImage(
-            model = TmdbImages.poster(entry.episode.posterPath, width = "w185"),
+        FallbackImage(
+            urls = listOf(
+                TmdbImages.poster(entry.episode.posterPath, width = "w185"),
+                TmdbImages.media(entry.episode.posterPath, width = "w185"),
+            ),
             contentDescription = null,
-            contentScale = ContentScale.Crop,
             modifier = Modifier
                 .width(42.dp)
                 .height(60.dp)

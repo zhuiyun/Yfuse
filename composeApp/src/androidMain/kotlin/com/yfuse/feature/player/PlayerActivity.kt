@@ -1104,9 +1104,9 @@ private fun PlayerRoot(
     // under HARD_SEEK_THRESHOLD_MS is closed by nudging playback speed ±2% so the catch-up
     // is invisible; only a gap that large — a fresh join, a long stall — jumps outright.
     // The rate this computes is also enforced every tick regardless of drift, which is
-    // what keeps 倍速 shared: a guest's own speed change (menu or the long-press gesture)
-    // gets quietly overwritten back to the room's rate within one tick instead of needing
-    // a separate lock on that control.
+    // what keeps 倍速 shared: a guest's own speed change from the settings menu gets
+    // quietly overwritten back to the room's rate within one tick instead of needing a
+    // separate lock on that control.
     LaunchedEffect(watchState.connected, watchState.reconnecting, watchState.isHost) {
         if (!watchState.connected || watchState.isHost) {
             mediaMatcher.reset()

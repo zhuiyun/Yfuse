@@ -35,11 +35,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.AppIcons
@@ -47,6 +45,7 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
@@ -182,10 +181,17 @@ private fun Hero(
 ) {
     Box(Modifier.fillMaxWidth().height(390.dp)) {
         if (item != null) {
-            AsyncImage(
-                model = TmdbImages.backdrop(item.backdropPath),
+            // The shelves below already walk image.tmdb.org → media.themoviedb.org; the hero
+            // was the one artwork on this page still betting everything on the first host,
+            // so it was the one that came up blank.
+            FallbackImage(
+                urls = listOf(
+                    TmdbImages.backdrop(item.backdropPath),
+                    TmdbImages.media(item.backdropPath, "w1280"),
+                    TmdbImages.poster(item.posterPath, "w780"),
+                    TmdbImages.media(item.posterPath, "w780"),
+                ),
                 contentDescription = item.title,
-                contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
                     .sharedMediaElement("tmdb-backdrop-${item.id}"),

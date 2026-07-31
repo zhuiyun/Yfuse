@@ -126,6 +126,10 @@ class SearchHomeComponent(
     fun serverBaseUrl(serverId: String): String =
         registry.serverById(serverId)?.baseUrl.orEmpty()
 
+    /** Emby image endpoints need the session token when the server requires auth. */
+    fun serverAccessToken(serverId: String): String =
+        registry.serverById(serverId)?.accessToken.orEmpty()
+
     val store = SearchStoreFactory(storeFactory, repo, registry, history).create()
 
     init {
