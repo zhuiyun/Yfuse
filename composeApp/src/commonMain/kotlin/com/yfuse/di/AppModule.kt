@@ -9,6 +9,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
@@ -36,6 +37,7 @@ fun appModule(settings: Settings) = module {
     single { UserAgentPreferences(get()) }
     single { WatchTogetherPreferences(get()) }
     single { DanmakuPreferences(get()) }
+    single { SkipSegmentPreferences(get()) }
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }
     single<CastManager> { createCastManager() }

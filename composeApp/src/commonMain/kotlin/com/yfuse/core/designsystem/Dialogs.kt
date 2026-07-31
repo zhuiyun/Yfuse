@@ -25,11 +25,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +57,44 @@ private val ScrimColor = Color(0xFF0A0E16)
 private val OverlayShape = GlassShapes.card
 
 /**
+ * How many overlays are on screen right now, so the app shell can stand its own floating
+ * furniture down while one is up.
+ *
+ * An overlay is composed by the screen that opens it, which sits *below* the floating tab
+ * bar and mini player in the shell's stacking order. Its scrim therefore covered the page
+ * but not the bar, which kept painting — and kept taking taps — on top of a bottom sheet
+ * anchored to the same edge. Counted rather than a boolean because a sheet can hand off to
+ * a confirmation dialog, and the second one must not clear the flag the first still needs.
+ */
+@Stable
+class OverlayVisibility {
+    var count by mutableStateOf(0)
+        private set
+
+    val any: Boolean get() = count > 0
+
+    internal fun enter() {
+        count++
+    }
+
+    internal fun exit() {
+        count = (count - 1).coerceAtLeast(0)
+    }
+}
+
+/** Null outside the app shell — the player owns the whole screen and has no bar to yield. */
+val LocalOverlayVisibility = staticCompositionLocalOf<OverlayVisibility?> { null }
+
+@Composable
+private fun ReportOverlayVisible() {
+    val visibility = LocalOverlayVisibility.current ?: return
+    DisposableEffect(visibility) {
+        visibility.enter()
+        onDispose { visibility.exit() }
+    }
+}
+
+/**
  * Centred modal. Use for decisions and forms — anything the user must answer before
  * carrying on. Tapping the scrim dismisses; taps inside the panel never leak through.
  */
@@ -63,6 +104,7 @@ fun GlassDialog(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    ReportOverlayVisible()
     val palette = LocalPalette.current
     val solidSurface = if (palette.isDark) Color(0xFF111A29) else Color.White
     val progress = rememberOverlayEntrance(Motion.TAB)
@@ -107,6 +149,7 @@ fun GlassBottomSheet(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    ReportOverlayVisible()
     val palette = LocalPalette.current
     val progress = rememberOverlayEntrance(Motion.MODAL)
     Box(

@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
-import com.yfuse.app.hideBottomBarOnScroll
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
@@ -93,7 +92,7 @@ fun HomeScreen(component: HomeComponent) {
             )
 
             else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().hideBottomBarOnScroll(),
+                modifier = Modifier.fillMaxSize(),
                 state = listState,
                 contentPadding = PaddingValues(bottom = TabBarInset),
                 verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),

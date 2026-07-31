@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -73,6 +75,14 @@ import kotlinx.coroutines.delay
 
 /** Controls fade out after this long without interaction, while playing. */
 private const val AUTO_HIDE_MS = 4_000L
+
+/**
+ * How long the volume slider stays up after the last press or drag.
+ *
+ * Shorter than [AUTO_HIDE_MS]: it covers part of the picture and answers a question that
+ * has already been answered by the time the sound changes.
+ */
+private const val VOLUME_SLIDER_HIDE_MS = 1_600L
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 
@@ -109,6 +119,11 @@ fun PlayerControls(
     /** System volume, 0f..1f, and its setter — drives the bottom-left level chip. */
     volume: Float = 0f,
     onVolume: (Float) -> Unit = {},
+    /**
+     * Increments on each volume key press. Any change raises the vertical slider; the value
+     * itself is meaningless, which is what lets a press at the volume ceiling still show it.
+     */
+    volumeKeyPresses: Long = 0L,
     /** Current window brightness, 0f..1f. Vertical drags on the left half adjust it. */
     brightness: Float = 0.5f,
     onBrightness: (Float) -> Unit = {},
@@ -142,6 +157,17 @@ fun PlayerControls(
     onSelectDanmakuOpacity: (Int) -> Unit = {},
     skipSegmentLabel: String? = null,
     onSkipSegment: () -> Unit = {},
+    /** Seconds left before an automatic skip fires, or null when none is armed. */
+    skipCountdownSeconds: Int? = null,
+    onCancelAutoSkip: () -> Unit = {},
+    /** Non-null when this entry belongs to a series, which is what skip times are kept per. */
+    skipSeriesName: String? = null,
+    skipIntroStartSeconds: Long = 0L,
+    skipIntroEndSeconds: Long = 0L,
+    skipCreditsStartSeconds: Long = 0L,
+    autoSkipEnabled: Boolean = false,
+    onSetSkipTimes: (Long, Long, Long) -> Unit = { _, _, _ -> },
+    onToggleAutoSkip: () -> Unit = {},
     watchEndpoint: String = "",
     watchConnecting: Boolean = false,
     watchConnected: Boolean = false,
@@ -198,6 +224,22 @@ fun PlayerControls(
             delay(850)
             gestureHud = null
         }
+    }
+
+    // The volume rocker raises the slider; touching the slider keeps it up. Counted
+    // separately from `interactions` so that tapping anywhere else on the picture doesn't
+    // silently extend an overlay the user is done with.
+    var volumeSliderTouches by remember { mutableIntStateOf(0) }
+    var volumeSliderVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(volumeKeyPresses) {
+        // Nothing has been pressed yet on first composition; don't flash the slider up.
+        if (volumeKeyPresses == 0L) return@LaunchedEffect
+        volumeSliderVisible = true
+    }
+    LaunchedEffect(volumeKeyPresses, volumeSliderTouches, volumeSliderVisible) {
+        if (!volumeSliderVisible) return@LaunchedEffect
+        delay(VOLUME_SLIDER_HIDE_MS)
+        volumeSliderVisible = false
     }
 
     Box(modifier.fillMaxSize()) {
@@ -339,6 +381,10 @@ fun PlayerControls(
                 state = state,
                 volume = volume,
                 seekLocked = watchLocked,
+                skipCountdownLabel = skipCountdownSeconds?.let {
+                    skipCountdownLabel(skipSegmentLabel, it)
+                },
+                onCancelAutoSkip = { poke(); onCancelAutoSkip() },
                 onVolume = { poke(); onVolume(it) },
                 onSeek = { poke(); onSeek(it) },
                 onScrub = { interactions++ },
@@ -358,24 +404,25 @@ fun PlayerControls(
             )
         }
 
-        if (skipSegmentLabel != null) {
-            Text(
-                skipSegmentLabel,
-                style = sc(12.5f, 700),
-                color = Color.White,
+        // An armed countdown replaces the manual pill rather than sitting beside it — both
+        // would be about the same segment, and the countdown already skips on its own.
+        // While the controls are up it is drawn under the progress bar by [BottomBar]; this
+        // is the same pill for when they aren't.
+        when {
+            skipCountdownSeconds != null && !visible -> SkipPill(
+                label = skipCountdownLabel(skipSegmentLabel, skipCountdownSeconds),
+                onClick = { poke(); onCancelAutoSkip() },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 22.dp, bottom = if (visible) 92.dp else 24.dp)
-                    .glass(
-                        shape = RoundedCornerShape(18.dp),
-                        fill = Color.Black.copy(alpha = 0.64f),
-                        border = Color.White.copy(alpha = 0.28f),
-                    )
-                    .noRippleClickable {
-                        poke()
-                        onSkipSegment()
-                    }
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                    .padding(end = 22.dp, bottom = 24.dp),
+            )
+
+            skipCountdownSeconds == null && skipSegmentLabel != null -> SkipPill(
+                label = skipSegmentLabel,
+                onClick = { poke(); onSkipSegment() },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 22.dp, bottom = if (visible) 92.dp else 24.dp),
             )
         }
 
@@ -425,6 +472,15 @@ fun PlayerControls(
                     settingsTab = null
                     watchDialogOpen = true
                 },
+                skipSeriesName = skipSeriesName,
+                skipIntroStartSeconds = skipIntroStartSeconds,
+                skipIntroEndSeconds = skipIntroEndSeconds,
+                skipCreditsStartSeconds = skipCreditsStartSeconds,
+                autoSkipEnabled = autoSkipEnabled,
+                // The panel stays open: setting a boundary is something you check against
+                // the picture behind it, and often two of the three in one visit.
+                onSetSkipTimes = onSetSkipTimes,
+                onToggleAutoSkip = onToggleAutoSkip,
                 onDismiss = { settingsTab = null },
             )
         }
@@ -506,6 +562,19 @@ fun PlayerControls(
                         border = Color.White.copy(alpha = 0.24f),
                     )
                     .padding(horizontal = 22.dp, vertical = 13.dp),
+            )
+        }
+
+        if (volumeSliderVisible) {
+            VolumeSlider(
+                volume = volume,
+                onVolume = { target ->
+                    volumeSliderTouches++
+                    onVolume(target)
+                },
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 26.dp),
             )
         }
 
@@ -746,6 +815,103 @@ private fun TransportRow(
     }
 }
 
+/**
+ * The vertical volume bar the rocker raises, in place of the system's own panel.
+ *
+ * Draggable rather than a read-only readout: once it is on screen and under the thumb, the
+ * remaining distance is usually more than a couple of rocker steps, and the alternative
+ * (the edge-drag gesture) means dismissing this first.
+ *
+ * Fill grows upward, so the gesture matches both the rocker and the bar's own shape.
+ */
+@Composable
+private fun VolumeSlider(volume: Float, onVolume: (Float) -> Unit, modifier: Modifier = Modifier) {
+    val fraction = volume.coerceIn(0f, 1f)
+    var height by remember { mutableIntStateOf(1) }
+    Column(
+        modifier
+            .glass(
+                shape = RoundedCornerShape(22.dp),
+                fill = Color.Black.copy(alpha = 0.56f),
+                border = Color.White.copy(alpha = 0.24f),
+            )
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("${(fraction * 100).toInt()}", style = mr(11f, 700), color = Color.White)
+        Spacer(Modifier.height(10.dp))
+        Box(
+            Modifier
+                .width(6.dp)
+                .height(140.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(Color.White.copy(alpha = 0.22f))
+                .onSizeChanged { height = it.height.coerceAtLeast(1) }
+                .pointerInput(Unit) {
+                    // Bottom of the track is 0, top is 1 — hence the inversion.
+                    detectTapGestures { offset ->
+                        onVolume((1f - offset.y / height).coerceIn(0f, 1f))
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures { change, _ ->
+                        change.consume()
+                        onVolume((1f - change.position.y / height).coerceIn(0f, 1f))
+                    }
+                },
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            // Muted draws no fill at all rather than a zero-height sliver.
+            if (fraction > 0f) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(fraction)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color.White),
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Icon(AppIcons.Volume, null, tint = Color.White, modifier = Modifier.size(14.dp))
+    }
+}
+
+/**
+ * The pill offering to move the playhead past a 片头 / 片尾.
+ *
+ * Deliberately outside the show/hide of the rest of the controls: the offer is only good
+ * for as long as playback is inside the segment, and making the user summon the controls
+ * first would spend a chunk of that window.
+ */
+@Composable
+private fun SkipPill(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Text(
+        label,
+        style = sc(12.5f, 700),
+        color = Color.White,
+        modifier = modifier
+            .glass(
+                shape = RoundedCornerShape(18.dp),
+                fill = Color.Black.copy(alpha = 0.64f),
+                border = Color.White.copy(alpha = 0.28f),
+            )
+            .noRippleClickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+    )
+}
+
+/** "片头结束 · 90 秒" / "片头结束 · 未设置". */
+private fun skipBoundaryLabel(name: String, seconds: Long): String =
+    if (seconds > 0L) "$name · $seconds 秒" else "$name · 未设置"
+
+/** "3 秒后跳过片头 · 点击取消" — the label says what will happen and how to stop it. */
+private fun skipCountdownLabel(skipSegmentLabel: String?, seconds: Int): String {
+    // 跳过片头 -> 片头. The type's own label is the only place this wording lives.
+    val what = skipSegmentLabel?.removePrefix("跳过").orEmpty()
+    return "$seconds 秒后跳过$what · 点击取消"
+}
+
 /** `padding:14px 22px 16px`, `linear-gradient(0deg,rgba(0,0,0,.55),transparent)`. */
 @Composable
 private fun BottomBar(
@@ -753,6 +919,9 @@ private fun BottomBar(
     volume: Float,
     /** Guest in a room: the scrubber becomes a read-only progress indicator. */
     seekLocked: Boolean,
+    /** Non-null while an automatic skip is counting down; shown under the progress row. */
+    skipCountdownLabel: String?,
+    onCancelAutoSkip: () -> Unit,
     onVolume: (Float) -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
@@ -799,6 +968,15 @@ private fun BottomBar(
                 modifier = Modifier.weight(1f),
             )
             Text(formatTime(state.durationMs), style = mr(11f, 400), color = PlayerTokens.timeTextLandscape)
+        }
+
+        if (skipCountdownLabel != null) {
+            Spacer(Modifier.height(8.dp))
+            SkipPill(
+                label = skipCountdownLabel,
+                onClick = onCancelAutoSkip,
+                modifier = Modifier.align(Alignment.End),
+            )
         }
 
         Spacer(Modifier.height(10.dp))
@@ -1151,6 +1329,13 @@ private fun SettingsPanel(
     watchConnected: Boolean,
     watchRoomCode: String?,
     onOpenWatchTogether: () -> Unit,
+    skipSeriesName: String?,
+    skipIntroStartSeconds: Long,
+    skipIntroEndSeconds: Long,
+    skipCreditsStartSeconds: Long,
+    autoSkipEnabled: Boolean,
+    onSetSkipTimes: (Long, Long, Long) -> Unit,
+    onToggleAutoSkip: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val tabs = buildList {
@@ -1312,6 +1497,39 @@ private fun SettingsPanel(
                             watchConnected,
                             onClick = onOpenWatchTogether,
                         )
+
+                        // Only for a series: an opening belongs to the show, and there is
+                        // nothing sensible to hang a film's times off. Setting a boundary
+                        // from where playback already is beats typing seconds at a
+                        // fullscreen landscape keyboard — 我的 has the numeric editor for
+                        // when a value needs nudging afterwards.
+                        if (skipSeriesName != null) {
+                            GroupLabel("片头片尾 · 点按设为当前进度")
+                            val here = (state.positionMs / 1000).coerceAtLeast(0L)
+                            OptionRow(
+                                skipBoundaryLabel("片头开始", skipIntroStartSeconds),
+                                skipIntroStartSeconds > 0L,
+                            ) { onSetSkipTimes(here, skipIntroEndSeconds, skipCreditsStartSeconds) }
+                            OptionRow(
+                                skipBoundaryLabel("片头结束", skipIntroEndSeconds),
+                                skipIntroEndSeconds > 0L,
+                            ) { onSetSkipTimes(skipIntroStartSeconds, here, skipCreditsStartSeconds) }
+                            OptionRow(
+                                skipBoundaryLabel("片尾开始", skipCreditsStartSeconds),
+                                skipCreditsStartSeconds > 0L,
+                            ) { onSetSkipTimes(skipIntroStartSeconds, skipIntroEndSeconds, here) }
+                            OptionRow("自动跳过", autoSkipEnabled, onClick = onToggleAutoSkip)
+                            // Also offered for a half-entered intro, which is exactly when
+                            // starting over is most likely to be what's wanted.
+                            val anySkipTimeSet = skipIntroStartSeconds > 0L ||
+                                skipIntroEndSeconds > 0L ||
+                                skipCreditsStartSeconds > 0L
+                            if (anySkipTimeSet) {
+                                OptionRow("清除《$skipSeriesName》的设置", false) {
+                                    onSetSkipTimes(0L, 0L, 0L)
+                                }
+                            }
+                        }
 
                         GroupLabel("播放速度")
                         speeds.forEach { speed ->

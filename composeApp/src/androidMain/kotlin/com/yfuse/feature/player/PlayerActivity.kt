@@ -28,6 +28,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.Rational
+import android.view.KeyEvent
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -71,6 +73,8 @@ import com.yfuse.core.data.DanmakuSpeed
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.SkipSegmentPreferences
+import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
@@ -86,6 +90,7 @@ import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.sync.WatchTogetherClient
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.collect
@@ -116,6 +121,8 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_WATCH_KEYS = "yfuse.watchKeys"
         private const val EXTRA_SEASONS = "yfuse.seasonNumbers"
         private const val EXTRA_EPISODES = "yfuse.episodeNumbers"
+        private const val EXTRA_SERIES_KEYS = "yfuse.seriesIds"
+        private const val EXTRA_SERIES_NAMES = "yfuse.seriesNames"
         private const val EXTRA_INDEX = "yfuse.index"
         private const val EXTRA_POSITION = "yfuse.positionMs"
         private const val EXTRA_ENGINE = "yfuse.engine"
@@ -143,6 +150,8 @@ class PlayerActivity : ComponentActivity() {
             putExtra(EXTRA_WATCH_KEYS, items.map { it.watchKey }.toTypedArray())
             putExtra(EXTRA_SEASONS, items.map { it.seasonNumber ?: -1 }.toIntArray())
             putExtra(EXTRA_EPISODES, items.map { it.episodeNumber ?: -1 }.toIntArray())
+            putExtra(EXTRA_SERIES_KEYS, items.map { it.seriesId.orEmpty() }.toTypedArray())
+            putExtra(EXTRA_SERIES_NAMES, items.map { it.seriesName.orEmpty() }.toTypedArray())
             putExtra(EXTRA_INDEX, startIndex)
             putExtra(EXTRA_POSITION, startPositionMs)
             putExtra(EXTRA_ENGINE, engine.name)
@@ -213,8 +222,56 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Bumped by each volume key press, so the player can put its own slider on screen.
+     *
+     * A counter rather than a level: the level is already tracked in composition, and what
+     * a key press adds is only "show it now". Two presses at the same volume — at the
+     * ceiling, or on the mute floor — still have to keep the slider up, which a level alone
+     * could not express.
+     */
+    private val volumeKeyPresses = MutableStateFlow(0L)
+
+    /**
+     * Handles the volume rocker so the player can answer it with its own slider.
+     *
+     * Left alone, Android puts its own panel over the picture — sized and placed for the
+     * home screen, unaware there is a film behind it. The rocker still does exactly what it
+     * did (one step of `STREAM_MUSIC` per press, held presses repeating); only the thing
+     * that appears in response changes.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean = when (keyCode) {
+        KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
+            audioManager.adjustStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                    AudioManager.ADJUST_RAISE
+                } else {
+                    AudioManager.ADJUST_LOWER
+                },
+                // No flags: the adjustment happens, the system panel does not.
+                0,
+            )
+            volumeKeyPresses.value++
+            true
+        }
+
+        else -> super.onKeyDown(keyCode, event)
+    }
+
+    /** Consumed alongside the down event, or the system panel appears on release. */
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean = when (keyCode) {
+        KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> true
+        else -> super.onKeyUp(keyCode, event)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // The player is watched, not touched — nothing here should let the screen time out
+        // mid-film. The per-view keepScreenOn each engine sets only covers its own surface;
+        // this covers the window, including while buffering or paused on a still frame.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Without this the hardware keys adjust whichever stream the system last considered
         // active — the ring volume, most often — so a user turning the volume up on a film
@@ -249,6 +306,8 @@ class PlayerActivity : ComponentActivity() {
         val watchKeys = intent.getStringArrayExtra(EXTRA_WATCH_KEYS).orEmpty()
         val seasonNumbers = intent.getIntArrayExtra(EXTRA_SEASONS) ?: intArrayOf()
         val episodeNumbers = intent.getIntArrayExtra(EXTRA_EPISODES) ?: intArrayOf()
+        val seriesIds = intent.getStringArrayExtra(EXTRA_SERIES_KEYS).orEmpty()
+        val seriesNames = intent.getStringArrayExtra(EXTRA_SERIES_NAMES).orEmpty()
         val items = urls.mapIndexed { index, url ->
             PlayerMediaItem(
                 id = ids.getOrElse(index) { index.toString() },
@@ -266,6 +325,8 @@ class PlayerActivity : ComponentActivity() {
                 playbackSegments = decodePlaybackSegments(segmentRows.getOrElse(index) { "" }),
                 seasonNumber = seasonNumbers.getOrNull(index)?.takeIf { it >= 0 },
                 episodeNumber = episodeNumbers.getOrNull(index)?.takeIf { it >= 0 },
+                seriesId = seriesIds.getOrNull(index)?.ifBlank { null },
+                seriesName = seriesNames.getOrNull(index)?.ifBlank { null },
                 watchKey = watchKeys.getOrElse(index) {
                     "emby:${ids.getOrElse(index) { index.toString() }}"
                 },
@@ -291,6 +352,7 @@ class PlayerActivity : ComponentActivity() {
             }
             .getOrNull()
         val danmakuPreferences = koin.get<DanmakuPreferences>()
+        val skipSegmentPreferences = koin.get<SkipSegmentPreferences>()
         val danmakuRepository = koin.get<DanmakuRepository>()
         val playbackRecovery = koin.get<PlaybackRecoveryStore>()
         val customUserAgent = koin.get<UserAgentPreferences>().userAgent.value
@@ -351,6 +413,8 @@ class PlayerActivity : ComponentActivity() {
                     inPictureInPicture = inPictureInPicture,
                     playbackSink = playbackSink,
                     danmakuPreferences = danmakuPreferences,
+                    skipSegmentPreferences = skipSegmentPreferences,
+                    volumeKeyPresses = volumeKeyPresses,
                     danmakuRepository = danmakuRepository,
                     playbackRecovery = playbackRecovery,
                     customUserAgent = customUserAgent,
@@ -754,6 +818,14 @@ private const val NUDGE_FRACTION = 0.02f
 private const val RATE_EPSILON = 0.001f
 
 /**
+ * How long an automatic skip is announced before it happens.
+ *
+ * Long enough to read the pill and reach it, short enough that someone who wanted the skip
+ * isn't left watching the thing they asked to have skipped.
+ */
+private const val AUTO_SKIP_COUNTDOWN_SECONDS = 5
+
+/**
  * Owns the live engine and the shared control layer. Switching engines reads
  * the outgoing engine's position first, so the replacement picks up where it
  * left off instead of restarting the entry.
@@ -772,6 +844,9 @@ private fun PlayerRoot(
     playbackSink: PlaybackEventSink?,
     danmakuPreferences: DanmakuPreferences,
     danmakuRepository: DanmakuRepository,
+    skipSegmentPreferences: SkipSegmentPreferences,
+    /** Ticks on every volume key press; drives the player's own volume slider. */
+    volumeKeyPresses: StateFlow<Long>,
     playbackRecovery: PlaybackRecoveryStore,
     customUserAgent: String,
     watchTogether: WatchTogetherClient,
@@ -868,8 +943,68 @@ private fun PlayerRoot(
     var danmakuLoading by remember { mutableStateOf(false) }
     var danmakuError by remember { mutableStateOf<String?>(null) }
     val currentItem = items.getOrNull(state.currentIndex)
-    val activeSegment = currentItem?.playbackSegments?.firstOrNull { segment ->
+    // Read as state so editing this series' times mid-episode takes effect on the open
+    // player rather than only on the next launch.
+    val skipTimesBySeries by skipSegmentPreferences.bySeries.collectAsState()
+    val autoSkip by skipSegmentPreferences.autoSkip.collectAsState()
+    val skipTimes = currentItem?.seriesId?.let(skipTimesBySeries::get)
+    val activeSegment = remember(currentItem, skipTimesBySeries) {
+        skipSegmentPreferences.applyTo(
+            seriesId = currentItem?.seriesId,
+            serverSegments = currentItem?.playbackSegments.orEmpty(),
+        )
+    }.firstOrNull { segment ->
         segment.contains(state.positionMs, state.durationMs)
+    }
+    val skipSegment: () -> Unit = {
+        when (activeSegment?.type) {
+            PlaybackSegmentType.Intro -> activeSegment.endMs?.let(playbackGate::seekTo)
+            PlaybackSegmentType.Credits -> if (state.hasNext) {
+                playbackGate.selectNext()
+            } else {
+                playbackGate.seekTo((state.durationMs - 500L).coerceAtLeast(0L))
+            }
+            null -> Unit
+        }
+    }
+
+    // Automatic skipping, announced before it happens.
+    //
+    // Occurrences are identified by entry id plus segment type rather than by the segment
+    // itself, so holding still inside an intro doesn't re-arm the countdown on every
+    // position tick, while the next episode's intro is a different occurrence and does arm
+    // again. [settledSkip] is the one this player has already dealt with — cancelled, or
+    // skipped and then rewound back into. Either way the user has since chosen to be here,
+    // and moving the playhead off it a second time would be taking the choice back.
+    var settledSkip by remember { mutableStateOf<Pair<String, PlaybackSegmentType>?>(null) }
+    var skipCountdownSeconds by remember { mutableStateOf<Int?>(null) }
+    val skipOccurrence = activeSegment?.let { segment ->
+        currentItem?.id?.let { it to segment.type }
+    }
+    // A guest's playback is the host's to move. Arming here would fire a refused seek —
+    // and its "当前由房主控制播放" toast — at every opening in the season.
+    val watchGuest = watchState.connected && !watchState.isHost
+    val skipArmed = skipOccurrence != null &&
+        autoSkip &&
+        !watchGuest &&
+        skipOccurrence != settledSkip
+    // The countdown outlives several position ticks, so it must fire against the playback
+    // state as it is when it expires, not as it was when the effect was launched.
+    val latestSkipSegment by rememberUpdatedState(skipSegment)
+    LaunchedEffect(skipOccurrence, skipArmed) {
+        if (!skipArmed) {
+            skipCountdownSeconds = null
+            return@LaunchedEffect
+        }
+        for (remaining in AUTO_SKIP_COUNTDOWN_SECONDS downTo 1) {
+            skipCountdownSeconds = remaining
+            delay(1_000L)
+        }
+        skipCountdownSeconds = null
+        // Settled before the seek, so that rewinding into this same opening later gets the
+        // manual pill rather than a second countdown.
+        settledSkip = skipOccurrence
+        latestSkipSegment()
     }
     LaunchedEffect(currentItem?.id, danmakuUrl, danmakuEnabled) {
         danmakuComments = emptyList()
@@ -1089,6 +1224,7 @@ private fun PlayerRoot(
                 },
                 volume = volume,
                 onVolume = { setVolume(it) },
+                volumeKeyPresses = volumeKeyPresses.collectAsState().value,
                 brightness = brightness,
                 onBrightness = { setBrightness(it) },
                 engineOptions = PlayerEngine.selectable.map { it.label to (it == kind) },
@@ -1150,23 +1286,31 @@ private fun PlayerRoot(
                     danmakuPreferences.setOpacity(DanmakuOpacity.entries[index])
                 },
                 skipSegmentLabel = activeSegment?.type?.skipLabel,
-                onSkipSegment = {
-                    when (activeSegment?.type) {
-                        PlaybackSegmentType.Intro -> {
-                            activeSegment.endMs?.let(playbackGate::seekTo)
-                        }
-                        PlaybackSegmentType.Credits -> {
-                            if (state.hasNext) {
-                                playbackGate.selectNext()
-                            } else {
-                                playbackGate.seekTo(
-                                    (state.durationMs - 500L).coerceAtLeast(0L),
-                                )
-                            }
-                        }
-                        null -> Unit
-                    }
+                onSkipSegment = skipSegment,
+                skipCountdownSeconds = skipCountdownSeconds,
+                // Cancelling drops back to the manual pill rather than clearing the offer
+                // outright: "not automatically" is not the same as "not at all".
+                onCancelAutoSkip = { settledSkip = skipOccurrence },
+                skipSeriesName = currentItem?.seriesId?.let {
+                    currentItem.seriesName?.ifBlank { null } ?: "本剧"
                 },
+                skipIntroStartSeconds = skipTimes?.introStartSeconds ?: 0L,
+                skipIntroEndSeconds = skipTimes?.introEndSeconds ?: 0L,
+                skipCreditsStartSeconds = skipTimes?.creditsStartSeconds ?: 0L,
+                autoSkipEnabled = autoSkip,
+                onSetSkipTimes = { introStart, introEnd, creditsStart ->
+                    val seriesId = currentItem?.seriesId ?: return@PlayerControls
+                    skipSegmentPreferences.set(
+                        seriesId = seriesId,
+                        times = SkipTimes(
+                            introStartSeconds = introStart,
+                            introEndSeconds = introEnd,
+                            creditsStartSeconds = creditsStart,
+                            seriesName = currentItem.seriesName.orEmpty(),
+                        ),
+                    )
+                },
+                onToggleAutoSkip = { skipSegmentPreferences.setAutoSkip(!autoSkip) },
                 watchEndpoint = watchEndpoint,
                 watchConnecting = watchState.connecting,
                 watchConnected = watchState.connected,

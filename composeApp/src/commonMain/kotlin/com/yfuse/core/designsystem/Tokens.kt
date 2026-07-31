@@ -218,8 +218,8 @@ object Dimens {
      */
     val contentTop = 20.dp
 
-    /** 滚动容器底部预留 134px 供浮层组避让（迷你播放器 + tab bar）. */
-    val contentBottom = 134.dp
+    /** 滚动容器底部预留供浮层组避让（迷你播放器 + tab bar）. */
+    val contentBottom = 124.dp
 
     /** 卡片间距 8–14px */ val cardGap = 14.dp
 
@@ -233,7 +233,7 @@ object Dimens {
     /** 大 26px — sheet、迷你播放器、tab bar. */ val large = 26.dp
 
     /** 悬浮 Tab Bar — 与迷你播放器共用材质、圆角与左右边距（§3）. */
-    val tabBarHeight = 62.dp
+    val tabBarHeight = 54.dp
     val tabBarInset = 14.dp
 
     /** 卡片描边 */ val hairline = 1.dp

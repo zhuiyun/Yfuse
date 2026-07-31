@@ -24,6 +24,13 @@ data class PlayerMediaItem(
     val playbackSegments: List<PlaybackSegment> = emptyList(),
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
+    /**
+     * The series this entry belongs to, or null for a film. Skip times are stored against
+     * it — an opening is a property of the show, not of any one episode, so setting it once
+     * has to hold for the rest of the queue and for every season after it.
+     */
+    val seriesId: String? = null,
+    val seriesName: String? = null,
     /** Cross-server identity used by watch-together rooms. */
     val watchKey: String = id,
 )
@@ -90,6 +97,8 @@ class PlayerStoreFactory(
                     providerIds: Map<String, String> = emptyMap(),
                     seasonNumber: Int? = null,
                     episodeNumber: Int? = null,
+                    seriesId: String? = null,
+                    seriesName: String? = null,
                 ) = PlayerMediaItem(
                     id = id,
                     url = EmbyStream.directPlay(server.baseUrl, id, server.accessToken),
@@ -104,6 +113,8 @@ class PlayerStoreFactory(
                     playbackSegments = playbackSegments,
                     seasonNumber = seasonNumber,
                     episodeNumber = episodeNumber,
+                    seriesId = seriesId,
+                    seriesName = seriesName,
                     watchKey = providerIds.watchKey(id),
                 )
 
@@ -141,6 +152,8 @@ class PlayerStoreFactory(
                                 ep.providerIds,
                                 ep.seasonNumber,
                                 ep.indexNumber,
+                                seriesId,
+                                detail.seriesName,
                             )
                         }
                         val index = items.indexOfFirst { it.id == itemId }.coerceAtLeast(0)

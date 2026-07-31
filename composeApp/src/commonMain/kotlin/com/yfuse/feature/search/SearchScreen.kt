@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
-import com.yfuse.app.hideBottomBarOnScroll
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
@@ -106,7 +105,7 @@ private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) 
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().hideBottomBarOnScroll(),
+            modifier = Modifier.fillMaxSize().statusBarsPadding(),
             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {

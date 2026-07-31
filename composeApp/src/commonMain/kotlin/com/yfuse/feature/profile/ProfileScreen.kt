@@ -40,14 +40,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
-import com.yfuse.app.hideBottomBarOnScroll
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
@@ -60,6 +61,7 @@ import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.Palette
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -84,7 +86,15 @@ import com.yfuse.feature.servers.ServersIntent
 import kotlinx.coroutines.launch
 
 /** Which option sheet is open — the prototype's `settingsSheetTab`. */
-private enum class Sheet { Engine, Decoder, DanmakuSource, UserAgent, WatchTogether, WatchEndpoint }
+private enum class Sheet {
+    Engine,
+    Decoder,
+    DanmakuSource,
+    SkipSegments,
+    UserAgent,
+    WatchTogether,
+    WatchEndpoint,
+}
 
 private enum class ProfilePage { Downloads, Recovery }
 
@@ -101,6 +111,8 @@ fun ProfileScreen(component: ProfileComponent) {
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
     val danmakuUrl by component.danmakuPreferences.urlTemplate.collectAsState()
+    val skipTimesBySeries by component.skipSegmentPreferences.bySeries.collectAsState()
+    val autoSkip by component.skipSegmentPreferences.autoSkip.collectAsState()
     val customUserAgent by component.userAgentPreferences.userAgent.collectAsState()
     val offlineItems by component.offlineMedia.items.collectAsState()
     val recoverySnapshot by component.playbackRecovery.snapshot.collectAsState()
@@ -154,7 +166,7 @@ fun ProfileScreen(component: ProfileComponent) {
             )
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().statusBarsPadding().hideBottomBarOnScroll(),
+                modifier = Modifier.fillMaxSize().statusBarsPadding(),
                 contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
@@ -242,6 +254,17 @@ fun ProfileScreen(component: ProfileComponent) {
                                 if (danmakuUrl.isBlank()) "未配置 ›" else "已配置 ›",
                                 embedded = true,
                                 onClick = { sheet = Sheet.DanmakuSource },
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                "片头片尾",
+                                when {
+                                    skipTimesBySeries.isEmpty() -> "跟随服务器 ›"
+                                    autoSkip -> "${skipTimesBySeries.size} 部剧 · 自动跳过 ›"
+                                    else -> "${skipTimesBySeries.size} 部剧 ›"
+                                },
+                                embedded = true,
+                                onClick = { sheet = Sheet.SkipSegments },
                             )
                             SettingsDivider()
                             SettingRow(
@@ -418,6 +441,17 @@ fun ProfileScreen(component: ProfileComponent) {
                 onDismiss = { sheet = null },
             )
 
+            Sheet.SkipSegments -> SkipSegmentDialog(
+                bySeries = skipTimesBySeries,
+                autoSkip = autoSkip,
+                onToggleAutoSkip = component.skipSegmentPreferences::setAutoSkip,
+                onSave = { seriesId, times ->
+                    component.skipSegmentPreferences.set(seriesId, times)
+                },
+                onClear = component.skipSegmentPreferences::clear,
+                onDismiss = { sheet = null },
+            )
+
             Sheet.UserAgent -> UserAgentDialog(
                 current = customUserAgent,
                 onSave = {
@@ -433,15 +467,18 @@ fun ProfileScreen(component: ProfileComponent) {
 
             Sheet.WatchTogether -> WatchJoinDialog(
                 connected = watchState.connected,
+                connecting = watchState.connecting,
                 roomCode = watchState.roomCode,
                 participantCount = watchState.participantCount,
-                error = watchState.error,
+                error = watchState.error ?: watchState.syncWarning,
                 onJoin = { code ->
                     // Joining from here has no media context, so the room is entered without
-                    // a mediaKey — the timeline's own mediaKey then tells the player what to
-                    // follow once the user opens that title.
+                    // a mediaKey — the room's own timeline names the title, which the shell
+                    // resolves and opens (see App.kt). The dialog deliberately stays up
+                    // rather than closing on tap: dismissing it immediately was the whole of
+                    // what "加入" appeared to do, whether the join worked, failed, or landed
+                    // on something this library doesn't have.
                     watchTogether.joinRoom(watchEndpoint, code, mediaKey = "")
-                    sheet = null
                 },
                 onLeave = {
                     watchTogether.leave()
@@ -676,6 +713,225 @@ private fun DanmakuSourceDialog(
 }
 
 /**
+ * 片头片尾 — the auto-skip switch, and the numeric editor for times already captured.
+ *
+ * Entries are *created* in the player, where a boundary can be set from wherever playback
+ * already is; a series that has never been played has nothing here to name it. What this
+ * screen adds is the precise pass afterwards — nudging a captured 89 to 90 — plus one place
+ * to see and drop everything that has accumulated.
+ */
+@Composable
+private fun SkipSegmentDialog(
+    bySeries: Map<String, SkipTimes>,
+    autoSkip: Boolean,
+    onToggleAutoSkip: (Boolean) -> Unit,
+    onSave: (String, SkipTimes) -> Unit,
+    onClear: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var editing by remember { mutableStateOf<String?>(null) }
+    val palette = LocalPalette.current
+
+    GlassDialog(onDismiss = onDismiss) {
+        val target = editing?.let { id -> bySeries[id]?.let { id to it } }
+        if (target == null) {
+            OverlayHeader(
+                title = "片头片尾",
+                subtitle = "按剧保存。在播放器的「更多」里把当前进度设为片头或片尾。",
+                onClose = onDismiss,
+            )
+            SwitchRow("自动跳过", autoSkip, onChange = onToggleAutoSkip)
+            if (bySeries.isEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "还没有设置过。播放某一集时打开「更多」→「片头片尾」，点按即可把当前进度设为边界。",
+                    style = mr(10.5f, 400),
+                    color = palette.sub2,
+                )
+            } else {
+                Spacer(Modifier.height(10.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    bySeries.forEach { (seriesId, times) ->
+                        SeriesSkipRow(
+                            times = times,
+                            palette = palette,
+                            onEdit = { editing = seriesId },
+                            onClear = { onClear(seriesId) },
+                        )
+                    }
+                }
+            }
+            OverlayButton(
+                label = "完成",
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                tone = OverlayButtonTone.Primary,
+            )
+        } else {
+            val (seriesId, times) = target
+            SeriesSkipEditor(
+                times = times,
+                palette = palette,
+                onSave = { updated ->
+                    onSave(seriesId, updated)
+                    editing = null
+                },
+                onBack = { editing = null },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SeriesSkipRow(
+    times: SkipTimes,
+    palette: Palette,
+    onEdit: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+            .pressable(onClick = onEdit)
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                times.seriesName.ifBlank { "未命名剧集" },
+                style = sc(12.5f, 700),
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            val summary = buildList {
+                if (times.hasIntro) {
+                    add("片头 ${times.introStartSeconds}–${times.introEndSeconds} 秒")
+                }
+                if (times.creditsStartSeconds > 0L) {
+                    add("片尾 ${times.creditsStartSeconds} 秒起")
+                }
+            }
+            Text(
+                // A half-entered intro is kept but skips nothing, so say so rather than
+                // leaving a blank line that reads as "configured, working".
+                summary.ifEmpty { listOf("片头只填了一半，尚未生效") }.joinToString(" · "),
+                style = mr(10f, 400),
+                color = if (summary.isEmpty()) Brand.Danger else palette.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            "清除",
+            style = mr(11f, 600),
+            color = Brand.Danger,
+            modifier = Modifier.pressable(onClick = onClear).padding(4.dp),
+        )
+    }
+}
+
+@Composable
+private fun SeriesSkipEditor(
+    times: SkipTimes,
+    palette: Palette,
+    onSave: (SkipTimes) -> Unit,
+    onBack: () -> Unit,
+) {
+    fun initial(seconds: Long) = if (seconds > 0L) seconds.toString() else ""
+    var introStart by remember(times) { mutableStateOf(initial(times.introStartSeconds)) }
+    var introEnd by remember(times) { mutableStateOf(initial(times.introEndSeconds)) }
+    var creditsStart by remember(times) { mutableStateOf(initial(times.creditsStartSeconds)) }
+
+    val parsedIntroStart = introStart.toLongOrNull() ?: 0L
+    val parsedIntroEnd = introEnd.toLongOrNull() ?: 0L
+    val parsedCreditsStart = creditsStart.toLongOrNull() ?: 0L
+    // A start without an end describes no interval, so it can't be saved on its own; the
+    // reverse (an end alone) is treated as "opening runs from 0", which is the common case.
+    val problem = when {
+        parsedIntroEnd > 0L && parsedIntroEnd <= parsedIntroStart -> "片头结束时间要晚于开始时间"
+        introEnd.isBlank() && introStart.isNotBlank() -> "填了片头开始，也要填片头结束"
+        else -> null
+    }
+
+    OverlayHeader(
+        title = times.seriesName.ifBlank { "未命名剧集" },
+        subtitle = "填秒数，留空表示这一项跟随服务器。",
+        onClose = onBack,
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SecondsField("片头开始", "0", introStart, palette) { introStart = it }
+        SecondsField("片头结束", "90", introEnd, palette) { introEnd = it }
+        SecondsField("片尾开始", "2520", creditsStart, palette) { creditsStart = it }
+    }
+    if (problem != null) {
+        Spacer(Modifier.height(6.dp))
+        Text(problem, style = sc(10.5f, 500), color = Brand.Danger)
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(top = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        OverlayButton("返回", onBack, Modifier.weight(1f))
+        OverlayButton(
+            label = "保存",
+            onClick = {
+                onSave(
+                    times.copy(
+                        introStartSeconds = parsedIntroStart,
+                        introEndSeconds = parsedIntroEnd,
+                        creditsStartSeconds = parsedCreditsStart,
+                    ),
+                )
+            },
+            modifier = Modifier.weight(1f),
+            tone = OverlayButtonTone.Primary,
+            enabled = problem == null,
+        )
+    }
+}
+
+@Composable
+private fun SecondsField(
+    label: String,
+    hint: String,
+    value: String,
+    palette: Palette,
+    onValueChange: (String) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = mr(12f, 500), color = palette.sub, modifier = Modifier.weight(1f))
+        Box(contentAlignment = Alignment.CenterEnd) {
+            if (value.isBlank()) {
+                Text(hint, style = mr(12f, 500), color = palette.hint, maxLines = 1)
+            }
+            BasicTextField(
+                value = value,
+                // Digits only: rejecting anything else as it is typed is clearer than
+                // failing at 保存, and it keeps the field parseable by definition.
+                onValueChange = { raw -> onValueChange(raw.filter(Char::isDigit).take(5)) },
+                singleLine = true,
+                textStyle = mr(12f, 500).copy(color = palette.text, textAlign = TextAlign.End),
+                cursorBrush = SolidColor(Brand.Primary),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.width(72.dp),
+            )
+        }
+        Spacer(Modifier.width(6.dp))
+        Text("秒", style = mr(11f, 500), color = palette.sub2)
+    }
+}
+
+/**
  * Manual join-by-code. The invite link is the primary path (it resolves the title on the
  * joiner's own servers and needs no typing at all); this exists for when a messenger
  * refuses to linkify a custom scheme, or the code arrives by voice.
@@ -686,6 +942,7 @@ private fun DanmakuSourceDialog(
 @Composable
 private fun WatchJoinDialog(
     connected: Boolean,
+    connecting: Boolean,
     roomCode: String?,
     participantCount: Int,
     error: String?,
@@ -774,11 +1031,11 @@ private fun WatchJoinDialog(
             ) {
                 OverlayButton("取消", onDismiss, Modifier.weight(1f))
                 OverlayButton(
-                    label = "加入",
+                    label = if (connecting) "连接中…" else "加入",
                     onClick = { onJoin(code) },
                     modifier = Modifier.weight(1f),
                     tone = OverlayButtonTone.Primary,
-                    enabled = WatchInvite.isCompleteCode(code),
+                    enabled = !connecting && WatchInvite.isCompleteCode(code),
                 )
             }
         }
@@ -1196,7 +1453,7 @@ private fun ProfileUtilityScreen(
     val wifiOnly by offlineManager.wifiOnly.collectAsState()
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding().hideBottomBarOnScroll(),
+        modifier = Modifier.fillMaxSize().statusBarsPadding(),
         contentPadding = PaddingValues(
             top = Dimens.contentTop,
             bottom = TabBarInset,
@@ -1328,7 +1585,7 @@ private fun RecoveryCenterScreen(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding().hideBottomBarOnScroll(),
+        modifier = Modifier.fillMaxSize().statusBarsPadding(),
         contentPadding = PaddingValues(
             top = Dimens.contentTop,
             bottom = TabBarInset,

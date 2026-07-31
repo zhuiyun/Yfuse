@@ -8,6 +8,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
@@ -47,6 +48,7 @@ class ProfileComponent(
     val playbackRecovery: PlaybackRecoveryStore = GlobalContext.get().get()
     val userAgentPreferences: UserAgentPreferences = GlobalContext.get().get()
     val danmakuPreferences: DanmakuPreferences = GlobalContext.get().get()
+    val skipSegmentPreferences: SkipSegmentPreferences = GlobalContext.get().get()
     val watchTogetherPreferences: WatchTogetherPreferences = GlobalContext.get().get()
     val watchTogether: WatchTogetherClient = GlobalContext.get().get()
 

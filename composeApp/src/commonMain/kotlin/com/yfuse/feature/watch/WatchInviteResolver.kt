@@ -85,6 +85,14 @@ class WatchInviteResolver(
     /** Same lookup, but returning the pieces the player needs rather than display copy. */
     suspend fun resolveTarget(invite: WatchInvite): ResolvedInvite? {
         val mediaKey = invite.mediaKey ?: return null
+        return resolveTarget(mediaKey)
+    }
+
+    /**
+     * [resolveTarget] for a room joined without an invite — by typing its code — where the
+     * only thing naming the media is the room's own timeline.
+     */
+    suspend fun resolveTarget(mediaKey: String): ResolvedInvite? {
         var failures = 0
         for (server in orderedServers()) {
             val result = repo.findByMediaKey(server, mediaKey)

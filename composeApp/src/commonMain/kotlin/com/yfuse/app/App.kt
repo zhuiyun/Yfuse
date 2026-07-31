@@ -1,7 +1,5 @@
 package com.yfuse.app
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -24,24 +22,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
@@ -52,8 +43,10 @@ import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalOverlayVisibility
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MiniPlayerTokens
+import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.ThemeMode
@@ -91,44 +84,6 @@ private val TabInactive = Color(0xFF95A0B3)
 
 /** Space scrollable content leaves for the floating bar — `padding-bottom:100px`. */
 val TabBarInset = Dimens.contentBottom
-
-/**
- * The prototype hides the bar while the user scrolls down and brings it back on the
- * way up: `transform:translateY(90px);opacity:0` over `.3s ease`.
- */
-@Stable
-class BottomBarState {
-    var hidden by mutableStateOf(false)
-        internal set
-
-    internal fun onScroll(deltaY: Float, offsetY: Float) {
-        when {
-            offsetY < 24f -> hidden = false
-            deltaY < -4f -> hidden = true
-            deltaY > 4f -> hidden = false
-        }
-    }
-}
-
-val LocalBottomBar = staticCompositionLocalOf { BottomBarState() }
-
-/** Attach to a scrollable so it drives the floating bar's show / hide. */
-@Composable
-fun Modifier.hideBottomBarOnScroll(): Modifier {
-    val bar = LocalBottomBar.current
-    val connection = remember(bar) {
-        object : NestedScrollConnection {
-            private var offset = 0f
-
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                offset = (offset - available.y).coerceAtLeast(0f)
-                bar.onScroll(available.y, offset)
-                return Offset.Zero
-            }
-        }
-    }
-    return nestedScroll(connection)
-}
 
 @Composable
 fun App(root: RootComponent) {
@@ -180,6 +135,40 @@ fun App(root: RootComponent) {
             inviteResolution = inviteResolver.resolve(invite)
         }
 
+        // Following a room that was joined by code alone (「我的」→ 加入一起看).
+        //
+        // That entry has no media context, so it enters the room with an empty mediaKey and
+        // there is nothing to open — joining looked completely inert from the guest's side
+        // while the host's player correctly showed two people in the room. An invite link
+        // avoids this only because its sheet resolves the title *before* joining; a typed
+        // code has to take the room's own timeline as the answer instead, which is what this
+        // does the moment the server hands one over.
+        // Keyed by room *and* media, not room alone: the host changing what the room is
+        // watching has to be followed too, and a lookup that came back empty must be free
+        // to succeed on the next title rather than writing the room off for good.
+        var followed by remember { mutableStateOf<Pair<String, String>?>(null) }
+        LaunchedEffect(watchState.roomCode, watchState.mediaKey, watchState.isHost) {
+            val roomCode = watchState.roomCode
+            if (roomCode == null) {
+                // Left the room; a later re-join of the same code has to be followed again.
+                followed = null
+                return@LaunchedEffect
+            }
+            // A host already knows what it is playing, and a player that is already up
+            // reconciles from the timeline on its own.
+            if (watchState.isHost || miniPlayback.active) return@LaunchedEffect
+            val mediaKey = watchState.mediaKey?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+            if (followed == roomCode to mediaKey) return@LaunchedEffect
+            followed = roomCode to mediaKey
+            val target = inviteResolver.resolveTarget(mediaKey)
+            if (target == null) {
+                watchTogether.setSyncWarning("房间在播放你的媒体库里没有的内容，无法一起看")
+                return@LaunchedEffect
+            }
+            watchTogether.setSyncWarning(null)
+            root.openWatchTarget(target.server.id, target.item.id)
+        }
+
         val watchRoomNote = when {
             !watchState.connected -> null
             watchState.reconnecting -> "一起看 · 重连中"
@@ -196,8 +185,10 @@ fun App(root: RootComponent) {
             Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
         }
         val childCanGoBack = !atRoot
-        val showBottomBar = atRoot ||
-            (active == Tab.Browse && browseStack.active.instance is LibraryComponent.Child.Grid)
+        // The bar belongs to the roots and nothing else: it used to also ride along on the
+        // library's grid, and to slide away under scroll, which left "is the bar there?"
+        // depending on where the user happened to have scrolled to.
+        val showBottomBar = atRoot
         PlatformBackHandler(enabled = childCanGoBack || active != Tab.Home) {
             if (childCanGoBack) {
                 when (active) {
@@ -211,9 +202,11 @@ fun App(root: RootComponent) {
             }
         }
 
-        val bottomBar = remember { BottomBarState() }
+        // An overlay owned by one of the tab screens composes below this shell's floating
+        // furniture, so the bar has to be told to get out of its way — see [OverlayVisibility].
+        val overlays = remember { OverlayVisibility() }
 
-        CompositionLocalProvider(LocalBottomBar provides bottomBar) {
+        CompositionLocalProvider(LocalOverlayVisibility provides overlays) {
             AppBackdrop {
                 when (active) {
                     Tab.Home -> HomeTabScreen(root.home)
@@ -222,28 +215,13 @@ fun App(root: RootComponent) {
                     Tab.Profile -> ProfileTabScreen(root.profile)
                 }
 
-                if (showBottomBar) {
-                    // `transform:translateY(90px);opacity:0` — 90px, .3s ease.
-                    val shift by animateFloatAsState(
-                        targetValue = if (bottomBar.hidden) 90f else 0f,
-                        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 300),
-                        label = "tabBarShift",
-                    )
-                    val fade by animateFloatAsState(
-                        targetValue = if (bottomBar.hidden) 0f else 1f,
-                        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 300),
-                        label = "tabBarFade",
-                    )
+                if (showBottomBar && !overlays.any) {
                     GlassTabBar(
                         active = active,
                         onSelect = root::selectTab,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                            .graphicsLayer {
-                                translationY = shift.dp.toPx()
-                                alpha = fade
-                            },
+                            .navigationBarsPadding(),
                     )
                     if (miniPlayback.active) {
                         MiniPlayer(
@@ -419,7 +397,7 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(item.icon, contentDescription = item.label, tint = tint, modifier = Modifier.size(22.dp))
+        Icon(item.icon, contentDescription = item.label, tint = tint, modifier = Modifier.size(20.dp))
         Spacer(Modifier.height(3.dp))
         Text(item.label, style = mr(9.5f, 500), color = tint)
     }

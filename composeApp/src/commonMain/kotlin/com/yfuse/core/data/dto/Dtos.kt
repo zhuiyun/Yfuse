@@ -187,6 +187,7 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         title = if (Type == "Episode") "${SeriesName ?: ""} ${Name ?: ""}".trim() else (Name ?: ""),
         type = Type ?: "",
         seriesId = SeriesId,
+        seriesName = SeriesName,
         overview = Overview,
         year = ProductionYear,
         genres = Genres ?: emptyList(),
