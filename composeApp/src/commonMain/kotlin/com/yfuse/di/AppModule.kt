@@ -5,6 +5,7 @@ import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
+import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.PlaybackRecoveryStore
@@ -49,6 +50,7 @@ fun appModule(settings: Settings) = module {
         createEmbyClient(customUserAgent = { userAgent.userAgent.value })
     }
     single { EmbyRepository(get()) }
+    single { AiringCalendarRepository(tmdb = get(), emby = get(), registry = get()) }
     single { DanmakuRepository(createDanmakuClient()) }
     single { ServerSyncManager(get(), get(), get()) }
     single { WatchTogetherClient(get()) }

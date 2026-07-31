@@ -644,6 +644,37 @@ class EmbyRepository(private val client: HttpClient) {
     }
 
     /** Episodes of a season (or of the whole series when [seasonId] is null). */
+    /**
+     * Every series in the library, indexed by provider key (`tmdb:1399`).
+     *
+     * One request for the whole library rather than a lookup per show. The airing calendar
+     * asks "do you have this?" about a couple of dozen shows at once, and most of the
+     * answers are no — resolving each one individually would be two dozen round trips to
+     * learn almost nothing. A library's series list is small even when its episode count is
+     * not, so fetching it whole is cheaper than querying it piecemeal.
+     */
+    suspend fun seriesProviderIndex(server: SavedServer): Result<Map<String, String>> =
+        call("series_provider_index") {
+            val dto: ItemsResponseDto = client.get(
+                "${server.baseUrl}/Users/${server.userId}/Items",
+            ) {
+                header("X-Emby-Token", server.accessToken)
+                parameter("IncludeItemTypes", "Series")
+                parameter("Recursive", "true")
+                parameter("Fields", "ProviderIds")
+                parameter("EnableImages", "false")
+            }.body()
+            buildMap {
+                dto.Items.forEach { item ->
+                    item.ProviderIds.orEmpty().forEach { (provider, value) ->
+                        if (value.isNotBlank()) {
+                            put("${provider.lowercase()}:$value", item.Id)
+                        }
+                    }
+                }
+            }
+        }
+
     suspend fun episodes(
         server: SavedServer,
         seriesId: String,

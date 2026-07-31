@@ -381,6 +381,7 @@ fun BaseItemDto.toEpisode() = Episode(
     runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
     primaryTag = ImageTags?.get("Primary"),
     playedPercentage = UserData?.PlayedPercentage,
+    played = UserData?.Played == true,
     resumePositionTicks = UserData?.PlaybackPositionTicks,
     playbackSegments = playbackSegments(),
     providerIds = ProviderIds.orEmpty(),

@@ -19,6 +19,12 @@ data class Episode(
     val runtimeMinutes: Int?,
     val primaryTag: String?,
     val playedPercentage: Double?,
+    /**
+     * Emby's own watched flag. Not derivable from [playedPercentage]: finishing an episode
+     * clears the resume percentage, so a watched episode and an untouched one both report
+     * null there.
+     */
+    val played: Boolean = false,
     val resumePositionTicks: Long?,
     val playbackSegments: List<PlaybackSegment> = emptyList(),
     val providerIds: Map<String, String> = emptyMap(),
