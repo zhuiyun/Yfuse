@@ -51,18 +51,30 @@ fun heroScrim(surface: Color): Brush = scrim(
     1f to HeroInk.copy(alpha = 0.42f),
 )
 
-/** Blend band drawn behind the lifted sheet, over a fixed [height] of page. */
-fun heroPanelBrush(surface: Color, density: Density, height: Dp = 170.dp): Brush =
-    Brush.verticalGradient(
-        colorStops = arrayOf(
-            0f to Color.Transparent,
-            0.30f to surface.copy(alpha = 0.42f),
-            0.66f to surface.copy(alpha = 0.90f),
-            1f to surface,
-        ),
-        startY = 0f,
-        endY = with(density) { height.toPx() },
-    )
+/**
+ * Blend band drawn behind the lifted sheet, over a fixed [height] of page.
+ *
+ * [start] holds the band off for that much first, leaving the sheet's top transparent. A
+ * sheet lifted far enough that its own copy sits on the artwork needs that: the band ramps
+ * towards the page colour, so text over the ramp has to be page ink, and text over the
+ * artwork has to be artwork ink. Text that spans the ramp cannot be either. Starting the
+ * band where the artwork ends keeps each piece of copy on one side of that line.
+ */
+fun heroPanelBrush(
+    surface: Color,
+    density: Density,
+    height: Dp = 170.dp,
+    start: Dp = 0.dp,
+): Brush = Brush.verticalGradient(
+    colorStops = arrayOf(
+        0f to Color.Transparent,
+        0.30f to surface.copy(alpha = 0.42f),
+        0.66f to surface.copy(alpha = 0.90f),
+        1f to surface,
+    ),
+    startY = with(density) { start.toPx() },
+    endY = with(density) { (start + height).toPx() },
+)
 
 /**
  * Pulls content up over the lower edge of the hero by [lift].

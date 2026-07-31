@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
@@ -77,6 +78,7 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
+import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
@@ -101,6 +103,15 @@ import org.koin.core.context.GlobalContext
 
 /** Height of the collapsing top bar's content row, above the status bar inset. */
 private val TopBarHeight = 52.dp
+
+/** The sheet's own rhythm — above the title block, and between it and everything after. */
+private val SheetGap = 18.dp
+
+/**
+ * A one-line title with year, rating and genre under it. Only the seed for the measured
+ * lift, so being a little out costs one frame of settling and nothing else.
+ */
+private val TypicalCaptionHeight = 116.dp
 
 /** The selected visual target puts the glass summary over the lower third of the hero. */
 @Composable
@@ -138,12 +149,21 @@ fun DetailScreen(component: DetailComponent) {
         val heroHeight = maxHeight * 0.40f
         val heroHeightPx = with(density) { heroHeight.toPx() }
 
+        // How far the sheet rides up over the artwork: its own title block, plus the gap
+        // above it, so the artwork's lower edge lands exactly where 播放 begins. Measured
+        // rather than fixed — a two-line title is 30dp taller than a one-line one, and a
+        // guess would either clip the artwork short or push the title off it. Seeded with
+        // a typical height so the first frame is already close and the correction does not
+        // read as a jump.
+        var captionLift by remember { mutableStateOf(TypicalCaptionHeight + SheetGap) }
+
         val detailSurface = remember(accent, palette.isDark) {
             heroSurface(accent, palette.isDark)
         }
-        // Blend band between the artwork and the page, drawn behind the floating sheet.
-        val panelBrush = remember(detailSurface, density) {
-            heroPanelBrush(detailSurface, density)
+        // Blend band between the artwork and the page. It starts where the artwork ends,
+        // leaving the title block on clean artwork — see [heroPanelBrush].
+        val panelBrush = remember(detailSurface, density, captionLift) {
+            heroPanelBrush(detailSurface, density, start = captionLift)
         }
 
         val listState = rememberLazyListState()
@@ -184,12 +204,18 @@ fun DetailScreen(component: DetailComponent) {
                     Column(
                         Modifier
                             .fillMaxWidth()
+                            .liftOverHero(captionLift)
                             .background(panelBrush)
                             .padding(horizontal = Dimens.pageHorizontal)
-                            .padding(top = 18.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                            .padding(top = SheetGap),
+                        verticalArrangement = Arrangement.spacedBy(SheetGap),
                     ) {
-                        TitleBlock(detail)
+                        TitleBlock(
+                            detail,
+                            Modifier.onSizeChanged {
+                                captionLift = with(density) { it.height.toDp() } + SheetGap
+                            },
+                        )
                         DetailActionDock(
                             accent = Brand.Primary,
                             label = if (detail.type == "Series") "继续观看" else "播放",
@@ -290,19 +316,6 @@ fun DetailScreen(component: DetailComponent) {
                     }
                 }
 
-                val selectedVersion = detail.versions
-                    .firstOrNull { it.id == state.selectedVersionId }
-                    ?: detail.versions.firstOrNull()
-                if (selectedVersion != null) {
-                    item(key = "mediaInfo") {
-                        MediaInfoSection(
-                            version = selectedVersion,
-                            dateCreated = detail.dateCreated,
-                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                        )
-                    }
-                }
-
                 if (state.episodes.isNotEmpty()) {
                     item(key = "episodes") {
                         EpisodeSection(
@@ -355,6 +368,22 @@ fun DetailScreen(component: DetailComponent) {
                             onOpen = { itemId ->
                                 state.server?.id?.let { component.onOpenRelated(it, itemId) }
                             },
+                        )
+                    }
+                }
+
+                // Last on the page: 媒体信息 is the file's technical readout — codec,
+                // bitrate, size — which is what someone comes back for, not what they came
+                // for. Everything above it is about the title itself.
+                val selectedVersion = detail.versions
+                    .firstOrNull { it.id == state.selectedVersionId }
+                    ?: detail.versions.firstOrNull()
+                if (selectedVersion != null) {
+                    item(key = "mediaInfo") {
+                        MediaInfoSection(
+                            version = selectedVersion,
+                            dateCreated = detail.dateCreated,
+                            modifier = Modifier.padding(top = Dimens.sectionGap),
                         )
                     }
                 }
@@ -724,17 +753,22 @@ private fun DetailTopBar(
 // ---------------------------------------------------------------- information sheet
 
 /**
- * 片名 — centred under the artwork, on the page itself rather than on a plate.
+ * 片名 — centred on the artwork's lower edge, with no plate under it.
  *
  * What this replaces: a poster thumbnail and a glass card lifted 16dp over the backdrop.
  * Between them they covered the lower quarter of artwork that is only 40% of the screen
  * tall, to restate a poster the user had just tapped and a title the top bar already
- * carries. Centring the text and dropping the plate gives the backdrop back its full height
- * — the page's largest single piece of information — and costs nothing that was being read.
+ * carries. Dropping the plate gave the backdrop its height back; riding on the artwork
+ * rather than under it means the block costs the picture nothing at all — the artwork now
+ * runs the full way down to 播放.
+ *
+ * Which is also why the inks here are fixed rather than from the palette: this copy is on
+ * a photograph in both themes. The caller keeps the artwork clean behind it — see the
+ * `start` on [heroPanelBrush] — so nothing here ever sits half on artwork and half on
+ * page, where no single ink would work.
  */
 @Composable
 private fun TitleBlock(detail: MediaDetail, modifier: Modifier = Modifier) {
-    val palette = LocalPalette.current
     Column(
         modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -742,7 +776,7 @@ private fun TitleBlock(detail: MediaDetail, modifier: Modifier = Modifier) {
         Text(
             detail.title,
             style = sc(23f, 800),
-            color = palette.text,
+            color = ArtworkInk,
             textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -756,7 +790,7 @@ private fun TitleBlock(detail: MediaDetail, modifier: Modifier = Modifier) {
             Text(
                 facts.joinToString(" · "),
                 style = sc(12f, 400),
-                color = palette.sub,
+                color = ArtworkInkSub,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
             )
@@ -773,7 +807,7 @@ private fun TitleBlock(detail: MediaDetail, modifier: Modifier = Modifier) {
         }
         detail.genres.firstOrNull()?.let { genre ->
             Spacer(Modifier.height(8.dp))
-            Text(genre, style = sc(11.5f, 500), color = palette.sub2, maxLines = 1)
+            Text(genre, style = sc(11.5f, 500), color = ArtworkInkFaint, maxLines = 1)
         }
     }
 }
@@ -789,32 +823,43 @@ private fun runtimeLabel(minutes: Int): String {
     }
 }
 
+/**
+ * The title block's inks.
+ *
+ * It sits on the artwork now, not on the page, so it cannot take the palette: the page
+ * ink is dark in the light theme and the artwork underneath is dark in both. This is the
+ * same answer the library hero and the player's panel already reach — white copy over a
+ * scrim, and the accent's light end rather than the spec's `#3D64C9`, which is a
+ * light-theme ink and goes muddy on a photograph.
+ */
+private val ArtworkInk = Color.White
+private val ArtworkInkSub = Color.White.copy(alpha = 0.80f)
+private val ArtworkInkFaint = Color.White.copy(alpha = 0.66f)
+
 /** `TMDB` in the secondary ink, the figure itself large and in the accent. */
 @Composable
 private fun RatingFigure(rating: Double) {
-    val palette = LocalPalette.current
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("TMDB", style = sc(12f, 600), color = palette.sub)
-        Text(rating.toString(), style = mr(19f, 800), color = Brand.Primary)
+        Text("TMDB", style = sc(12f, 600), color = ArtworkInkSub)
+        Text(rating.toString(), style = mr(19f, 800), color = Brand.PrimaryGradTop)
     }
 }
 
 /** 分级 is a classification, not a score — it gets a neutral outline, not a brand colour. */
 @Composable
 private fun CertificationBadge(label: String) {
-    val palette = LocalPalette.current
     Text(
         label,
         style = mr(10f, 600),
-        color = palette.sub,
+        color = ArtworkInkSub,
         modifier = Modifier
             .solidGlass(
                 shape = RoundedCornerShape(6.dp),
                 fill = Color.Transparent,
-                border = palette.sub.copy(alpha = 0.38f),
+                border = ArtworkInkSub.copy(alpha = 0.42f),
             )
             .padding(horizontal = 7.dp, vertical = 2.dp),
     )
