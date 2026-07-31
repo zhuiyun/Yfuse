@@ -1,6 +1,8 @@
 package com.yfuse.core.data
 
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.AiringEpisode
+import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbDetail
 import com.yfuse.core.model.TmdbItem
@@ -41,6 +43,25 @@ internal data class TmdbItemDto(
     val popularity: Double = 0.0,
     @SerialName("genre_ids") val genreIds: List<Int> = emptyList(),
     @SerialName("original_language") val originalLanguage: String? = null,
+)
+
+/** The two episodes `/tv/{id}` volunteers without asking for a whole season. */
+@Serializable
+internal data class TmdbEpisodeStubDto(
+    @SerialName("air_date") val airDate: String? = null,
+    @SerialName("season_number") val seasonNumber: Int? = null,
+    @SerialName("episode_number") val episodeNumber: Int? = null,
+    val name: String? = null,
+)
+
+/** `/tv/{id}` reduced to what a broadcast calendar needs. */
+@Serializable
+internal data class TmdbShowScheduleDto(
+    val id: Int,
+    val name: String? = null,
+    @SerialName("poster_path") val posterPath: String? = null,
+    @SerialName("next_episode_to_air") val nextEpisode: TmdbEpisodeStubDto? = null,
+    @SerialName("last_episode_to_air") val lastEpisode: TmdbEpisodeStubDto? = null,
 )
 
 @Serializable
@@ -319,6 +340,146 @@ class TmdbRepository(private val client: HttpClient) {
         Result.failure(EmbyErrorException(e.toError()))
     }
 
+    /**
+     * Shows broadcasting around now, and where each one is in its run.
+     *
+     * Two queries rather than one because TMDB's popularity ranking is global, and a global
+     * ranking of currently-airing television returns almost no 国产剧 — the same reason
+     * [home] asks for domestic content separately. `air_date` filters on *episode*
+     * broadcast dates, which is what "currently airing" means; `first_air_date` would only
+     * find shows that *premiered* in the window and miss every series already in its run.
+     *
+     * Then one `/tv/{id}` per show for its last and next episode. That is a request per
+     * show, so the show list is capped — and it is two points per series, which covers a
+     * weekly release but not a drama posting daily. Filling those in needs a season fetch
+     * per show, which is not worth quadrupling the request count until the calendar has
+     * proved itself.
+     */
+    suspend fun airingCalendar(
+        fromDate: String,
+        toDate: String,
+        language: String = "zh-CN",
+    ): Result<List<AiringEpisode>> = try {
+        coroutineScope {
+            val domestic = async {
+                fetch(
+                    "/discover/tv",
+                    language,
+                    "tv",
+                    mapOf(
+                        "with_origin_country" to "CN",
+                        "with_original_language" to "zh",
+                        "air_date.gte" to fromDate,
+                        "air_date.lte" to toDate,
+                        "sort_by" to "popularity.desc",
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
+            val foreign = async {
+                fetch(
+                    "/discover/tv",
+                    language,
+                    "tv",
+                    mapOf(
+                        "air_date.gte" to fromDate,
+                        "air_date.lte" to toDate,
+                        "sort_by" to "popularity.desc",
+                        "vote_count.gte" to GLOBAL_UPCOMING_MIN_VOTES.toString(),
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
+            val domesticShows = domestic.await()
+            // A Chinese show popular enough to chart globally comes back from both queries;
+            // it is domestic, and the foreign list must not claim it a second time.
+            val domesticIds = domesticShows.map { it.id }.toSet()
+            val shows = interleave(
+                domesticShows,
+                foreign.await().filterNot { it.id in domesticIds },
+            ).take(CALENDAR_MAX_SHOWS)
+
+            val episodes = shows
+                .map { show ->
+                    async {
+                        schedule(show.id, language)?.let { dto ->
+                            val origin = if (show.id in domesticIds) {
+                                ShowOrigin.Domestic
+                            } else {
+                                ShowOrigin.Foreign
+                            }
+                            listOfNotNull(dto.lastEpisode, dto.nextEpisode).mapNotNull { stub ->
+                                stub.toAiringEpisode(
+                                    showTmdbId = dto.id,
+                                    showTitle = dto.name ?: show.title,
+                                    posterPath = dto.posterPath ?: show.posterPath,
+                                    origin = origin,
+                                )
+                            }
+                        }.orEmpty()
+                    }
+                }
+                .awaitAll()
+                .flatten()
+                // A show's "last episode" can predate the window by weeks when it is between
+                // seasons; the calendar only draws the range it was asked for.
+                .filter { it.airDate in fromDate..toDate }
+                .distinctBy { it.mediaKey }
+                .sortedWith(compareBy({ it.airDate }, { it.showTitle }))
+            Result.success(episodes)
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        AppLog.warning(
+            category = "tmdb",
+            event = "calendar_request_failed",
+            message = "TMDB airing calendar request failed",
+            throwable = e,
+        )
+        Result.failure(EmbyErrorException(e.toError()))
+    }
+
+    private suspend fun schedule(showId: Int, language: String): TmdbShowScheduleDto? =
+        try {
+            client.get("$TMDB_BASE/tv/$showId") { parameter("language", language) }
+                .body<TmdbShowScheduleDto>()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // One unreachable show costs its own rows, not the whole calendar.
+            AppLog.warning(
+                category = "tmdb",
+                event = "show_schedule_failed",
+                message = "TMDB show schedule request failed",
+                throwable = e,
+                attributes = mapOf("showId" to showId.toString()),
+            )
+            null
+        }
+
+    private fun TmdbEpisodeStubDto.toAiringEpisode(
+        showTmdbId: Int,
+        showTitle: String,
+        posterPath: String?,
+        origin: ShowOrigin,
+    ): AiringEpisode? {
+        val date = airDate?.takeIf { it.isNotBlank() } ?: return null
+        val season = seasonNumber ?: return null
+        val episode = episodeNumber ?: return null
+        if (showTitle.isBlank()) return null
+        return AiringEpisode(
+            showTmdbId = showTmdbId,
+            showTitle = showTitle,
+            posterPath = posterPath,
+            seasonNumber = season,
+            episodeNumber = episode,
+            episodeTitle = name?.takeIf { it.isNotBlank() },
+            airDate = date,
+            origin = origin,
+        )
+    }
+
     private suspend fun fetch(
         path: String,
         language: String,
@@ -398,5 +559,8 @@ class TmdbRepository(private val client: HttpClient) {
         const val DOMESTIC_MIN_POPULARITY = 3.0
         const val DOMESTIC_UPCOMING_MIN_POPULARITY = 5.0
         const val GLOBAL_UPCOMING_MIN_VOTES = 3
+
+        /** One `/tv/{id}` request each, so the list is capped rather than unbounded. */
+        const val CALENDAR_MAX_SHOWS = 24
     }
 }
