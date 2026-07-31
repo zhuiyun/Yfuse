@@ -75,9 +75,6 @@ class ExoVideoEngine(
     )
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
-    /** True when the current queue entry is using the server-transcoded stream. */
-    private val _transcoding = MutableStateFlow(false)
-    val transcoding: StateFlow<Boolean> = _transcoding.asStateFlow()
     private val transcodedIndices = mutableSetOf<Int>()
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
 
@@ -219,10 +216,11 @@ class ExoVideoEngine(
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val index = player.currentMediaItemIndex
-            _transcoding.value = index in transcodedIndices
             _state.update {
                 it.copy(
                     currentIndex = index,
+                    transcoding = index in transcodedIndices,
+                    fallbacksExhausted = false,
                     positionMs = 0L,
                     durationMs = knownDuration(),
                     error = null,
@@ -271,14 +269,18 @@ class ExoVideoEngine(
                 attributes = mapOf(
                     "errorCode" to error.errorCodeName,
                     "itemIndex" to player.currentMediaItemIndex.toString(),
-                    "transcoding" to _transcoding.value.toString(),
+                    "transcoding" to _state.value.transcoding.toString(),
                 ),
             )
             when (error.errorCode) {
                 PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
                 -> if (!switchToProgressiveTranscode()) {
                     _state.update {
-                        it.copy(error = "服务器返回了无效的转码清单", buffering = false)
+                        it.copy(
+                            error = "服务器返回了无效的转码清单",
+                            buffering = false,
+                            fallbacksExhausted = true,
+                        )
                     }
                 }
 
@@ -287,7 +289,11 @@ class ExoVideoEngine(
                 PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
                 -> if (!switchToTranscode()) {
                     _state.update {
-                        it.copy(error = "当前视频无法解码，且服务器未提供可用转码流", buffering = false)
+                        it.copy(
+                            error = "当前视频无法解码，且服务器未提供可用转码流",
+                            buffering = false,
+                            fallbacksExhausted = true,
+                        )
                     }
                 }
 
@@ -314,7 +320,7 @@ class ExoVideoEngine(
             startPositionMs,
         )
         player.pauseAtEndOfMediaItems = !autoNext
-        _transcoding.value = startIndex in transcodedIndices
+        _state.update { it.copy(transcoding = startIndex in transcodedIndices) }
         player.playWhenReady = true
         player.prepare()
 
@@ -358,8 +364,15 @@ class ExoVideoEngine(
 
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
-        _transcoding.value = index in transcodedIndices
-        _state.update { it.copy(error = null, buffering = true, ended = false) }
+        _state.update {
+            it.copy(
+                error = null,
+                buffering = true,
+                ended = false,
+                transcoding = index in transcodedIndices,
+                fallbacksExhausted = false,
+            )
+        }
         player.seekToDefaultPosition(index)
         player.play()
     }
@@ -433,19 +446,26 @@ class ExoVideoEngine(
             }
     }
 
-    /** Swaps the current entry for the server-transcoded HLS stream. */
-    fun switchToTranscode(): Boolean {
+    /**
+     * Steps the current entry one place down the fallback chain: original file, then the
+     * server's HLS transcode, then its progressive MP4.
+     *
+     * Returning true for an entry that was *already* transcoding used to hide the end of
+     * the chain — a decode failure on the transcoded stream reported success, so no error
+     * was ever shown and playback simply stopped. One step per call, false when spent.
+     */
+    override fun switchToTranscode(): Boolean {
         val index = player.currentMediaItemIndex
-        if (index in transcodedIndices) return true
+        if (index in transcodedIndices) return switchToProgressiveTranscode()
         val item = items.getOrNull(index) ?: return false
-        if (item.transcodeUrl.isEmpty()) return false
+        if (item.transcodeUrl.isEmpty()) return switchToProgressiveTranscode()
         transcodedIndices += index
-        _transcoding.value = true
         val position = player.currentPosition
         _state.update {
             it.copy(
                 error = null,
                 buffering = true,
+                transcoding = true,
                 diagnostics = it.diagnostics.copy(playMethod = "服务器转码"),
             )
         }
@@ -466,9 +486,10 @@ class ExoVideoEngine(
     /** Some Emby proxies cannot serve master.m3u8; retry the same item as MP4. */
     private fun switchToProgressiveTranscode(): Boolean {
         val index = player.currentMediaItemIndex
-        if (index !in transcodedIndices || index in progressiveTranscodeIndices) return false
+        if (index in progressiveTranscodeIndices) return false
         val item = items.getOrNull(index) ?: return false
         if (item.fallbackTranscodeUrl.isEmpty()) return false
+        transcodedIndices += index
         progressiveTranscodeIndices += index
         val position = player.currentPosition
         _state.update { it.copy(error = null, buffering = true) }

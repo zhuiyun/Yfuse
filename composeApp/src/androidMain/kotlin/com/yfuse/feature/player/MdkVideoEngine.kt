@@ -19,6 +19,9 @@ import kotlinx.coroutines.flow.update
 
 private const val MDK_TAG = "YfuseMdk"
 private const val MDK_POLL_MS = 250L
+
+/** Polls to let a freshly-loaded fallback settle before its status is trusted again. */
+private const val FALLBACK_SETTLE_POLLS = 12
 private const val TRACK_SEPARATOR = '\u001F'
 
 /** Official libmdk Android facade adapted to Yfuse's engine-neutral player contract. */
@@ -33,8 +36,11 @@ class MdkVideoEngine(
     scope: CoroutineScope,
 ) : VideoEngine {
 
-    // Resolution switching is disabled; MDK always consumes the original source.
-    private val preferTranscode = false
+    /** Entries pushed off their original file onto the server's transcode, and past that
+     *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
+     *  rest of the season. */
+    private val transcodedIndices = mutableSetOf<Int>()
+    private val progressiveIndices = mutableSetOf<Int>()
     private val _state = MutableStateFlow(
         PlaybackState(
             currentIndex = startIndex,
@@ -60,6 +66,7 @@ class MdkVideoEngine(
     private var endHandled = false
     private var fill = false
     private var wasBuffering = true
+    private var pollsSinceFallback = Int.MAX_VALUE
 
     private val pollJob: Job = scope.launch(Dispatchers.Default) {
         while (isActive && !released) {
@@ -133,6 +140,7 @@ class MdkVideoEngine(
         pendingSeekMs = 0L
         tracksLoadedForIndex = -1
         endHandled = false
+        val transcoding = index in transcodedIndices
         _state.update {
             it.copy(
                 currentIndex = index,
@@ -145,6 +153,11 @@ class MdkVideoEngine(
                 subtitleTracks = emptyList(),
                 error = null,
                 ended = false,
+                transcoding = transcoding,
+                fallbacksExhausted = false,
+                diagnostics = it.diagnostics.copy(
+                    playMethod = if (transcoding) "服务器转码" else "直播放",
+                ),
             )
         }
         ensurePlayer()?.let(::loadCurrent)
@@ -208,9 +221,10 @@ class MdkVideoEngine(
     }
 
     private fun loadCurrent(instance: MDKPlayer) {
-        val item = items.getOrNull(_state.value.currentIndex) ?: return
+        val index = _state.value.currentIndex
+        val item = items.getOrNull(index) ?: return
         runCatching {
-            instance.setMedia(playbackUrl(item))
+            instance.setMedia(playbackUrl(item, index))
             instance.setState(MDKPlayer.STATE_PLAYING)
         }.onFailure {
             Log.e(MDK_TAG, "MDK load failed", it)
@@ -257,6 +271,23 @@ class MdkVideoEngine(
                 tracksLoadedForIndex = _state.value.currentIndex
             }
 
+            // Try the next stream down before calling it unplayable: the common cause is a
+            // codec this device has no decoder for, which the server can transcode away.
+            //
+            // Guarded by a settle window because this is a poll, not an event: MDK keeps
+            // reporting the failed status for a while after a new URL is handed to it, and
+            // an unguarded check would spend the whole chain in three ticks — before the
+            // first fallback had any chance to load.
+            if (pollsSinceFallback < Int.MAX_VALUE) pollsSinceFallback++
+            if (
+                invalid &&
+                !_state.value.fallbacksExhausted &&
+                pollsSinceFallback >= FALLBACK_SETTLE_POLLS &&
+                switchToTranscode()
+            ) {
+                return
+            }
+
             if (ended && !endHandled) {
                 endHandled = true
                 if (autoNext && _state.value.hasNext) {
@@ -276,7 +307,12 @@ class MdkVideoEngine(
                     durationMs = instance.duration().coerceAtLeast(0L),
                     speed = instance.playbackRate(),
                     videoHeight = instance.videoHeight().coerceAtLeast(0),
-                    error = if (invalid) "MDK 无法播放此媒体" else current.error,
+                    error = if (invalid) {
+                        "MDK 无法播放此媒体，服务器也没有可用的转码流"
+                    } else {
+                        current.error
+                    },
+                    fallbacksExhausted = current.fallbacksExhausted || invalid,
                     ended = ended,
                     diagnostics = current.diagnostics.copy(
                         bufferEvents =
@@ -326,8 +362,60 @@ class MdkVideoEngine(
             )
         }
 
-    private fun playbackUrl(item: PlayerMediaItem): String =
-        if (preferTranscode && item.transcodeUrl.isNotEmpty()) item.transcodeUrl else item.url
+    /** Whichever step of the fallback chain [index] has been pushed to so far. */
+    private fun playbackUrl(item: PlayerMediaItem, index: Int): String = when {
+        index in progressiveIndices && item.fallbackTranscodeUrl.isNotEmpty() ->
+            item.fallbackTranscodeUrl
+        index in transcodedIndices && item.transcodeUrl.isNotEmpty() -> item.transcodeUrl
+        else -> item.url
+    }
+
+    /**
+     * Steps the current entry down the chain: original file, then the server's HLS
+     * transcode, then its progressive MP4. Returns false once the chain is spent, which is
+     * what tells the caller to stop retrying and report the failure.
+     */
+    override fun switchToTranscode(): Boolean {
+        if (released) return false
+        val index = _state.value.currentIndex
+        val item = items.getOrNull(index) ?: return false
+        val progressive = when {
+            index in progressiveIndices -> return false
+            index in transcodedIndices -> true
+            item.transcodeUrl.isEmpty() -> true
+            else -> false
+        }
+        if (progressive && item.fallbackTranscodeUrl.isEmpty()) return false
+        transcodedIndices += index
+        if (progressive) progressiveIndices += index
+        pollsSinceFallback = 0
+        // Resume where the failure happened rather than from the top; a codec the device
+        // can't handle usually fails on the first frame, but a mid-file failure shouldn't
+        // cost the user their place.
+        pendingSeekMs = _state.value.positionMs.coerceAtLeast(0L)
+        tracksLoadedForIndex = -1
+        endHandled = false
+        AppLog.info(
+            category = "player.mdk",
+            event = "transcode_fallback",
+            message = "Switching MDK to a server-transcoded stream",
+            attributes = mapOf(
+                "itemIndex" to index.toString(),
+                "step" to if (progressive) "Progressive" else "Transcode",
+            ),
+        )
+        _state.update {
+            it.copy(
+                error = null,
+                buffering = true,
+                ended = false,
+                transcoding = true,
+                diagnostics = it.diagnostics.copy(playMethod = "服务器转码"),
+            )
+        }
+        ensurePlayer()?.let(::loadCurrent)
+        return true
+    }
 
     private inline fun runMdk(block: (MDKPlayer) -> Unit) {
         val instance = player ?: return

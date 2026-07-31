@@ -1161,9 +1161,28 @@ private fun PlayerRoot(
         kind = target
     }
 
-    val exo = engine as? ExoVideoEngine
-    val idleTranscoding = remember { MutableStateFlow(false) }
-    val transcoding by (exo?.transcoding ?: idleTranscoding).collectAsState()
+    // Last resort of the fallback chain: the entry has run out of streams on this engine,
+    // so try a different decoder stack before giving up. Bounded by the set of engines
+    // already tried for this entry, so a title nothing can play settles on an error
+    // instead of cycling through the list forever.
+    var enginesTried by remember(state.currentIndex) { mutableStateOf(setOf(kind)) }
+    LaunchedEffect(state.fallbacksExhausted, state.currentIndex, kind) {
+        if (!state.fallbacksExhausted) return@LaunchedEffect
+        val next = PlayerEngine.selectable.firstOrNull { it !in enginesTried }
+            ?: return@LaunchedEffect
+        AppLog.info(
+            category = "player",
+            event = "engine_fallback",
+            message = "Playback exhausted its streams; trying another engine",
+            attributes = mapOf(
+                "from" to kind.name,
+                "to" to next.name,
+                "itemIndex" to state.currentIndex.toString(),
+            ),
+        )
+        enginesTried = enginesTried + next
+        switchEngine(next)
+    }
     val (volume, setVolume) = rememberSystemVolume()
     val (brightness, setBrightness) = rememberWindowBrightness()
     val castManager = remember { GlobalContext.get().get<CastManager>() }
@@ -1229,10 +1248,12 @@ private fun PlayerRoot(
                 onBrightness = { setBrightness(it) },
                 engineOptions = PlayerEngine.selectable.map { it.label to (it == kind) },
                 onSelectEngine = { index -> switchEngine(PlayerEngine.selectable[index]) },
-                // Manual escape hatch when the picture is black but audio plays.
-                transcodeLabel = if (exo != null) "转码播放" else null,
-                transcodeActive = transcoding,
-                onTranscode = { exo?.switchToTranscode() },
+                // Manual escape hatch when the picture is black but audio plays. Offered on
+                // every engine now — it used to be ExoPlayer-only, which left the native
+                // engines with no way out of a file the device can't decode.
+                transcodeLabel = "转码播放",
+                transcodeActive = state.transcoding,
+                onTranscode = { engine.switchToTranscode() },
                 castDevices = castState.devices.map { it.id to it.name },
                 castingDeviceId = castState.activeDeviceId,
                 castDiscovering = castState.discovering,

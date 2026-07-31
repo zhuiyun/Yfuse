@@ -36,8 +36,11 @@ class MpvVideoEngine(
     private val customUserAgent: String,
 ) : VideoEngine {
 
-    // Resolution switching is disabled; native engines always use the original source.
-    private val preferTranscode = false
+    /** Entries pushed off their original file onto the server's transcode, and past that
+     *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
+     *  rest of the season. */
+    private val transcodedIndices = mutableSetOf<Int>()
+    private val progressiveIndices = mutableSetOf<Int>()
 
     private val _state = MutableStateFlow(
         PlaybackState(
@@ -405,6 +408,7 @@ class MpvVideoEngine(
         if (index !in items.indices) return
         pendingSeekMs = 0L
         lastPositionMs = -POSITION_STEP_MS
+        val transcoding = index in transcodedIndices
         _state.update {
             it.copy(
                 currentIndex = index,
@@ -412,11 +416,17 @@ class MpvVideoEngine(
                 durationMs = 0L,
                 buffering = true,
                 ended = false,
+                error = null,
+                transcoding = transcoding,
+                fallbacksExhausted = false,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
+                diagnostics = it.diagnostics.copy(
+                    playMethod = if (transcoding) "服务器转码" else "直播放",
+                ),
             )
         }
-        withMpv { it.command(arrayOf("loadfile", playbackUrl(items[index]))) }
+        withMpv { it.command(arrayOf("loadfile", playbackUrl(items[index], index))) }
     }
 
     override fun currentPositionMs(): Long = _state.value.positionMs
@@ -454,11 +464,64 @@ class MpvVideoEngine(
     }
 
     private fun currentUrl(): String =
-        items.getOrNull(_state.value.currentIndex)?.let(::playbackUrl)
-            ?: items.firstOrNull()?.let(::playbackUrl).orEmpty()
+        items.getOrNull(_state.value.currentIndex)?.let { playbackUrl(it, _state.value.currentIndex) }
+            ?: items.firstOrNull()?.let { playbackUrl(it, 0) }.orEmpty()
 
-    private fun playbackUrl(item: PlayerMediaItem): String =
-        if (preferTranscode && item.transcodeUrl.isNotEmpty()) item.transcodeUrl else item.url
+    /** Whichever step of the fallback chain [index] has been pushed to so far. */
+    private fun playbackUrl(item: PlayerMediaItem, index: Int): String = when {
+        index in progressiveIndices && item.fallbackTranscodeUrl.isNotEmpty() ->
+            item.fallbackTranscodeUrl
+        index in transcodedIndices && item.transcodeUrl.isNotEmpty() -> item.transcodeUrl
+        else -> item.url
+    }
+
+    /**
+     * Steps the current entry down the chain: original file, then the server's HLS
+     * transcode, then its progressive MP4. Returns false once the chain is spent, which is
+     * what tells the caller to stop retrying and report the failure.
+     */
+    override fun switchToTranscode(): Boolean {
+        val index = _state.value.currentIndex
+        val item = items.getOrNull(index) ?: return false
+        val next = when {
+            index in progressiveIndices -> return false
+            index in transcodedIndices ->
+                if (item.fallbackTranscodeUrl.isEmpty()) return false else Step.Progressive
+            item.transcodeUrl.isEmpty() ->
+                if (item.fallbackTranscodeUrl.isEmpty()) return false else Step.Progressive
+            else -> Step.Transcode
+        }
+        when (next) {
+            Step.Transcode -> transcodedIndices += index
+            Step.Progressive -> {
+                transcodedIndices += index
+                progressiveIndices += index
+            }
+        }
+        // Resume where the failure happened rather than from the top; a codec the device
+        // can't handle usually fails on the first frame, but a mid-file failure shouldn't
+        // cost the user their place.
+        pendingSeekMs = _state.value.positionMs.coerceAtLeast(0L)
+        AppLog.info(
+            category = "player.mpv",
+            event = "transcode_fallback",
+            message = "Switching mpv to a server-transcoded stream",
+            attributes = mapOf("itemIndex" to index.toString(), "step" to next.name),
+        )
+        _state.update {
+            it.copy(
+                error = null,
+                buffering = true,
+                ended = false,
+                transcoding = true,
+                diagnostics = it.diagnostics.copy(playMethod = "服务器转码"),
+            )
+        }
+        withMpv { it.command(arrayOf("loadfile", currentUrl())) }
+        return true
+    }
+
+    private enum class Step { Transcode, Progressive }
 
     private fun playNextIfAny() {
         val next = _state.value.currentIndex + 1
@@ -478,12 +541,16 @@ class MpvVideoEngine(
             message = "mpv ended playback before reaching EOF",
             attributes = mapOf("itemIndex" to _state.value.currentIndex.toString()),
         )
+        // Try the next stream down before saying it can't be played: the common cause is a
+        // codec this device has no decoder for, which the server can transcode away.
+        if (switchToTranscode()) return
         _state.update {
             it.copy(
                 playing = false,
                 buffering = false,
                 ended = false,
-                error = "mpv 无法播放此媒体",
+                fallbacksExhausted = true,
+                error = "mpv 无法播放此媒体，服务器也没有可用的转码流",
             )
         }
     }

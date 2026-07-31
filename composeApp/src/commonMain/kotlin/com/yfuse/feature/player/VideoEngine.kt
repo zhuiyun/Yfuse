@@ -44,6 +44,14 @@ data class PlaybackState(
     val error: String? = null,
     /** True after the current item reaches its natural end. */
     val ended: Boolean = false,
+    /**
+     * True while the current entry is coming from the server's transcoded stream rather
+     * than its original file. Lives here, rather than on one engine, because every engine
+     * can end up transcoding and the control layer shows the same badge either way.
+     */
+    val transcoding: Boolean = false,
+    /** True once nothing further is left to fall back to for the current entry. */
+    val fallbacksExhausted: Boolean = false,
     val diagnostics: PlaybackDiagnostics = PlaybackDiagnostics(),
 ) {
     val hasNext: Boolean get() = currentIndex + 1 < itemCount
@@ -78,6 +86,17 @@ interface VideoEngine {
 
     /** Clears a recoverable playback error and retries the current entry. */
     fun retry()
+
+    /**
+     * Reloads the current entry from the server's transcoded stream, returning false when
+     * there is nothing left to fall back to — no transcode URL, or one already in use.
+     *
+     * Every engine implements this rather than only ExoPlayer. A file the device cannot
+     * decode is the single most common way playback fails, and on the native engines it
+     * used to be a dead end: no automatic retry and, because the manual 转码播放 control was
+     * gated on the engine being ExoPlayer, no way to ask for one either.
+     */
+    fun switchToTranscode(): Boolean = false
 
     fun release()
 }
