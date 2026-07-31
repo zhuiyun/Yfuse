@@ -24,6 +24,10 @@ data class MediaVersion(
     val videoHeight: Int?,
     /** `HDR10` / `Dolby Vision`, absent for SDR. */
     val videoRange: String?,
+    /** Where the file sits on the server. Shown verbatim — it is how a user finds it. */
+    val path: String? = null,
+    /** Everything the server knows about the picture, for the 媒体信息 table. */
+    val video: VideoStreamInfo? = null,
     val audioTracks: List<AudioTrackInfo> = emptyList(),
     val subtitleTracks: List<SubtitleTrackInfo> = emptyList(),
 ) {
@@ -57,6 +61,41 @@ data class MediaVersion(
         ).joinToString(" · ")
 }
 
+/**
+ * The picture stream, spelled out.
+ *
+ * Every field is optional because every one of them is optional in what Emby returns —
+ * a remux carries the lot, something transcoded by hand may carry almost none. The UI
+ * lists whichever are present rather than printing "未知" a dozen times.
+ */
+data class VideoStreamInfo(
+    val displayTitle: String? = null,
+    val language: String? = null,
+    val codec: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val frameRate: Double? = null,
+    val bitrateBps: Int? = null,
+    val videoRange: String? = null,
+    val interlaced: Boolean? = null,
+    val colorPrimaries: String? = null,
+    val colorSpace: String? = null,
+    val profile: String? = null,
+    val level: Double? = null,
+    val aspectRatio: String? = null,
+    val bitDepth: Int? = null,
+) {
+    val resolutionLabel: String?
+        get() = if (width != null && height != null) "${width}x$height" else null
+
+    /** `25.00fps` — two decimals, because 23.976 and 24 are a meaningful difference. */
+    val frameRateLabel: String?
+        get() = frameRate?.takeIf { it > 0 }?.let { rate ->
+            val hundredths = (rate * 100).toLong()
+            "${hundredths / 100}.${(hundredths % 100).toString().padStart(2, '0')}fps"
+        }
+}
+
 /** One audio stream of a [MediaVersion]. */
 data class AudioTrackInfo(
     val codec: String?,
@@ -64,12 +103,27 @@ data class AudioTrackInfo(
     val channels: String?,
     /** Already resolved to a human name where the code is one we know. */
     val language: String?,
+    val displayTitle: String? = null,
+    val displayLanguage: String? = null,
+    val profile: String? = null,
+    val bitrateBps: Int? = null,
+    val channelCount: Int? = null,
+    val sampleRateHz: Int? = null,
+    val external: Boolean? = null,
+    val default: Boolean? = null,
 ) {
     /** `国语 · DTS-HD MA · 7.1` */
     val label: String
         get() = listOfNotNull(language, codec?.uppercase(), channels)
             .joinToString(" · ")
             .ifBlank { "未知音轨" }
+
+    /** `192 Kbps` — audio is quoted in kilobits everywhere it is quoted at all. */
+    val bitrateLabel: String?
+        get() = bitrateBps?.takeIf { it > 0 }?.let { "${it / 1_000} Kbps" }
+
+    val sampleRateLabel: String?
+        get() = sampleRateHz?.takeIf { it > 0 }?.let { "$it Hz" }
 }
 
 /** One subtitle stream of a [MediaVersion]. */

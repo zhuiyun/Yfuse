@@ -50,6 +50,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -62,19 +63,20 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.GlassBottomSheet
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.cssLinearGradient
-import com.yfuse.core.designsystem.cssRadialGradient
 import com.yfuse.core.designsystem.cssShadow
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
-import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDominantColor
@@ -95,9 +97,6 @@ import com.yfuse.core.sync.watchKey
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.watch.WatchInviteShareSheet
 import org.koin.core.context.GlobalContext
-
-/** How far the information sheet is pulled up over the lower edge of the artwork. */
-private val HeroOverlap = 16.dp
 
 /** Height of the collapsing top bar's content row, above the status bar inset. */
 private val TopBarHeight = 52.dp
@@ -122,6 +121,7 @@ fun DetailScreen(component: DetailComponent) {
     val watchEndpoint by watchPreferences.endpoint.collectAsState()
     val share = rememberShareHandler()
     var shareSheetOpen by remember { mutableStateOf(false) }
+    var moreSheetOpen by remember { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
@@ -174,15 +174,15 @@ fun DetailScreen(component: DetailComponent) {
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .liftOverHero(HeroOverlap)
                             .background(panelBrush)
-                            .padding(horizontal = Dimens.pageHorizontal),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                            .padding(horizontal = Dimens.pageHorizontal)
+                            .padding(top = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
-                        InfoCard(baseUrl, detail)
+                        TitleBlock(detail)
                         DetailActionDock(
                             accent = Brand.Primary,
-                            label = if (detail.type == "Series") "继续观看" else "立即播放",
+                            label = if (detail.type == "Series") "继续观看" else "播放",
                             resolving = state.resolvingPlay,
                             favorite = detail.isFavorite,
                             played = detail.played,
@@ -190,22 +190,8 @@ fun DetailScreen(component: DetailComponent) {
                             onFavorite = {
                                 component.store.accept(DetailIntent.ToggleFavorite)
                             },
-                            onDownload = component::download,
-                            onWatchLater = {
-                                component.store.accept(DetailIntent.AddToWatchLater)
-                            },
                             onTogglePlayed = {
                                 component.store.accept(DetailIntent.TogglePlayed)
-                            },
-                            onWatchTogether = {
-                                // Create the room from here and immediately start playing:
-                                // one tap from "watch this with someone" to "invite ready".
-                                watchTogether.createRoom(
-                                    endpoint = watchEndpoint,
-                                    mediaKey = detail.providerIds.watchKey(detail.id),
-                                )
-                                shareSheetOpen = true
-                                component.store.accept(DetailIntent.Play)
                             },
                         )
                         state.actionMessage?.let { message ->
@@ -262,6 +248,42 @@ fun DetailScreen(component: DetailComponent) {
                             onSelect = { serverId, itemId ->
                                 component.store.accept(DetailIntent.PlaySource(serverId, itemId))
                             },
+                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                        )
+                    }
+                }
+
+                if (detail.genres.isNotEmpty()) {
+                    item(key = "genres") {
+                        GenreSection(detail.genres, Modifier.sectionPadding())
+                    }
+                }
+
+                if (detail.backdropTags.size > 1) {
+                    item(key = "artwork") {
+                        ArtworkSection(
+                            baseUrl = baseUrl,
+                            itemId = detail.id,
+                            tags = detail.backdropTags,
+                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                        )
+                    }
+                }
+
+                if (externalLinks(detail.providerIds).isNotEmpty()) {
+                    item(key = "links") {
+                        ExternalLinksSection(detail.providerIds, Modifier.sectionPadding())
+                    }
+                }
+
+                val selectedVersion = detail.versions
+                    .firstOrNull { it.id == state.selectedVersionId }
+                    ?: detail.versions.firstOrNull()
+                if (selectedVersion != null) {
+                    item(key = "mediaInfo") {
+                        MediaInfoSection(
+                            version = selectedVersion,
+                            dateCreated = detail.dateCreated,
                             modifier = Modifier.padding(top = Dimens.sectionGap),
                         )
                     }
@@ -324,13 +346,56 @@ fun DetailScreen(component: DetailComponent) {
             surfaceColor = detailSurface,
             accent = accent,
             showPlay = detail != null,
+            showMore = detail != null,
             solid = barSolid,
             onBack = component.onBack,
             onPlay = { component.store.accept(DetailIntent.Play) },
+            onMore = { moreSheetOpen = true },
         )
 
         if (state.resolvingPlay) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
+        }
+
+        if (moreSheetOpen && detail != null) {
+            GlassBottomSheet(onDismiss = { moreSheetOpen = false }) {
+                OverlayHeader(
+                    title = detail.title,
+                    subtitle = "更多操作",
+                    onClose = { moreSheetOpen = false },
+                )
+                OverlayOptionRow(
+                    label = "下载到本地",
+                    selected = false,
+                    onClick = {
+                        moreSheetOpen = false
+                        component.download()
+                    },
+                )
+                OverlayOptionRow(
+                    label = "稍后观看",
+                    selected = false,
+                    onClick = {
+                        moreSheetOpen = false
+                        component.store.accept(DetailIntent.AddToWatchLater)
+                    },
+                )
+                // 一起看 belongs where the decision is made — at the point of choosing what
+                // to watch, not in the settings of a player you must already have open.
+                OverlayOptionRow(
+                    label = "一起看",
+                    selected = watchState.roomCode != null,
+                    onClick = {
+                        moreSheetOpen = false
+                        watchTogether.createRoom(
+                            endpoint = watchEndpoint,
+                            mediaKey = detail.providerIds.watchKey(detail.id),
+                        )
+                        shareSheetOpen = true
+                        component.store.accept(DetailIntent.Play)
+                    },
+                )
+            }
         }
 
         if (shareSheetOpen && watchState.roomCode != null) {
@@ -498,9 +563,11 @@ private fun DetailTopBar(
     surfaceColor: Color,
     accent: Color,
     showPlay: Boolean,
+    showMore: Boolean,
     solid: Boolean,
     onBack: () -> Unit,
     onPlay: () -> Unit,
+    onMore: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val plateFill = surfaceColor.copy(alpha = 0.94f)
@@ -579,6 +646,33 @@ private fun DetailTopBar(
                     Text("播放", style = sc(11.5f, 700), color = accent)
                 }
             }
+            if (showMore) {
+                // Unlike the title and the play shortcut this does not fade in with scroll:
+                // it is the only route to 下载 / 稍后观看 / 一起看, so it has to be reachable
+                // from the top of the page as well as the bottom.
+                Icon(
+                    AppIcons.More,
+                    contentDescription = "更多操作",
+                    tint = lerp(Color.White, palette.text, p),
+                    modifier = Modifier
+                        .size(38.dp)
+                        .pressable(onClick = onMore)
+                        .solidGlass(
+                            shape = CircleShape,
+                            fill = lerp(
+                                Color(0xFF11151F).copy(alpha = 0.28f),
+                                palette.card2,
+                                p,
+                            ),
+                            border = lerp(
+                                Color.White.copy(alpha = 0.34f),
+                                palette.border,
+                                p,
+                            ),
+                        )
+                        .padding(11.dp),
+                )
+            }
         }
     }
 }
@@ -586,101 +680,68 @@ private fun DetailTopBar(
 // ---------------------------------------------------------------- information sheet
 
 /**
- * 片名卡 — a near-white glass plate lifted over the lower edge of the artwork, with a
- * specular highlight sweeping the upper-right corner (the reference's glass sheen).
+ * 片名 — centred under the artwork, on the page itself rather than on a plate.
+ *
+ * What this replaces: a poster thumbnail and a glass card lifted 16dp over the backdrop.
+ * Between them they covered the lower quarter of artwork that is only 40% of the screen
+ * tall, to restate a poster the user had just tapped and a title the top bar already
+ * carries. Centring the text and dropping the plate gives the backdrop back its full height
+ * — the page's largest single piece of information — and costs nothing that was being read.
  */
 @Composable
-private fun InfoCard(baseUrl: String, detail: MediaDetail) {
+private fun TitleBlock(detail: MediaDetail, modifier: Modifier = Modifier) {
     val palette = LocalPalette.current
-    val sheen = remember(palette.isDark) {
-        cssRadialGradient(
-            centerX = 0.80f,
-            centerY = 0.04f,
-            endStop = 0.52f,
-            inner = Color.White.copy(alpha = if (palette.isDark) 0.14f else 0.88f),
-        )
-    }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .shadow(Shadows.sheet, GlassShapes.card)
-            .solidGlass(
-                shape = GlassShapes.card,
-                fill = if (palette.isDark) {
-                    palette.glassStrong
-                } else {
-                    Color.White.copy(alpha = 0.92f)
-                },
-                border = if (palette.isDark) {
-                    palette.border
-                } else {
-                    Color.White.copy(alpha = 0.94f)
-                },
-            ),
+    Column(
+        modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(Modifier.matchParentSize().background(sheen))
-        TitleBlock(baseUrl, detail, Modifier.padding(16.dp))
+        Text(
+            detail.title,
+            style = sc(23f, 800),
+            color = palette.text,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        val facts = listOfNotNull(
+            detail.year?.toString(),
+            detail.runtimeMinutes?.let(::runtimeLabel),
+        )
+        if (facts.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                facts.joinToString(" · "),
+                style = sc(12f, 400),
+                color = palette.sub,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+            )
+        }
+        if (detail.communityRating != null || detail.officialRating != null) {
+            Spacer(Modifier.height(9.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                detail.communityRating?.let { RatingFigure((it * 10).toInt() / 10.0) }
+                detail.officialRating?.let { CertificationBadge(it) }
+            }
+        }
+        detail.genres.firstOrNull()?.let { genre ->
+            Spacer(Modifier.height(8.dp))
+            Text(genre, style = sc(11.5f, 500), color = palette.sub2, maxLines = 1)
+        }
     }
 }
 
-/**
- * Poster + title cluster — `gap:16px`, vertically centred; poster 96×142 under
- * `0 10px 24px -12px rgba(28,36,58,.5)`. The community score reads as a labelled
- * figure (`TMDB 8.7`) rather than a badge, per the reference.
- *
- * No white keyline on the poster: the card it sits on is itself 92% white, so a 2px
- * white border only ate 4dp of artwork and blurred the poster's own edge.
- */
-@Composable
-private fun TitleBlock(baseUrl: String, detail: MediaDetail, modifier: Modifier = Modifier) {
-    val palette = LocalPalette.current
-    Row(
-        modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Poster(
-            url = EmbyImages.poster(baseUrl, detail),
-            sharedKey = "media-poster-${detail.id}",
-            modifier = Modifier
-                .width(96.dp)
-                .height(142.dp)
-                .shadow(Shadows.detailPoster, GlassShapes.poster),
-        )
-        Column(Modifier.weight(1f)) {
-            Text(
-                detail.title,
-                style = sc(22f, 800),
-                color = palette.text,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(7.dp))
-            // 分级 moved to its own badge below, so it is not stated twice.
-            Text(
-                listOfNotNull(
-                    detail.genres.firstOrNull(),
-                    detail.year?.toString(),
-                    detail.runtimeMinutes?.let { "${it}分钟" },
-                ).joinToString(" · "),
-                style = sc(12.5f, 400),
-                color = palette.sub,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (detail.communityRating != null || detail.officialRating != null) {
-                Spacer(Modifier.height(9.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    detail.communityRating?.let { rating ->
-                        RatingFigure((rating * 10).toInt() / 10.0)
-                    }
-                    detail.officialRating?.let { CertificationBadge(it) }
-                }
-            }
-        }
+/** `1小时13分钟` — hours only when there are any, because "0小时13分钟" reads as a bug. */
+private fun runtimeLabel(minutes: Int): String {
+    val hours = minutes / 60
+    val rest = minutes % 60
+    return when {
+        hours <= 0 -> "${rest}分钟"
+        rest == 0 -> "${hours}小时"
+        else -> "${hours}小时${rest}分钟"
     }
 }
 
@@ -724,10 +785,7 @@ private fun DetailActionDock(
     played: Boolean,
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
-    onDownload: () -> Unit,
-    onWatchLater: () -> Unit,
     onTogglePlayed: () -> Unit,
-    onWatchTogether: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val ink = remember(accent) {
@@ -737,200 +795,384 @@ private fun DetailActionDock(
     val playFill = remember(accent) {
         cssLinearGradient(120f, 0f to lerp(accent, Color.White, 0.20f), 1f to accent)
     }
-    var moreOpen by remember { mutableStateOf(false) }
     Column(
-        Modifier
-            .fillMaxWidth()
-            .animateContentSize()
-            .solidGlass(
-                shape = GlassShapes.card,
-                fill = if (palette.isDark) {
-                    Color.White.copy(alpha = 0.07f)
-                } else {
-                    Color.White.copy(alpha = 0.92f)
-                },
-                border = if (palette.isDark) {
-                    Color.White.copy(alpha = 0.18f)
-                } else {
-                    Color(0xFFE4E9F2)
-                },
-            )
-            .padding(horizontal = 12.dp, vertical = 11.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier
+                .fillMaxWidth()
+                .height(50.dp)
+                .pressable(enabled = !resolving, onClick = onPlay)
+                .cssShadow(
+                    offsetY = 8.dp,
+                    blur = 20.dp,
+                    color = accent.copy(alpha = 0.32f),
+                    shape = CircleShape,
+                )
+                .clip(CircleShape)
+                .background(playFill),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(46.dp)
-                    .pressable(enabled = !resolving, onClick = onPlay)
-                    .cssShadow(
-                        offsetY = 8.dp,
-                        blur = 20.dp,
-                        color = accent.copy(alpha = 0.32f),
-                        shape = RoundedCornerShape(15.dp),
-                    )
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(playFill),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (resolving) {
-                    CircularProgressIndicator(Modifier.size(15.dp), color = ink, strokeWidth = 2.dp)
-                } else {
-                    Icon(AppIcons.Play, null, tint = ink, modifier = Modifier.size(14.dp))
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(label, style = sc(14f, 750), color = ink)
+            if (resolving) {
+                CircularProgressIndicator(Modifier.size(15.dp), color = ink, strokeWidth = 2.dp)
+            } else {
+                Icon(AppIcons.Play, null, tint = ink, modifier = Modifier.size(14.dp))
             }
+            Spacer(Modifier.width(8.dp))
+            Text(label, style = sc(14f, 750), color = ink)
         }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DockAction(
+        Spacer(Modifier.height(16.dp))
+        // Only the two states worth reading at a glance stay on the page. 下载, 稍后观看 and
+        // 一起看 are each a one-off decision rather than a status, so they moved behind the
+        // top bar's ⋯ — six equal-weight buttons under the title made none of them primary.
+        Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+            RoundAction(
                 icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
                 label = "收藏",
+                active = favorite,
                 accent = accent,
-                modifier = Modifier.weight(1f),
                 onClick = onFavorite,
             )
-            DockAction(
-                icon = AppIcons.Download,
-                label = "下载",
+            RoundAction(
+                icon = AppIcons.Check,
+                label = if (played) "已观看" else "标记已看",
+                active = played,
                 accent = accent,
-                modifier = Modifier.weight(1f),
-                onClick = onDownload,
-            )
-            DockAction(
-                icon = AppIcons.More,
-                label = "更多",
-                accent = accent,
-                modifier = Modifier.weight(1f),
-                onClick = { moreOpen = !moreOpen },
-            )
-        }
-        if (moreOpen) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(GlassShapes.card)
-                    .background(
-                        if (palette.isDark) {
-                            Color.White.copy(alpha = 0.05f)
-                        } else {
-                            accent.copy(alpha = 0.045f)
-                        },
-                    )
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                QuickAction(
-                    AppIcons.Bookmark,
-                    "稍后观看",
-                    accent,
-                    Modifier.weight(1f),
-                    onWatchLater,
-                )
-                QuickAction(
-                    if (played) AppIcons.Check else AppIcons.Info,
-                    if (played) "标记未看" else "标记已看",
-                    accent,
-                    Modifier.weight(1f),
-                    onTogglePlayed,
-                )
-            }
-        }
-        // 一起看 sits with the play affordances rather than in the settings of a player you
-        // must already have open: deciding to watch something *with* someone happens here,
-        // at the point you decide to watch it at all.
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            DockAction(
-                icon = AppIcons.User,
-                label = "一起看",
-                accent = accent,
-                modifier = Modifier.weight(1f),
-                onClick = onWatchTogether,
+                onClick = onTogglePlayed,
             )
         }
     }
 }
 
+/** A circular toggle with its name beneath — the reference's 收藏 / 已观看 pair. */
 @Composable
-private fun DockAction(
+private fun RoundAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
+    active: Boolean,
     accent: Color,
-    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val shape = RoundedCornerShape(14.dp)
-    Row(
-        modifier
-            .height(48.dp)
-            .solidGlass(
-                shape = shape,
-                fill = if (palette.isDark) {
-                    Color.White.copy(alpha = 0.075f)
-                } else {
-                    Color.White.copy(alpha = 0.72f)
-                },
-                border = if (palette.isDark) {
-                    Color.White.copy(alpha = 0.19f)
-                } else {
-                    accent.copy(alpha = 0.16f)
-                },
-            )
-            .pressable(onClick = onClick)
-            .padding(horizontal = 10.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, label, tint = palette.body, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(7.dp))
-        Text(label, style = sc(11.5f, 600), color = palette.body, maxLines = 1)
-    }
-}
-
-@Composable
-private fun QuickAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    accent: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    Row(
-        modifier
-            .pressable(onClick = onClick)
-            .clip(GlassShapes.chip)
-            .background(
-                if (palette.isDark) {
-                    Color.White.copy(alpha = 0.06f)
-                } else {
-                    Color.White.copy(alpha = 0.42f)
-                },
-            )
-            .padding(vertical = 10.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = accent.copy(alpha = 0.85f), modifier = Modifier.size(13.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(label, style = sc(11f, 600), color = palette.body)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (active) accent else palette.body,
+            modifier = Modifier
+                .size(46.dp)
+                .pressable(onClick = onClick)
+                .solidGlass(
+                    shape = CircleShape,
+                    fill = if (active) {
+                        accent.copy(alpha = if (palette.isDark) 0.20f else 0.12f)
+                    } else if (palette.isDark) {
+                        Color.White.copy(alpha = 0.075f)
+                    } else {
+                        Color.White.copy(alpha = 0.72f)
+                    },
+                    border = if (active) {
+                        accent.copy(alpha = 0.32f)
+                    } else if (palette.isDark) {
+                        Color.White.copy(alpha = 0.19f)
+                    } else {
+                        Color(0xFFE4E9F2)
+                    },
+                )
+                .padding(14.dp),
+        )
+        Spacer(Modifier.height(7.dp))
+        Text(
+            label,
+            style = sc(11f, 500),
+            color = if (active) accent else palette.sub,
+            maxLines = 1,
+        )
     }
 }
 
 // ---------------------------------------------------------------- sections
+
+/** 分类 — the genres as chips, which is the only place they are listed in full. */
+@Composable
+private fun GenreSection(genres: List<String>, modifier: Modifier = Modifier) {
+    val palette = LocalPalette.current
+    Column(modifier) {
+        SectionHeader("分类")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            genres.take(6).forEach { genre ->
+                Text(
+                    genre,
+                    style = sc(11.5f, 600),
+                    color = palette.body,
+                    modifier = Modifier
+                        .solidGlass(
+                            shape = GlassShapes.chip,
+                            fill = if (palette.isDark) {
+                                Color.White.copy(alpha = 0.075f)
+                            } else {
+                                Color.White.copy(alpha = 0.72f)
+                            },
+                            border = palette.border,
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 艺术图 — the item's other backdrops.
+ *
+ * Only the first is ever used as the hero, so the rest are artwork the library holds and
+ * nothing in the app has shown until now.
+ */
+@Composable
+private fun ArtworkSection(
+    baseUrl: String,
+    itemId: String,
+    tags: List<String>,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        SectionHeader("艺术图", Modifier.padding(horizontal = Dimens.pageHorizontal))
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+        ) {
+            itemsIndexed(tags, key = { _, tag -> tag }) { index, tag ->
+                AsyncImage(
+                    model = EmbyImages.backdropAt(baseUrl, itemId, index, tag, maxWidth = 720),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .width(232.dp)
+                        .height(130.dp)
+                        .clip(GlassShapes.card),
+                )
+            }
+        }
+    }
+}
+
+/** 外部链接 — where this title lives outside the library. */
+@Composable
+private fun ExternalLinksSection(
+    providerIds: Map<String, String>,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    val uriHandler = LocalUriHandler.current
+    val links = remember(providerIds) { externalLinks(providerIds) }
+    if (links.isEmpty()) return
+    Column(modifier) {
+        SectionHeader("外部链接")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            links.forEach { (label, url) ->
+                Row(
+                    Modifier
+                        .pressable { runCatching { uriHandler.openUri(url) } }
+                        .solidGlass(
+                            shape = GlassShapes.chip,
+                            fill = if (palette.isDark) {
+                                Color.White.copy(alpha = 0.075f)
+                            } else {
+                                Color.White.copy(alpha = 0.72f)
+                            },
+                            border = palette.border,
+                        )
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        AppIcons.Cloud,
+                        contentDescription = null,
+                        tint = palette.sub,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Text(label, style = sc(11.5f, 600), color = palette.body)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The provider ids Emby carries that have a public page worth opening. Anything else it
+ * returns (a scraper's internal key, say) has nowhere to link to and is left out.
+ */
+private fun externalLinks(providerIds: Map<String, String>): List<Pair<String, String>> {
+    fun id(name: String) = providerIds.entries
+        .firstOrNull { it.key.equals(name, ignoreCase = true) }
+        ?.value
+        ?.takeIf { it.isNotBlank() }
+    return buildList {
+        id("Tmdb")?.let { add("TMDB" to "https://www.themoviedb.org/movie/$it") }
+        id("Imdb")?.let { add("IMDb" to "https://www.imdb.com/title/$it/") }
+        id("Tvdb")?.let { add("TheTVDB" to "https://thetvdb.com/dereferrer/series/$it") }
+    }
+}
+
+/**
+ * 媒体信息 — everything the server knows about the file that is actually playing.
+ *
+ * One card per stream rather than one table for the file: a release with a 国语 and a 原声
+ * track differs only in the audio, and interleaving both into a single list would make the
+ * difference impossible to read. Absent fields are dropped rather than shown as 未知 — the
+ * list is already long, and "the server didn't say" is not worth a row of its own.
+ */
+@Composable
+private fun MediaInfoSection(
+    version: MediaVersion,
+    dateCreated: String?,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    Column(modifier) {
+        SectionHeader("媒体信息", Modifier.padding(horizontal = Dimens.pageHorizontal))
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+        ) {
+            version.video?.let { video ->
+                item(key = "video") {
+                    SpecCard(
+                        icon = AppIcons.Play,
+                        title = "视频",
+                        rows = listOfNotNull(
+                            video.displayTitle?.let { "显示标题" to it },
+                            video.language?.let { "语言" to it },
+                            video.codec?.let { "编码" to it },
+                            video.resolutionLabel?.let { "分辨率" to it },
+                            video.frameRateLabel?.let { "帧率" to it },
+                            video.bitrateBps?.takeIf { it > 0 }
+                                ?.let { "比特率" to "${it / 1_000_000} Mbps" },
+                            video.videoRange?.let { "动态范围" to it },
+                            video.interlaced?.let { "隔行扫描" to if (it) "是" else "否" },
+                            video.colorPrimaries?.let { "色彩原色" to it },
+                            video.colorSpace?.let { "色彩空间" to it },
+                            video.profile?.let { "配置" to it },
+                            video.level?.takeIf { it > 0 }?.let { "等级" to it.toInt().toString() },
+                            video.aspectRatio?.let { "长宽比" to it },
+                            video.bitDepth?.takeIf { it > 0 }?.let { "位深" to it.toString() },
+                        ),
+                    )
+                }
+            }
+            itemsIndexed(version.audioTracks) { index, audio ->
+                SpecCard(
+                    icon = AppIcons.Volume,
+                    title = if (version.audioTracks.size > 1) "音频 ${index + 1}" else "音频",
+                    rows = listOfNotNull(
+                        audio.displayTitle?.let { "标题" to it },
+                        audio.language?.let { "语言" to it },
+                        audio.codec?.uppercase()?.let { "编码" to it },
+                        audio.profile?.let { "配置" to it },
+                        audio.bitrateLabel?.let { "比特率" to it },
+                        audio.channels?.let { "布局" to it },
+                        audio.channelCount?.takeIf { it > 0 }?.let { "声道" to it.toString() },
+                        audio.sampleRateLabel?.let { "采样率" to it },
+                        audio.external?.let { "外部" to if (it) "是" else "否" },
+                        audio.default?.let { "默认" to if (it) "是" else "否" },
+                        audio.displayLanguage?.let { "显示语言" to it },
+                    ),
+                )
+            }
+        }
+        val footer = listOfNotNull(
+            version.container?.uppercase(),
+            version.sizeLabel,
+            dateCreated,
+        )
+        if (version.path != null || footer.isNotEmpty()) {
+            Column(
+                Modifier
+                    .padding(top = 10.dp)
+                    .padding(horizontal = Dimens.pageHorizontal)
+                    .fillMaxWidth()
+                    .solidGlass(
+                        shape = GlassShapes.card,
+                        fill = if (palette.isDark) {
+                            Color.White.copy(alpha = 0.05f)
+                        } else {
+                            Color.White.copy(alpha = 0.55f)
+                        },
+                        border = palette.border,
+                    )
+                    .padding(horizontal = 12.dp, vertical = 11.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                version.path?.let { path ->
+                    Text(path, style = mr(10f, 400), color = palette.sub2)
+                }
+                if (footer.isNotEmpty()) {
+                    Text(
+                        footer.joinToString(" · "),
+                        style = mr(10f, 500),
+                        color = palette.sub2,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One stream's specification, as a fixed-width card of label/value rows. */
+@Composable
+private fun SpecCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    rows: List<Pair<String, String>>,
+) {
+    val palette = LocalPalette.current
+    Column(
+        Modifier
+            .width(240.dp)
+            .solidGlass(
+                shape = GlassShapes.card,
+                fill = if (palette.isDark) {
+                    Color.White.copy(alpha = 0.06f)
+                } else {
+                    Color.White.copy(alpha = 0.72f)
+                },
+                border = palette.border,
+            )
+            .padding(horizontal = 13.dp, vertical = 12.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, null, tint = palette.sub, modifier = Modifier.size(13.dp))
+            Text(title, style = sc(12.5f, 700), color = palette.text)
+        }
+        Spacer(Modifier.height(10.dp))
+        rows.forEach { (label, value) ->
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(label, style = mr(10.5f, 400), color = palette.sub2)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    value,
+                    style = mr(10.5f, 500),
+                    color = palette.body,
+                    textAlign = TextAlign.End,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun SectionHeader(

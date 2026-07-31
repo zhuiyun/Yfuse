@@ -20,10 +20,24 @@ object EmbyImages {
         return "${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Primary?${tagQuery}maxHeight=$maxHeight&quality=90$tokenQuery"
     }
 
-    fun backdropOf(baseUrl: String, itemId: String, tag: String?, maxWidth: Int = 1280): String? {
-        if (baseUrl.isBlank() || itemId.isBlank()) return null
+    fun backdropOf(baseUrl: String, itemId: String, tag: String?, maxWidth: Int = 1280): String? =
+        backdropAt(baseUrl, itemId, index = 0, tag = tag, maxWidth = maxWidth)
+
+    /**
+     * One of an item's several backdrops. The index addresses the image and the tag is what
+     * makes the URL cache-bust when the artwork is replaced, so they have to agree —
+     * `tag` must be `BackdropImageTags[index]`.
+     */
+    fun backdropAt(
+        baseUrl: String,
+        itemId: String,
+        index: Int,
+        tag: String?,
+        maxWidth: Int = 1280,
+    ): String? {
+        if (baseUrl.isBlank() || itemId.isBlank() || index < 0) return null
         val tagQuery = tag?.let { "tag=$it&" }.orEmpty()
-        return "${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Backdrop/0?${tagQuery}maxWidth=$maxWidth&quality=85"
+        return "${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Backdrop/$index?${tagQuery}maxWidth=$maxWidth&quality=85"
     }
 
     fun poster(

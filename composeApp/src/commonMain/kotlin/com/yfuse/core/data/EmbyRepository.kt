@@ -484,8 +484,11 @@ class EmbyRepository(private val client: HttpClient) {
             header("X-Emby-Token", server.accessToken)
             parameter(
                 "Fields",
+                // Path and DateCreated are opt-in, and the 媒体信息 block is built out of
+                // them; BackdropImageTags is what the 艺术图 strip enumerates.
                 "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
-                    "SeriesPrimaryImageTag,MediaSources,Chapters,ProviderIds",
+                    "BackdropImageTags,SeriesPrimaryImageTag,MediaSources,MediaStreams," +
+                    "Path,DateCreated,Chapters,ProviderIds",
             )
         }.body()
         val detail = dto.toMediaDetail()

@@ -52,6 +52,10 @@ data class MediaDetail(
     val posterTag: String?,
     val backdropItemId: String,
     val backdropTag: String?,
+    /** Every backdrop the item has, for the 艺术图 strip. Includes [backdropTag]. */
+    val backdropTags: List<String> = emptyList(),
+    /** When the file was added to the library, `YYYY-MM-DD`. */
+    val dateCreated: String? = null,
     val resumePositionTicks: Long?,
     val people: List<Person>,
     /** Primary media source on the server this detail came from. */

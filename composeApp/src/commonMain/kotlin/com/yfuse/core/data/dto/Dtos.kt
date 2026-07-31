@@ -7,6 +7,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.SubtitleTrackInfo
+import com.yfuse.core.model.VideoStreamInfo
 import com.yfuse.core.model.languageDisplayName
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
@@ -75,9 +76,24 @@ data class MediaStreamDto(
     val Language: String? = null,
     val Title: String? = null,
     val DisplayTitle: String? = null,
+    val DisplayLanguage: String? = null,
     val Channels: Int? = null,
     val ChannelLayout: String? = null,
     val IsForced: Boolean? = null,
+    val IsDefault: Boolean? = null,
+    val IsExternal: Boolean? = null,
+    val IsInterlaced: Boolean? = null,
+    val BitRate: Int? = null,
+    val SampleRate: Int? = null,
+    val BitDepth: Int? = null,
+    val Profile: String? = null,
+    val Level: Double? = null,
+    val AspectRatio: String? = null,
+    val ColorSpace: String? = null,
+    val ColorPrimaries: String? = null,
+    /** `"24000/1001"` as often as a decimal, so it is parsed rather than shown raw. */
+    val AverageFrameRate: Double? = null,
+    val RealFrameRate: Double? = null,
 )
 
 /**
@@ -92,6 +108,8 @@ data class MediaSourceDto(
     val Container: String? = null,
     val Size: Long? = null,
     val Bitrate: Int? = null,
+    /** The file's location on the server, shown at the foot of 媒体信息. */
+    val Path: String? = null,
     val MediaStreams: List<MediaStreamDto>? = null,
 )
 
@@ -115,6 +133,8 @@ data class BaseItemDto(
     val SeasonId: String? = null,
     val ParentBackdropItemId: String? = null,
     val ParentBackdropImageTags: List<String>? = null,
+    /** ISO-8601; only the date half is shown, next to the container and size. */
+    val DateCreated: String? = null,
     val Overview: String? = null,
     val Genres: List<String>? = null,
     val RunTimeTicks: Long? = null,
@@ -214,6 +234,10 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         communityRating = CommunityRating,
         posterItemId = posterId,
         posterTag = posterTag,
+        // The strip shows the item's own artwork; a series' backdrops inherited by an
+        // episode are the *show's*, and repeating them under every episode says nothing.
+        backdropTags = BackdropImageTags.orEmpty(),
+        dateCreated = DateCreated?.take(10)?.takeIf { it.length == 10 },
         backdropItemId = backdropId,
         backdropTag = backdropTag,
         resumePositionTicks = UserData?.PlaybackPositionTicks,
@@ -279,6 +303,29 @@ fun MediaSourceDto.toMediaVersion(fallbackId: String, ordinal: Int): MediaVersio
         videoCodec = video?.Codec?.takeIf { it.isNotBlank() },
         videoHeight = video?.Height,
         videoRange = video?.VideoRange?.takeIf { !it.equals("SDR", ignoreCase = true) },
+        path = Path?.takeIf { it.isNotBlank() },
+        video = video?.let { stream ->
+            VideoStreamInfo(
+                displayTitle = stream.DisplayTitle?.takeIf { it.isNotBlank() },
+                language = languageDisplayName(stream.Language),
+                codec = stream.Codec?.takeIf { it.isNotBlank() }?.uppercase(),
+                width = stream.Width,
+                height = stream.Height,
+                // Emby reports both; the average is the one that matches what plays back.
+                frameRate = stream.AverageFrameRate ?: stream.RealFrameRate,
+                bitrateBps = stream.BitRate,
+                // Unlike the badge on the version row, the table states SDR rather than
+                // omitting it — a blank cell there would read as "unknown", not "standard".
+                videoRange = stream.VideoRange?.takeIf { it.isNotBlank() },
+                interlaced = stream.IsInterlaced,
+                colorPrimaries = stream.ColorPrimaries?.takeIf { it.isNotBlank() },
+                colorSpace = stream.ColorSpace?.takeIf { it.isNotBlank() },
+                profile = stream.Profile?.takeIf { it.isNotBlank() },
+                level = stream.Level,
+                aspectRatio = stream.AspectRatio?.takeIf { it.isNotBlank() },
+                bitDepth = stream.BitDepth,
+            )
+        },
         audioTracks = MediaStreams.orEmpty()
             .filter { it.Type == "Audio" }
             .map { stream ->
@@ -288,6 +335,14 @@ fun MediaSourceDto.toMediaVersion(fallbackId: String, ordinal: Int): MediaVersio
                         ?: stream.Channels?.let { "$it 声道" },
                     language = languageDisplayName(stream.Language)
                         ?: stream.Title?.takeIf { it.isNotBlank() },
+                    displayTitle = stream.DisplayTitle?.takeIf { it.isNotBlank() },
+                    displayLanguage = stream.DisplayLanguage?.takeIf { it.isNotBlank() },
+                    profile = stream.Profile?.takeIf { it.isNotBlank() },
+                    bitrateBps = stream.BitRate,
+                    channelCount = stream.Channels,
+                    sampleRateHz = stream.SampleRate,
+                    external = stream.IsExternal,
+                    default = stream.IsDefault,
                 )
             },
         subtitleTracks = MediaStreams.orEmpty()
