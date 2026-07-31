@@ -215,25 +215,22 @@ const val EPISODE_KEY_SEPARATOR = '/'
 /**
  * Cross-server identity for one *episode*.
  *
- * Episodes rarely carry provider ids of their own, so [watchKey] degraded almost every one
- * of them to `emby:<id>` — a key that by construction only matches on the server it came
- * from. Two people watching the same show from their own servers therefore never matched,
- * and the room sat there reporting 房主控制播放 while nothing ever synced.
- *
- * The show, on the other hand, is nearly always identified, and "season 2, episode 5 of
- * this show" is the same episode on anyone's server whatever id their library gave it —
- * so that is the form this prefers, and the episode's own provider id is the fallback.
+ * Prefers the show plus a coordinate — `tmdb:1399/s2e5` — over the episode's own provider
+ * id, which is the fallback.
  *
  * It used to be the other way round, on the grounds that the episode's own id is the more
  * precise of the two. Precision is not what this key is for: it has to be *the same string
- * on both sides*, and the episode's own id is exactly the part that differs. Two libraries
- * scraped at different times hold different subsets of `Tmdb`/`Tvdb`/`Imdb` for the same
- * episode, [watchKey] returns whichever of them comes first in its preference order, and
- * the two devices end up naming one episode `tvdb:7654321` and `tmdb:1399/s2e5`. The
- * matcher compares strings, so that is a room that never syncs at all — the host's
- * controls silently stop at the guest, which is precisely the complaint. The coordinate
- * derives from the show plus two integers every library agrees on, and only depends on the
- * one id (the show's) that is reliably present.
+ * on both devices*, and the episode's own id is the part least likely to be. Not because
+ * episodes lack ids — most carry at least a `Tvdb`, often an `Imdb` — but because *which*
+ * one a library holds is a property of how it was scraped, not of the episode. One side
+ * ends up naming an episode `tvdb:7654321`, the other `tmdb:99`, and neither is wrong. The
+ * matcher compares strings, so that is a room where nothing the host does reaches anyone:
+ * pause, seek and entry changes all sit behind that one comparison.
+ *
+ * A coordinate depends on the show's id — one lookup further up, where libraries agree far
+ * more often — plus two integers no scrape disagrees about. It is not immune either: two
+ * libraries can hold different provider ids for the *show*, which is what
+ * [watchMatchKeys] and the matcher's coordinate fallback are for.
  */
 fun episodeWatchKey(
     ownProviderIds: Map<String, String>,
