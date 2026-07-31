@@ -121,6 +121,7 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_WATCH_KEYS = "yfuse.watchKeys"
         private const val EXTRA_SEASONS = "yfuse.seasonNumbers"
         private const val EXTRA_EPISODES = "yfuse.episodeNumbers"
+        private const val EXTRA_VERSIONS = "yfuse.versions"
         private const val EXTRA_SERIES_KEYS = "yfuse.seriesIds"
         private const val EXTRA_SERIES_NAMES = "yfuse.seriesNames"
         private const val EXTRA_INDEX = "yfuse.index"
@@ -150,6 +151,7 @@ class PlayerActivity : ComponentActivity() {
             putExtra(EXTRA_WATCH_KEYS, items.map { it.watchKey }.toTypedArray())
             putExtra(EXTRA_SEASONS, items.map { it.seasonNumber ?: -1 }.toIntArray())
             putExtra(EXTRA_EPISODES, items.map { it.episodeNumber ?: -1 }.toIntArray())
+            putExtra(EXTRA_VERSIONS, items.map(::encodeVersions).toTypedArray())
             putExtra(EXTRA_SERIES_KEYS, items.map { it.seriesId.orEmpty() }.toTypedArray())
             putExtra(EXTRA_SERIES_NAMES, items.map { it.seriesName.orEmpty() }.toTypedArray())
             putExtra(EXTRA_INDEX, startIndex)
@@ -306,6 +308,7 @@ class PlayerActivity : ComponentActivity() {
         val watchKeys = intent.getStringArrayExtra(EXTRA_WATCH_KEYS).orEmpty()
         val seasonNumbers = intent.getIntArrayExtra(EXTRA_SEASONS) ?: intArrayOf()
         val episodeNumbers = intent.getIntArrayExtra(EXTRA_EPISODES) ?: intArrayOf()
+        val versionRows = intent.getStringArrayExtra(EXTRA_VERSIONS).orEmpty()
         val seriesIds = intent.getStringArrayExtra(EXTRA_SERIES_KEYS).orEmpty()
         val seriesNames = intent.getStringArrayExtra(EXTRA_SERIES_NAMES).orEmpty()
         val items = urls.mapIndexed { index, url ->
@@ -330,6 +333,7 @@ class PlayerActivity : ComponentActivity() {
                 watchKey = watchKeys.getOrElse(index) {
                     "emby:${ids.getOrElse(index) { index.toString() }}"
                 },
+                versions = decodeVersions(versionRows.getOrElse(index) { "" }),
             )
         }
         pictureInPicture.value = isInPictureInPictureMode
@@ -783,6 +787,42 @@ class PlayerActivity : ComponentActivity() {
         )
 }
 
+/**
+ * Versions travel as one row per entry, matching how playback segments already cross the
+ * intent boundary. Field and record separators are the ASCII unit/record characters, which
+ * cannot appear in a URL or in a server-supplied label.
+ */
+private const val VERSION_FIELD = ''
+private const val VERSION_RECORD = ''
+
+private fun encodeVersions(item: PlayerMediaItem): String =
+    item.versions.joinToString(VERSION_RECORD.toString()) { version ->
+        listOf(
+            version.id,
+            version.label,
+            version.detail,
+            version.url,
+            version.transcodeUrl,
+            version.fallbackTranscodeUrl,
+        ).joinToString(VERSION_FIELD.toString())
+    }
+
+private fun decodeVersions(raw: String): List<PlayerMediaVersion> {
+    if (raw.isEmpty()) return emptyList()
+    return raw.split(VERSION_RECORD).mapNotNull { row ->
+        val fields = row.split(VERSION_FIELD)
+        if (fields.size < 6) return@mapNotNull null
+        PlayerMediaVersion(
+            id = fields[0],
+            label = fields[1],
+            detail = fields[2],
+            url = fields[3],
+            transcodeUrl = fields[4],
+            fallbackTranscodeUrl = fields[5],
+        )
+    }
+}
+
 private fun encodePlaybackSegments(item: PlayerMediaItem): String =
     item.playbackSegments.joinToString(";") { segment ->
         "${segment.type.name},${segment.startMs},${segment.endMs ?: ""}"
@@ -868,10 +908,22 @@ private fun PlayerRoot(
     var resume by remember { mutableStateOf(startIndex to startPositionMs) }
     var filled by remember { mutableStateOf(false) }
 
-    val engine: VideoEngine = remember(kind, resume) {
+    // Entry id -> chosen file, for titles the server holds more than one copy of. Switching
+    // rebuilds the queue and restarts the engine at the same position, which is the same
+    // handover an engine switch already performs — no engine needs to know about versions.
+    var versionChoices by remember { mutableStateOf(emptyMap<String, String>()) }
+    val activeItems = remember(items, versionChoices) {
+        if (versionChoices.isEmpty()) {
+            items
+        } else {
+            items.map { item -> item.withVersion(versionChoices[item.id]) }
+        }
+    }
+
+    val engine: VideoEngine = remember(kind, resume, activeItems) {
         when (kind) {
             PlayerEngine.Mdk -> MdkVideoEngine(
-                items = items,
+                items = activeItems,
                 startIndex = resume.first,
                 startPositionMs = resume.second,
                 decoderMode = decoderMode,
@@ -882,7 +934,7 @@ private fun PlayerRoot(
             )
             PlayerEngine.Mpv -> MpvVideoEngine(
                 context = context,
-                items = items,
+                items = activeItems,
                 startIndex = resume.first,
                 startPositionMs = resume.second,
                 decoderMode = decoderMode,
@@ -892,7 +944,7 @@ private fun PlayerRoot(
             )
             else -> ExoVideoEngine(
                 context = context,
-                items = items,
+                items = activeItems,
                 startIndex = resume.first,
                 startPositionMs = resume.second,
                 scope = scope,
@@ -942,7 +994,7 @@ private fun PlayerRoot(
     var danmakuComments by remember { mutableStateOf(emptyList<DanmakuComment>()) }
     var danmakuLoading by remember { mutableStateOf(false) }
     var danmakuError by remember { mutableStateOf<String?>(null) }
-    val currentItem = items.getOrNull(state.currentIndex)
+    val currentItem = activeItems.getOrNull(state.currentIndex)
     // Read as state so editing this series' times mid-episode takes effect on the open
     // player rather than only on the next launch.
     val skipTimesBySeries by skipSegmentPreferences.bySeries.collectAsState()
@@ -1109,7 +1161,7 @@ private fun PlayerRoot(
         reporter?.update(state)
         onPlaybackState(state)
         playbackGate.onPlaybackIndexChanged(state.currentIndex)
-        val item = items.getOrNull(state.currentIndex)
+        val item = activeItems.getOrNull(state.currentIndex)
         when {
             state.ended -> playbackRecovery.clear()
             item != null && state.positionMs >= 2_000L -> playbackRecovery.record(
@@ -1139,6 +1191,29 @@ private fun PlayerRoot(
                 )
             }
         }
+    }
+
+    /**
+     * Plays the current entry from a different file. Position is read before the swap and
+     * handed to the rebuilt engine, so switching a 4K remux for a 1080p encode keeps the
+     * user's place instead of restarting the film.
+     */
+    fun selectVersion(versionId: String) {
+        val item = activeItems.getOrNull(state.currentIndex) ?: return
+        if (item.versionId == versionId) return
+        if (item.versions.none { it.id == versionId }) return
+        engine.pause()
+        AppLog.info(
+            category = "player",
+            event = "version_switch_requested",
+            message = "Playback media version switch requested",
+            attributes = mapOf(
+                "itemIndex" to state.currentIndex.toString(),
+                "engine" to kind.name,
+            ),
+        )
+        resume = state.currentIndex to engine.currentPositionMs()
+        versionChoices = versionChoices + (item.id to versionId)
     }
 
     fun switchEngine(target: PlayerEngine) {
@@ -1260,7 +1335,7 @@ private fun PlayerRoot(
                 castError = castState.error,
                 onDiscoverCast = { scope.launch { castManager.discover() } },
                 onCastTo = { deviceId ->
-                    val item = items.getOrNull(state.currentIndex) ?: return@PlayerControls
+                    val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls
                     scope.launch {
                         castManager.play(deviceId, item.url, item.title)
                         if (castManager.state.value.activeDeviceId == deviceId) {
@@ -1312,6 +1387,14 @@ private fun PlayerRoot(
                 // Cancelling drops back to the manual pill rather than clearing the offer
                 // outright: "not automatically" is not the same as "not at all".
                 onCancelAutoSkip = { settledSkip = skipOccurrence },
+                versions = currentItem?.versions.orEmpty().map { version ->
+                    version.id to listOfNotNull(
+                        version.label,
+                        version.detail.takeIf { it.isNotBlank() },
+                    ).joinToString(" · ")
+                },
+                selectedVersionId = currentItem?.versionId,
+                onSelectVersion = ::selectVersion,
                 skipSeriesName = currentItem?.seriesId?.let {
                     currentItem.seriesName?.ifBlank { null } ?: "本剧"
                 },

@@ -9,10 +9,29 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.EmbyStream
+import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import kotlinx.coroutines.launch
+
+/**
+ * One selectable file behind a queue entry, with its stream URLs already built.
+ *
+ * URLs rather than a bare id so that switching version mid-playback needs nothing from the
+ * network and no credentials in the player: every version's addresses were resolved when
+ * the queue was built.
+ */
+data class PlayerMediaVersion(
+    val id: String,
+    /** The server's name for this file — "Bluray 2160p", or its container. */
+    val label: String,
+    /** `4K HDR10 · 42.3 GB · 68 Mbps · MKV` */
+    val detail: String,
+    val url: String,
+    val transcodeUrl: String,
+    val fallbackTranscodeUrl: String,
+)
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
 data class PlayerMediaItem(
@@ -34,7 +53,26 @@ data class PlayerMediaItem(
     val seriesName: String? = null,
     /** Cross-server identity used by watch-together rooms. */
     val watchKey: String = id,
-)
+    /**
+     * Every file the server holds for this entry. Empty for entries whose sources were
+     * never fetched — the sibling episodes of a queue, which are listed rather than
+     * detailed — and for the ordinary case of a library holding exactly one file.
+     */
+    val versions: List<PlayerMediaVersion> = emptyList(),
+    /** Which of [versions] the URLs above were built from. */
+    val versionId: String? = null,
+) {
+    /** The same entry playing a different file, or unchanged when there is no such file. */
+    fun withVersion(id: String?): PlayerMediaItem {
+        val version = versions.firstOrNull { it.id == id } ?: return this
+        return copy(
+            url = version.url,
+            transcodeUrl = version.transcodeUrl,
+            fallbackTranscodeUrl = version.fallbackTranscodeUrl,
+            versionId = version.id,
+        )
+    }
+}
 
 data class PlayerState(
     val loading: Boolean = true,
@@ -64,6 +102,8 @@ class PlayerStoreFactory(
     private val itemId: String,
     private val startPositionTicks: Long,
     private val serverId: String? = null,
+    /** The file the detail page picked, when the item has more than one. */
+    private val mediaSourceId: String? = null,
 ) {
     fun create(): Store<PlayerIntent, PlayerState, Nothing> =
         storeFactory.create(
@@ -91,6 +131,32 @@ class PlayerStoreFactory(
                     return@launch
                 }
 
+                fun versionsOf(id: String, versions: List<MediaVersion>) = versions.map {
+                    PlayerMediaVersion(
+                        id = it.id,
+                        label = it.name,
+                        detail = it.summary,
+                        url = EmbyStream.directPlay(
+                            server.baseUrl,
+                            id,
+                            server.accessToken,
+                            mediaSourceId = it.id,
+                        ),
+                        transcodeUrl = EmbyStream.transcode(
+                            server.baseUrl,
+                            id,
+                            server.accessToken,
+                            mediaSourceId = it.id,
+                        ),
+                        fallbackTranscodeUrl = EmbyStream.progressiveTranscode(
+                            server.baseUrl,
+                            id,
+                            server.accessToken,
+                            mediaSourceId = it.id,
+                        ),
+                    )
+                }
+
                 fun itemOf(
                     id: String,
                     title: String,
@@ -101,16 +167,26 @@ class PlayerStoreFactory(
                     seriesId: String? = null,
                     seriesName: String? = null,
                     seriesProviderIds: Map<String, String>? = null,
-                ) = PlayerMediaItem(
+                    versions: List<MediaVersion> = emptyList(),
+                ): PlayerMediaItem {
+                  val playerVersions = versionsOf(id, versions)
+                  // The file the detail page picked, else the server's first — which is
+                  // also what an unqualified stream request would have returned anyway.
+                  val chosen = playerVersions.firstOrNull { it.id == mediaSourceId }
+                      ?: playerVersions.firstOrNull()
+                  return PlayerMediaItem(
                     id = id,
-                    url = EmbyStream.directPlay(server.baseUrl, id, server.accessToken),
-                    transcodeUrl = EmbyStream.transcode(server.baseUrl, id, server.accessToken),
+                    url = chosen?.url
+                        ?: EmbyStream.directPlay(server.baseUrl, id, server.accessToken),
+                    transcodeUrl = chosen?.transcodeUrl
+                        ?: EmbyStream.transcode(server.baseUrl, id, server.accessToken),
                     title = title,
-                    fallbackTranscodeUrl = EmbyStream.progressiveTranscode(
-                        server.baseUrl,
-                        id,
-                        server.accessToken,
-                    ),
+                    fallbackTranscodeUrl = chosen?.fallbackTranscodeUrl
+                        ?: EmbyStream.progressiveTranscode(
+                            server.baseUrl,
+                            id,
+                            server.accessToken,
+                        ),
                     serverId = server.id,
                     playbackSegments = playbackSegments,
                     seasonNumber = seasonNumber,
@@ -128,7 +204,10 @@ class PlayerStoreFactory(
                             fallbackId = id,
                         )
                     },
-                )
+                    versions = playerVersions,
+                    versionId = chosen?.id,
+                  )
+                }
 
                 val detailResult = repo.itemDetail(server, itemId)
                 detailResult.onFailure {
@@ -175,6 +254,12 @@ class PlayerStoreFactory(
                                 seriesId,
                                 detail.seriesName,
                                 seriesProviderIds,
+                                // Only the episode actually opened has had its sources
+                                // fetched; the rest of the season came from a list query
+                                // that doesn't carry them, and detailing every episode to
+                                // populate a picker almost nobody opens isn't worth the
+                                // round trips.
+                                versions = if (ep.id == itemId) detail.versions else emptyList(),
                             )
                         }
                         val index = items.indexOfFirst { it.id == itemId }.coerceAtLeast(0)
@@ -193,10 +278,11 @@ class PlayerStoreFactory(
                     PlayerMsg.Ready(
                         listOf(
                             itemOf(
-                                itemId,
-                                detail?.title ?: "",
-                                detail?.playbackSegments.orEmpty(),
-                                detail?.providerIds.orEmpty(),
+                                id = itemId,
+                                title = detail?.title ?: "",
+                                playbackSegments = detail?.playbackSegments.orEmpty(),
+                                providerIds = detail?.providerIds.orEmpty(),
+                                versions = detail?.versions.orEmpty(),
                             ),
                         ),
                         0,

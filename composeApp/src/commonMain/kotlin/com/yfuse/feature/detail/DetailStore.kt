@@ -24,6 +24,11 @@ data class DetailState(
     val detail: MediaDetail? = null,
     val server: SavedServer? = null,
     val resolvingPlay: Boolean = false,
+    /**
+     * Which of [MediaDetail.versions] plays. Null means "whatever the server lists first",
+     * which is also what a library with a single file always resolves to.
+     */
+    val selectedVersionId: String? = null,
     val seasons: List<Season> = emptyList(),
     val selectedSeasonId: String? = null,
     val episodes: List<Episode> = emptyList(),
@@ -42,6 +47,8 @@ sealed interface DetailIntent {
     data object TogglePlayed : DetailIntent
     data object AddToWatchLater : DetailIntent
     data class PlaySource(val serverId: String, val itemId: String) : DetailIntent
+    /** Picks one of the several files the server holds for this title. */
+    data class SelectVersion(val versionId: String) : DetailIntent
     data class SelectSeason(val seasonId: String) : DetailIntent
     data class PlayEpisode(val episodeId: String, val startPositionTicks: Long) : DetailIntent
 }
@@ -52,6 +59,8 @@ sealed interface DetailLabel {
         val serverId: String,
         val itemId: String,
         val startPositionTicks: Long,
+        /** Names one file when the item has several; null takes the server's first. */
+        val mediaSourceId: String? = null,
     ) : DetailLabel
 }
 
@@ -62,6 +71,7 @@ private sealed interface DetailMsg {
     data class Loaded(val detail: MediaDetail, val server: SavedServer) : DetailMsg
     data class Failed(val message: String) : DetailMsg
     data class Resolving(val value: Boolean) : DetailMsg
+    data class VersionSelected(val versionId: String) : DetailMsg
     data class SeasonsLoaded(val seasons: List<Season>, val selected: String?) : DetailMsg
     data object EpisodesLoading : DetailMsg
     data class EpisodesLoaded(val episodes: List<Episode>) : DetailMsg
@@ -102,6 +112,8 @@ class DetailStoreFactory(
                 DetailIntent.AddToWatchLater -> addToWatchLater()
                 is DetailIntent.PlaySource ->
                     publish(DetailLabel.Play(intent.serverId, intent.itemId, 0L))
+                is DetailIntent.SelectVersion ->
+                    dispatch(DetailMsg.VersionSelected(intent.versionId))
                 is DetailIntent.SelectSeason -> selectSeason(intent.seasonId)
                 is DetailIntent.PlayEpisode -> {
                     val server = state().server ?: return
@@ -254,7 +266,18 @@ class DetailStoreFactory(
                 repo.resolvePlayTarget(server, detail)
                     .onSuccess {
                         dispatch(DetailMsg.Resolving(false))
-                        publish(DetailLabel.Play(server.id, it.itemId, it.startPositionTicks))
+                        publish(
+                            DetailLabel.Play(
+                                serverId = server.id,
+                                itemId = it.itemId,
+                                startPositionTicks = it.startPositionTicks,
+                                // Only when the target is the item whose versions were on
+                                // screen: a series resolves to an episode, whose files are
+                                // its own and have nothing to do with the picker above.
+                                mediaSourceId = current.selectedVersionId
+                                    ?.takeIf { _ -> it.itemId == detail.id },
+                            ),
+                        )
                     }
                     .onFailure {
                         AppLog.error(
@@ -335,6 +358,7 @@ class DetailStoreFactory(
             is DetailMsg.Loaded -> copy(loading = false, detail = msg.detail, server = msg.server)
             is DetailMsg.Failed -> copy(loading = false, resolvingPlay = false, error = msg.message)
             is DetailMsg.Resolving -> copy(resolvingPlay = msg.value)
+            is DetailMsg.VersionSelected -> copy(selectedVersionId = msg.versionId)
             is DetailMsg.SeasonsLoaded -> copy(seasons = msg.seasons, selectedSeasonId = msg.selected)
             DetailMsg.EpisodesLoading -> copy(episodesLoading = true)
             is DetailMsg.EpisodesLoaded -> copy(episodesLoading = false, episodes = msg.episodes)

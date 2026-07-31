@@ -160,6 +160,10 @@ fun PlayerControls(
     /** Seconds left before an automatic skip fires, or null when none is armed. */
     skipCountdownSeconds: Int? = null,
     onCancelAutoSkip: () -> Unit = {},
+    /** Files the server holds for this entry; a picker appears once there are two. */
+    versions: List<Pair<String, String>> = emptyList(),
+    selectedVersionId: String? = null,
+    onSelectVersion: (String) -> Unit = {},
     /** Non-null when this entry belongs to a series, which is what skip times are kept per. */
     skipSeriesName: String? = null,
     skipIntroStartSeconds: Long = 0L,
@@ -472,6 +476,9 @@ fun PlayerControls(
                     settingsTab = null
                     watchDialogOpen = true
                 },
+                versions = versions,
+                selectedVersionId = selectedVersionId,
+                onSelectVersion = { onSelectVersion(it); settingsTab = null },
                 skipSeriesName = skipSeriesName,
                 skipIntroStartSeconds = skipIntroStartSeconds,
                 skipIntroEndSeconds = skipIntroEndSeconds,
@@ -1329,6 +1336,9 @@ private fun SettingsPanel(
     watchConnected: Boolean,
     watchRoomCode: String?,
     onOpenWatchTogether: () -> Unit,
+    versions: List<Pair<String, String>>,
+    selectedVersionId: String?,
+    onSelectVersion: (String) -> Unit,
     skipSeriesName: String?,
     skipIntroStartSeconds: Long,
     skipIntroEndSeconds: Long,
@@ -1497,6 +1507,15 @@ private fun SettingsPanel(
                             watchConnected,
                             onClick = onOpenWatchTogether,
                         )
+
+                        // A single file is not a choice, so the group only appears once
+                        // the library actually holds more than one copy of this title.
+                        if (versions.size > 1) {
+                            GroupLabel("版本")
+                            versions.forEach { (id, label) ->
+                                OptionRow(label, id == selectedVersionId) { onSelectVersion(id) }
+                            }
+                        }
 
                         // Only for a series: an opening belongs to the show, and there is
                         // nothing sensible to hang a film's times off. Setting a boundary

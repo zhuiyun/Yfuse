@@ -10,8 +10,14 @@ object EmbyStream {
      * The token is carried as `api_key` because that is what Emby's media
      * endpoints expect; the request only ever goes to the user's own server.
      */
-    fun directPlay(baseUrl: String, itemId: String, token: String): String =
-        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream?static=true&api_key=$token"
+    fun directPlay(
+        baseUrl: String,
+        itemId: String,
+        token: String,
+        mediaSourceId: String? = null,
+    ): String =
+        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream?static=true&api_key=$token" +
+            mediaSourceParam(mediaSourceId, itemId)
 
     /**
      * Server-side transcode to H.264/AAC over HLS. Needed for sources the
@@ -24,10 +30,11 @@ object EmbyStream {
         token: String,
         maxWidth: Int = 1920,
         videoBitrate: Int = 6_000_000,
+        mediaSourceId: String? = null,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/master.m3u8" +
             "?api_key=$token" +
-            "&MediaSourceId=$itemId" +
+            "&MediaSourceId=${mediaSourceId ?: itemId}" +
             "&Context=Streaming" +
             "&TranscodingProtocol=hls" +
             "&VideoCodec=h264" +
@@ -48,11 +55,12 @@ object EmbyStream {
         token: String,
         maxWidth: Int = 1920,
         videoBitrate: Int = 6_000_000,
+        mediaSourceId: String? = null,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream.mp4" +
             "?static=false" +
             "&api_key=$token" +
-            "&MediaSourceId=$itemId" +
+            "&MediaSourceId=${mediaSourceId ?: itemId}" +
             "&Context=Streaming" +
             "&Container=mp4" +
             "&VideoCodec=h264" +
@@ -62,6 +70,19 @@ object EmbyStream {
             "&AudioBitrate=192000" +
             "&TranscodingMaxAudioChannels=2" +
             "&DeviceId=yfuse"
+
+    /**
+     * Names a specific file when the item has more than one.
+     *
+     * Left off entirely when it would only repeat the item id, which is what Emby assumes
+     * anyway — keeping the common single-source URL byte-for-byte what it has always been.
+     */
+    private fun mediaSourceParam(mediaSourceId: String?, itemId: String): String =
+        if (mediaSourceId == null || mediaSourceId == itemId) {
+            ""
+        } else {
+            "&MediaSourceId=$mediaSourceId"
+        }
 
     /** Rewrites the generated HLS cap without rebuilding the authenticated URL. */
     fun withQuality(url: String, quality: PlaybackQuality): String {

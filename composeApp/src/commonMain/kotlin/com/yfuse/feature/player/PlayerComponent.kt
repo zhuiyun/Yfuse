@@ -14,6 +14,7 @@ class PlayerComponent(
     itemId: String,
     startPositionTicks: Long,
     serverId: String? = null,
+    mediaSourceId: String? = null,
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
 
@@ -24,6 +25,7 @@ class PlayerComponent(
         itemId,
         startPositionTicks,
         serverId,
+        mediaSourceId,
     ).create()
 
     init {

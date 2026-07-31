@@ -85,6 +85,7 @@ import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyImages
@@ -96,7 +97,7 @@ import com.yfuse.feature.watch.WatchInviteShareSheet
 import org.koin.core.context.GlobalContext
 
 /** How far the information sheet is pulled up over the lower edge of the artwork. */
-private val HeroOverlap = 46.dp
+private val HeroOverlap = 16.dp
 
 /** Height of the collapsing top bar's content row, above the status bar inset. */
 private val TopBarHeight = 52.dp
@@ -124,7 +125,7 @@ fun DetailScreen(component: DetailComponent) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val heroHeight = maxHeight * 0.34f
+        val heroHeight = maxHeight * 0.40f
         val heroHeightPx = with(density) { heroHeight.toPx() }
 
         val detailSurface = remember(accent, palette.isDark) {
@@ -239,6 +240,20 @@ fun DetailScreen(component: DetailComponent) {
                     }
                 }
 
+                if (detail.versions.isNotEmpty()) {
+                    item(key = "versions") {
+                        VersionSection(
+                            versions = detail.versions,
+                            selectedId = state.selectedVersionId,
+                            accent = Brand.Primary,
+                            onSelect = {
+                                component.store.accept(DetailIntent.SelectVersion(it))
+                            },
+                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                        )
+                    }
+                }
+
                 if (state.sources.any { it.reachable && it.source != null && it.itemId != null }) {
                     item(key = "sources") {
                         SourceSection(
@@ -248,18 +263,6 @@ fun DetailScreen(component: DetailComponent) {
                                 component.store.accept(DetailIntent.PlaySource(serverId, itemId))
                             },
                             modifier = Modifier.padding(top = Dimens.sectionGap),
-                        )
-                    }
-                }
-
-                if (state.related.isNotEmpty()) {
-                    item(key = "related") {
-                        RelatedSection(
-                            baseUrl = baseUrl,
-                            items = state.related,
-                            onOpen = { itemId ->
-                                state.server?.id?.let { component.onOpenRelated(it, itemId) }
-                            },
                         )
                     }
                 }
@@ -298,6 +301,18 @@ fun DetailScreen(component: DetailComponent) {
                 if (detail.people.isNotEmpty()) {
                     item(key = "cast") {
                         CastRow(baseUrl, detail.people, Modifier.padding(top = Dimens.sectionGap))
+                    }
+                }
+
+                if (state.related.isNotEmpty()) {
+                    item(key = "related") {
+                        RelatedSection(
+                            baseUrl = baseUrl,
+                            items = state.related,
+                            onOpen = { itemId ->
+                                state.server?.id?.let { component.onOpenRelated(it, itemId) }
+                            },
+                        )
                     }
                 }
             }
@@ -978,6 +993,144 @@ private fun OverviewSection(
  * `rgba(20,26,38,.06)` over a barely-there fill, selected a 1.5px accent ring — so that
  * is what these use, and the block gets the section header every other block has.
  */
+/**
+ * 版本与规格 — which file plays, and what is actually inside it.
+ *
+ * Two jobs in one block because they answer the same question. "Is this the 4K or the
+ * 1080p?" and "does it have a Chinese audio track?" were both unanswerable before: only the
+ * first of the server's files was ever read, and nothing below resolution and size was ever
+ * parsed. A library holding one file still gets the specs; the picker only appears when
+ * there is a choice to make.
+ */
+@Composable
+private fun VersionSection(
+    versions: List<MediaVersion>,
+    selectedId: String?,
+    accent: Color,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    val selected = versions.firstOrNull { it.id == selectedId } ?: versions.firstOrNull() ?: return
+    Column(modifier) {
+        SectionHeader(
+            title = if (versions.size > 1) "版本与规格" else "规格",
+            modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+        ) {
+            if (versions.size > 1) {
+                Text("${versions.size} 个版本", style = mr(10.5f, 500), color = palette.sub2)
+            }
+        }
+
+        if (versions.size > 1) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(versions, key = { it.id }) { version ->
+                    VersionCard(
+                        version = version,
+                        selected = version.id == selected.id,
+                        accent = accent,
+                        onSelect = { onSelect(version.id) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+
+        Column(
+            Modifier
+                .padding(horizontal = Dimens.pageHorizontal)
+                .fillMaxWidth()
+                .glass(GlassShapes.card, palette.card2, palette.border)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SpecRow("画面", listOfNotNull(selected.qualityLabel, selected.videoCodec?.uppercase()))
+            SpecRow("文件", listOfNotNull(selected.sizeLabel, selected.bitrateLabel, selected.container?.uppercase()))
+            SpecRow("音轨", selected.audioTracks.map { it.label })
+            SpecRow("字幕", selected.subtitleTracks.map { it.label })
+        }
+    }
+}
+
+/** One label plus everything under it, wrapped rather than truncated — the values are why
+ *  the block exists, so a fourth audio track has to be readable, not clipped. */
+@Composable
+private fun SpecRow(label: String, values: List<String>) {
+    val palette = LocalPalette.current
+    if (values.isEmpty()) return
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            label,
+            style = mr(11f, 600),
+            color = palette.sub2,
+            modifier = Modifier.width(34.dp),
+        )
+        Text(
+            values.joinToString("、"),
+            style = mr(11f, 400),
+            color = palette.text,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun VersionCard(
+    version: MediaVersion,
+    selected: Boolean,
+    accent: Color,
+    onSelect: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column(
+        Modifier
+            .width(150.dp)
+            .glass(
+                shape = GlassShapes.card,
+                fill = if (selected) accent.copy(alpha = 0.10f) else palette.card2,
+                border = if (selected) accent.copy(alpha = 0.42f) else palette.border,
+            )
+            .pressable(enabled = !selected, onClick = onSelect)
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                version.name,
+                style = sc(12f, 700),
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (selected) {
+                Icon(
+                    AppIcons.Check,
+                    contentDescription = "当前版本",
+                    tint = accent,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+        }
+        Text(
+            version.qualityLabel,
+            style = mr(10.5f, 500),
+            color = accent,
+            maxLines = 1,
+        )
+        Text(
+            listOfNotNull(version.sizeLabel, version.bitrateLabel).joinToString(" · "),
+            style = mr(10f, 400),
+            color = palette.sub2,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @Composable
 private fun SourceSection(
     sources: List<ServerSource>,

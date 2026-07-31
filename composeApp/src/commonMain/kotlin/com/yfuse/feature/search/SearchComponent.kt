@@ -49,6 +49,8 @@ class SearchComponent(
             val serverId: String,
             val itemId: String,
             val startPositionTicks: Long,
+            /** Names one file when the item has several; null takes the server's first. */
+            val mediaSourceId: String? = null,
         ) : Config
     }
 
@@ -91,8 +93,8 @@ class SearchComponent(
                 onOpenRelated = { serverId, itemId ->
                     navigation.push(Config.Detail(serverId, itemId))
                 },
-                onPlay = { serverId, itemId, ticks ->
-                    navigation.push(Config.Player(serverId, itemId, ticks))
+                onPlay = { serverId, itemId, ticks, mediaSourceId ->
+                    navigation.push(Config.Player(serverId, itemId, ticks, mediaSourceId))
                 },
             ),
         )
@@ -105,6 +107,7 @@ class SearchComponent(
                 itemId = config.itemId,
                 startPositionTicks = config.startPositionTicks,
                 serverId = config.serverId,
+                mediaSourceId = config.mediaSourceId,
                 onBack = { navigation.pop() },
             ),
         )

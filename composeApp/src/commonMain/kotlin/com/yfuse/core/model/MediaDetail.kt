@@ -56,6 +56,12 @@ data class MediaDetail(
     val people: List<Person>,
     /** Primary media source on the server this detail came from. */
     val source: SourceInfo? = null,
+    /**
+     * Every file the server holds for this title, in the order it reports them. More than
+     * one means the library has several cuts or encodes and the user gets to pick; the
+     * first is what plays until they do.
+     */
+    val versions: List<MediaVersion> = emptyList(),
     val isFavorite: Boolean = false,
     val played: Boolean = false,
     /** External IDs make cross-server matching independent of translated titles. */

@@ -1,9 +1,13 @@
 package com.yfuse.core.data.dto
 
+import com.yfuse.core.model.AudioTrackInfo
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
+import com.yfuse.core.model.SubtitleTrackInfo
+import com.yfuse.core.model.languageDisplayName
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
 import com.yfuse.core.model.Season
@@ -67,11 +71,25 @@ data class MediaStreamDto(
     val Height: Int? = null,
     val Width: Int? = null,
     val VideoRange: String? = null,
+    val Codec: String? = null,
+    val Language: String? = null,
+    val Title: String? = null,
+    val DisplayTitle: String? = null,
+    val Channels: Int? = null,
+    val ChannelLayout: String? = null,
+    val IsForced: Boolean? = null,
 )
 
-/** Backs the 跨服务器片源对比 column: container size, bitrate and video resolution. */
+/**
+ * One file behind a title. Several can exist for the same item — a 4K remux beside a 1080p
+ * encode — which is why [Id] matters: it is what a stream request has to name to get this
+ * particular one rather than whichever the server lists first.
+ */
 @Serializable
 data class MediaSourceDto(
+    val Id: String? = null,
+    val Name: String? = null,
+    val Container: String? = null,
     val Size: Long? = null,
     val Bitrate: Int? = null,
     val MediaStreams: List<MediaStreamDto>? = null,
@@ -201,6 +219,9 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         resumePositionTicks = UserData?.PlaybackPositionTicks,
         people = People?.map { it.toPerson() } ?: emptyList(),
         source = MediaSources?.firstOrNull()?.toSourceInfo(),
+        versions = MediaSources.orEmpty().mapIndexed { index, dto ->
+            dto.toMediaVersion(fallbackId = Id, ordinal = index)
+        },
         isFavorite = UserData?.IsFavorite == true,
         played = UserData?.Played == true,
         providerIds = ProviderIds.orEmpty(),
@@ -234,6 +255,52 @@ private fun formatBytes(bytes: Long): String {
         return "${tenths / 10}.${tenths % 10} GB"
     }
     return "${bytes / 1024 / 1024} MB"
+}
+
+/**
+ * The full picture of one file: what it is, how big, and what tracks are inside it.
+ *
+ * [fallbackId] stands in when the server omits `MediaSource.Id`, which it does for items
+ * with a single source — the item id is the right thing to name in that case anyway.
+ */
+fun MediaSourceDto.toMediaVersion(fallbackId: String, ordinal: Int): MediaVersion {
+    val video = MediaStreams?.firstOrNull { it.Type == "Video" }
+    val container = Container?.takeIf { it.isNotBlank() }
+    return MediaVersion(
+        id = Id?.takeIf { it.isNotBlank() } ?: fallbackId,
+        // Emby names a source only when the library has more than one; falling back to the
+        // container beats "版本 2" because it is what actually distinguishes the files.
+        name = Name?.takeIf { it.isNotBlank() }
+            ?: container?.uppercase()
+            ?: "版本 ${ordinal + 1}",
+        container = container,
+        sizeBytes = Size,
+        bitrateBps = Bitrate,
+        videoCodec = video?.Codec?.takeIf { it.isNotBlank() },
+        videoHeight = video?.Height,
+        videoRange = video?.VideoRange?.takeIf { !it.equals("SDR", ignoreCase = true) },
+        audioTracks = MediaStreams.orEmpty()
+            .filter { it.Type == "Audio" }
+            .map { stream ->
+                AudioTrackInfo(
+                    codec = stream.Codec?.takeIf { it.isNotBlank() },
+                    channels = stream.ChannelLayout?.takeIf { it.isNotBlank() }
+                        ?: stream.Channels?.let { "$it 声道" },
+                    language = languageDisplayName(stream.Language)
+                        ?: stream.Title?.takeIf { it.isNotBlank() },
+                )
+            },
+        subtitleTracks = MediaStreams.orEmpty()
+            .filter { it.Type == "Subtitle" }
+            .map { stream ->
+                SubtitleTrackInfo(
+                    codec = stream.Codec?.takeIf { it.isNotBlank() },
+                    language = languageDisplayName(stream.Language)
+                        ?: stream.Title?.takeIf { it.isNotBlank() },
+                    forced = stream.IsForced == true,
+                )
+            },
+    )
 }
 
 fun PersonDto.toPerson() = Person(Id, Name ?: "", Role?.ifBlank { null }, PrimaryImageTag)

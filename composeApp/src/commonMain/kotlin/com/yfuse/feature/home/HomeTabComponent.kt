@@ -53,6 +53,8 @@ class HomeTabComponent(
             val serverId: String?,
             val itemId: String,
             val startPositionTicks: Long,
+            /** Names one file when the item has several; null takes the server's first. */
+            val mediaSourceId: String? = null,
         ) : Config
         @Serializable data class Info(val item: TmdbItem, val embyItemId: String?) : Config
     }
@@ -99,8 +101,8 @@ class HomeTabComponent(
                 onOpenRelated = { serverId, itemId ->
                     navigation.push(Config.Detail(serverId, itemId))
                 },
-                onPlay = { serverId, id, ticks ->
-                    navigation.push(Config.Player(serverId, id, ticks))
+                onPlay = { serverId, id, ticks, mediaSourceId ->
+                    navigation.push(Config.Player(serverId, id, ticks, mediaSourceId))
                 },
             ),
         )
@@ -113,6 +115,7 @@ class HomeTabComponent(
                 itemId = config.itemId,
                 startPositionTicks = config.startPositionTicks,
                 serverId = config.serverId,
+                mediaSourceId = config.mediaSourceId,
                 onBack = { navigation.pop() },
             ),
         )

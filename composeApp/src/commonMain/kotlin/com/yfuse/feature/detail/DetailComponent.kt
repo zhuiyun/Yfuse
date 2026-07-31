@@ -33,7 +33,12 @@ class DetailComponent(
     private val autoPlay: Boolean = false,
     val onBack: () -> Unit,
     val onOpenRelated: (serverId: String, itemId: String) -> Unit,
-    private val onPlay: (serverId: String, itemId: String, startPositionTicks: Long) -> Unit,
+    private val onPlay: (
+        serverId: String,
+        itemId: String,
+        startPositionTicks: Long,
+        mediaSourceId: String?,
+    ) -> Unit,
 ) : ComponentContext by componentContext {
 
     val store = DetailStoreFactory(storeFactory, repo, registry, itemId, serverId).create()
@@ -62,7 +67,7 @@ class DetailComponent(
         store.labels
             .onEach {
                 if (it is DetailLabel.Play) {
-                    onPlay(it.serverId, it.itemId, it.startPositionTicks)
+                    onPlay(it.serverId, it.itemId, it.startPositionTicks, it.mediaSourceId)
                 }
             }
             .launchIn(scope)
