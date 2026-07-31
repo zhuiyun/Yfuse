@@ -211,8 +211,19 @@ const val EPISODE_KEY_SEPARATOR = '/'
  * and the room sat there reporting 房主控制播放 while nothing ever synced.
  *
  * The show, on the other hand, is nearly always identified, and "season 2, episode 5 of
- * this show" is the same episode on anyone's server whatever id their library gave it. The
- * episode's own provider id still wins when present, being the more precise of the two.
+ * this show" is the same episode on anyone's server whatever id their library gave it —
+ * so that is the form this prefers, and the episode's own provider id is the fallback.
+ *
+ * It used to be the other way round, on the grounds that the episode's own id is the more
+ * precise of the two. Precision is not what this key is for: it has to be *the same string
+ * on both sides*, and the episode's own id is exactly the part that differs. Two libraries
+ * scraped at different times hold different subsets of `Tmdb`/`Tvdb`/`Imdb` for the same
+ * episode, [watchKey] returns whichever of them comes first in its preference order, and
+ * the two devices end up naming one episode `tvdb:7654321` and `tmdb:1399/s2e5`. The
+ * matcher compares strings, so that is a room that never syncs at all — the host's
+ * controls silently stop at the guest, which is precisely the complaint. The coordinate
+ * derives from the show plus two integers every library agrees on, and only depends on the
+ * one id (the show's) that is reliably present.
  */
 fun episodeWatchKey(
     ownProviderIds: Map<String, String>,
@@ -221,14 +232,17 @@ fun episodeWatchKey(
     episodeNumber: Int?,
     fallbackId: String,
 ): String {
-    val own = ownProviderIds.watchKey(fallbackId)
-    if (!own.startsWith("emby:")) return own
-    if (episodeNumber == null) return own
     val series = seriesProviderIds.watchKey(fallbackId)
-    if (series.startsWith("emby:")) return own
-    // Specials sit in season 0 on every server that has them, so a missing season number
-    // is written out rather than left off — an absent coordinate would match anything.
-    return "$series$EPISODE_KEY_SEPARATOR" + "s${seasonNumber ?: 0}e$episodeNumber"
+    if (episodeNumber != null && !series.startsWith("emby:")) {
+        // Specials sit in season 0 on every server that has them, so a missing season
+        // number is written out rather than left off — an absent coordinate would match
+        // anything.
+        return "$series$EPISODE_KEY_SEPARATOR" + "s${seasonNumber ?: 0}e$episodeNumber"
+    }
+    // An unidentified show leaves nothing to anchor a coordinate to. The episode's own id
+    // is better than nothing here, and `emby:<id>` after that — server-local, but at least
+    // correct for the two people who do share a server.
+    return ownProviderIds.watchKey(fallbackId)
 }
 
 /** The `<provider>:<value>` and `season to episode` halves of an [episodeWatchKey]. */

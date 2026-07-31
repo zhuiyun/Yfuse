@@ -82,15 +82,14 @@ class WatchInviteResolver(
         }
     }
 
-    /** Same lookup, but returning the pieces the player needs rather than display copy. */
-    suspend fun resolveTarget(invite: WatchInvite): ResolvedInvite? {
-        val mediaKey = invite.mediaKey ?: return null
-        return resolveTarget(mediaKey)
-    }
-
     /**
-     * [resolveTarget] for a room joined without an invite — by typing its code — where the
-     * only thing naming the media is the room's own timeline.
+     * Same lookup as [resolve], returning the pieces the player needs rather than display
+     * copy.
+     *
+     * Always called with the *room's* key rather than an invite's. An invite is written
+     * when the room is created and names the show; the room's timeline names the episode
+     * the host is actually on, and landing a guest anywhere else is how two people end up
+     * watching different episodes of the same series.
      */
     suspend fun resolveTarget(mediaKey: String): ResolvedInvite? {
         var failures = 0

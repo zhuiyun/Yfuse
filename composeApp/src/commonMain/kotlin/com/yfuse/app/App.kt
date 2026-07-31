@@ -26,7 +26,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,7 +112,6 @@ fun App(root: RootComponent) {
         val searchStack by root.search.stack.subscribeAsState()
         val profileStack by root.profile.stack.subscribeAsState()
         val miniPlayback by ActivePlayback.state.collectAsState()
-        val scope = rememberCoroutineScope()
 
         // Watch-together lives above the tabs: an invite can arrive from a chat app at any
         // moment, and an active room has to stay visible after the player is dismissed —
@@ -250,19 +248,25 @@ fun App(root: RootComponent) {
                         unfamiliarEndpoint = invite.endpoint
                             ?.takeIf { it.trimEnd('/') != watchEndpoint.trimEnd('/') },
                         onJoin = {
-                            scope.launch {
-                                val target = inviteResolver.resolveTarget(invite) ?: return@launch
-                                // Join before navigating: the client is a singleton, so the
-                                // player picks the room up from its state on start and the
-                                // guest reconcile loop syncs from the timeline — no need to
-                                // thread a room code through the launch path.
-                                watchTogether.joinRoomFromInvite(
-                                    endpoint = invite.endpoint ?: watchEndpoint,
-                                    roomCode = invite.roomCode,
-                                    mediaKey = invite.mediaKey.orEmpty(),
-                                )
-                                root.openWatchTarget(target.server.id, target.item.id)
-                            }
+                            // Join, and let the room say what it is playing.
+                            //
+                            // This used to resolve `invite.mediaKey` and navigate to that.
+                            // A link is written when the room is created, which for a show
+                            // is before the host has started an episode — so its key names
+                            // the *show*, and resolving it landed the guest on the series,
+                            // which auto-plays whatever episode *they* were up to. Two
+                            // people, two different episodes, every time.
+                            //
+                            // The room's own timeline names the episode, and the shell
+                            // already follows it (see the effect above), so joining is the
+                            // whole of the work. The invite's key keeps its other job:
+                            // naming the title in the sheet before any of this happens.
+                            watchTogether.joinRoomFromInvite(
+                                endpoint = invite.endpoint ?: watchEndpoint,
+                                roomCode = invite.roomCode,
+                                mediaKey = invite.mediaKey.orEmpty(),
+                            )
+                            root.dismissInvite()
                         },
                         onSearchByName = root::openSearchForInvite,
                         onDismiss = root::dismissInvite,

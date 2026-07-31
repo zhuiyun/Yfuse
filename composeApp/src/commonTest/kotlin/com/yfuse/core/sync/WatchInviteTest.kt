@@ -96,14 +96,55 @@ class WatchInviteTest {
         assertEquals(EpisodeCoordinate("tmdb:1399", 2, 5), parseEpisodeWatchKey(key))
     }
 
+    /**
+     * The coordinate wins over the episode's own id, because the key has to be the same
+     * string on both devices and the episode's own id is the part that differs: one
+     * library holds `Tvdb` for it, the other `Tmdb`, and two names for one episode is a
+     * room that never syncs.
+     */
     @Test
-    fun an_episode_with_its_own_provider_id_keeps_it() {
-        // More precise than a coordinate, and it survives a server that numbers differently.
+    fun an_identified_show_outranks_the_episodes_own_provider_id() {
+        assertEquals(
+            "tmdb:1399/s2e5",
+            episodeWatchKey(
+                ownProviderIds = mapOf("Tmdb" to "99"),
+                seriesProviderIds = mapOf("Tmdb" to "1399"),
+                seasonNumber = 2,
+                episodeNumber = 5,
+                fallbackId = "local",
+            ),
+        )
+    }
+
+    /** Two libraries holding different provider ids for the same episode still agree. */
+    @Test
+    fun differently_scraped_libraries_produce_the_same_episode_key() {
+        val host = episodeWatchKey(
+            ownProviderIds = mapOf("Tvdb" to "7654321"),
+            seriesProviderIds = mapOf("Tmdb" to "1399", "Tvdb" to "121361"),
+            seasonNumber = 2,
+            episodeNumber = 5,
+            fallbackId = "host-local-id",
+        )
+        val guest = episodeWatchKey(
+            ownProviderIds = emptyMap(),
+            seriesProviderIds = mapOf("Tmdb" to "1399"),
+            seasonNumber = 2,
+            episodeNumber = 5,
+            fallbackId = "guest-local-id",
+        )
+
+        assertEquals(host, guest)
+    }
+
+    /** No show id to anchor to: the episode's own id is better than a server-local one. */
+    @Test
+    fun an_unidentified_show_falls_back_to_the_episodes_own_id() {
         assertEquals(
             "tmdb:99",
             episodeWatchKey(
                 ownProviderIds = mapOf("Tmdb" to "99"),
-                seriesProviderIds = mapOf("Tmdb" to "1399"),
+                seriesProviderIds = emptyMap(),
                 seasonNumber = 2,
                 episodeNumber = 5,
                 fallbackId = "local",

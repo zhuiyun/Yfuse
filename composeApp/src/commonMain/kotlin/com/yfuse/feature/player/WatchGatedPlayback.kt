@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.core.sync.parseEpisodeWatchKey
 import kotlin.math.abs
 
 /** How often a guest re-checks its drift against the room's timeline. */
@@ -192,6 +193,22 @@ class WatchMediaMatcher(private val onWarning: (String?) -> Unit) {
         if (index >= 0) {
             reset()
             return index
+        }
+        // Same episode, different spelling. `episodeWatchKey` names an episode after its
+        // show, and the two devices can still disagree about which provider id names the
+        // show — one library has the series' Tmdb id, the other only its Tvdb id. The
+        // season and episode numbers do not disagree, and this queue is one show: it was
+        // built by resolving this room's media in the first place, so "the room is on
+        // s2e5" identifies an entry in it without needing the show's name to match.
+        parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
+            val byCoordinate = items.indexOfFirst {
+                it.episodeNumber == coordinate.episodeNumber &&
+                    (it.seasonNumber ?: 0) == coordinate.seasonNumber
+            }
+            if (byCoordinate >= 0) {
+                reset()
+                return byCoordinate
+            }
         }
         missedTicks++
         if (missedTicks == MISMATCH_GRACE_TICKS) {
