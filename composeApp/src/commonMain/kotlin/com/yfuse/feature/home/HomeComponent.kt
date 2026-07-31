@@ -17,7 +17,7 @@ class HomeComponent(
     storeFactory: StoreFactory,
     tmdb: TmdbRepository,
     emby: EmbyRepository,
-    private val registry: ServerRegistry,
+    registry: ServerRegistry,
     private val onOpenEmbyItem: (String) -> Unit,
     private val onOpenTmdbItem: (TmdbItem, String?) -> Unit,
     val onOpenSearch: () -> Unit,
@@ -27,10 +27,6 @@ class HomeComponent(
 ) : ComponentContext by componentContext {
 
     val store = HomeStoreFactory(storeFactory, tmdb, emby, registry).create()
-
-    /** Base URL for 继续观看 artwork. */
-    val serverBaseUrl: String get() = registry.defaultServer?.baseUrl.orEmpty()
-    val serverAccessToken: String get() = registry.defaultServer?.accessToken.orEmpty()
 
     init {
         val scope = componentScope(lifecycle)

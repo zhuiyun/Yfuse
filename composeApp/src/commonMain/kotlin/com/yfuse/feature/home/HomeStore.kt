@@ -10,15 +10,27 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.toUserMessage
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 data class HomeState(
     val loading: Boolean = true,
     val content: TmdbHome = TmdbHome(),
-    /** 继续观看 — the signed-in server's in-progress items. */
+    /**
+     * The server [resume] was loaded from, kept beside it rather than read from the
+     * registry at draw time. The row is addressed by item id against one server's base
+     * URL and token: holding the two apart let 媒体库's 切换服务器 move the URLs to the new
+     * server while these items still belonged to the old one, and every card went blank.
+     */
+    val server: SavedServer? = null,
+    /** 继续观看 — [server]'s in-progress items. */
     val resume: List<MediaItem> = emptyList(),
     val resolving: Boolean = false,
     val error: String? = null,
@@ -41,12 +53,19 @@ sealed interface HomeLabel {
     data class OpenTmdbItem(val item: TmdbItem, val embyItemId: String?) : HomeLabel
 }
 
-private sealed interface Action { data object Load : Action }
+private sealed interface Action {
+    /** TMDB recommendations, which belong to no server and are fetched once. */
+    data object Load : Action
+
+    /** The signed-in server, and every change to it while this store is alive. */
+    data class DefaultServer(val server: SavedServer?) : Action
+}
 
 private sealed interface Msg {
     data object Loading : Msg
     data class Loaded(val content: TmdbHome) : Msg
     data class ResumeLoaded(val items: List<MediaItem>) : Msg
+    data class Server(val value: SavedServer?) : Msg
     data class Failed(val message: String) : Msg
     data class Resolving(val value: Boolean) : Msg
     data class ActionMessage(val value: String?) : Msg
@@ -62,7 +81,17 @@ class HomeStoreFactory(
         storeFactory.create(
             name = "HomeStore",
             initialState = HomeState(),
-            bootstrapper = coroutineBootstrapper<Action> { dispatch(Action.Load) },
+            bootstrapper = coroutineBootstrapper<Action> {
+                dispatch(Action.Load)
+                // 继续观看 belongs to one server, and which server that is changes under
+                // this store's feet: 媒体库's 切换服务器 writes straight to the registry.
+                // Read once at startup, this row outlived the server it came from.
+                registry.data
+                    .map { it.defaultServer }
+                    .distinctUntilChanged()
+                    .onEach { dispatch(Action.DefaultServer(it)) }
+                    .launchIn(this)
+            },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
         )
@@ -70,18 +99,29 @@ class HomeStoreFactory(
     private inner class ExecutorImpl :
         CoroutineExecutor<HomeIntent, Action, HomeState, Msg, HomeLabel>() {
 
-        override fun executeAction(action: Action) = load()
+        override fun executeAction(action: Action) {
+            when (action) {
+                Action.Load -> loadRecommendations()
+                is Action.DefaultServer -> {
+                    dispatch(Msg.Server(action.server))
+                    loadResume(action.server)
+                }
+            }
+        }
 
         override fun executeIntent(intent: HomeIntent) {
             when (intent) {
-                HomeIntent.Retry -> load()
+                HomeIntent.Retry -> {
+                    loadRecommendations()
+                    loadResume(state().server)
+                }
                 is HomeIntent.Open -> open(intent.item)
                 is HomeIntent.Favorite -> favorite(intent.item)
                 is HomeIntent.OpenResume -> publish(HomeLabel.OpenEmbyItem(intent.item.id))
             }
         }
 
-        private fun load() {
+        private fun loadRecommendations() {
             dispatch(Msg.Loading)
             scope.launch {
                 tmdb.home()
@@ -96,9 +136,15 @@ class HomeStoreFactory(
                         dispatch(Msg.Failed(it.toUserMessage("推荐内容加载失败")))
                     }
             }
-            // 继续观看 comes from the signed-in server; a failure here just leaves
-            // the row empty rather than failing the whole screen.
-            val server = registry.defaultServer ?: return
+        }
+
+        /**
+         * 继续观看 comes from the signed-in server; a failure here just leaves the row
+         * empty rather than failing the whole screen. The reducer has already dropped the
+         * previous server's items, so a failure leaves nothing stale behind either.
+         */
+        private fun loadResume(server: SavedServer?) {
+            if (server == null) return
             scope.launch {
                 emby.homeContent(server)
                     .onSuccess { dispatch(Msg.ResumeLoaded(it.resume)) }
@@ -188,6 +234,12 @@ class HomeStoreFactory(
             Msg.Loading -> copy(loading = true, error = null)
             is Msg.Loaded -> copy(loading = false, content = msg.content)
             is Msg.ResumeLoaded -> copy(resume = msg.items)
+            // Items and the server they are addressed against move together: anything the
+            // previous server served would be requested from one that never held it.
+            is Msg.Server -> copy(
+                server = msg.value,
+                resume = if (msg.value?.id == server?.id) resume else emptyList(),
+            )
             is Msg.Failed -> copy(loading = false, error = msg.message)
             is Msg.Resolving -> copy(resolving = msg.value)
             is Msg.ActionMessage -> copy(actionMessage = msg.value)

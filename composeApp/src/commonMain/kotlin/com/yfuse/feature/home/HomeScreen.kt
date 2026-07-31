@@ -133,8 +133,10 @@ fun HomeScreen(component: HomeComponent) {
                 if (state.resume.isNotEmpty()) {
                     item {
                         ContinueWatching(
-                            baseUrl = component.serverBaseUrl,
-                            accessToken = component.serverAccessToken,
+                            // From the same state as the items themselves — see
+                            // [HomeState.server].
+                            baseUrl = state.server?.baseUrl.orEmpty(),
+                            accessToken = state.server?.accessToken.orEmpty(),
                             items = state.resume,
                             onSeeAll = component.onOpenLibrary,
                             onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
