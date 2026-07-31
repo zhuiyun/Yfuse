@@ -137,6 +137,44 @@ class WatchInviteTest {
         assertEquals(host, guest)
     }
 
+    /**
+     * What a device listens on. The published key is one of these; the room's key was
+     * chosen from the other library's metadata, so every name has to be on the list or the
+     * two never meet — and a room that never matches is a room where nothing the host does
+     * reaches anyone, pause included.
+     */
+    @Test
+    fun an_episode_answers_to_the_coordinate_its_own_ids_and_its_server_local_id() {
+        val keys = watchMatchKeys(
+            ownProviderIds = mapOf("Tvdb" to "7654321"),
+            seriesProviderIds = mapOf("Tmdb" to "1399", "Tvdb" to "121361"),
+            seasonNumber = 2,
+            episodeNumber = 5,
+            fallbackId = "local",
+        )
+
+        assertEquals(
+            listOf(
+                "tmdb:1399/s2e5",
+                "tvdb:121361/s2e5",
+                "tvdb:7654321",
+                "emby:local",
+            ),
+            keys,
+        )
+    }
+
+    @Test
+    fun a_film_answers_to_every_provider_id_its_library_holds() {
+        assertEquals(
+            listOf("tmdb:603", "imdb:tt0133093", "emby:local"),
+            watchMatchKeys(
+                ownProviderIds = mapOf("Imdb" to "tt0133093", "Tmdb" to "603"),
+                fallbackId = "local",
+            ),
+        )
+    }
+
     /** No show id to anchor to: the episode's own id is better than a server-local one. */
     @Test
     fun an_unidentified_show_falls_back_to_the_episodes_own_id() {

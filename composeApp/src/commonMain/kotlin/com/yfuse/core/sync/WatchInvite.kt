@@ -181,6 +181,24 @@ private fun decodeComponent(value: String): String {
 
 private const val HEX_DIGITS = "0123456789ABCDEF"
 
+/** External providers a cross-server key can be built from, most preferred first. */
+private val WATCH_PROVIDERS = listOf("Tmdb", "Tvdb", "Imdb")
+
+/**
+ * Every `<provider>:<value>` this metadata can produce, in preference order.
+ *
+ * A library holds whichever ids its scrape happened to fill in, and two libraries holding
+ * the same title routinely hold different subsets. One of these is the name a device
+ * *publishes* ([watchKey]); all of them are names it *answers to* ([watchMatchKeys]).
+ */
+fun Map<String, String>.watchKeys(): List<String> =
+    WATCH_PROVIDERS.mapNotNull { provider ->
+        entries.firstOrNull { it.key.equals(provider, ignoreCase = true) }
+            ?.value
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "${provider.lowercase()}:$it" }
+    }
+
 /**
  * The room's cross-server identity for a title.
  *
@@ -188,16 +206,8 @@ private const val HEX_DIGITS = "0123456789ABCDEF"
  * still be recognised as watching the same thing; falls back to `emby:<id>`, which only
  * matches on the server it came from.
  */
-fun Map<String, String>.watchKey(fallbackId: String): String {
-    val preferred = listOf("Tmdb", "Tvdb", "Imdb")
-    for (provider in preferred) {
-        entries.firstOrNull { it.key.equals(provider, ignoreCase = true) }
-            ?.value
-            ?.takeIf { it.isNotBlank() }
-            ?.let { return "${provider.lowercase()}:$it" }
-    }
-    return "emby:$fallbackId"
-}
+fun Map<String, String>.watchKey(fallbackId: String): String =
+    watchKeys().firstOrNull() ?: "emby:$fallbackId"
 
 /** Separates a series key from the episode coordinate within it: `tmdb:1399/s2e5`. */
 const val EPISODE_KEY_SEPARATOR = '/'
@@ -244,6 +254,34 @@ fun episodeWatchKey(
     // correct for the two people who do share a server.
     return ownProviderIds.watchKey(fallbackId)
 }
+
+/**
+ * Every name one entry answers to when a room says what it is playing.
+ *
+ * A room publishes exactly one key, chosen from the *publisher's* metadata. Comparing that
+ * to one key chosen from the *listener's* metadata means both sides have to have picked the
+ * same provider, and two libraries scraped at different times do not: the host names a film
+ * `imdb:tt0133093` because that is all it holds, the listener names it `tmdb:603` because
+ * it holds both and prefers Tmdb, and one film has two names that never meet. Listening on
+ * every name this library can justify costs nothing and removes that whole class of miss.
+ *
+ * Ordered canonical-first — the show-and-coordinate form, then the entry's own ids, then
+ * the server-local one — so the list reads as "what this is", not "what it might be".
+ */
+fun watchMatchKeys(
+    ownProviderIds: Map<String, String>,
+    seriesProviderIds: Map<String, String> = emptyMap(),
+    seasonNumber: Int? = null,
+    episodeNumber: Int? = null,
+    fallbackId: String,
+): List<String> = buildList {
+    if (episodeNumber != null) {
+        val coordinate = "$EPISODE_KEY_SEPARATOR" + "s${seasonNumber ?: 0}e$episodeNumber"
+        seriesProviderIds.watchKeys().forEach { add(it + coordinate) }
+    }
+    addAll(ownProviderIds.watchKeys())
+    add("emby:$fallbackId")
+}.distinct()
 
 /** The `<provider>:<value>` and `season to episode` halves of an [episodeWatchKey]. */
 data class EpisodeCoordinate(val seriesKey: String, val seasonNumber: Int, val episodeNumber: Int)

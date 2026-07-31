@@ -13,6 +13,7 @@ import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
+import com.yfuse.core.sync.watchMatchKeys
 import kotlinx.coroutines.launch
 
 /**
@@ -51,8 +52,14 @@ data class PlayerMediaItem(
      */
     val seriesId: String? = null,
     val seriesName: String? = null,
-    /** Cross-server identity used by watch-together rooms. */
+    /** Cross-server identity used by watch-together rooms — the one this device publishes. */
     val watchKey: String = id,
+    /**
+     * Every name this entry answers to when a room says what it is playing. A superset of
+     * [watchKey]: the other device picked its key from its own metadata, which is rarely
+     * the same subset as this one's. See `watchMatchKeys`.
+     */
+    val matchKeys: List<String> = listOf(watchKey),
     /**
      * Every file the server holds for this entry. Empty for entries whose sources were
      * never fetched — the sibling episodes of a queue, which are listed rather than
@@ -204,6 +211,13 @@ class PlayerStoreFactory(
                             fallbackId = id,
                         )
                     },
+                    matchKeys = watchMatchKeys(
+                        ownProviderIds = providerIds,
+                        seriesProviderIds = seriesProviderIds.orEmpty(),
+                        seasonNumber = seasonNumber,
+                        episodeNumber = episodeNumber,
+                        fallbackId = id,
+                    ),
                     versions = playerVersions,
                     versionId = chosen?.id,
                   )

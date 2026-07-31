@@ -120,6 +120,9 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_SERVER_IDS = "yfuse.serverIds"
         private const val EXTRA_SEGMENTS = "yfuse.playbackSegments"
         private const val EXTRA_WATCH_KEYS = "yfuse.watchKeys"
+
+        /** `|`-joined per item; see `PlayerMediaItem.matchKeys`. */
+        private const val EXTRA_WATCH_MATCH_KEYS = "yfuse.watchMatchKeys"
         private const val EXTRA_SEASONS = "yfuse.seasonNumbers"
         private const val EXTRA_EPISODES = "yfuse.episodeNumbers"
         private const val EXTRA_VERSIONS = "yfuse.versions"
@@ -150,6 +153,11 @@ class PlayerActivity : ComponentActivity() {
             putExtra(EXTRA_SERVER_IDS, items.map { it.serverId.orEmpty() }.toTypedArray())
             putExtra(EXTRA_SEGMENTS, items.map(::encodePlaybackSegments).toTypedArray())
             putExtra(EXTRA_WATCH_KEYS, items.map { it.watchKey }.toTypedArray())
+            putExtra(
+                EXTRA_WATCH_MATCH_KEYS,
+                items.map { it.matchKeys.joinToString(MATCH_KEY_SEPARATOR.toString()) }
+                    .toTypedArray(),
+            )
             putExtra(EXTRA_SEASONS, items.map { it.seasonNumber ?: -1 }.toIntArray())
             putExtra(EXTRA_EPISODES, items.map { it.episodeNumber ?: -1 }.toIntArray())
             putExtra(EXTRA_VERSIONS, items.map(::encodeVersions).toTypedArray())
@@ -307,12 +315,16 @@ class PlayerActivity : ComponentActivity() {
         val serverIds = intent.getStringArrayExtra(EXTRA_SERVER_IDS).orEmpty()
         val segmentRows = intent.getStringArrayExtra(EXTRA_SEGMENTS).orEmpty()
         val watchKeys = intent.getStringArrayExtra(EXTRA_WATCH_KEYS).orEmpty()
+        val watchMatchKeys = intent.getStringArrayExtra(EXTRA_WATCH_MATCH_KEYS).orEmpty()
         val seasonNumbers = intent.getIntArrayExtra(EXTRA_SEASONS) ?: intArrayOf()
         val episodeNumbers = intent.getIntArrayExtra(EXTRA_EPISODES) ?: intArrayOf()
         val versionRows = intent.getStringArrayExtra(EXTRA_VERSIONS).orEmpty()
         val seriesIds = intent.getStringArrayExtra(EXTRA_SERIES_KEYS).orEmpty()
         val seriesNames = intent.getStringArrayExtra(EXTRA_SERIES_NAMES).orEmpty()
         val items = urls.mapIndexed { index, url ->
+            val watchKey = watchKeys.getOrElse(index) {
+                "emby:${ids.getOrElse(index) { index.toString() }}"
+            }
             PlayerMediaItem(
                 id = ids.getOrElse(index) { index.toString() },
                 url = url,
@@ -331,9 +343,12 @@ class PlayerActivity : ComponentActivity() {
                 episodeNumber = episodeNumbers.getOrNull(index)?.takeIf { it >= 0 },
                 seriesId = seriesIds.getOrNull(index)?.ifBlank { null },
                 seriesName = seriesNames.getOrNull(index)?.ifBlank { null },
-                watchKey = watchKeys.getOrElse(index) {
-                    "emby:${ids.getOrElse(index) { index.toString() }}"
-                },
+                watchKey = watchKey,
+                matchKeys = watchMatchKeys.getOrNull(index)
+                    ?.split(MATCH_KEY_SEPARATOR)
+                    ?.filter { it.isNotBlank() }
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: listOf(watchKey),
                 versions = decodeVersions(versionRows.getOrElse(index) { "" }),
             )
         }
@@ -795,6 +810,9 @@ class PlayerActivity : ComponentActivity() {
  */
 private const val VERSION_FIELD = ''
 private const val VERSION_RECORD = ''
+
+/** Separator for the `|`-joined `matchKeys` row; absent from provider ids and Emby ids. */
+private const val MATCH_KEY_SEPARATOR = '|'
 
 private fun encodeVersions(item: PlayerMediaItem): String =
     item.versions.joinToString(VERSION_RECORD.toString()) { version ->

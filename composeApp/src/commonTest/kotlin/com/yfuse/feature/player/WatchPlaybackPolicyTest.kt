@@ -61,6 +61,27 @@ class WatchPlaybackPolicyTest {
         assertNull(warning)
     }
 
+    /**
+     * A film has no coordinate to fall back on, so its whole defence is answering to every
+     * name its own library can justify. Host holds only Imdb for it and publishes that; the
+     * guest holds both and prefers Tmdb.
+     */
+    @Test
+    fun a_film_matches_on_any_provider_id_the_two_libraries_share() {
+        var warning: String? = null
+        val matcher = WatchMediaMatcher { warning = it }
+        val items = listOf(
+            PlayerMediaItem(
+                "film", "direct", "transcode", "黑客帝国",
+                watchKey = "tmdb:603",
+                matchKeys = listOf("tmdb:603", "imdb:tt0133093", "emby:local"),
+            ),
+        )
+
+        assertEquals(0, matcher.resolve(items, "imdb:tt0133093"))
+        assertNull(warning)
+    }
+
     /** The fallback is a coordinate within one show, not a licence to match anything. */
     @Test
     fun a_coordinate_the_queue_does_not_hold_still_warns() {

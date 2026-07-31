@@ -179,6 +179,10 @@ internal fun nominalWatchRate(measured: Float, room: Float): Float {
  * `emby:<id>` whenever provider ids are missing — common for episodes. Two people on
  * different servers then hold the same file under keys that never match, and the reconcile
  * loop simply finds nothing to do, forever, while the UI keeps saying 房主控制播放.
+ *
+ * That one comparison gates everything a room does: pause, play, seek, rate and entry
+ * changes all sit behind a non-null answer from [resolve]. A miss is not a degraded room,
+ * it is an inert one — which is why this tries three ways to say yes before giving up.
  */
 class WatchMediaMatcher(private val onWarning: (String?) -> Unit) {
     private var missedTicks = 0
@@ -189,7 +193,10 @@ class WatchMediaMatcher(private val onWarning: (String?) -> Unit) {
             reset()
             return null
         }
-        val index = items.indexOfFirst { it.watchKey == mediaKey }
+        // Against every name the entry answers to, not just the one it would publish: the
+        // room's key was chosen from the *other* library's metadata, and two libraries
+        // rarely hold the same subset of Tmdb/Tvdb/Imdb for one title.
+        val index = items.indexOfFirst { it.watchKey == mediaKey || mediaKey in it.matchKeys }
         if (index >= 0) {
             reset()
             return index
