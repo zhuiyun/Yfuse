@@ -231,6 +231,14 @@ const val EPISODE_KEY_SEPARATOR = '/'
  * more often — plus two integers no scrape disagrees about. It is not immune either: two
  * libraries can hold different provider ids for the *show*, which is what
  * [watchMatchKeys] and the matcher's coordinate fallback are for.
+ *
+ * The coordinate is written even when the show has no external id at all, leaving a
+ * server-local `emby:<id>/s2e5`. Half of that key is useless to anyone else and it will
+ * never match on identity — but it is *readable*: the other side can still see which
+ * episode the room is on, and match it inside a queue that is already this show. Two
+ * people who each opened the same series by hand, on libraries that share no metadata
+ * whatsoever, sync on that alone. Publishing the episode's own id instead would say
+ * nothing either side could act on.
  */
 fun episodeWatchKey(
     ownProviderIds: Map<String, String>,
@@ -239,17 +247,13 @@ fun episodeWatchKey(
     episodeNumber: Int?,
     fallbackId: String,
 ): String {
+    // Nothing that numbers episodes, so there is no coordinate to write — a film, or an
+    // entry whose library never filled the number in.
+    if (episodeNumber == null) return ownProviderIds.watchKey(fallbackId)
+    // Specials sit in season 0 on every server that has them, so a missing season number
+    // is written out rather than left off — an absent coordinate would match anything.
     val series = seriesProviderIds.watchKey(fallbackId)
-    if (episodeNumber != null && !series.startsWith("emby:")) {
-        // Specials sit in season 0 on every server that has them, so a missing season
-        // number is written out rather than left off — an absent coordinate would match
-        // anything.
-        return "$series$EPISODE_KEY_SEPARATOR" + "s${seasonNumber ?: 0}e$episodeNumber"
-    }
-    // An unidentified show leaves nothing to anchor a coordinate to. The episode's own id
-    // is better than nothing here, and `emby:<id>` after that — server-local, but at least
-    // correct for the two people who do share a server.
-    return ownProviderIds.watchKey(fallbackId)
+    return "$series$EPISODE_KEY_SEPARATOR" + "s${seasonNumber ?: 0}e$episodeNumber"
 }
 
 /**

@@ -175,11 +175,15 @@ class WatchInviteTest {
         )
     }
 
-    /** No show id to anchor to: the episode's own id is better than a server-local one. */
+    /**
+     * An unidentified show still says *which episode*, which is the half of the key the
+     * other side can act on: two people who each opened the same series by hand, on
+     * libraries sharing no metadata at all, have nothing else to sync on.
+     */
     @Test
-    fun an_unidentified_show_falls_back_to_the_episodes_own_id() {
+    fun an_unidentified_show_still_carries_the_coordinate() {
         assertEquals(
-            "tmdb:99",
+            "emby:local/s2e5",
             episodeWatchKey(
                 ownProviderIds = mapOf("Tmdb" to "99"),
                 seriesProviderIds = emptyMap(),
@@ -191,16 +195,15 @@ class WatchInviteTest {
     }
 
     @Test
-    fun an_unidentified_show_leaves_the_key_server_local() {
-        // Nothing to anchor a coordinate to, so claiming one would match the wrong episode
-        // on someone else's server rather than honestly missing.
+    fun an_entry_that_is_not_numbered_has_no_coordinate_to_write() {
+        // A film, or an episode whose library never filled the number in.
         assertEquals(
             "emby:local",
             episodeWatchKey(
                 ownProviderIds = emptyMap(),
                 seriesProviderIds = emptyMap(),
                 seasonNumber = 1,
-                episodeNumber = 3,
+                episodeNumber = null,
                 fallbackId = "local",
             ),
         )

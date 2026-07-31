@@ -82,6 +82,53 @@ class WatchPlaybackPolicyTest {
         assertNull(warning)
     }
 
+    /**
+     * The two libraries share no metadata at all: neither names the show, so the published
+     * key is server-local apart from the coordinate. Both people opened the same series by
+     * hand, and that coordinate is the only thing left to sync on.
+     */
+    @Test
+    fun an_episode_matches_when_neither_library_can_name_the_show() {
+        var warning: String? = null
+        val matcher = WatchMediaMatcher { warning = it }
+        val items = listOf(
+            PlayerMediaItem(
+                "guest-e5", "direct", "transcode", "第 5 集",
+                seasonNumber = 2,
+                episodeNumber = 5,
+                watchKey = "emby:guest-e5/s2e5",
+                matchKeys = listOf("emby:guest-e5/s2e5", "emby:guest-e5"),
+            ),
+        )
+
+        assertEquals(0, matcher.resolve(items, "emby:host-e5/s2e5"))
+        assertNull(warning)
+    }
+
+    /**
+     * A coordinate is not a licence to follow anything: when both sides do name a show and
+     * name different ones, s2e5 is provably a different episode. A guest who wandered into
+     * another series should be told it is out of sync, not yanked to episode five of it.
+     */
+    @Test
+    fun a_coordinate_from_a_different_show_is_refused() {
+        var warning: String? = null
+        val matcher = WatchMediaMatcher { warning = it }
+        val items = listOf(
+            PlayerMediaItem(
+                "other-e5", "direct", "transcode", "别的剧 第 5 集",
+                seasonNumber = 2,
+                episodeNumber = 5,
+                watchKey = "tmdb:456/s2e5",
+                matchKeys = listOf("tmdb:456/s2e5", "emby:other-e5"),
+            ),
+        )
+
+        repeat(3) { assertNull(matcher.resolve(items, "tmdb:1399/s2e5")) }
+
+        assertEquals("房间在播放你的媒体库里没有的内容，无法同步进度", warning)
+    }
+
     /** The fallback is a coordinate within one show, not a licence to match anything. */
     @Test
     fun a_coordinate_the_queue_does_not_hold_still_warns() {
