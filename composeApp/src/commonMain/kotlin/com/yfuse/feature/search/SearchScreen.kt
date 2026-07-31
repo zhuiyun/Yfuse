@@ -204,6 +204,7 @@ private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) 
                                                 accessToken = component.serverAccessToken(
                                                     group.serverId,
                                                 ),
+                                                serverId = group.serverId,
                                                 item = item,
                                                 onClick = {
                                                     component.onOpenItem(group.serverId, item.id)
@@ -301,6 +302,7 @@ private fun SearchField(
 private fun ResultRow(
     baseUrl: String,
     accessToken: String,
+    serverId: String,
     item: MediaItem,
     onClick: () -> Unit,
 ) {
@@ -315,7 +317,11 @@ private fun ResultRow(
     ) {
         Poster(
             url = EmbyImages.poster(baseUrl, item, maxHeight = 360, accessToken = accessToken),
-            sharedKey = "media-poster-${item.id}",
+            // Results are grouped per server, and the same server added under two
+            // accounts is two groups holding the same item ids. A shared-element key
+            // repeated within one screen leaves one of its copies undrawn, so the group
+            // it belongs to is part of the key.
+            sharedKey = "media-poster-$serverId-${item.id}",
             modifier = Modifier.width(60.dp).height(90.dp),
         )
         Column(Modifier.weight(1f).align(Alignment.CenterVertically)) {

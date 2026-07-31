@@ -774,7 +774,10 @@ private fun PlaybackHistory(
                     title = item.title,
                     year = item.year?.toString(),
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
-                    sharedKey = "media-poster-${item.id}",
+                    // Scoped to this rail: a film that was just watched is also a film
+                    // that was just added, so the same id is on screen twice — see
+                    // [CategorySection] for what that costs.
+                    sharedKey = "media-poster-resume-${item.id}",
                     onClick = { onItemClick(item) },
                     modifier = Modifier.width(190.dp),
                     posterModifier = Modifier.fillMaxWidth().height(114.dp),
@@ -859,7 +862,15 @@ private fun CategorySection(
                     title = item.title,
                     year = item.year?.toString(),
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
-                    sharedKey = "media-poster-${item.id}",
+                    // A shared-element key has to be unique within a screen. Keyed on the
+                    // item alone, a film sitting in both 播放记录 and its category rail —
+                    // or in two libraries at once — registered the same key twice, and
+                    // only one of the two copies was ever drawn: the other went blank
+                    // until a route transition released the key, which is what made the
+                    // poster flash into place for one frame on the way out. The library
+                    // id scopes the key to this rail; 首页 hit the same thing and answered
+                    // it by dropping the key entirely (see HomeScreen's shelves).
+                    sharedKey = "media-poster-${row.libraryId}-${item.id}",
                     onClick = { onItemClick(item) },
                     modifier = Modifier.width(PosterWidth),
                 )
