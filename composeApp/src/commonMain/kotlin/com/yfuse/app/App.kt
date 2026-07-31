@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
@@ -165,8 +167,17 @@ fun App(root: RootComponent) {
             root.enterWatchRoom()
         }
 
+        // What the bottom stack says about the room — the mini player's second line while a
+        // player is up, and the whole of [WatchRoomBar] when one isn't.
+        //
+        // A warning outranks the participant count: entering can fail (a room that has not
+        // started playing, one playing something no attached server holds) and without this
+        // the tap that fails has nothing to show for it. It is a long string in a one-line
+        // bar and will ellipsize; the first few characters are the part that matters, and
+        // 「我的」→ 一起看 has it in full.
         val watchRoomNote = when {
             !watchState.connected -> null
+            watchState.syncWarning != null -> watchState.syncWarning
             watchState.reconnecting -> "一起看 · 重连中"
             watchState.isHost -> "一起看 · 房主 · ${watchState.participantCount} 人"
             else -> "一起看 · ${watchState.participantCount} 人"
@@ -219,6 +230,15 @@ fun App(root: RootComponent) {
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding(),
                     )
+                    // One slot above the tab bar, and the two things that can occupy it
+                    // never coexist: while a player is alive the mini player carries the
+                    // room note itself, and the room bar is for exactly the case where it
+                    // isn't — the player closed, the room still up.
+                    val bottomStackSlot = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(horizontal = Dimens.tabBarInset)
+                        .padding(bottom = Dimens.tabBarHeight + 22.dp)
                     if (miniPlayback.active) {
                         MiniPlayer(
                             title = miniPlayback.title,
@@ -232,11 +252,15 @@ fun App(root: RootComponent) {
                             onOpen = ActivePlayback::open,
                             onToggle = ActivePlayback::toggle,
                             onClose = ActivePlayback::close,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                                .padding(horizontal = Dimens.tabBarInset)
-                                .padding(bottom = Dimens.tabBarHeight + 22.dp),
+                            modifier = bottomStackSlot,
+                        )
+                    } else if (watchRoomNote != null) {
+                        WatchRoomBar(
+                            note = watchRoomNote,
+                            attention = watchState.reconnecting ||
+                                watchState.syncWarning != null,
+                            onEnter = root::enterWatchRoom,
+                            modifier = bottomStackSlot,
                         )
                     }
                 }
@@ -347,6 +371,70 @@ private fun MiniPlayer(
                 .size(32.dp)
                 .clickable(onClick = onClose)
                 .padding(8.dp),
+        )
+    }
+}
+
+/**
+ * 一起看 — a live room with no player in front of it.
+ *
+ * A room outlives playback, and until this bar the only thing that said so was a line on
+ * the mini player, which `PlayerActivity.onDestroy` takes away with it: backing out of a
+ * film left the user in a room with nothing on screen to show for it. This is the room's
+ * own place in the bottom stack, in the mini player's slot and its material — one tap back
+ * into whatever the room is watching.
+ *
+ * Deliberately not dismissible. It is not a notification about something that happened; it
+ * is the current state, and the way to be rid of it is 「我的」→ 一起看 → 退出房间, which is
+ * also the only thing that actually ends the room's hold on this device.
+ */
+@Composable
+private fun WatchRoomBar(
+    note: String,
+    /**
+     * In the room, but not following it this instant — reconnecting, or holding a warning.
+     * The dot is the only part of the bar that can say so at a glance, since [note] is
+     * carrying the reason.
+     */
+    attention: Boolean,
+    onEnter: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .shadow(Shadows.tabBar, GlassShapes.card)
+            .overlayGlass(
+                GlassShapes.card,
+                MiniPlayerTokens.fill,
+                MiniPlayerTokens.border,
+            )
+            .clickable(onClick = onEnter)
+            .padding(start = 14.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Box(
+            Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(if (attention) Brand.Offline else Brand.Online),
+        )
+        Text(
+            note,
+            style = mr(11f, 600),
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text("进入", style = mr(11f, 700), color = Brand.Primary, maxLines = 1)
+        Icon(
+            AppIcons.ChevronRight,
+            contentDescription = null,
+            tint = Brand.Primary,
+            modifier = Modifier.size(11.dp),
         )
     }
 }
