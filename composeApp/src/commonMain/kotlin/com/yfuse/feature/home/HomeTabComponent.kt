@@ -11,8 +11,10 @@ import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.feature.calendar.CalendarComponent
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.serialization.Serializable
@@ -28,6 +30,7 @@ class HomeTabComponent(
     private val tmdb: TmdbRepository,
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
+    private val calendarRepository: AiringCalendarRepository,
     // The header's search entry and avatar switch tabs, which only the root can do.
     private val onOpenSearch: () -> Unit,
     private val onOpenLibrary: () -> Unit,
@@ -57,6 +60,7 @@ class HomeTabComponent(
             val mediaSourceId: String? = null,
         ) : Config
         @Serializable data class Info(val item: TmdbItem, val embyItemId: String?) : Config
+        @Serializable data object Calendar : Config
     }
 
     sealed interface Child {
@@ -64,6 +68,7 @@ class HomeTabComponent(
         class Detail(val component: DetailComponent) : Child
         class Player(val component: PlayerComponent) : Child
         class Info(val component: TmdbInfoComponent) : Child
+        class Calendar(val component: CalendarComponent) : Child
     }
 
     fun navigateBack() {
@@ -87,6 +92,7 @@ class HomeTabComponent(
                 onOpenSearch = onOpenSearch,
                 onOpenLibrary = onOpenLibrary,
                 onOpenProfile = onOpenProfile,
+                onOpenCalendar = { navigation.push(Config.Calendar) },
             ),
         )
         is Config.Detail -> Child.Detail(
@@ -117,6 +123,17 @@ class HomeTabComponent(
                 serverId = config.serverId,
                 mediaSourceId = config.mediaSourceId,
                 onBack = { navigation.pop() },
+            ),
+        )
+        Config.Calendar -> Child.Calendar(
+            CalendarComponent(
+                componentContext = context,
+                storeFactory = storeFactory,
+                repository = calendarRepository,
+                onBack = { navigation.pop() },
+                onOpenItem = { serverId, itemId ->
+                    navigation.push(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
+                },
             ),
         )
         is Config.Info -> Child.Info(

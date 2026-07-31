@@ -104,6 +104,7 @@ fun HomeScreen(component: HomeComponent) {
                         item = state.content.featured.firstOrNull(),
                         onOpenProfile = component.onOpenProfile,
                         onOpenSearch = component.onOpenSearch,
+                        onOpenCalendar = component.onOpenCalendar,
                         onPlay = {
                             state.content.featured.firstOrNull()
                                 ?.let { component.store.accept(HomeIntent.Open(it)) }
@@ -175,6 +176,7 @@ private fun Hero(
     item: TmdbItem?,
     onOpenProfile: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenCalendar: () -> Unit,
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
 ) {
@@ -203,6 +205,7 @@ private fun Hero(
         HeroHeader(
             onOpenProfile = onOpenProfile,
             onOpenSearch = onOpenSearch,
+            onOpenCalendar = onOpenCalendar,
             modifier = Modifier.align(Alignment.TopStart),
         )
 
@@ -227,6 +230,7 @@ private fun Hero(
 private fun HeroHeader(
     onOpenProfile: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenCalendar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -251,6 +255,28 @@ private fun HeroHeader(
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Box(
+            Modifier.size(44.dp).clickable(onClick = onOpenCalendar),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .glass(
+                        shape = CircleShape,
+                        fill = Color.White.copy(alpha = 0.14f),
+                        border = Color.White.copy(alpha = 0.34f),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AppIcons.Bookmark,
+                    "追剧日历",
+                    tint = Color.White,
+                    modifier = Modifier.size(17.dp),
                 )
             }
         }

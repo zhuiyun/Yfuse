@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.core.designsystem.SharedElementTransitionContainer
+import com.yfuse.feature.calendar.CalendarScreen
 import com.yfuse.feature.detail.DetailScreen
 import com.yfuse.feature.player.PlayerScreen
 
@@ -19,6 +20,7 @@ fun HomeTabScreen(component: HomeTabComponent) {
             is HomeTabComponent.Child.Detail -> DetailScreen(instance.component)
             is HomeTabComponent.Child.Player -> PlayerScreen(instance.component)
             is HomeTabComponent.Child.Info -> TmdbInfoScreen(instance.component)
+            is HomeTabComponent.Child.Calendar -> CalendarScreen(instance.component)
         }
     }
 }
@@ -29,4 +31,5 @@ private fun routeKey(child: HomeTabComponent.Child): String = when (child) {
     is HomeTabComponent.Child.Detail -> "detail"
     is HomeTabComponent.Child.Player -> "player"
     is HomeTabComponent.Child.Info -> "info"
+    is HomeTabComponent.Child.Calendar -> "calendar"
 }

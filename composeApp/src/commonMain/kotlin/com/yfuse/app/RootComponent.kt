@@ -13,6 +13,7 @@ import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.util.componentScope
+import org.koin.core.context.GlobalContext
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.profile.ProfileTabComponent
@@ -58,6 +59,7 @@ class RootComponent(
         tmdb = tmdb,
         repo = repo,
         registry = registry,
+        calendarRepository = GlobalContext.get().get(),
         onOpenSearch = ::openSearch,
         onOpenLibrary = { selectTab(Tab.Browse) },
         onOpenProfile = { selectTab(Tab.Profile) },

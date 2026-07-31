@@ -23,6 +23,7 @@ class HomeComponent(
     val onOpenSearch: () -> Unit,
     val onOpenLibrary: () -> Unit,
     val onOpenProfile: () -> Unit,
+    val onOpenCalendar: () -> Unit,
 ) : ComponentContext by componentContext {
 
     val store = HomeStoreFactory(storeFactory, tmdb, emby, registry).create()
