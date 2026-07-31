@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import android.content.Context
 import android.util.Log
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -111,6 +112,17 @@ class ExoVideoEngine(
 
         ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, httpFactory)))
+            // Declare what this output is, so the system routes and mixes it as a film
+            // rather than as the unspecified default. Focus itself is claimed once for the
+            // whole player (see PlayerActivity) because the other two engines can't ask
+            // ExoPlayer to do it for them — hence `handleAudioFocus = false` here.
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                /* handleAudioFocus = */ false,
+            )
             .build()
             .apply {
                 // Preserve the stream's native display aspect ratio. PlayerView uses

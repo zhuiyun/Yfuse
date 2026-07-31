@@ -250,12 +250,16 @@ fun PlayerControls(
                     var totalY = 0f
                     var startX = 0f
                     var seekTarget = latestPosition
+                    var volumeAtDragStart = latestVolume
+                    var brightnessAtDragStart = latestBrightness
                     detectDragGestures(
                         onDragStart = { offset ->
                             startX = offset.x
                             totalX = 0f
                             totalY = 0f
                             seekTarget = latestPosition
+                            volumeAtDragStart = latestVolume
+                            brightnessAtDragStart = latestBrightness
                         },
                         onDragEnd = {
                             if (abs(totalX) > abs(totalY) && latestDuration > 0 && !latestWatchLocked) {
@@ -283,11 +287,11 @@ fun PlayerControls(
                         } else {
                             val delta = -totalY / size.height
                             if (startX < size.width / 2f) {
-                                val target = (latestBrightness + delta).coerceIn(0.02f, 1f)
+                                val target = (brightnessAtDragStart + delta).coerceIn(0.02f, 1f)
                                 latestOnBrightness(target)
                                 gestureHud = "亮度 ${(target * 100).toInt()}%"
                             } else {
-                                val target = (latestVolume + delta).coerceIn(0f, 1f)
+                                val target = (volumeAtDragStart + delta).coerceIn(0f, 1f)
                                 latestOnVolume(target)
                                 gestureHud = "音量 ${(target * 100).toInt()}%"
                             }
@@ -902,7 +906,6 @@ private fun SeekBar(
  */
 @Composable
 private fun VolumeChip(volume: Float, onVolume: (Float) -> Unit) {
-    var width by remember { mutableStateOf(1f) }
     Row(
         Modifier
             .height(ChipHeight)
@@ -919,29 +922,42 @@ private fun VolumeChip(volume: Float, onVolume: (Float) -> Unit) {
         Box(
             Modifier
                 .width(70.dp)
-                .padding(vertical = 8.dp)
-                .height(3.dp)
+                .height(ChipHeight)
                 .pointerInput(Unit) {
-                    width = size.width.toFloat().coerceAtLeast(1f)
-                    detectTapGestures { offset -> onVolume((offset.x / width).coerceIn(0f, 1f)) }
-                }
-                .pointerInput(Unit) {
-                    width = size.width.toFloat().coerceAtLeast(1f)
-                    detectHorizontalDragGestures { change, _ ->
-                        change.consume()
-                        onVolume((change.position.x / width).coerceIn(0f, 1f))
+                    detectTapGestures { offset ->
+                        onVolume((offset.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f))
                     }
                 }
-                .clip(RoundedCornerShape(2.dp))
-                .background(Color.White.copy(alpha = 0.28f)),
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            onVolume((offset.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f))
+                        },
+                        onHorizontalDrag = { change, _ ->
+                            change.consume()
+                            onVolume(
+                                (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f),
+                            )
+                        },
+                    )
+                },
         ) {
             Box(
                 Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(volume.coerceIn(0f, 1f))
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .align(Alignment.Center)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color.White),
-            )
+                    .background(Color.White.copy(alpha = 0.28f)),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(volume.coerceIn(0f, 1f))
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.White),
+                )
+            }
         }
     }
 }

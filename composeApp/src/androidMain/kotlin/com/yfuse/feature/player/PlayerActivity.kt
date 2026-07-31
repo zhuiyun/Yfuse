@@ -13,14 +13,20 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.database.ContentObserver
 import android.graphics.Rect
 import android.graphics.drawable.Icon
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState as PlatformPlaybackState
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.util.Rational
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -149,6 +155,10 @@ class PlayerActivity : ComponentActivity() {
     private var activeEngine: VideoEngine? = null
     private var playbackGate: WatchGatedPlayback? = null
     private var activeState = PlaybackState()
+    private lateinit var audioManager: AudioManager
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
+    private var resumeAfterTransientFocusLoss = false
     private var sessionTitles: List<String> = emptyList()
     private val pictureInPicture = MutableStateFlow(false)
     private lateinit var mediaSession: MediaSession
@@ -157,11 +167,47 @@ class PlayerActivity : ComponentActivity() {
     private var videoBounds: Rect? = null
     private var pipWasVisible = false
     private var stopRequested = false
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                hasAudioFocus = true
+                if (resumeAfterTransientFocusLoss) {
+                    resumeAfterTransientFocusLoss = false
+                    playbackGate?.play()
+                }
+                AppLog.info(
+                    category = "player.audio",
+                    event = "focus_gained",
+                    message = "Playback regained audio focus",
+                )
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                resumeAfterTransientFocusLoss = activeState.playing
+                hasAudioFocus = false
+                playbackGate?.pause()
+                AppLog.info(
+                    category = "player.audio",
+                    event = "focus_lost_transient",
+                    message = "Playback paused for a transient audio focus loss",
+                )
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                resumeAfterTransientFocusLoss = false
+                hasAudioFocus = false
+                playbackGate?.pause()
+                AppLog.info(
+                    category = "player.audio",
+                    event = "focus_lost",
+                    message = "Playback paused after losing audio focus",
+                )
+            }
+        }
+    }
     private val mediaActionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 ACTION_PREVIOUS -> playbackGate?.selectPrevious()
-                ACTION_PLAY_PAUSE -> playbackGate?.togglePlayPause()
+                ACTION_PLAY_PAUSE -> togglePlaybackWithFocus()
                 ACTION_NEXT -> playbackGate?.selectNext()
             }
         }
@@ -169,6 +215,12 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Without this the hardware keys adjust whichever stream the system last considered
+        // active — the ring volume, most often — so a user turning the volume up on a film
+        // that has gone quiet changes nothing they can hear.
+        volumeControlStream = AudioManager.STREAM_MUSIC
+        audioManager = getSystemService(AudioManager::class.java)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -244,7 +296,7 @@ class PlayerActivity : ComponentActivity() {
         val customUserAgent = koin.get<UserAgentPreferences>().userAgent.value
         val watchTogether = koin.get<WatchTogetherClient>()
         val watchTogetherPreferences = koin.get<WatchTogetherPreferences>()
-        playbackGate = WatchGatedPlayback(
+        val playbackController = WatchGatedPlayback(
             watchTogether = watchTogether,
             items = { items },
             engine = { activeEngine },
@@ -254,8 +306,9 @@ class PlayerActivity : ComponentActivity() {
                 }
             },
         )
+        playbackGate = playbackController
         ActivePlayback.bind(
-            toggle = { playbackGate?.togglePlayPause() },
+            toggle = ::togglePlaybackWithFocus,
             open = {
                 startActivity(
                     Intent(this, PlayerActivity::class.java)
@@ -264,6 +317,7 @@ class PlayerActivity : ComponentActivity() {
             },
             close = ::stopPlaybackAndFinish,
         )
+        ensureAudioFocus()
         val accent = preferences?.accent?.value ?: AccentColor.Blue
         val playbackSink = runCatching {
             val registry = koin.get<ServerRegistry>()
@@ -302,7 +356,7 @@ class PlayerActivity : ComponentActivity() {
                     customUserAgent = customUserAgent,
                     watchTogether = watchTogether,
                     watchTogetherPreferences = watchTogetherPreferences,
-                    playbackGate = requireNotNull(playbackGate),
+                    playbackGate = playbackController,
                     onEngineAttached = { engine -> activeEngine = engine },
                     onEngineDetached = { engine ->
                         if (activeEngine === engine) activeEngine = null
@@ -378,6 +432,7 @@ class PlayerActivity : ComponentActivity() {
     override fun onDestroy() {
         ActivePlayback.clear()
         stopService(Intent(this, PlaybackKeepAliveService::class.java))
+        abandonAudioFocus()
         notificationManager.cancel(NOTIFICATION_ID)
         if (mediaReceiverRegistered) {
             runCatching { unregisterReceiver(mediaActionReceiver) }
@@ -386,6 +441,7 @@ class PlayerActivity : ComponentActivity() {
         mediaSession.isActive = false
         mediaSession.release()
         super.onDestroy()
+        playbackGate = null
     }
 
     private fun returnToMain() {
@@ -404,7 +460,7 @@ class PlayerActivity : ComponentActivity() {
         stopRequested = true
         activeEngine?.release()
         activeEngine = null
-        playbackGate = null
+        abandonAudioFocus()
         ActivePlayback.clear()
         stopService(Intent(this, PlaybackKeepAliveService::class.java))
         finishAndRemoveTask()
@@ -415,7 +471,7 @@ class PlayerActivity : ComponentActivity() {
             setCallback(
                 object : MediaSession.Callback() {
                     override fun onPlay() {
-                        playbackGate?.play()
+                        if (ensureAudioFocus()) playbackGate?.play()
                     }
 
                     override fun onPause() {
@@ -494,6 +550,11 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun updateMediaSession(state: PlaybackState) {
+        if (state.playing && !ensureAudioFocus()) {
+            playbackGate?.pause()
+        } else if (state.ended || state.error != null) {
+            abandonAudioFocus()
+        }
         val actions = PlatformPlaybackState.ACTION_PLAY or
             PlatformPlaybackState.ACTION_PAUSE or
             PlatformPlaybackState.ACTION_PLAY_PAUSE or
@@ -519,6 +580,72 @@ class PlayerActivity : ComponentActivity() {
                 .build(),
         )
         updatePlaybackNotification(state)
+    }
+
+    private fun togglePlaybackWithFocus() {
+        if (activeState.playing) {
+            playbackGate?.pause()
+        } else if (ensureAudioFocus()) {
+            playbackGate?.play()
+        }
+    }
+
+    private fun ensureAudioFocus(): Boolean {
+        if (hasAudioFocus) return true
+        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = audioFocusRequest ?: AudioFocusRequest.Builder(
+                AudioManager.AUDIOFOCUS_GAIN,
+            )
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                        .build(),
+                )
+                .setOnAudioFocusChangeListener(
+                    audioFocusChangeListener,
+                    Handler(Looper.getMainLooper()),
+                )
+                .build()
+                .also { audioFocusRequest = it }
+            audioManager.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                audioFocusChangeListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN,
+            )
+        }
+        hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (hasAudioFocus) {
+            AppLog.info(
+                category = "player.audio",
+                event = "focus_granted",
+                message = "Playback audio focus was granted",
+            )
+        } else {
+            AppLog.warning(
+                category = "player.audio",
+                event = "focus_denied",
+                message = "Playback audio focus request was denied",
+                attributes = mapOf("result" to result.toString()),
+            )
+        }
+        return hasAudioFocus
+    }
+
+    private fun abandonAudioFocus() {
+        if (!hasAudioFocus && audioFocusRequest == null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let(audioManager::abandonAudioFocusRequest)
+            audioFocusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(audioFocusChangeListener)
+        }
+        hasAudioFocus = false
+        resumeAfterTransientFocusLoss = false
     }
 
     private fun updatePlaybackNotification(state: PlaybackState) {
@@ -1086,18 +1213,74 @@ private fun rememberSystemVolume(): Pair<Float, (Float) -> Unit> {
     val context = LocalContext.current
     val audio = remember(context) { context.getSystemService(AudioManager::class.java) }
     val max = remember(audio) { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
-    var level by remember {
-        mutableFloatStateOf(audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max)
+    val min = remember(audio) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            audio.getStreamMinVolume(AudioManager.STREAM_MUSIC)
+        } else {
+            0
+        }
+    }
+    var level by remember(audio, min, max) {
+        mutableFloatStateOf(
+            streamVolumeFraction(
+                current = audio.getStreamVolume(AudioManager.STREAM_MUSIC),
+                min = min,
+                max = max,
+            ),
+        )
+    }
+    DisposableEffect(context, audio, min, max) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                level = streamVolumeFraction(
+                    current = audio.getStreamVolume(AudioManager.STREAM_MUSIC),
+                    min = min,
+                    max = max,
+                )
+            }
+        }
+        context.contentResolver.registerContentObserver(
+            Settings.System.CONTENT_URI,
+            true,
+            observer,
+        )
+        onDispose {
+            runCatching { context.contentResolver.unregisterContentObserver(observer) }
+        }
     }
     return level to { target: Float ->
-        val clamped = target.coerceIn(0f, 1f)
-        audio.setStreamVolume(
-            AudioManager.STREAM_MUSIC,
-            (clamped * max).toInt().coerceIn(0, max),
-            0,
+        val requested = streamVolumeForFraction(target, min, max)
+        runCatching {
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, requested, 0)
+        }.onFailure {
+            AppLog.warning(
+                category = "player.audio",
+                event = "volume_change_failed",
+                message = "System media volume could not be changed",
+                throwable = it,
+                attributes = mapOf("requestedLevel" to requested.toString()),
+            )
+        }
+        // Read the value back. OEM safe-volume policy can clamp the request, and
+        // showing the requested value would make the control look stuck or dishonest.
+        level = streamVolumeFraction(
+            current = audio.getStreamVolume(AudioManager.STREAM_MUSIC),
+            min = min,
+            max = max,
         )
-        level = clamped
     }
+}
+
+internal fun streamVolumeFraction(current: Int, min: Int, max: Int): Float {
+    if (max <= min) return 0f
+    return (current.coerceIn(min, max) - min).toFloat() / (max - min)
+}
+
+internal fun streamVolumeForFraction(fraction: Float, min: Int, max: Int): Int {
+    if (max <= min) return min
+    return (min + fraction.coerceIn(0f, 1f) * (max - min))
+        .roundToInt()
+        .coerceIn(min, max)
 }
 
 @OptIn(UnstableApi::class)
