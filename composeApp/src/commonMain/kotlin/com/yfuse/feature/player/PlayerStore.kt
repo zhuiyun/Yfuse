@@ -10,6 +10,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.model.PlaybackSegment
+import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import kotlinx.coroutines.launch
 
@@ -99,6 +100,7 @@ class PlayerStoreFactory(
                     episodeNumber: Int? = null,
                     seriesId: String? = null,
                     seriesName: String? = null,
+                    seriesProviderIds: Map<String, String>? = null,
                 ) = PlayerMediaItem(
                     id = id,
                     url = EmbyStream.directPlay(server.baseUrl, id, server.accessToken),
@@ -115,7 +117,17 @@ class PlayerStoreFactory(
                     episodeNumber = episodeNumber,
                     seriesId = seriesId,
                     seriesName = seriesName,
-                    watchKey = providerIds.watchKey(id),
+                    watchKey = if (seriesProviderIds == null) {
+                        providerIds.watchKey(id)
+                    } else {
+                        episodeWatchKey(
+                            ownProviderIds = providerIds,
+                            seriesProviderIds = seriesProviderIds,
+                            seasonNumber = seasonNumber,
+                            episodeNumber = episodeNumber,
+                            fallbackId = id,
+                        )
+                    },
                 )
 
                 val detailResult = repo.itemDetail(server, itemId)
@@ -132,6 +144,14 @@ class PlayerStoreFactory(
                 val seriesId = detail?.seriesId
 
                 if (detail?.type == "Episode" && seriesId != null) {
+                    // The show's provider ids, not this episode's: they are what makes an
+                    // episode recognisable on someone else's server (see episodeWatchKey).
+                    // One extra request per queue, and a miss only costs the cross-server
+                    // half of watch-together.
+                    val seriesProviderIds = repo.itemDetail(server, seriesId)
+                        .getOrNull()
+                        ?.providerIds
+                        .orEmpty()
                     val episodesResult = repo.episodes(server, seriesId, null)
                     episodesResult.onFailure {
                         AppLog.warning(
@@ -154,6 +174,7 @@ class PlayerStoreFactory(
                                 ep.indexNumber,
                                 seriesId,
                                 detail.seriesName,
+                                seriesProviderIds,
                             )
                         }
                         val index = items.indexOfFirst { it.id == itemId }.coerceAtLeast(0)

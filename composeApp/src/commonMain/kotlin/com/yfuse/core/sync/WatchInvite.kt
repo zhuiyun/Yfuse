@@ -187,11 +187,6 @@ private const val HEX_DIGITS = "0123456789ABCDEF"
  * Prefers an external provider id so two people whose Emby servers hold different files can
  * still be recognised as watching the same thing; falls back to `emby:<id>`, which only
  * matches on the server it came from.
- *
- * Known limitation: for an *episode*, provider ids are frequently absent, so the key
- * degrades to the server-specific fallback. Cross-server watch-together therefore works
- * reliably for films and same-server-only for most series; the player surfaces an explicit
- * sync warning when that fallback cannot be matched instead of silently doing nothing.
  */
 fun Map<String, String>.watchKey(fallbackId: String): String {
     val preferred = listOf("Tmdb", "Tvdb", "Imdb")
@@ -202,4 +197,49 @@ fun Map<String, String>.watchKey(fallbackId: String): String {
             ?.let { return "${provider.lowercase()}:$it" }
     }
     return "emby:$fallbackId"
+}
+
+/** Separates a series key from the episode coordinate within it: `tmdb:1399/s2e5`. */
+const val EPISODE_KEY_SEPARATOR = '/'
+
+/**
+ * Cross-server identity for one *episode*.
+ *
+ * Episodes rarely carry provider ids of their own, so [watchKey] degraded almost every one
+ * of them to `emby:<id>` — a key that by construction only matches on the server it came
+ * from. Two people watching the same show from their own servers therefore never matched,
+ * and the room sat there reporting 房主控制播放 while nothing ever synced.
+ *
+ * The show, on the other hand, is nearly always identified, and "season 2, episode 5 of
+ * this show" is the same episode on anyone's server whatever id their library gave it. The
+ * episode's own provider id still wins when present, being the more precise of the two.
+ */
+fun episodeWatchKey(
+    ownProviderIds: Map<String, String>,
+    seriesProviderIds: Map<String, String>,
+    seasonNumber: Int?,
+    episodeNumber: Int?,
+    fallbackId: String,
+): String {
+    val own = ownProviderIds.watchKey(fallbackId)
+    if (!own.startsWith("emby:")) return own
+    if (episodeNumber == null) return own
+    val series = seriesProviderIds.watchKey(fallbackId)
+    if (series.startsWith("emby:")) return own
+    // Specials sit in season 0 on every server that has them, so a missing season number
+    // is written out rather than left off — an absent coordinate would match anything.
+    return "$series$EPISODE_KEY_SEPARATOR" + "s${seasonNumber ?: 0}e$episodeNumber"
+}
+
+/** The `<provider>:<value>` and `season to episode` halves of an [episodeWatchKey]. */
+data class EpisodeCoordinate(val seriesKey: String, val seasonNumber: Int, val episodeNumber: Int)
+
+/** Reads back what [episodeWatchKey] wrote, or null for a plain title key. */
+fun parseEpisodeWatchKey(mediaKey: String): EpisodeCoordinate? {
+    val seriesKey = mediaKey.substringBefore(EPISODE_KEY_SEPARATOR, "")
+    val coordinate = mediaKey.substringAfter(EPISODE_KEY_SEPARATOR, "")
+    if (seriesKey.isEmpty() || !coordinate.startsWith("s")) return null
+    val season = coordinate.drop(1).substringBefore('e').toIntOrNull() ?: return null
+    val episode = coordinate.substringAfter('e', "").toIntOrNull() ?: return null
+    return EpisodeCoordinate(seriesKey, season, episode)
 }

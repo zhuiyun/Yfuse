@@ -80,4 +80,57 @@ class WatchInviteTest {
         assertTrue(text.contains("yfuse://watch/XYZ567"))
         assertTrue(text.contains("沙丘"))
     }
+
+    @Test
+    fun an_episode_without_its_own_ids_is_keyed_by_the_show_and_its_place_in_it() {
+        // The case that made cross-server watch-together fail for every series: Emby
+        // libraries almost never carry provider ids on individual episodes.
+        val key = episodeWatchKey(
+            ownProviderIds = emptyMap(),
+            seriesProviderIds = mapOf("Tmdb" to "1399"),
+            seasonNumber = 2,
+            episodeNumber = 5,
+            fallbackId = "local-episode-id",
+        )
+        assertEquals("tmdb:1399/s2e5", key)
+        assertEquals(EpisodeCoordinate("tmdb:1399", 2, 5), parseEpisodeWatchKey(key))
+    }
+
+    @Test
+    fun an_episode_with_its_own_provider_id_keeps_it() {
+        // More precise than a coordinate, and it survives a server that numbers differently.
+        assertEquals(
+            "tmdb:99",
+            episodeWatchKey(
+                ownProviderIds = mapOf("Tmdb" to "99"),
+                seriesProviderIds = mapOf("Tmdb" to "1399"),
+                seasonNumber = 2,
+                episodeNumber = 5,
+                fallbackId = "local",
+            ),
+        )
+    }
+
+    @Test
+    fun an_unidentified_show_leaves_the_key_server_local() {
+        // Nothing to anchor a coordinate to, so claiming one would match the wrong episode
+        // on someone else's server rather than honestly missing.
+        assertEquals(
+            "emby:local",
+            episodeWatchKey(
+                ownProviderIds = emptyMap(),
+                seriesProviderIds = emptyMap(),
+                seasonNumber = 1,
+                episodeNumber = 3,
+                fallbackId = "local",
+            ),
+        )
+    }
+
+    @Test
+    fun a_plain_title_key_is_not_read_as_an_episode() {
+        assertNull(parseEpisodeWatchKey("tmdb:603"))
+        assertNull(parseEpisodeWatchKey("emby:abc123"))
+        assertNull(parseEpisodeWatchKey("tmdb:1399/nonsense"))
+    }
 }

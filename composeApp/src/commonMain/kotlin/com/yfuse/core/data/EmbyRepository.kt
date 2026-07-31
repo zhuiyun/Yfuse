@@ -31,6 +31,7 @@ import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.normalizeBaseUrl
 import com.yfuse.core.sync.SyncedUserItem
+import com.yfuse.core.sync.parseEpisodeWatchKey
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
@@ -431,6 +432,24 @@ class EmbyRepository(private val client: HttpClient) {
         server: SavedServer,
         mediaKey: String,
     ): Result<MediaItem?> = call("find_item_by_media_key") {
+        // `tmdb:1399/s2e5` — the show is identified by provider id, the episode by its
+        // place in it. Resolved in two steps because that's how Emby indexes it: nothing
+        // queries "episode 5 of the show with this Tmdb id" directly.
+        parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
+            val series = findByMediaKey(server, coordinate.seriesKey).getOrNull()
+                ?: return@call null
+            val dto: ItemsResponseDto = client.get(
+                "${server.baseUrl}/Shows/${series.id}/Episodes",
+            ) {
+                header("X-Emby-Token", server.accessToken)
+                parameter("UserId", server.userId)
+                parameter("Season", coordinate.seasonNumber)
+                parameter("Fields", "ProductionYear,Overview,ProviderIds")
+            }.body()
+            return@call dto.Items
+                .firstOrNull { it.IndexNumber == coordinate.episodeNumber }
+                ?.toMediaItem()
+        }
         val provider = mediaKey.substringBefore(':', "")
         val value = mediaKey.substringAfter(':', "")
         if (provider.isBlank() || value.isBlank()) {

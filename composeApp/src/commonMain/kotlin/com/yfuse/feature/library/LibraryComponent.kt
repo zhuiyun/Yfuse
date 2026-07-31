@@ -40,7 +40,13 @@ class LibraryComponent(
     sealed interface Config {
         @Serializable data object Home : Config
         @Serializable data class Grid(val libraryId: String, val title: String) : Config
-        @Serializable data class Detail(val serverId: String?, val itemId: String) : Config
+        @Serializable
+        data class Detail(
+            val serverId: String?,
+            val itemId: String,
+            /** Skips the detail page's play button — see [DetailComponent]'s `autoPlay`. */
+            val autoPlay: Boolean = false,
+        ) : Config
         @Serializable
         data class Player(
             val serverId: String?,
@@ -65,8 +71,8 @@ class LibraryComponent(
      * invite has been resolved to an item on one of the user's own servers, so accepting the
      * invite lands on the film rather than on whatever tab happened to be open.
      */
-    fun openDetail(serverId: String?, itemId: String) {
-        navigation.push(Config.Detail(serverId, itemId))
+    fun openDetail(serverId: String?, itemId: String, autoPlay: Boolean = false) {
+        navigation.push(Config.Detail(serverId, itemId, autoPlay))
     }
 
     private fun child(config: Config, context: ComponentContext): Child = when (config) {
@@ -104,6 +110,7 @@ class LibraryComponent(
                 registry = registry,
                 itemId = config.itemId,
                 serverId = config.serverId,
+                autoPlay = config.autoPlay,
                 onBack = { navigation.pop() },
                 onOpenRelated = { serverId, itemId ->
                     navigation.push(Config.Detail(serverId, itemId))

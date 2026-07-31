@@ -4,6 +4,7 @@ import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
+import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.network.EmbyImages
@@ -22,6 +23,14 @@ class DetailComponent(
     registry: ServerRegistry,
     itemId: String,
     serverId: String? = null,
+    /**
+     * Starts playback as soon as the item has loaded, without waiting for a tap.
+     *
+     * Set when the user has already said what they want somewhere else — accepting a
+     * watch-together invite, or joining a room whose timeline named this title. Landing
+     * them on a detail page they then have to press 播放 on is a step they already took.
+     */
+    private val autoPlay: Boolean = false,
     val onBack: () -> Unit,
     val onOpenRelated: (serverId: String, itemId: String) -> Unit,
     private val onPlay: (serverId: String, itemId: String, startPositionTicks: Long) -> Unit,
@@ -57,6 +66,19 @@ class DetailComponent(
                 }
             }
             .launchIn(scope)
+        if (autoPlay) {
+            // Fired once, on the first state that has something to play. Play is a no-op
+            // before the item has loaded, and the page is only on screen for the moment it
+            // takes the request to come back.
+            var started = false
+            store.states
+                .onEach { state ->
+                    if (started || state.detail == null) return@onEach
+                    started = true
+                    store.accept(DetailIntent.Play)
+                }
+                .launchIn(scope)
+        }
         lifecycle.doOnDestroy(store::dispose)
     }
 }

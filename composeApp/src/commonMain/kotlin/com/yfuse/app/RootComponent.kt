@@ -114,7 +114,9 @@ class RootComponent(
     fun openWatchTarget(serverId: String?, itemId: String) {
         _pendingInvite.value = null
         selectTab(Tab.Browse)
-        browse.openDetail(serverId, itemId)
+        // Straight into the player: the user accepted an invite or joined a room, which is
+        // already the decision the detail page's 播放 button would be asking for again.
+        browse.openDetail(serverId, itemId, autoPlay = true)
     }
 
     /**
