@@ -29,6 +29,8 @@ class ProfileComponent(
     private val registry: ServerRegistry,
     repo: EmbyRepository,
     val themePreferences: ThemePreferences,
+    /** Re-opens the player on the current 一起看 room; see `RootComponent.enterWatchRoom`. */
+    val onEnterWatchRoom: () -> Unit,
 ) : ComponentContext by componentContext {
 
     val store = ProfileStoreFactory(storeFactory, registry).create()

@@ -160,13 +160,11 @@ fun App(root: RootComponent) {
             val mediaKey = watchState.mediaKey?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
             if (followed == roomCode to mediaKey) return@LaunchedEffect
             followed = roomCode to mediaKey
-            val target = inviteResolver.resolveTarget(mediaKey)
-            if (target == null) {
-                watchTogether.setSyncWarning("房间在播放你的媒体库里没有的内容，无法一起看")
-                return@LaunchedEffect
-            }
-            watchTogether.setSyncWarning(null)
-            root.openWatchTarget(target.server.id, target.item.id)
+            // Resolving and opening is the same work as entering a room by hand, and lives
+            // with it — this effect owns only the decision to do it unasked, which is what
+            // the guard above is. 「我的」→ 一起看 → 进入房间 is the way back once this has
+            // fired and the user has since left the player.
+            root.enterWatchRoom()
         }
 
         val watchRoomNote = when {

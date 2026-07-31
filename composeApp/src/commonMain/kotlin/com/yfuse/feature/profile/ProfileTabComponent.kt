@@ -22,6 +22,8 @@ class ProfileTabComponent(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     val themePreferences: ThemePreferences,
+    /** Re-opens the player on the current 一起看 room; see `RootComponent.enterWatchRoom`. */
+    private val onEnterWatchRoom: () -> Unit,
 ) : ComponentContext by componentContext {
 
     private val navigation = StackNavigation<Config>()
@@ -55,6 +57,7 @@ class ProfileTabComponent(
                 registry = registry,
                 repo = repo,
                 themePreferences = themePreferences,
+                onEnterWatchRoom = onEnterWatchRoom,
             ),
         )
     }

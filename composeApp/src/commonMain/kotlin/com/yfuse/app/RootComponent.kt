@@ -12,15 +12,18 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.componentScope
 import org.koin.core.context.GlobalContext
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.search.SearchComponent
+import com.yfuse.feature.watch.WatchInviteResolver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /**
  * App shell: four always-alive tabs — 首页 / 库 / 搜索 / 我的.
@@ -48,8 +51,12 @@ class RootComponent(
     )
     val activeTab: Value<Tab> = _activeTab
 
+    private val scope = componentScope(lifecycle)
+    private val watchTogether: WatchTogetherClient = GlobalContext.get().get()
+    private val inviteResolver: WatchInviteResolver = GlobalContext.get().get()
+
     init {
-        syncManager.start(componentScope(lifecycle))
+        syncManager.start(scope)
     }
 
     /** 首页: TMDB recommendations. */
@@ -87,6 +94,7 @@ class RootComponent(
         repo = repo,
         registry = registry,
         themePreferences = themePreferences,
+        onEnterWatchRoom = ::enterWatchRoom,
     )
 
     fun selectTab(tab: Tab) {
@@ -123,6 +131,43 @@ class RootComponent(
         // Straight into the player: the user accepted an invite or joined a room, which is
         // already the decision the detail page's 播放 button would be asking for again.
         browse.openDetail(serverId, itemId, autoPlay = true)
+    }
+
+    /**
+     * Opens the player on whatever the room is watching — the way back in after the viewing
+     * screen has been left.
+     *
+     * A room outlives the player: the client is a process singleton, so backing out of
+     * playback keeps the socket, the code and the participant count exactly where they
+     * were. Until now nothing could act on that. The mini player carried the only visible
+     * trace of a live room, and it is gone the moment playback is closed rather than
+     * backgrounded; the automatic follow that opens a joined room's title fires once per
+     * room-and-media and had already fired. So a guest who stepped out of the film was in a
+     * room with no way back to it short of leaving and re-joining by code.
+     *
+     * Failures are reported through [WatchTogetherClient.setSyncWarning] rather than
+     * returned, because the surfaces that call this — 「我的」's room dialog, the automatic
+     * follow — both already display that field.
+     */
+    fun enterWatchRoom() {
+        val state = watchTogether.state.value
+        if (state.roomCode == null) return
+        val mediaKey = state.mediaKey?.takeIf { it.isNotBlank() }
+        if (mediaKey == null) {
+            // A room that has never had a timeline: created, but the host has not started
+            // anything for this device to follow yet.
+            watchTogether.setSyncWarning("房间还没开始播放，等房主开始后再进入")
+            return
+        }
+        scope.launch {
+            val target = inviteResolver.resolveTarget(mediaKey)
+            if (target == null) {
+                watchTogether.setSyncWarning("房间在播放你的媒体库里没有的内容，无法一起看")
+                return@launch
+            }
+            watchTogether.setSyncWarning(null)
+            openWatchTarget(target.server.id, target.item.id)
+        }
     }
 
     /**

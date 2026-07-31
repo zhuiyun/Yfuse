@@ -302,9 +302,9 @@ fun ProfileScreen(component: ProfileComponent) {
                             // The findable home for joining by hand — the link is the primary
                             // path, this is what's left when a messenger won't linkify it.
                             SettingRow(
-                                "加入一起看",
+                                if (watchState.connected) "一起看" else "加入一起看",
                                 if (watchState.connected) {
-                                    "房间 ${watchState.roomCode.orEmpty()} ›"
+                                    "房间 ${watchState.roomCode.orEmpty()} · 进入 ›"
                                 } else {
                                     "输入房间码 ›"
                                 },
@@ -480,6 +480,10 @@ fun ProfileScreen(component: ProfileComponent) {
                     // on something this library doesn't have.
                     watchTogether.joinRoom(watchEndpoint, code, mediaKey = "")
                 },
+                // Same reason the dialog stays up for 加入: a successful entry navigates to
+                // another tab and takes this screen with it, and a failed one has a message
+                // to show that needs somewhere to appear.
+                onEnter = component.onEnterWatchRoom,
                 onLeave = {
                     watchTogether.leave()
                     sheet = null
@@ -950,6 +954,7 @@ private fun WatchJoinDialog(
     participantCount: Int,
     error: String?,
     onJoin: (String) -> Unit,
+    onEnter: () -> Unit,
     onLeave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -962,7 +967,7 @@ private fun WatchJoinDialog(
         OverlayHeader(
             title = if (connected) "一起看" else "加入一起看",
             subtitle = if (connected) {
-                "已在房间中，视频由你自己的服务器播放。"
+                "已在房间中。退出播放界面不会离开房间，随时可以再进去。"
             } else {
                 "粘贴邀请或输入 6 位房间码。"
             },
@@ -984,10 +989,27 @@ private fun WatchJoinDialog(
                     color = palette.sub2,
                 )
             }
+            // The room outlives the player, so leaving the film is not leaving the room —
+            // but until this button there was nothing that said so, and nothing that could
+            // act on it once the mini player was gone.
+            OverlayButton(
+                label = "进入房间",
+                onClick = onEnter,
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                tone = OverlayButtonTone.Primary,
+            )
+            // Reported by the entry above when the room is playing something this library
+            // does not have, or has not started at all — the connected branch used to drop
+            // this on the floor, which is fine for a state with no actions in it and not
+            // fine now that it has one that can fail.
+            error?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, style = sc(10.5f, 500), color = Brand.Danger)
+            }
             OverlayButton(
                 label = "退出房间",
                 onClick = onLeave,
-                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                 tone = OverlayButtonTone.Destructive,
             )
         } else {
