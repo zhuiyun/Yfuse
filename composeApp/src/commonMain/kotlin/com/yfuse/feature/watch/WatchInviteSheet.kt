@@ -22,7 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.Brand
-import com.yfuse.core.designsystem.GlassBottomSheet
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
@@ -66,7 +66,7 @@ fun WatchInviteSheet(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    GlassBottomSheet(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "一起看邀请",
             subtitle = "房间码 $roomCode · 视频仍由你自己的服务器播放",
@@ -219,7 +219,7 @@ fun WatchInviteShareSheet(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    GlassBottomSheet(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "邀请一起看",
             subtitle = title?.let { "《$it》· 对方用自己的服务器播放" }

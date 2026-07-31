@@ -525,15 +525,13 @@ private fun HeroCarousel(
 }
 
 /**
- * 切换服务器 — a centred [GlassDialog].
+ * 切换服务器 — a [GlassDialog], centred like every overlay outside the player.
  *
- * It started as a [com.yfuse.core.designsystem.GlassBottomSheet], on the rule that picking
- * one value out of a short reversible list belongs within thumb reach. It is centred
- * instead because of where it is opened from: the switcher chip sits at the top right of
- * the hero, and a panel that answers it from the bottom edge of a 432px hero leaves the
- * eye to travel the whole screen and back. Switching servers also throws the page away
- * and reloads the library, which is the weight [com.yfuse.core.designsystem.GlassDialog]
- * is for.
+ * It started at the bottom edge, on the rule that picking one value out of a short
+ * reversible list belongs within thumb reach. It was the first to be centred instead,
+ * because of where it is opened from — the switcher chip sits at the top right of the
+ * hero, and answering it from the bottom of a 432px hero sends the eye the length of the
+ * screen and back — and the rest of the app has since followed.
  *
  * What it replaces: a 180dp menu anchored under the hero's switcher chip, hand-rolled
  * out of a hard-coded `rgba(255,255,255,.95)` plate with `#151A22` text. That is exactly

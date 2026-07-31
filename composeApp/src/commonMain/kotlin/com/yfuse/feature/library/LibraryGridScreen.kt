@@ -12,12 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,17 +31,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
-import com.yfuse.core.designsystem.shadow
 
 /**
  * 「查看更多」grid. The prototype expands a category in place, so this page reuses
@@ -65,48 +64,48 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
         }
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Dimens.pageHorizontal)
-                .padding(top = 12.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            Row(
                 Modifier
-                    .size(34.dp)
-                    .glass(GlassShapes.chip)
-                    .clickable(onClick = component.onBack),
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth()
+                    .padding(horizontal = Dimens.pageHorizontal)
+                    .padding(top = 12.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    AppIcons.ChevronLeft,
-                    contentDescription = "返回",
-                    tint = palette.text,
-                    modifier = Modifier.size(15.dp),
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .glass(GlassShapes.chip)
+                        .clickable(onClick = component.onBack),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        AppIcons.ChevronLeft,
+                        contentDescription = "返回",
+                        tint = palette.text,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
+                Text(
+                    component.title,
+                    style = sc(22f, 800),
+                    color = palette.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-            }
-            Text(
-                component.title,
-                style = sc(22f, 800),
-                color = palette.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text("${state.items.size} 部", style = mr(11f, 500), color = palette.sub2)
-            Box {
+                Text("${state.items.size} 部", style = mr(11f, 500), color = palette.sub2)
                 Row(
                     Modifier
                         .height(34.dp)
                         .glass(
-                            androidx.compose.foundation.shape.RoundedCornerShape(17.dp),
+                            RoundedCornerShape(17.dp),
                             palette.glassStrong,
                             palette.tabbarBorder,
                         )
-                        .clickable { sortOpen = !sortOpen }
+                        .clickable { sortOpen = true }
                         .padding(horizontal = 13.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -114,88 +113,59 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     Icon(AppIcons.Menu, null, tint = palette.sub, modifier = Modifier.size(13.dp))
                     Text(sort, style = sc(11.5f, 600), color = palette.text)
                 }
-                DropdownMenu(
-                    expanded = sortOpen,
-                    onDismissRequest = { sortOpen = false },
-                    modifier = Modifier
-                        .width(152.dp)
-                        .shadow(Shadows.menu, GlassShapes.menu)
-                        .glass(GlassShapes.menu, palette.glassStrong, palette.tabbarBorder)
-                        .padding(6.dp),
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    shadowElevation = 0.dp,
-                ) {
-                    listOf("最近添加", "名称", "年份").forEach { option ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .glass(
-                                    androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                                    if (sort == option) {
-                                        Brand.Primary.copy(alpha = 0.18f)
-                                    } else {
-                                        palette.glass.copy(alpha = 0.34f)
-                                    },
-                                    if (sort == option) Brand.Primary.copy(alpha = 0.32f) else null,
-                                )
-                                .clickable {
-                                    sort = option
-                                    sortOpen = false
-                                }
-                                .padding(horizontal = 12.dp, vertical = 11.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                option,
-                                style = sc(12f, if (sort == option) 600 else 500),
-                                color = palette.text,
+            }
+
+            Box(Modifier.fillMaxSize()) {
+                when {
+                    state.loading && state.items.isEmpty() ->
+                        CircularProgressIndicator(Modifier.align(Alignment.Center))
+
+                    state.error != null && state.items.isEmpty() -> ErrorState(
+                        message = state.error!!,
+                        onRetry = { component.store.accept(GridIntent.Retry) },
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+
+                    else -> LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        contentPadding = PaddingValues(
+                            start = Dimens.pageHorizontal,
+                            end = Dimens.pageHorizontal,
+                            bottom = Dimens.contentBottom,
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(sortedItems, key = { it.id }) { item ->
+                            PosterCard(
+                                baseUrl = baseUrl,
+                                accessToken = accessToken,
+                                item = item,
+                                showProgress = false,
+                                onClick = { component.onOpenItem(item.id) },
                             )
-                            if (sort == option) {
-                                Icon(
-                                    AppIcons.Check,
-                                    null,
-                                    tint = Brand.Primary,
-                                    modifier = Modifier.size(11.dp),
-                                )
-                            }
                         }
                     }
                 }
             }
         }
 
-        Box(Modifier.fillMaxSize()) {
-            when {
-                state.loading && state.items.isEmpty() ->
-                    CircularProgressIndicator(Modifier.align(Alignment.Center))
-
-                state.error != null && state.items.isEmpty() -> ErrorState(
-                    message = state.error!!,
-                    onRetry = { component.store.accept(GridIntent.Retry) },
-                    modifier = Modifier.align(Alignment.Center),
-                )
-
-                else -> LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(
-                        start = Dimens.pageHorizontal,
-                        end = Dimens.pageHorizontal,
-                        bottom = Dimens.contentBottom,
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(sortedItems, key = { it.id }) { item ->
-                        PosterCard(
-                            baseUrl = baseUrl,
-                            accessToken = accessToken,
-                            item = item,
-                            showProgress = false,
-                            onClick = { component.onOpenItem(item.id) },
-                        )
-                    }
+        // 排序 was a Material [DropdownMenu] hung off the chip — the last anchored menu in the
+        // app, and the one shape the overlay system exists to replace. Centred like every
+        // other overlay outside the player now; see [com.yfuse.core.designsystem.GlassDialog].
+        if (sortOpen) {
+            GlassDialog(onDismiss = { sortOpen = false }) {
+                OverlayHeader(title = "排序", onClose = { sortOpen = false })
+                listOf("最近添加", "名称", "年份").forEach { option ->
+                    OverlayOptionRow(
+                        label = option,
+                        selected = sort == option,
+                        onClick = {
+                            sort = option
+                            sortOpen = false
+                        },
+                    )
                 }
             }
         }

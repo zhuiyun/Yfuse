@@ -15,10 +15,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,13 +41,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * One overlay material for the whole app.
+ * One overlay material for the whole app, in one position.
  *
  * Before this existed each surface invented its own: a stock Material `AlertDialog`
  * (an opaque M3 surface that ignores the palette entirely), a hand-rolled anchored
  * menu, and a bottom option list — three different radii, scrims and entrances for
- * what the user reads as the same kind of interruption. [GlassDialog] and
- * [GlassBottomSheet] are the only two shapes an overlay may take.
+ * what the user reads as the same kind of interruption. [GlassDialog] is now the only
+ * shape an overlay may take outside the player.
+ *
+ * It used to be two: a centred dialog for decisions and a bottom sheet for picking one
+ * value out of a list, on the reasoning that a reversible choice belongs within thumb
+ * reach. The split did not survive contact with where these are opened from — a switcher
+ * chip at the top of a hero, a 更多 button in a detail page's action dock, an invite that
+ * arrives over the whole app — and answering any of them from the bottom edge sent the
+ * eye to the far end of the screen and back. One position, always centred, is what the
+ * app settled on.
+ *
+ * The player is the exception to the rule, not to the material: its 一起看 and control-
+ * request modals are [GlassDialog]s like everywhere else, but its own chrome — the
+ * settings panel, the episode drawer, the skip pill — stays anchored to the edges. It is
+ * landscape and owns the whole screen, so those edges are where the thumbs already are,
+ * and a centred panel there would cover the picture it is describing.
  */
 private val ScrimColor = Color(0xFF0A0E16)
 
@@ -139,59 +151,7 @@ fun GlassDialog(
     }
 }
 
-/**
- * Bottom sheet. Use for picking one value out of a short list — the choice is
- * reversible, so it stays within thumb reach instead of taking over the screen.
- */
-@Composable
-fun GlassBottomSheet(
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    ReportOverlayVisible()
-    val palette = LocalPalette.current
-    val progress = rememberOverlayEntrance(Motion.MODAL)
-    Box(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer { alpha = progress() }
-            .background(ScrimColor.copy(alpha = 0.46f))
-            .pointerInput(onDismiss) { detectTapGestures { onDismiss() } },
-    ) {
-        Column(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp)
-                .navigationBarsPadding()
-                .padding(bottom = 16.dp)
-                .imePadding()
-                // 覆盖（播放器 / 菜单）— 下方 46px 上滑, §3.1.
-                .graphicsLayer {
-                    translationY = (1f - progress()) * Motion.modalOffset.toPx()
-                }
-                .shadow(Shadows.sheet, OverlayShape)
-                .glass(OverlayShape, palette.glassStrong, palette.tabbarBorder)
-                .pointerInput(Unit) { detectTapGestures { } }
-                .then(modifier)
-                .padding(14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // Grab handle: the one affordance that says "this came from the bottom".
-            Box(
-                Modifier
-                    .padding(bottom = 12.dp)
-                    .width(36.dp)
-                    .height(4.dp)
-                    .background(palette.sub2.copy(alpha = 0.35f), CircleShape),
-            )
-            Column(Modifier.fillMaxWidth(), content = content)
-        }
-    }
-}
-
-/** Fade/scale/slide driver shared by both overlays; instant under 减弱动态效果. */
+/** Fade/scale driver for the overlay entrance; instant under 减弱动态效果. */
 @Composable
 private fun rememberOverlayEntrance(durationMillis: Int): () -> Float {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -362,7 +322,7 @@ fun ConfirmDialog(
     }
 }
 
-/** One selectable row inside [GlassBottomSheet]. */
+/** One selectable row inside a [GlassDialog]. */
 @Composable
 fun OverlayOptionRow(
     label: String,

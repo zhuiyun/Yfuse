@@ -62,7 +62,7 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.GlassBottomSheet
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroInk
@@ -379,7 +379,7 @@ fun DetailScreen(component: DetailComponent) {
         }
 
         if (moreSheetOpen && detail != null) {
-            GlassBottomSheet(onDismiss = { moreSheetOpen = false }) {
+            GlassDialog(onDismiss = { moreSheetOpen = false }) {
                 OverlayHeader(
                     title = detail.title,
                     subtitle = "更多操作",
