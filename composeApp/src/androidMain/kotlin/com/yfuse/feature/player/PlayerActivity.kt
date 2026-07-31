@@ -1470,6 +1470,8 @@ private fun PlayerRoot(
                 watchIsHost = watchState.isHost,
                 watchParticipantCount = watchState.participantCount,
                 watchError = watchState.error ?: watchState.syncWarning,
+                watchControlRequested = watchState.controlRequested,
+                watchControlRequesterName = watchState.controlRequest?.name,
                 onCreateWatchRoom = { endpoint ->
                     currentItem?.let { item ->
                         watchTogether.createRoom(endpoint, item.watchKey)
@@ -1481,6 +1483,13 @@ private fun PlayerRoot(
                     }
                 },
                 onLeaveWatchRoom = watchTogether::leave,
+                onRequestControl = watchTogether::requestControl,
+                onGrantControl = {
+                    watchState.controlRequest?.let { watchTogether.grantControl(it.clientId) }
+                },
+                onDenyControl = {
+                    watchState.controlRequest?.let { watchTogether.denyControl(it.clientId) }
+                },
             )
         }
     }

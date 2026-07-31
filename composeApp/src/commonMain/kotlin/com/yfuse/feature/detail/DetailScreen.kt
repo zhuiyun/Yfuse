@@ -64,7 +64,9 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassBottomSheet
+import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HeroInk
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
@@ -72,11 +74,11 @@ import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.cssLinearGradient
-import com.yfuse.core.designsystem.cssShadow
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
+import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDominantColor
@@ -385,6 +387,11 @@ fun DetailScreen(component: DetailComponent) {
                 )
                 // 一起看 belongs where the decision is made — at the point of choosing what
                 // to watch, not in the settings of a player you must already have open.
+                //
+                // Playback is *not* started here. It used to be, in the same tap, and the
+                // player activity that came up covered the invite sheet this opens — the host
+                // reached the film without ever being shown the link they created it for. The
+                // sheet starts playback itself, once the invite has been sent.
                 OverlayOptionRow(
                     label = "一起看",
                     selected = watchState.roomCode != null,
@@ -395,13 +402,14 @@ fun DetailScreen(component: DetailComponent) {
                             mediaKey = detail.providerIds.watchKey(detail.id),
                         )
                         shareSheetOpen = true
-                        component.store.accept(DetailIntent.Play)
                     },
                 )
             }
         }
 
-        if (shareSheetOpen && watchState.roomCode != null) {
+        // Opened as soon as the room is asked for, not once it exists: the relay can be slow
+        // or down, and the tap used to have no visible result at all in either case.
+        if (shareSheetOpen) {
             val invite = WatchInvite(
                 roomCode = watchState.roomCode.orEmpty(),
                 mediaKey = detail?.let { it.providerIds.watchKey(it.id) },
@@ -413,12 +421,18 @@ fun DetailScreen(component: DetailComponent) {
                 },
             )
             WatchInviteShareSheet(
-                roomCode = invite.roomCode,
+                roomCode = watchState.roomCode,
+                connecting = watchState.connecting,
+                error = watchState.error,
                 title = detail?.title,
                 participantCount = watchState.participantCount,
                 shareText = invite.shareText(),
                 onShare = share::shareText,
                 onCopy = share::copyText,
+                onStartPlayback = {
+                    shareSheetOpen = false
+                    component.store.accept(DetailIntent.Play)
+                },
                 onDismiss = { shareSheetOpen = false },
             )
         }
@@ -599,6 +613,9 @@ private fun DetailTopBar(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             val p = progress.value
+            // What these two sit on changes as the bar fills in, and that is what decides
+            // whether they are dense glass or pale glass — so it travels with them.
+            val behind = lerp(HeroInk, surfaceColor, p)
             Icon(
                 AppIcons.ChevronLeft,
                 contentDescription = "返回",
@@ -606,7 +623,7 @@ private fun DetailTopBar(
                 modifier = Modifier
                     .size(38.dp)
                     .pressable(onClick = onBack)
-                    .solidGlass(
+                    .liquidGlass(
                         shape = CircleShape,
                         fill = lerp(
                             Color(0xFF11151F).copy(alpha = 0.28f),
@@ -618,6 +635,8 @@ private fun DetailTopBar(
                             palette.border,
                             p,
                         ),
+                        over = behind,
+                        sheen = 0.7f,
                     )
                     .padding(11.dp),
             )
@@ -636,10 +655,13 @@ private fun DetailTopBar(
                     Modifier
                         .graphicsLayer { alpha = progress.value }
                         .pressable(enabled = solid, onClick = onPlay)
-                        .solidGlass(
+                        .liquidGlass(
                             shape = GlassShapes.chip,
                             fill = accent.copy(alpha = 0.14f),
                             border = accent.copy(alpha = 0.30f),
+                            // It only ever appears once the bar's own plate is opaque.
+                            over = surfaceColor,
+                            sheen = 0.7f,
                         )
                         .padding(horizontal = 12.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -660,7 +682,7 @@ private fun DetailTopBar(
                     modifier = Modifier
                         .size(38.dp)
                         .pressable(onClick = onMore)
-                        .solidGlass(
+                        .liquidGlass(
                             shape = CircleShape,
                             fill = lerp(
                                 Color(0xFF11151F).copy(alpha = 0.28f),
@@ -672,6 +694,8 @@ private fun DetailTopBar(
                                 palette.border,
                                 p,
                             ),
+                            over = behind,
+                            sheen = 0.7f,
                         )
                         .padding(11.dp),
                 )
@@ -798,24 +822,26 @@ private fun DetailActionDock(
         Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // A plain white key over the artwork's own colour, as the reference has it. The
-        // accent is not spent here: it is the page's one highlight colour and is worth more
-        // on 收藏 / 已观看 and the selected version, where it distinguishes a *state*, than
-        // on the button whose position and size already make it unmistakable.
-        val playInk = if (palette.isDark) Color(0xFF141A26) else Color(0xFF141A26)
+        // A white key over the artwork's own colour, as the reference has it. The accent is
+        // not spent here: it is the page's one highlight colour and is worth more on 收藏 /
+        // 已观看 and the selected version, where it distinguishes a *state*, than on the
+        // button whose position and size already make it unmistakable.
+        //
+        // White glass on the light theme's white page has no edge of its own, so the key
+        // leans on the two cues [liquidGlass] adds — the cool shade along its lower half and
+        // the luminous rim — plus the lift beneath it.
+        val playInk = Color(0xFF141A26)
         Row(
             Modifier
                 .fillMaxWidth()
                 .height(52.dp)
                 .pressable(enabled = !resolving, onClick = onPlay)
-                .cssShadow(
-                    offsetY = 8.dp,
-                    blur = 22.dp,
-                    color = Color(0xFF1C243A).copy(alpha = 0.18f),
+                .shadow(GlassLift.key, CircleShape)
+                .liquidGlass(
                     shape = CircleShape,
-                )
-                .clip(CircleShape)
-                .background(Color.White),
+                    fill = Color.White.copy(alpha = 0.90f),
+                    border = Color(0xFFC9D6E8),
+                ),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -872,7 +898,8 @@ private fun RoundAction(
             modifier = Modifier
                 .size(46.dp)
                 .pressable(onClick = onClick)
-                .solidGlass(
+                .shadow(GlassLift.control, CircleShape)
+                .liquidGlass(
                     shape = CircleShape,
                     fill = if (active) {
                         accent.copy(alpha = if (palette.isDark) 0.20f else 0.12f)
@@ -888,6 +915,9 @@ private fun RoundAction(
                     } else {
                         Color(0xFFE4E9F2)
                     },
+                    // 46dp of glass: a full-strength specular covers a third of the circle
+                    // and reads as a blown highlight rather than a curved surface.
+                    sheen = 0.7f,
                 )
                 .padding(14.dp),
         )
@@ -983,7 +1013,8 @@ private fun ExternalLinksSection(
                 Row(
                     Modifier
                         .pressable { runCatching { uriHandler.openUri(url) } }
-                        .solidGlass(
+                        .shadow(GlassLift.control, GlassShapes.chip)
+                        .liquidGlass(
                             shape = GlassShapes.chip,
                             fill = if (palette.isDark) {
                                 Color.White.copy(alpha = 0.075f)
@@ -991,6 +1022,7 @@ private fun ExternalLinksSection(
                                 Color.White.copy(alpha = 0.72f)
                             },
                             border = palette.border,
+                            sheen = 0.7f,
                         )
                         .padding(horizontal = 12.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1566,10 +1598,12 @@ private fun EpisodeHeader(
                     Row(
                         Modifier
                             .pressable(onClick = onTogglePicker)
-                            .solidGlass(
+                            .shadow(GlassLift.control, GlassShapes.thumb)
+                            .liquidGlass(
                                 shape = GlassShapes.thumb,
                                 fill = accent.copy(alpha = 0.13f),
                                 border = accent.copy(alpha = 0.28f),
+                                sheen = 0.7f,
                             )
                             .padding(horizontal = 10.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1603,7 +1637,9 @@ private fun EpisodeHeader(
                         maxLines = 1,
                         modifier = Modifier
                             .pressable { onSelectSeason(id) }
-                            .solidGlass(
+                            // No lift: these read as one picker's options, and a shadow under
+                            // each would break the row into a scatter of separate keys.
+                            .liquidGlass(
                                 shape = GlassShapes.thumb,
                                 fill = if (selected) {
                                     accent.copy(alpha = 0.14f)
@@ -1617,6 +1653,7 @@ private fun EpisodeHeader(
                                 } else {
                                     palette.border
                                 },
+                                sheen = 0.7f,
                             )
                             .padding(horizontal = 12.dp, vertical = 7.dp),
                     )

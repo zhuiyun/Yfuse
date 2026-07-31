@@ -195,15 +195,27 @@ fun WatchInviteSheet(
 /**
  * The host's half: shown right after a room is created, so "I want to watch this with
  * someone" reaches "invitation sent" without leaving the page.
+ *
+ * Playback is started *from here* rather than alongside the room. Creating the room and
+ * launching the player in the same tap put this sheet behind a full-screen player activity:
+ * the host got a room whose invite they could not see until they backed out of the film,
+ * which is the one moment the invite is worthless. The room now has to be handed over before
+ * the picture starts.
+ *
+ * [roomCode] is null until the relay answers, so the sheet also owns the waiting and failing
+ * states — a relay that never answers used to leave the tap with no visible result at all.
  */
 @Composable
 fun WatchInviteShareSheet(
-    roomCode: String,
+    roomCode: String?,
+    connecting: Boolean,
+    error: String?,
     title: String?,
     participantCount: Int,
     shareText: String,
     onShare: (String) -> Unit,
     onCopy: (String) -> Unit,
+    onStartPlayback: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -214,46 +226,97 @@ fun WatchInviteShareSheet(
                 ?: "对方用自己的服务器播放",
             onClose = onDismiss,
         )
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .solidGlass(
-                    shape = GlassShapes.chip,
-                    fill = Brand.Primary.copy(alpha = 0.08f),
-                    border = Brand.Primary.copy(alpha = 0.24f),
+        when {
+            error != null -> {
+                Text(
+                    error,
+                    style = sc(11.5f, 500, lineHeight = 11.5f * 1.6f),
+                    color = Brand.Danger,
                 )
-                .padding(vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(roomCode, style = sc(26f, 800), color = Brand.Primary)
-            Text(
-                if (participantCount > 1) "$participantCount 人在房间" else "等待对方加入",
-                style = mr(10.5f, 500),
-                color = palette.sub2,
-            )
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OverlayButton(
+                        label = "关闭",
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // The film is still what they came for; a dead relay shouldn't also cost
+                    // them the tap that starts it.
+                    OverlayButton(
+                        label = "直接播放",
+                        onClick = onStartPlayback,
+                        modifier = Modifier.weight(1f),
+                        tone = OverlayButtonTone.Primary,
+                    )
+                }
+            }
+
+            roomCode == null -> {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 22.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        if (connecting) "正在创建房间…" else "正在连接一起看服务…",
+                        style = sc(12f, 500),
+                        color = palette.sub,
+                    )
+                }
+            }
+
+            else -> {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .solidGlass(
+                            shape = GlassShapes.chip,
+                            fill = Brand.Primary.copy(alpha = 0.08f),
+                            border = Brand.Primary.copy(alpha = 0.24f),
+                        )
+                        .padding(vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(roomCode, style = sc(26f, 800), color = Brand.Primary)
+                    Text(
+                        if (participantCount > 1) "$participantCount 人在房间" else "等待对方加入",
+                        style = mr(10.5f, 500),
+                        color = palette.sub2,
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OverlayButton(
+                        label = "复制邀请",
+                        onClick = { onCopy(shareText) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    OverlayButton(
+                        label = "分享链接",
+                        onClick = { onShare(shareText) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                OverlayButton(
+                    label = "开始播放",
+                    onClick = onStartPlayback,
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    tone = OverlayButtonTone.Primary,
+                )
+                Text(
+                    "对方点开链接即可直接加入，无需手输房间码。你开始播放后，房间里的其他人会自动跟上。",
+                    style = sc(10.5f, 400, lineHeight = 10.5f * 1.6f),
+                    color = palette.sub2,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
         }
-        Row(
-            Modifier.fillMaxWidth().padding(top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            OverlayButton(
-                label = "复制邀请",
-                onClick = { onCopy(shareText) },
-                modifier = Modifier.weight(1f),
-            )
-            OverlayButton(
-                label = "分享链接",
-                onClick = { onShare(shareText) },
-                modifier = Modifier.weight(1f),
-                tone = OverlayButtonTone.Primary,
-            )
-        }
-        Text(
-            "对方点开链接即可直接加入，无需手输房间码。",
-            style = sc(10.5f, 400, lineHeight = 10.5f * 1.6f),
-            color = palette.sub2,
-            modifier = Modifier.padding(top = 10.dp),
-        )
     }
 }

@@ -183,9 +183,16 @@ fun PlayerControls(
     watchIsHost: Boolean = false,
     watchParticipantCount: Int = 0,
     watchError: String? = null,
+    /** This device has asked the host for control and hasn't been answered yet. */
+    watchControlRequested: Boolean = false,
+    /** Host side: who is asking for control right now, by name. Null when nobody is. */
+    watchControlRequesterName: String? = null,
     onCreateWatchRoom: (String) -> Unit = {},
     onJoinWatchRoom: (String, String) -> Unit = { _, _ -> },
     onLeaveWatchRoom: () -> Unit = {},
+    onRequestControl: () -> Unit = {},
+    onGrantControl: () -> Unit = {},
+    onDenyControl: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(true) }
@@ -501,13 +508,28 @@ fun PlayerControls(
                 isHost = watchIsHost,
                 participantCount = watchParticipantCount,
                 error = watchError,
+                controlRequested = watchControlRequested,
                 onCreate = onCreateWatchRoom,
                 onJoin = onJoinWatchRoom,
                 onLeave = {
                     onLeaveWatchRoom()
                     watchDialogOpen = false
                 },
+                onRequestControl = onRequestControl,
                 onDismiss = { watchDialogOpen = false },
+            )
+        }
+
+        // Outside `watchDialogOpen` on purpose: a request arrives when the asker taps, not
+        // when the host happens to have the room dialog open, and an unanswered one leaves
+        // that person waiting on a prompt nobody ever sees.
+        watchControlRequesterName?.let { requester ->
+            ControlRequestDialog(
+                requesterName = requester,
+                onGrant = onGrantControl,
+                // Dismissing is an answer too. Closing without one would leave the asker
+                // waiting indefinitely, which is what `denyControl` exists to avoid.
+                onDeny = onDenyControl,
             )
         }
 
@@ -1643,9 +1665,11 @@ private fun WatchTogetherDialog(
     isHost: Boolean,
     participantCount: Int,
     error: String?,
+    controlRequested: Boolean,
     onCreate: (String) -> Unit,
     onJoin: (String, String) -> Unit,
     onLeave: () -> Unit,
+    onRequestControl: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var roomDraft by remember { mutableStateOf("") }
@@ -1689,6 +1713,25 @@ private fun WatchTogetherDialog(
                 Spacer(Modifier.height(8.dp))
                 Text(it, style = sc(10.5f, 500), color = Brand.Danger)
             }
+            if (!isHost) {
+                // Deliberately still enabled once asked: a host who never answers would
+                // otherwise leave this pinned on "waiting" with no way to ask again.
+                OverlayButton(
+                    label = if (controlRequested) "再次请求控制权" else "请求控制权",
+                    onClick = onRequestControl,
+                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                    tone = OverlayButtonTone.Primary,
+                )
+                if (controlRequested) {
+                    Text(
+                        "已发送请求，等待房主响应。",
+                        style = sc(10.5f, 500),
+                        color = palette.sub2,
+                        modifier = Modifier.fillMaxWidth().padding(top = 7.dp),
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
             OverlayButton(
                 label = "退出房间",
                 onClick = onLeave,
@@ -1723,6 +1766,44 @@ private fun WatchTogetherDialog(
                     enabled = WatchInvite.isCompleteCode(normalizedRoom) && !connecting,
                 )
             }
+        }
+    }
+}
+
+/**
+ * Host side of the control handoff: a member has asked to drive the room.
+ *
+ * Both answers are explicit. Granting moves the timeline to them — this device becomes a
+ * follower and its own controls lock — and denying tells the asker so, rather than letting
+ * the request expire into silence.
+ */
+@Composable
+private fun ControlRequestDialog(
+    requesterName: String,
+    onGrant: () -> Unit,
+    onDeny: () -> Unit,
+) {
+    GlassDialog(onDismiss = onDeny) {
+        OverlayHeader(
+            title = "控制权请求",
+            subtitle = "$requesterName 想要控制这个房间。交出后由对方掌握播放、暂停、进度和集数，你会跟随他们。",
+            onClose = onDeny,
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(top = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            OverlayButton(
+                label = "拒绝",
+                onClick = onDeny,
+                modifier = Modifier.weight(1f),
+            )
+            OverlayButton(
+                label = "交给对方",
+                onClick = onGrant,
+                modifier = Modifier.weight(1f),
+                tone = OverlayButtonTone.Primary,
+            )
         }
     }
 }

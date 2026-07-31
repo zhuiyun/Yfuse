@@ -11,9 +11,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 
 /**
@@ -155,6 +161,92 @@ fun Modifier.solidGlass(
         .let { modifier ->
             if (border != null) modifier.border(Dimens.hairline, border, shape) else modifier
         }
+}
+
+/**
+ * 液态玻璃 — the material for interactive controls.
+ *
+ * [glass] and [solidGlass] are *plates*: one translucent fill plus a diagonal sheen, which
+ * is all a card needs. A button has to read as a body with thickness, and on the detail
+ * page's content surface — flat white under the light theme — a white plate has no edge at
+ * all, leaving the drop shadow to do the entire job. Three things are added here, drawn in
+ * one pass so they stay in order:
+ *
+ * - a vertical body ramp that lightens towards the top and shades towards a depth tint at
+ *   the bottom, which is the one depth cue that survives white glass on a white page;
+ * - a 145° specular sweep, with a faint bounce on the far corner;
+ * - a luminous edge running from near-white at the top to [border] shaded at the bottom.
+ *
+ * The edge is a stroke on the outline, drawn inside the clip so its outer half is cut away
+ * and the remaining inner half lands exactly on [Dimens.hairline]. `Modifier.border` cannot
+ * take its place: it paints a single flat colour over that stroke and flattens the ramp.
+ *
+ * [sheen] scales the specular only, for controls small enough that a full-strength highlight
+ * reads as a blown-out patch rather than a reflection.
+ *
+ * [over] is what lies behind the control, and defaults to the page. A translucent fill is
+ * only half the colour that ends up on screen, so this is what decides whether the glass is
+ * shaded as a pale body or a dense one; controls that float over artwork rather than over
+ * the page have to say so.
+ */
+@Composable
+fun Modifier.liquidGlass(
+    shape: Shape = GlassShapes.chip,
+    fill: Color = LocalPalette.current.glassStrong,
+    border: Color = LocalPalette.current.border,
+    over: Color = if (LocalPalette.current.isDark) LocalPalette.current.background else Color.White,
+    sheen: Float = 1f,
+): Modifier {
+    val palette = LocalPalette.current
+    val accessibility = LocalAccessibilityOptions.current
+    if (accessibility.reduceTransparency) {
+        val flat = if (palette.isDark) Color(0xFF182235) else Color.White
+        return this.clip(shape).background(flat).border(Dimens.hairline, border, shape)
+    }
+    // The theme is the wrong signal here — the play key is pale glass under both, and 返回
+    // is dense glass over artwork on the light one. What the fill composites to is the right
+    // one, so that is what the ramps are keyed off.
+    val pale = fill.compositeOver(over).luminance() > 0.42f
+    val depth = if (pale) Color(0xFF8CA1C1) else Color(0xFF04070E)
+    val body = Brush.verticalGradient(
+        0f to lerp(fill, Color.White, if (pale) 0.38f else 0.16f)
+            .copy(alpha = (fill.alpha * 1.18f).coerceAtMost(1f)),
+        0.50f to fill,
+        1f to lerp(fill, depth, if (pale) 0.16f else 0.30f)
+            .copy(alpha = (fill.alpha * 0.96f).coerceAtMost(1f)),
+    )
+    val gloss = cssLinearGradient(
+        145f,
+        0f to Color.White.copy(alpha = (if (pale) 0.58f else 0.28f) * sheen),
+        0.20f to Color.White.copy(alpha = (if (pale) 0.14f else 0.06f) * sheen),
+        0.52f to Color.Transparent,
+        1f to Color.White.copy(alpha = (if (pale) 0.20f else 0.10f) * sheen),
+    )
+    val edge = Brush.verticalGradient(
+        0f to Color.White.copy(alpha = if (pale) 0.96f else 0.46f),
+        0.36f to lerp(border, Color.White, if (pale) 0.58f else 0.20f),
+        1f to lerp(border, depth, if (pale) 0.34f else 0.14f),
+    )
+    return this
+        .clip(shape)
+        .drawWithCache {
+            val outline = shape.createOutline(size, layoutDirection, this)
+            val stroke = Stroke(Dimens.hairline.toPx() * 2f)
+            onDrawBehind {
+                drawOutline(outline, brush = body)
+                drawOutline(outline, brush = gloss)
+                drawOutline(outline, brush = edge, style = stroke)
+            }
+        }
+}
+
+/** 液态玻璃 lift — the shadow that separates a glass control from the page beneath it. */
+object GlassLift {
+    /** 主按钮 — wide keys that sit on the page itself. */
+    val key = CssShadow(0.dp, 10.dp, 26.dp, 0.dp, Color(0xFF1C243A).copy(alpha = 0.20f))
+
+    /** 圆形/胶囊小按钮 — enough to detach from a white surface, not enough to read as a card. */
+    val control = CssShadow(0.dp, 4.dp, 12.dp, 0.dp, Color(0xFF1C243A).copy(alpha = 0.10f))
 }
 
 /**
