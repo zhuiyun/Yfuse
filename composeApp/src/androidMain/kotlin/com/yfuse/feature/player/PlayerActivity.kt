@@ -1010,10 +1010,13 @@ private fun PlayerRoot(
     val skipTimesBySeries by skipSegmentPreferences.bySeries.collectAsState()
     val autoSkip by skipSegmentPreferences.autoSkip.collectAsState()
     val skipTimes = currentItem?.seriesId?.let(skipTimesBySeries::get)
-    val activeSegment = remember(currentItem, skipTimesBySeries) {
+    // Keyed on the duration too: 片尾 is stored as a distance back from the end, so it
+    // cannot be placed until the engine reports how long this entry is.
+    val activeSegment = remember(currentItem, skipTimesBySeries, state.durationMs) {
         skipSegmentPreferences.applyTo(
             seriesId = currentItem?.seriesId,
             serverSegments = currentItem?.playbackSegments.orEmpty(),
+            durationMs = state.durationMs,
         )
     }.firstOrNull { segment ->
         segment.contains(state.positionMs, state.durationMs)
@@ -1447,16 +1450,16 @@ private fun PlayerRoot(
                 },
                 skipIntroStartSeconds = skipTimes?.introStartSeconds ?: 0L,
                 skipIntroEndSeconds = skipTimes?.introEndSeconds ?: 0L,
-                skipCreditsStartSeconds = skipTimes?.creditsStartSeconds ?: 0L,
+                skipCreditsLeadSeconds = skipTimes?.creditsLeadSeconds ?: 0L,
                 autoSkipEnabled = autoSkip,
-                onSetSkipTimes = { introStart, introEnd, creditsStart ->
+                onSetSkipTimes = { introStart, introEnd, creditsLead ->
                     val seriesId = currentItem?.seriesId ?: return@PlayerControls
                     skipSegmentPreferences.set(
                         seriesId = seriesId,
                         times = SkipTimes(
                             introStartSeconds = introStart,
                             introEndSeconds = introEnd,
-                            creditsStartSeconds = creditsStart,
+                            creditsLeadSeconds = creditsLead,
                             seriesName = currentItem.seriesName.orEmpty(),
                         ),
                     )

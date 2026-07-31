@@ -737,14 +737,15 @@ private fun SkipSegmentDialog(
         if (target == null) {
             OverlayHeader(
                 title = "片头片尾",
-                subtitle = "按剧保存。在播放器的「更多」里把当前进度设为片头或片尾。",
+                subtitle = "按剧保存。在播放器的「更多」里点按设为当前进度，再点「取消」撤销。",
                 onClose = onDismiss,
             )
             SwitchRow("自动跳过", autoSkip, onChange = onToggleAutoSkip)
             if (bySeries.isEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "还没有设置过。播放某一集时打开「更多」→「片头片尾」，点按即可把当前进度设为边界。",
+                    "还没有设置过。播放某一集时打开「更多」→「片头片尾」，点按即可把当前进度设为边界；" +
+                        "片尾记的是距离结束还有多少秒，所以同一部剧每集时长不同也适用。",
                     style = mr(10.5f, 400),
                     color = palette.sub2,
                 )
@@ -811,8 +812,8 @@ private fun SeriesSkipRow(
                 if (times.hasIntro) {
                     add("片头 ${times.introStartSeconds}–${times.introEndSeconds} 秒")
                 }
-                if (times.creditsStartSeconds > 0L) {
-                    add("片尾 ${times.creditsStartSeconds} 秒起")
+                if (times.hasCredits) {
+                    add("片尾 最后 ${times.creditsLeadSeconds} 秒")
                 }
             }
             Text(
@@ -844,11 +845,11 @@ private fun SeriesSkipEditor(
     fun initial(seconds: Long) = if (seconds > 0L) seconds.toString() else ""
     var introStart by remember(times) { mutableStateOf(initial(times.introStartSeconds)) }
     var introEnd by remember(times) { mutableStateOf(initial(times.introEndSeconds)) }
-    var creditsStart by remember(times) { mutableStateOf(initial(times.creditsStartSeconds)) }
+    var creditsLead by remember(times) { mutableStateOf(initial(times.creditsLeadSeconds)) }
 
     val parsedIntroStart = introStart.toLongOrNull() ?: 0L
     val parsedIntroEnd = introEnd.toLongOrNull() ?: 0L
-    val parsedCreditsStart = creditsStart.toLongOrNull() ?: 0L
+    val parsedCreditsLead = creditsLead.toLongOrNull() ?: 0L
     // A start without an end describes no interval, so it can't be saved on its own; the
     // reverse (an end alone) is treated as "opening runs from 0", which is the common case.
     val problem = when {
@@ -859,13 +860,15 @@ private fun SeriesSkipEditor(
 
     OverlayHeader(
         title = times.seriesName.ifBlank { "未命名剧集" },
-        subtitle = "填秒数，留空表示这一项跟随服务器。",
+        subtitle = "填秒数，留空或填 0 表示取消这一项，改回跟随服务器。",
         onClose = onBack,
     )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SecondsField("片头开始", "0", introStart, palette) { introStart = it }
         SecondsField("片头结束", "90", introEnd, palette) { introEnd = it }
-        SecondsField("片尾开始", "2520", creditsStart, palette) { creditsStart = it }
+        // Counted back from the end, not forward from the start: episodes of one show
+        // differ in runtime by a minute or two, and it is the tail that stays put.
+        SecondsField("片尾 · 距结束", "120", creditsLead, palette) { creditsLead = it }
     }
     if (problem != null) {
         Spacer(Modifier.height(6.dp))
@@ -883,7 +886,7 @@ private fun SeriesSkipEditor(
                     times.copy(
                         introStartSeconds = parsedIntroStart,
                         introEndSeconds = parsedIntroEnd,
-                        creditsStartSeconds = parsedCreditsStart,
+                        creditsLeadSeconds = parsedCreditsLead,
                     ),
                 )
             },

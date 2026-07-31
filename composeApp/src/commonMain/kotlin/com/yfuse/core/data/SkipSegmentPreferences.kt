@@ -12,12 +12,27 @@ import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
-/** One show's hand-entered 片头 / 片尾 boundaries, in whole seconds from the file's start. */
+/** One show's hand-entered 片头 / 片尾 boundaries, in whole seconds. */
 @Serializable
 data class SkipTimes(
+    /** Measured from the start of the file — an opening is at a fixed offset into it. */
     val introStartSeconds: Long = 0L,
     val introEndSeconds: Long = 0L,
-    val creditsStartSeconds: Long = 0L,
+    /**
+     * 片尾 begins this many seconds **before the end** of whatever is playing.
+     *
+     * Closing credits are the one boundary that is not at a fixed offset from the start:
+     * episodes of the same show routinely differ by a minute or two of runtime, so an
+     * absolute 片尾开始 tuned on one episode lands mid-scene on the next and leaves the
+     * 跳过片尾 pill hanging over the wrong part of the file. The distance from the end is
+     * what actually stays constant, so that is what is stored.
+     *
+     * Entries written before this changed carried an absolute start under a different
+     * name. There is no runtime to convert those against at load time, and reading an
+     * absolute position as a distance from the end would be far worse than reading
+     * nothing, so they decode to 0 — 片尾 is simply unset again for those shows.
+     */
+    val creditsLeadSeconds: Long = 0L,
     /** Only for naming the row in 我的; never used to match. */
     val seriesName: String = "",
 ) {
@@ -29,11 +44,14 @@ data class SkipTimes(
      * Treating it as empty threw the first tap away and made the row look broken.
      */
     val configured: Boolean
-        get() = introStartSeconds > 0L || introEndSeconds > 0L || creditsStartSeconds > 0L
+        get() = introStartSeconds > 0L || introEndSeconds > 0L || creditsLeadSeconds > 0L
 
     /** True once the intro describes a real interval, rather than half of one. */
     val hasIntro: Boolean
         get() = introEndSeconds > introStartSeconds
+
+    val hasCredits: Boolean
+        get() = creditsLeadSeconds > 0L
 }
 
 /**
@@ -44,13 +62,11 @@ data class SkipTimes(
  * These times stand in for that.
  *
  * **Scoped per series, not globally.** An opening is a property of a show: every episode of
- * it shares one, and it stays put across seasons even when runtimes drift by a minute. A
- * single global triple would also have to be applied to films, where an absolute 片尾开始 is
- * actively wrong — a value tuned for 45-minute episodes leaves a 跳过片尾 button hanging over
- * the last 80 minutes of a long film. Films therefore have no entry and are never affected.
+ * it shares one, and it stays put across seasons even when runtimes drift by a minute.
+ * Films therefore have no entry and are never affected.
  *
- * Positions are absolute from the start rather than offsets from the end, because that is
- * what stays constant across a series and what a user can read straight off the scrubber.
+ * The intro is stored as absolute positions and the credits as a distance from the end,
+ * because that is what stays constant for each — see [SkipTimes.creditsLeadSeconds].
  */
 class SkipSegmentPreferences(private val settings: Settings) {
     private companion object {
@@ -88,7 +104,7 @@ class SkipSegmentPreferences(private val settings: Settings) {
         val clamped = times.copy(
             introStartSeconds = times.introStartSeconds.coerceIn(0L, MAX_SECONDS),
             introEndSeconds = times.introEndSeconds.coerceIn(0L, MAX_SECONDS),
-            creditsStartSeconds = times.creditsStartSeconds.coerceIn(0L, MAX_SECONDS),
+            creditsLeadSeconds = times.creditsLeadSeconds.coerceIn(0L, MAX_SECONDS),
             seriesName = times.seriesName.trim().take(80),
         )
         // An entry that configures nothing is indistinguishable from having no entry, and
@@ -113,8 +129,13 @@ class SkipSegmentPreferences(private val settings: Settings) {
      * Takes the server list rather than being read alongside it so there is one definition
      * of "which segment is in force", instead of every caller re-deciding.
      */
-    fun applyTo(seriesId: String?, serverSegments: List<PlaybackSegment>): List<PlaybackSegment> {
-        val custom = customSegments(timesFor(seriesId))
+    fun applyTo(
+        seriesId: String?,
+        serverSegments: List<PlaybackSegment>,
+        /** Needed to place 片尾, which is stored as a distance back from this. */
+        durationMs: Long,
+    ): List<PlaybackSegment> {
+        val custom = customSegments(timesFor(seriesId), durationMs)
         if (custom.isEmpty()) return serverSegments
         // Replace rather than add: two competing 跳过片头 pills for one opening would be
         // worse than either alone. Each type is independent, so configuring only the intro
@@ -123,7 +144,7 @@ class SkipSegmentPreferences(private val settings: Settings) {
         return serverSegments.filterNot { it.type in overridden } + custom
     }
 
-    private fun customSegments(times: SkipTimes?): List<PlaybackSegment> {
+    private fun customSegments(times: SkipTimes?, durationMs: Long): List<PlaybackSegment> {
         if (times == null) return emptyList()
         return buildList {
             // An end at or before the start describes no interval at all; a half-entered
@@ -137,12 +158,16 @@ class SkipSegmentPreferences(private val settings: Settings) {
                     ),
                 )
             }
-            // Credits run to the end of the file, which only the player knows — hence no end.
-            if (times.creditsStartSeconds > 0L) {
+            // Credits run to the end of the file, which only the player knows — hence no
+            // end, and hence nothing to place the start against until a duration arrives.
+            // A lead longer than the whole file would make the entire item 片尾, which is
+            // a mistyped digit rather than an instruction; leave it out.
+            val creditsStartMs = durationMs - times.creditsLeadSeconds * 1000
+            if (times.hasCredits && durationMs > 0L && creditsStartMs > 0L) {
                 add(
                     PlaybackSegment(
                         type = PlaybackSegmentType.Credits,
-                        startMs = times.creditsStartSeconds * 1000,
+                        startMs = creditsStartMs,
                         endMs = null,
                     ),
                 )

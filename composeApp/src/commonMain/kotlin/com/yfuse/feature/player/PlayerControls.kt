@@ -188,7 +188,8 @@ fun PlayerControls(
     skipSeriesName: String? = null,
     skipIntroStartSeconds: Long = 0L,
     skipIntroEndSeconds: Long = 0L,
-    skipCreditsStartSeconds: Long = 0L,
+    /** 片尾 starts this many seconds before the end — see `SkipTimes.creditsLeadSeconds`. */
+    skipCreditsLeadSeconds: Long = 0L,
     autoSkipEnabled: Boolean = false,
     onSetSkipTimes: (Long, Long, Long) -> Unit = { _, _, _ -> },
     onToggleAutoSkip: () -> Unit = {},
@@ -553,7 +554,7 @@ fun PlayerControls(
                 skipSeriesName = skipSeriesName,
                 skipIntroStartSeconds = skipIntroStartSeconds,
                 skipIntroEndSeconds = skipIntroEndSeconds,
-                skipCreditsStartSeconds = skipCreditsStartSeconds,
+                skipCreditsLeadSeconds = skipCreditsLeadSeconds,
                 autoSkipEnabled = autoSkipEnabled,
                 // The panel stays open: setting a boundary is something you check against
                 // the picture behind it, and often two of the three in one visit.
@@ -998,6 +999,15 @@ private fun SkipPill(label: String, onClick: () -> Unit, modifier: Modifier = Mo
 private fun skipBoundaryLabel(name: String, seconds: Long): String =
     if (seconds > 0L) "$name · $seconds 秒" else "$name · 未设置"
 
+/**
+ * "片尾开始 · 距结束 120 秒" / "片尾开始 · 未设置".
+ *
+ * Spelled out rather than reusing [skipBoundaryLabel] because the number means the
+ * opposite thing: 120 here is near the end of the episode, not two minutes into it.
+ */
+private fun skipCreditsLabel(seconds: Long): String =
+    if (seconds > 0L) "片尾开始 · 距结束 $seconds 秒" else "片尾开始 · 未设置"
+
 /** "3 秒后跳过片头 · 点击取消" — the label says what will happen and how to stop it. */
 private fun skipCountdownLabel(skipSegmentLabel: String?, seconds: Int): String {
     // 跳过片头 -> 片头. The type's own label is the only place this wording lives.
@@ -1428,7 +1438,7 @@ private fun SettingsPanel(
     skipSeriesName: String?,
     skipIntroStartSeconds: Long,
     skipIntroEndSeconds: Long,
-    skipCreditsStartSeconds: Long,
+    skipCreditsLeadSeconds: Long,
     autoSkipEnabled: Boolean,
     onSetSkipTimes: (Long, Long, Long) -> Unit,
     onToggleAutoSkip: () -> Unit,
@@ -1611,24 +1621,70 @@ private fun SettingsPanel(
                         if (skipSeriesName != null) {
                             GroupLabel("片头片尾 · 点按设为当前进度")
                             val here = (state.positionMs / 1000).coerceAtLeast(0L)
+                            // 片尾 is kept as a distance from the end, so what gets stored
+                            // is how much of the episode is left — the same tap, counted
+                            // from the other side. Zero when the duration is not known yet,
+                            // which reads as "unset" rather than "starts at the very end".
+                            val leftFromHere = ((state.durationMs - state.positionMs) / 1000)
+                                .coerceAtLeast(0L)
                             OptionRow(
-                                skipBoundaryLabel("片头开始", skipIntroStartSeconds),
-                                skipIntroStartSeconds > 0L,
-                            ) { onSetSkipTimes(here, skipIntroEndSeconds, skipCreditsStartSeconds) }
+                                label = skipBoundaryLabel("片头开始", skipIntroStartSeconds),
+                                selected = skipIntroStartSeconds > 0L,
+                                onClick = {
+                                    onSetSkipTimes(
+                                        here,
+                                        skipIntroEndSeconds,
+                                        skipCreditsLeadSeconds,
+                                    )
+                                },
+                                // Setting a boundary is one tap, so clearing one has to be
+                                // too: without this the only way back from a mistimed tap
+                                // was to wipe all three and re-enter the others.
+                                actionLabel = "取消".takeIf { skipIntroStartSeconds > 0L },
+                                onAction = {
+                                    onSetSkipTimes(0L, skipIntroEndSeconds, skipCreditsLeadSeconds)
+                                },
+                            )
                             OptionRow(
-                                skipBoundaryLabel("片头结束", skipIntroEndSeconds),
-                                skipIntroEndSeconds > 0L,
-                            ) { onSetSkipTimes(skipIntroStartSeconds, here, skipCreditsStartSeconds) }
+                                label = skipBoundaryLabel("片头结束", skipIntroEndSeconds),
+                                selected = skipIntroEndSeconds > 0L,
+                                onClick = {
+                                    onSetSkipTimes(
+                                        skipIntroStartSeconds,
+                                        here,
+                                        skipCreditsLeadSeconds,
+                                    )
+                                },
+                                actionLabel = "取消".takeIf { skipIntroEndSeconds > 0L },
+                                onAction = {
+                                    onSetSkipTimes(
+                                        skipIntroStartSeconds,
+                                        0L,
+                                        skipCreditsLeadSeconds,
+                                    )
+                                },
+                            )
                             OptionRow(
-                                skipBoundaryLabel("片尾开始", skipCreditsStartSeconds),
-                                skipCreditsStartSeconds > 0L,
-                            ) { onSetSkipTimes(skipIntroStartSeconds, skipIntroEndSeconds, here) }
+                                label = skipCreditsLabel(skipCreditsLeadSeconds),
+                                selected = skipCreditsLeadSeconds > 0L,
+                                onClick = {
+                                    onSetSkipTimes(
+                                        skipIntroStartSeconds,
+                                        skipIntroEndSeconds,
+                                        leftFromHere,
+                                    )
+                                },
+                                actionLabel = "取消".takeIf { skipCreditsLeadSeconds > 0L },
+                                onAction = {
+                                    onSetSkipTimes(skipIntroStartSeconds, skipIntroEndSeconds, 0L)
+                                },
+                            )
                             OptionRow("自动跳过", autoSkipEnabled, onClick = onToggleAutoSkip)
                             // Also offered for a half-entered intro, which is exactly when
                             // starting over is most likely to be what's wanted.
                             val anySkipTimeSet = skipIntroStartSeconds > 0L ||
                                 skipIntroEndSeconds > 0L ||
-                                skipCreditsStartSeconds > 0L
+                                skipCreditsLeadSeconds > 0L
                             if (anySkipTimeSet) {
                                 OptionRow("清除《$skipSeriesName》的设置", false) {
                                     onSetSkipTimes(0L, 0L, 0L)
@@ -1962,7 +2018,17 @@ private fun GroupLabel(text: String) {
  * `#3D64C9` is a light-theme ink and goes muddy against this fill.
  */
 @Composable
-private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun OptionRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    /**
+     * Right-hand action, shown in place of the check mark. Null hides it, which is what
+     * every row that is a plain choice passes — only 片头片尾 has something to undo.
+     */
+    actionLabel: String? = null,
+    onAction: () -> Unit = {},
+) {
     val accent = Brand.PrimaryGradTop
     Row(
         Modifier
@@ -1993,8 +2059,18 @@ private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
-        if (selected) {
-            Icon(AppIcons.Check, null, tint = accent, modifier = Modifier.size(12.dp))
+        when {
+            actionLabel != null -> Text(
+                actionLabel,
+                style = sc(11.5f, 600),
+                color = Brand.Danger,
+                maxLines = 1,
+                modifier = Modifier
+                    .noRippleClickable(onAction)
+                    .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
+            )
+
+            selected -> Icon(AppIcons.Check, null, tint = accent, modifier = Modifier.size(12.dp))
         }
     }
 }
