@@ -110,7 +110,7 @@ private fun AnimatedSplashScreen(
     LaunchedEffect(Unit) {
         clock.animateTo(
             targetValue = TimelineMs.toFloat(),
-            animationSpec = tween(durationMillis = TimelineMs, easing = LinearEasing),
+            animationSpec = tween(durationMillis = PlaybackMs, easing = LinearEasing),
         )
         onFinished()
     }
@@ -290,8 +290,21 @@ private fun Wordmark(now: Float, skin: SplashSkin) {
 
 // ---------------------------------------------------------------- 时间线与缓动
 
-/** 副标在 2450ms 收尾，多留一拍再交给主界面。 */
+/**
+ * 编排长度：每个阶段的起止都写在这条时间线上（副标在 2450ms 收尾，多留一拍再交给主界面）。
+ *
+ * 这不是它在屏幕上的实际时长——见 [PlaybackMs]。
+ */
 private const val TimelineMs = 2_600
+
+/**
+ * 实际播放时长：整条时间线按这个速度跑完。
+ *
+ * 各阶段是相互叠着的（弧线未画完接缝就起，字标未展开副标就跟上），中间没有可以剪掉的空档，
+ * 所以缩短靠整体加速而不是截断——后者会把字标和副标切掉一半。等比压缩保住了编排的比例，
+ * 只是整体更快交给主界面。
+ */
+private const val PlaybackMs = 2_000
 private val MarkSize = 132.dp
 
 /** 两团散光的色值 —— `rgba(255,106,22,.22)` / `rgba(20,169,240,.2)`。 */
