@@ -155,8 +155,6 @@ object PlayerTokens {
     val drawerFillLandscape = Color(0xFF121622).copy(alpha = 0.70f)
     val nextUpFill = Color(0xFF141826).copy(alpha = 0.72f)    // rgba(20,24,38,.72)
     val hairline = Color.White.copy(alpha = 0.18f)
-    val controlFill = Color.White.copy(alpha = 0.16f)
-    val controlBorder = Color.White.copy(alpha = 0.28f)
     val chipFill = Color.White.copy(alpha = 0.14f)
     val chipBorder = Color.White.copy(alpha = 0.22f)
     val playFill = Color.White.copy(alpha = 0.68f)

@@ -57,6 +57,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.data.SkipMode
+import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
@@ -163,6 +165,12 @@ fun PlayerControls(
     onStopCast: () -> Unit = {},
     danmaku: DanmakuPanelState = DanmakuPanelState(),
     danmakuActions: DanmakuPanelActions = DanmakuPanelActions(),
+    /** The server this file is on. Null when there is only ever one server to be on. */
+    sourceLabel: String? = null,
+    /** `MKV` — the container, which the engine cannot report but the library knows. */
+    containerLabel: String? = null,
+    dolbyVision: Boolean = false,
+    dolbyAtmos: Boolean = false,
     skipSegmentLabel: String? = null,
     onSkipSegment: () -> Unit = {},
     /** Seconds left before an automatic skip fires, or null when none is armed. */
@@ -178,9 +186,9 @@ fun PlayerControls(
     skipIntroEndSeconds: Long = 0L,
     /** 片尾 starts this many seconds before the end — see `SkipTimes.creditsLeadSeconds`. */
     skipCreditsLeadSeconds: Long = 0L,
-    autoSkipEnabled: Boolean = false,
+    skipMode: SkipMode = SkipMode.Button,
     onSetSkipTimes: (Long, Long, Long) -> Unit = { _, _, _ -> },
-    onToggleAutoSkip: () -> Unit = {},
+    onSelectSkipMode: (SkipMode) -> Unit = {},
     watchEndpoint: String = "",
     watchConnecting: Boolean = false,
     watchConnected: Boolean = false,
@@ -435,9 +443,11 @@ fun PlayerControls(
         if (visible) {
             TopBar(
                 title = titles.getOrNull(state.currentIndex).orEmpty(),
-                subtitle = state.metaLine(),
+                subtitle = state.readoutLine(sourceLabel, containerLabel),
                 filled = filled,
                 hasEpisodes = state.itemCount > 1,
+                dolbyVision = dolbyVision,
+                dolbyAtmos = dolbyAtmos,
                 onBack = onBack,
                 onOpenDrawer = { poke(); drawerOpen = true },
                 onToggleFill = { poke(); onToggleFill() },
@@ -530,6 +540,9 @@ fun PlayerControls(
                     visible = true
                 },
                 watchConnected = watchConnected,
+                watchReconnecting = watchReconnecting,
+                watchIsHost = watchIsHost,
+                watchParticipantCount = watchParticipantCount,
                 watchRoomCode = watchRoomCode,
                 onOpenWatchTogether = {
                     settingsTab = null
@@ -542,11 +555,11 @@ fun PlayerControls(
                 skipIntroStartSeconds = skipIntroStartSeconds,
                 skipIntroEndSeconds = skipIntroEndSeconds,
                 skipCreditsLeadSeconds = skipCreditsLeadSeconds,
-                autoSkipEnabled = autoSkipEnabled,
+                skipMode = skipMode,
                 // The panel stays open: setting a boundary is something you check against
                 // the picture behind it, and often two of the three in one visit.
                 onSetSkipTimes = onSetSkipTimes,
-                onToggleAutoSkip = onToggleAutoSkip,
+                onSelectSkipMode = onSelectSkipMode,
                 onDismiss = { settingsTab = null },
             )
         }
@@ -762,9 +775,21 @@ private fun PlaybackErrorOverlay(
 @Composable
 private fun TopBar(
     title: String,
+    /**
+     * `alphatv · 1080P · EXO · HEVC · 18.1 Mbps · 60.0 fps` — where this is coming from and
+     * how it is actually being played.
+     *
+     * This line used to be `1080P · 音轨 2 · 字幕 3`, which counts things the 字幕 tab
+     * already lists and answers no question anyone has while watching. What is worth
+     * standing here is the pair that cannot be found anywhere else without opening a panel:
+     * which server the file is on, and whether it is direct-playing at full bitrate. Both
+     * are what you look at when the picture stutters.
+     */
     subtitle: String,
     filled: Boolean,
     hasEpisodes: Boolean,
+    dolbyVision: Boolean,
+    dolbyAtmos: Boolean,
     onBack: () -> Unit,
     onOpenDrawer: () -> Unit,
     onToggleFill: () -> Unit,
@@ -788,52 +813,50 @@ private fun TopBar(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                AppIcons.ChevronLeft,
-                contentDescription = "返回",
-                tint = Color.White,
-                modifier = Modifier
-                    .size(48.dp)
-                    .glass(
-                        shape = CircleShape,
-                        fill = PlayerTokens.controlFill,
-                        border = Color.White.copy(alpha = 0.28f),
+            CircleControl(AppIcons.ChevronLeft, "返回", 30.dp, 13.dp, onClick = onBack)
+            Column(Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Text(
+                        title,
+                        style = sc(14f, 700),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    .noRippleClickable(onBack)
-                    .padding(14.dp),
-            )
-            Column {
-                Text(
-                    title,
-                    style = sc(14f, 700),
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                    // Only what this file actually carries — the same rule the detail page
+                    // follows. A badge that is always there says nothing.
+                    if (dolbyVision) DolbyChip("VISION", Color.White.copy(alpha = 0.88f))
+                    if (dolbyAtmos) DolbyChip("ATMOS", Color.White.copy(alpha = 0.88f))
+                }
                 if (subtitle.isNotEmpty()) {
                     Spacer(Modifier.height(2.dp))
                     Text(
                         subtitle,
-                        style = mr(10.5f, 400),
-                        color = Color.White.copy(alpha = 0.6f),
+                        style = mr(10f, 500),
+                        color = Color.White.copy(alpha = 0.55f),
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
         }
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (hasEpisodes) {
-                CircleControl(AppIcons.Menu, "剧集列表", 48.dp, 19.dp, onClick = onOpenDrawer)
+                CircleControl(AppIcons.Menu, "剧集列表", 30.dp, 13.dp, onClick = onOpenDrawer)
             }
             CircleControl(
                 icon = if (filled) AppIcons.Collapse else AppIcons.Expand,
                 description = "切换画面比例",
-                size = 48.dp,
-                iconSize = 19.dp,
+                size = 30.dp,
+                iconSize = 13.dp,
                 onClick = onToggleFill,
             )
         }
@@ -1458,6 +1481,9 @@ private fun SettingsPanel(
     onStopCast: () -> Unit,
     onLock: () -> Unit,
     watchConnected: Boolean,
+    watchReconnecting: Boolean,
+    watchIsHost: Boolean,
+    watchParticipantCount: Int,
     watchRoomCode: String?,
     onOpenWatchTogether: () -> Unit,
     versions: List<Pair<String, String>>,
@@ -1467,9 +1493,9 @@ private fun SettingsPanel(
     skipIntroStartSeconds: Long,
     skipIntroEndSeconds: Long,
     skipCreditsLeadSeconds: Long,
-    autoSkipEnabled: Boolean,
+    skipMode: SkipMode,
     onSetSkipTimes: (Long, Long, Long) -> Unit,
-    onToggleAutoSkip: () -> Unit,
+    onSelectSkipMode: (SkipMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val tabs = buildList {
@@ -1672,7 +1698,15 @@ private fun SettingsPanel(
                                     onSetSkipTimes(skipIntroStartSeconds, skipIntroEndSeconds, 0L)
                                 },
                             )
-                            OptionRow("自动跳过", autoSkipEnabled, onClick = onToggleAutoSkip)
+                            // Three answers, not a switch: "don't skip automatically" and
+                            // "don't offer it at all" are different requests, and the second
+                            // used to be reachable only by deleting the times.
+                            GroupLabel("到达片头片尾时")
+                            SegmentedRow(
+                                options = SkipMode.entries.map { it.label },
+                                selectedIndex = SkipMode.entries.indexOf(skipMode),
+                                onSelect = { onSelectSkipMode(SkipMode.entries[it]) },
+                            )
                             // Also offered for a half-entered intro, which is exactly when
                             // starting over is most likely to be what's wanted.
                             val anySkipTimeSet = skipIntroStartSeconds > 0L ||
@@ -1725,6 +1759,25 @@ private fun SettingsPanel(
                             "${diagnostics.bufferedDurationMs / 1000.0f}s · ${diagnostics.bufferEvents} 次",
                         )
                         DiagnosticRow("丢帧", "${diagnostics.droppedFrames} 帧")
+
+                        // The room's own state, next to the playback state it is driving.
+                        // When 一起看 misbehaves the question is always the same — am I
+                        // still connected, who is in charge, how many of us are there —
+                        // and until now the only answer was the one-line banner.
+                        if (watchConnected || watchRoomCode != null) {
+                            GroupLabel("一起看")
+                            DiagnosticRow(
+                                "状态",
+                                when {
+                                    watchReconnecting -> "重连中"
+                                    watchConnected -> "已连接"
+                                    else -> "未连接"
+                                },
+                            )
+                            DiagnosticRow("房间", watchRoomCode ?: "—")
+                            DiagnosticRow("身份", if (watchIsHost) "房主" else "参与者")
+                            DiagnosticRow("在线", "$watchParticipantCount 人")
+                        }
                     }
 
                     Tab.Cast -> {
@@ -1994,6 +2047,54 @@ private fun Float.asFrameRate(): String {
     return "${tenths / 10}.${tenths % 10} fps"
 }
 
+/**
+ * One row, several mutually exclusive answers — for a setting whose options are short
+ * enough to sit side by side and are read as a spectrum rather than a list.
+ *
+ * A stack of [OptionRow]s says the same thing in three times the height and reads as three
+ * independent switches until you notice only one is ticked.
+ */
+@Composable
+internal fun SegmentedRow(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        options.forEachIndexed { index, label ->
+            val active = index == selectedIndex
+            val accent = Brand.PrimaryGradTop
+            Text(
+                label,
+                style = sc(11.5f, if (active) 700 else 500),
+                color = if (active) Color.White else Color.White.copy(alpha = 0.62f),
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .glass(
+                        shape = GlassShapes.thumb,
+                        fill = if (active) {
+                            accent.copy(alpha = 0.20f)
+                        } else {
+                            Color.White.copy(alpha = 0.06f)
+                        },
+                        border = if (active) {
+                            accent.copy(alpha = 0.38f)
+                        } else {
+                            Color.White.copy(alpha = 0.10f)
+                        },
+                    )
+                    .noRippleClickable { onSelect(index) }
+                    .padding(vertical = 8.dp),
+            )
+        }
+    }
+}
+
 /** `600 11px Manrope`, above each group in the 字幕·音轨 tab. */
 @Composable
 internal fun GroupLabel(text: String) {
@@ -2172,12 +2273,39 @@ internal fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier {
     return clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
 }
 
-/** "1080P · 音轨 2 · 字幕 3" under the title. */
-private fun PlaybackState.metaLine(): String = listOfNotNull(
+/**
+ * `alphatv · 1080P · EXO · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.
+ *
+ * Every part is dropped the moment it has nothing to say: one server means no server name,
+ * a first frame that has not arrived means no resolution, an engine that has not measured a
+ * bitrate yet means no bitrate. The line grows into itself over the first second or two
+ * rather than printing 未知 six times.
+ */
+private fun PlaybackState.readoutLine(
+    sourceLabel: String?,
+    containerLabel: String?,
+): String = listOfNotNull(
+    sourceLabel?.takeIf { it.isNotBlank() },
     resolutionLabel(videoHeight),
-    audioTracks.size.takeIf { it > 0 }?.let { "音轨 $it" },
-    subtitleTracks.size.takeIf { it > 0 }?.let { "字幕 $it" },
+    containerLabel?.takeIf { it.isNotBlank() },
+    diagnostics.engine.takeIf { it.isNotBlank() }?.let(::engineShortLabel),
+    diagnostics.videoCodec.takeIf { it.isNotBlank() && it != "未知" }?.uppercase(),
+    diagnostics.bitrateBitsPerSecond.takeIf { it > 0L }?.asBitrate(),
+    diagnostics.frameRate.takeIf { it > 0f }?.asFrameRate(),
 ).joinToString(" · ")
+
+/**
+ * `Media3 / ExoPlayer` reads as a sentence; this line has room for a word.
+ *
+ * Unmatched names pass through as their first word rather than being dropped — a future
+ * engine should show up here without anyone remembering to add it to a list.
+ */
+private fun engineShortLabel(engine: String): String = when {
+    engine.contains("exo", ignoreCase = true) -> "EXO"
+    engine.contains("mpv", ignoreCase = true) -> "MPV"
+    engine.contains("mdk", ignoreCase = true) -> "MDK"
+    else -> engine.substringBefore(' ').uppercase()
+}
 
 private fun resolutionLabel(height: Int): String? = when {
     height <= 0 -> null

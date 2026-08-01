@@ -55,6 +55,23 @@ data class SkipTimes(
 }
 
 /**
+ * What the player does when playback reaches a configured 片头 / 片尾.
+ *
+ * Three states rather than a switch, because a switch conflates two different answers. Off
+ * used to be reachable only by deleting the times, which throws away the work; and a switch
+ * labelled 自动跳过 says nothing about what happens when it is off — the pill was still
+ * there, unmentioned.
+ */
+enum class SkipMode(val label: String) {
+    /** Offer 跳过片头 and wait to be asked. The default: moving the playhead unbidden is a
+     *  surprising thing for a player to do, and the pill costs one tap. */
+    Button("跳过按钮"),
+    Auto("自动跳过"),
+    /** Times stay stored; nothing is offered and nothing moves. */
+    Off("关闭"),
+}
+
+/**
  * Hand-entered 片头 / 片尾 boundaries, for libraries whose server never analysed them.
  *
  * Emby only reports chapter-derived segments for content that has been run through its
@@ -71,7 +88,9 @@ data class SkipTimes(
 class SkipSegmentPreferences(private val settings: Settings) {
     private companion object {
         const val KEY_SERIES = "player.skip.bySeries"
+        /** The old two-state switch. Read once, to seed [KEY_MODE]. */
         const val KEY_AUTO_SKIP = "player.skip.auto"
+        const val KEY_MODE = "player.skip.mode"
 
         /** Longer than any plausible runtime, and a guard against a mistyped extra digit. */
         const val MAX_SECONDS = 10 * 60 * 60L
@@ -83,17 +102,26 @@ class SkipSegmentPreferences(private val settings: Settings) {
     private val _bySeries = MutableStateFlow(load())
     val bySeries: StateFlow<Map<String, SkipTimes>> = _bySeries.asStateFlow()
 
-    /**
-     * Whether entering a configured segment skips it on its own. Off by default: silently
-     * moving the playhead is a surprising thing for a player to do unasked, and the manual
-     * pill already covers the case.
-     */
-    private val _autoSkip = MutableStateFlow(settings.getBoolean(KEY_AUTO_SKIP, false))
-    val autoSkip: StateFlow<Boolean> = _autoSkip.asStateFlow()
+    private val _skipMode = MutableStateFlow(loadMode())
+    val skipMode: StateFlow<SkipMode> = _skipMode.asStateFlow()
 
-    fun setAutoSkip(enabled: Boolean) {
-        _autoSkip.value = enabled
-        settings.putBoolean(KEY_AUTO_SKIP, enabled)
+    fun setSkipMode(mode: SkipMode) {
+        _skipMode.value = mode
+        settings.putString(KEY_MODE, mode.name)
+    }
+
+    /**
+     * Reads the mode, seeding it from the switch older versions stored.
+     *
+     * An install that had 自动跳过 on comes back as [SkipMode.Auto]; one that had it off
+     * comes back as [SkipMode.Button], which is what "off" meant then — the pill was still
+     * being offered. Nobody's behaviour changes on upgrade.
+     */
+    private fun loadMode(): SkipMode {
+        settings.getStringOrNull(KEY_MODE)
+            ?.let { stored -> SkipMode.entries.firstOrNull { it.name == stored } }
+            ?.let { return it }
+        return if (settings.getBoolean(KEY_AUTO_SKIP, false)) SkipMode.Auto else SkipMode.Button
     }
 
     fun timesFor(seriesId: String?): SkipTimes? =

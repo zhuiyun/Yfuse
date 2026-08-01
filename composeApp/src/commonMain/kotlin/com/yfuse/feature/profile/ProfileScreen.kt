@@ -49,6 +49,7 @@ import com.yfuse.app.TabBarInset
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.SkipMode
 import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
@@ -115,7 +116,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val danmakuSources by component.danmakuPreferences.sources.collectAsState()
     val danmakuActiveSourceId by component.danmakuPreferences.activeSourceId.collectAsState()
     val skipTimesBySeries by component.skipSegmentPreferences.bySeries.collectAsState()
-    val autoSkip by component.skipSegmentPreferences.autoSkip.collectAsState()
+    val skipMode by component.skipSegmentPreferences.skipMode.collectAsState()
     val customUserAgent by component.userAgentPreferences.userAgent.collectAsState()
     val offlineItems by component.offlineMedia.items.collectAsState()
     val recoverySnapshot by component.playbackRecovery.snapshot.collectAsState()
@@ -270,10 +271,10 @@ fun ProfileScreen(component: ProfileComponent) {
                             SettingsDivider()
                             SettingRow(
                                 "片头片尾",
-                                when {
-                                    skipTimesBySeries.isEmpty() -> "跟随服务器 ›"
-                                    autoSkip -> "${skipTimesBySeries.size} 部剧 · 自动跳过 ›"
-                                    else -> "${skipTimesBySeries.size} 部剧 ›"
+                                if (skipTimesBySeries.isEmpty()) {
+                                    "跟随服务器 ›"
+                                } else {
+                                    "${skipTimesBySeries.size} 部剧 · ${skipMode.label} ›"
                                 },
                                 embedded = true,
                                 onClick = { sheet = Sheet.SkipSegments },
@@ -452,8 +453,8 @@ fun ProfileScreen(component: ProfileComponent) {
 
             Sheet.SkipSegments -> SkipSegmentDialog(
                 bySeries = skipTimesBySeries,
-                autoSkip = autoSkip,
-                onToggleAutoSkip = component.skipSegmentPreferences::setAutoSkip,
+                skipMode = skipMode,
+                onSelectSkipMode = component.skipSegmentPreferences::setSkipMode,
                 onSave = { seriesId, times ->
                     component.skipSegmentPreferences.set(seriesId, times)
                 },
@@ -881,7 +882,7 @@ private fun DanmakuField(
 }
 
 /**
- * 片头片尾 — the auto-skip switch, and the numeric editor for times already captured.
+ * 片头片尾 — what happens at a boundary, and the numeric editor for times already captured.
  *
  * Entries are *created* in the player, where a boundary can be set from wherever playback
  * already is; a series that has never been played has nothing here to name it. What this
@@ -891,8 +892,8 @@ private fun DanmakuField(
 @Composable
 private fun SkipSegmentDialog(
     bySeries: Map<String, SkipTimes>,
-    autoSkip: Boolean,
-    onToggleAutoSkip: (Boolean) -> Unit,
+    skipMode: SkipMode,
+    onSelectSkipMode: (SkipMode) -> Unit,
     onSave: (String, SkipTimes) -> Unit,
     onClear: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -908,7 +909,12 @@ private fun SkipSegmentDialog(
                 subtitle = "按剧保存。在播放器的「更多」里点按设为当前进度，再点「取消」撤销。",
                 onClose = onDismiss,
             )
-            SwitchRow("自动跳过", autoSkip, onChange = onToggleAutoSkip)
+            // 关闭 keeps the times and stops offering them, which is a different request
+            // from deleting a show's boundaries — and the only one that used to be
+            // impossible without throwing the work away.
+            SkipMode.entries.forEach { mode ->
+                OverlayOptionRow(mode.label, mode == skipMode) { onSelectSkipMode(mode) }
+            }
             if (bySeries.isEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Text(

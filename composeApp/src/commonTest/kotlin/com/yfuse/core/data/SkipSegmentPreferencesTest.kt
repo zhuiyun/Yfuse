@@ -113,4 +113,27 @@ class SkipSegmentPreferencesTest {
         assertEquals(server, prefs.applyTo("other", server, durationMs = fortyFiveMinutes))
         assertEquals(server, prefs.applyTo(null, server, durationMs = fortyFiveMinutes))
     }
+
+    @Test
+    fun the_old_auto_skip_switch_becomes_a_mode_without_changing_behaviour() {
+        val on = MapSettings().apply { putBoolean("player.skip.auto", true) }
+        val off = MapSettings().apply { putBoolean("player.skip.auto", false) }
+
+        assertEquals(SkipMode.Auto, SkipSegmentPreferences(on).skipMode.value)
+        // Off used to mean "still offer the pill", which is 跳过按钮 — not 关闭.
+        assertEquals(SkipMode.Button, SkipSegmentPreferences(off).skipMode.value)
+    }
+
+    @Test
+    fun the_mode_survives_recreation() {
+        val settings = MapSettings()
+        SkipSegmentPreferences(settings).setSkipMode(SkipMode.Off)
+
+        assertEquals(SkipMode.Off, SkipSegmentPreferences(settings).skipMode.value)
+    }
+
+    @Test
+    fun a_fresh_install_offers_the_button_rather_than_moving_the_playhead() {
+        assertEquals(SkipMode.Button, SkipSegmentPreferences(MapSettings()).skipMode.value)
+    }
 }

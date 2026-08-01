@@ -32,6 +32,15 @@ data class PlayerMediaVersion(
     val url: String,
     val transcodeUrl: String,
     val fallbackTranscodeUrl: String,
+    /** `MKV`, for the player's readout line. */
+    val container: String? = null,
+    /**
+     * What the file carries, decided by [com.yfuse.core.model.MediaVersion] rather than
+     * re-derived here — Emby hides Dolby Vision in four different fields and one place
+     * knowing where is enough.
+     */
+    val dolbyVision: Boolean = false,
+    val dolbyAtmos: Boolean = false,
 )
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
@@ -69,6 +78,17 @@ data class PlayerMediaItem(
     /** Which of [versions] the URLs above were built from. */
     val versionId: String? = null,
 ) {
+    /**
+     * The file currently playing, when the entry's sources were fetched at all.
+     *
+     * Null for the sibling episodes of a queue: they are listed from `/Shows/…/Episodes`,
+     * which does not carry `MediaSources`, so nothing here knows what those files hold. The
+     * readout and the 杜比 badge simply say less on them rather than guessing from the
+     * episode that was opened — a different episode is a different file.
+     */
+    val activeVersion: PlayerMediaVersion?
+        get() = versions.firstOrNull { it.id == versionId } ?: versions.firstOrNull()
+
     /** The same entry playing a different file, or unchanged when there is no such file. */
     fun withVersion(id: String?): PlayerMediaItem {
         val version = versions.firstOrNull { it.id == id } ?: return this
@@ -161,6 +181,9 @@ class PlayerStoreFactory(
                             server.accessToken,
                             mediaSourceId = it.id,
                         ),
+                        container = it.container?.uppercase(),
+                        dolbyVision = it.isDolbyVision,
+                        dolbyAtmos = it.hasDolbyAtmos,
                     )
                 }
 

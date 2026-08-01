@@ -75,6 +75,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.SkipMode
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.ThemePreferences
@@ -1035,7 +1036,12 @@ private fun PlayerRoot(
     // Read as state so editing this series' times mid-episode takes effect on the open
     // player rather than only on the next launch.
     val skipTimesBySeries by skipSegmentPreferences.bySeries.collectAsState()
-    val autoSkip by skipSegmentPreferences.autoSkip.collectAsState()
+    val skipMode by skipSegmentPreferences.skipMode.collectAsState()
+    // id to name, for the readout's leading segment. Read from the registry rather than
+    // carried on the queue: the name is a property of the server, not of the file.
+    val serverNames = remember {
+        GlobalContext.get().get<ServerRegistry>().data.value.servers.associate { it.id to it.serverName }
+    }
     val skipTimes = currentItem?.seriesId?.let(skipTimesBySeries::get)
     // Keyed on the duration too: 片尾 is stored as a distance back from the end, so it
     // cannot be placed until the engine reports how long this entry is.
@@ -1077,7 +1083,7 @@ private fun PlayerRoot(
     // and its "当前由房主控制播放" toast — at every opening in the season.
     val watchGuest = watchState.connected && !watchState.isHost
     val skipArmed = skipOccurrence != null &&
-        autoSkip &&
+        skipMode == SkipMode.Auto &&
         !watchGuest &&
         skipOccurrence != settledSkip
     // The countdown outlives several position ticks, so it must fire against the playback
@@ -1607,7 +1613,20 @@ private fun PlayerRoot(
                     search = danmakuSearch,
                 ),
                 danmakuActions = danmakuActions,
-                skipSegmentLabel = activeSegment?.type?.skipLabel,
+                // 关闭 keeps the stored boundaries and stops offering them. Gating here
+                // rather than on the segment itself leaves 片头片尾 in the settings panel
+                // still showing what is set — turning the offer off is not forgetting it.
+                // Only worth naming when there is more than one server to be on. On a
+                // single-server install it is a constant, and a constant on a line meant
+                // for live facts is noise.
+                sourceLabel = currentItem?.serverId
+                    ?.takeIf { serverNames.size > 1 }
+                    ?.let(serverNames::get),
+                containerLabel = currentItem?.activeVersion?.container,
+                dolbyVision = currentItem?.activeVersion?.dolbyVision == true,
+                dolbyAtmos = currentItem?.activeVersion?.dolbyAtmos == true,
+                skipSegmentLabel = activeSegment?.type?.skipLabel
+                    ?.takeIf { skipMode != SkipMode.Off },
                 onSkipSegment = skipSegment,
                 skipCountdownSeconds = skipCountdownSeconds,
                 // Cancelling drops back to the manual pill rather than clearing the offer
@@ -1627,7 +1646,7 @@ private fun PlayerRoot(
                 skipIntroStartSeconds = skipTimes?.introStartSeconds ?: 0L,
                 skipIntroEndSeconds = skipTimes?.introEndSeconds ?: 0L,
                 skipCreditsLeadSeconds = skipTimes?.creditsLeadSeconds ?: 0L,
-                autoSkipEnabled = autoSkip,
+                skipMode = skipMode,
                 onSetSkipTimes = { introStart, introEnd, creditsLead ->
                     val seriesId = currentItem?.seriesId ?: return@PlayerControls
                     skipSegmentPreferences.set(
@@ -1640,7 +1659,7 @@ private fun PlayerRoot(
                         ),
                     )
                 },
-                onToggleAutoSkip = { skipSegmentPreferences.setAutoSkip(!autoSkip) },
+                onSelectSkipMode = skipSegmentPreferences::setSkipMode,
                 watchEndpoint = watchEndpoint,
                 watchConnecting = watchState.connecting,
                 watchConnected = watchState.connected,
