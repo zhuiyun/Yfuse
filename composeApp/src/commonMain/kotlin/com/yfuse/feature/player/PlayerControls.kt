@@ -444,19 +444,13 @@ fun PlayerControls(
                 modifier = Modifier.align(Alignment.TopCenter),
             )
 
-            TransportRow(
-                state = state,
-                locked = watchLocked,
-                onPlayPause = { poke(); onPlayPause() },
-                onRewind = { poke(); onSeek((state.positionMs - 10_000L).coerceAtLeast(0L)) },
-                onForward = { poke(); onSeek(state.positionMs + 10_000L) },
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
-
             BottomBar(
                 state = state,
                 volume = volume,
                 seekLocked = watchLocked,
+                onPlayPause = { poke(); onPlayPause() },
+                onRewind = { poke(); onSeek((state.positionMs - 10_000L).coerceAtLeast(0L)) },
+                onForward = { poke(); onSeek(state.positionMs + 10_000L) },
                 skipCountdownLabel = skipCountdownSeconds?.let {
                     skipCountdownLabel(skipSegmentLabel, it)
                 },
@@ -838,11 +832,19 @@ private fun TopBar(
 }
 
 /**
- * Centred at `top:44%`, `gap:38px`: 46 / 58 / 46 circles.
+ * 快退 / 播放 / 快进 — 26 / 30 / 26 rings at the left of the bottom bar.
  *
- * [locked] dims the whole cluster to half opacity and stops it taking taps — a connected
- * guest can see what the room is doing but does not drive it. Dimming rather than hiding
- * keeps the transport where the eye expects it and makes the reason legible alongside the
+ * It used to float in the centre of the frame at 48 / 58 / 48, with a filled white disc on
+ * the play button. That is the worst place to put anything: the middle of a shot is where
+ * the subject is, so the one control that is always on screen was always over a face. Down
+ * here it shares the gradient the scrubber already needs, and the picture keeps its middle.
+ *
+ * Rings rather than plates, and small enough that the row reads as one strip with the
+ * chips opposite it. The touch target does not shrink with the ring — see [CircleControl].
+ *
+ * [locked] dims the cluster to half opacity and stops it taking taps: a connected guest can
+ * see what the room is doing but does not drive it. Dimming rather than hiding keeps the
+ * transport where the eye expects it and makes the reason legible alongside the
  * 「房主控制播放」 banner.
  */
 @Composable
@@ -854,58 +856,48 @@ private fun TransportRow(
     onForward: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.fillMaxSize()) {
-        Row(
-            Modifier
-                .align(Alignment.Center)
-                .graphicsLayer { alpha = if (locked) 0.45f else 1f },
-            horizontalArrangement = Arrangement.spacedBy(38.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CircleControl(
-                AppIcons.Rewind,
-                "快退 10 秒",
-                48.dp,
-                17.dp,
-                enabled = !locked,
-                onClick = onRewind,
-            )
+    Row(
+        modifier.graphicsLayer { alpha = if (locked) 0.45f else 1f },
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircleControl(
+            AppIcons.Rewind,
+            "快退 10 秒",
+            26.dp,
+            13.dp,
+            enabled = !locked,
+            onClick = onRewind,
+        )
 
-            if (state.buffering) {
-                Box(Modifier.size(58.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color.White)
-                }
-            } else {
-                // `58px` circle, `rgba(255,255,255,.92)`, `#141A26` glyph.
-                Box(
-                    Modifier
-                        .size(58.dp)
-                        .glass(
-                            shape = CircleShape,
-                            fill = PlayerTokens.playFill,
-                            border = Color.White.copy(alpha = 0.42f),
-                        )
-                        .let { if (locked) it else it.noRippleClickable(onPlayPause) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (state.playing) AppIcons.Pause else AppIcons.Play,
-                        contentDescription = if (state.playing) "暂停" else "播放",
-                        tint = PlayerTokens.onPlay,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+        if (state.buffering) {
+            Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(20.dp),
+                )
             }
-
+        } else {
             CircleControl(
-                AppIcons.Forward,
-                "快进 10 秒",
-                48.dp,
-                17.dp,
+                if (state.playing) AppIcons.Pause else AppIcons.Play,
+                if (state.playing) "暂停" else "播放",
+                30.dp,
+                14.dp,
                 enabled = !locked,
-                onClick = onForward,
+                filled = true,
+                onClick = onPlayPause,
             )
         }
+
+        CircleControl(
+            AppIcons.Forward,
+            "快进 10 秒",
+            26.dp,
+            13.dp,
+            enabled = !locked,
+            onClick = onForward,
+        )
     }
 }
 
@@ -1022,6 +1014,9 @@ private fun BottomBar(
     volume: Float,
     /** Guest in a room: the scrubber becomes a read-only progress indicator. */
     seekLocked: Boolean,
+    onPlayPause: () -> Unit,
+    onRewind: () -> Unit,
+    onForward: () -> Unit,
     /** Non-null while an automatic skip is counting down; shown under the progress row. */
     skipCountdownLabel: String?,
     onCancelAutoSkip: () -> Unit,
@@ -1089,7 +1084,24 @@ private fun BottomBar(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            VolumeChip(volume, onVolume)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Transport lives here now rather than floating in the middle of the frame.
+                // A 58dp disc centred on the picture is 58dp of picture you cannot see, and
+                // it lands on the subject's face more often than not — the one part of the
+                // shot the controls should never be over. Along the bottom edge it sits on
+                // the gradient that is already there for the scrubber.
+                TransportRow(
+                    state = state,
+                    locked = seekLocked,
+                    onPlayPause = onPlayPause,
+                    onRewind = onRewind,
+                    onForward = onForward,
+                )
+                VolumeChip(volume, onVolume)
+            }
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1327,22 +1339,40 @@ private fun CircleControl(
     size: Dp,
     iconSize: Dp,
     enabled: Boolean = true,
+    /** Filled rather than outlined. The one control that earns it is 播放/暂停. */
+    filled: Boolean = false,
     onClick: () -> Unit,
 ) {
+    // The ring is what you see; the touch target is bigger than the ring. Sizing them
+    // together is what made these controls big enough to cover a face — a 48dp disc over
+    // the middle of the picture is 48dp of picture you cannot see.
     Box(
         Modifier
-            .size(size)
-            .glass(
-                shape = CircleShape,
-                fill = PlayerTokens.controlFill,
-                border = Color.White.copy(alpha = 0.28f),
-            )
+            .size(size + ControlTouchPadding * 2)
             .let { if (enabled) it.noRippleClickable(onClick) else it },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(iconSize))
+        Box(
+            Modifier
+                .size(size)
+                .border(1.dp, Color.White.copy(alpha = if (filled) 0.42f else 0.62f), CircleShape)
+                .let {
+                    if (filled) it.background(PlayerTokens.playFill, CircleShape) else it
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = description,
+                tint = if (filled) PlayerTokens.onPlay else Color.White,
+                modifier = Modifier.size(iconSize),
+            )
+        }
     }
 }
+
+/** Slack around a control's ring, so a small ring still has a thumb-sized target. */
+private val ControlTouchPadding = 7.dp
 
 /**
  * Lock screen — a 52px circle over `屏幕已锁定` at `gap:14px`, with the
