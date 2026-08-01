@@ -59,7 +59,53 @@ data class MediaVersion(
             bitrateLabel,
             container?.uppercase(),
         ).joinToString(" · ")
+
+    /**
+     * Whether this copy is Dolby Vision, asked of everything that could say so.
+     *
+     * Emby reports dynamic range in more than one place and not consistently across
+     * versions: `VideoRange` is often just `HDR`, with `DOVI` or a `dvhe`/`dvh1` profile
+     * being what actually distinguishes Dolby Vision from HDR10. Checking one field misses
+     * it on half the libraries, and the badge exists precisely to answer "is this the
+     * Dolby copy" — a badge that is sometimes right is worse than none.
+     */
+    val isDolbyVision: Boolean
+        get() = listOf(videoRange, videoCodec, video?.profile, video?.displayTitle)
+            .any(String?::mentionsDolbyVision)
+
+    /** Atmos rides on TrueHD or E-AC-3 and is only named in the track's profile or title. */
+    val hasDolbyAtmos: Boolean
+        get() = audioTracks.any { track ->
+            track.profile.mentionsAtmos() || track.displayTitle.mentionsAtmos()
+        }
+
+    /** `SDR` when the server reported no range at all — the chip always says something. */
+    val rangeLabel: String
+        get() = when {
+            isDolbyVision -> "Dolby Vision"
+            else -> videoRange?.takeIf { it.isNotBlank() } ?: "SDR"
+        }
+
+    /** `60fps` — whole frames, for a chip that sits beside a bitrate. */
+    val frameRateLabel: String?
+        get() = video?.frameRate?.takeIf { it > 0 }?.let { rate ->
+            val rounded = (rate + 0.5).toInt()
+            "${rounded}fps"
+        }
 }
+
+private fun String?.mentionsDolbyVision(): Boolean {
+    val value = this?.lowercase() ?: return false
+    return "dolby vision" in value ||
+        "dolbyvision" in value ||
+        "dovi" in value ||
+        value.startsWith("dvhe") ||
+        value.startsWith("dvh1") ||
+        value.startsWith("dav1")
+}
+
+private fun String?.mentionsAtmos(): Boolean =
+    this?.contains("atmos", ignoreCase = true) == true
 
 /**
  * The picture stream, spelled out.

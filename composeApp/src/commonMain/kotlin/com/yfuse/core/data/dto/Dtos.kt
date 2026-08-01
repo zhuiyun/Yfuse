@@ -266,6 +266,9 @@ fun MediaSourceDto.toSourceInfo(): SourceInfo? {
         else -> "${height}P"
     }
     val hdr = video?.VideoRange?.takeIf { !it.equals("SDR", ignoreCase = true) }
+    // Built through MediaVersion rather than read off the streams a second time: it already
+    // knows where Emby hides Dolby Vision, and one definition of that is enough.
+    val version = toMediaVersion(fallbackId = Id.orEmpty(), ordinal = 0)
     return SourceInfo(
         quality = if (hdr != null) "$quality $hdr" else quality,
         size = Size?.takeIf { it > 0 }?.let { formatBytes(it) },
@@ -273,6 +276,10 @@ fun MediaSourceDto.toSourceInfo(): SourceInfo? {
         audioTrackCount = MediaStreams.orEmpty().count { it.Type == "Audio" },
         subtitleTrackCount = MediaStreams.orEmpty().count { it.Type == "Subtitle" },
         sizeBytes = Size?.takeIf { it > 0 },
+        rangeLabel = version.rangeLabel,
+        dolbyVision = version.isDolbyVision,
+        dolbyAtmos = version.hasDolbyAtmos,
+        frameRate = version.frameRateLabel,
     )
 }
 

@@ -61,6 +61,8 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.DolbyBadge
+import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
@@ -135,6 +137,10 @@ fun DetailScreen(component: DetailComponent) {
 
     var seasonPickerOpen by remember { mutableStateOf(false) }
     var overviewExpanded by remember { mutableStateOf(false) }
+    // Hoisted out of the list: the hero badges what this copy is, and 媒体信息 at the foot
+    // of the page spells the same file out — one answer to "which file", read twice.
+    val selectedVersion = detail?.versions?.firstOrNull { it.id == state.selectedVersionId }
+        ?: detail?.versions?.firstOrNull()
 
     val watchTogether = remember { GlobalContext.get().get<WatchTogetherClient>() }
     val watchPreferences = remember { GlobalContext.get().get<WatchTogetherPreferences>() }
@@ -211,8 +217,9 @@ fun DetailScreen(component: DetailComponent) {
                         verticalArrangement = Arrangement.spacedBy(SheetGap),
                     ) {
                         TitleBlock(
-                            detail,
-                            Modifier.onSizeChanged {
+                            detail = detail,
+                            version = selectedVersion,
+                            modifier = Modifier.onSizeChanged {
                                 captionLift = with(density) { it.height.toDp() } + SheetGap
                             },
                         )
@@ -375,9 +382,6 @@ fun DetailScreen(component: DetailComponent) {
                 // Last on the page: 媒体信息 is the file's technical readout — codec,
                 // bitrate, size — which is what someone comes back for, not what they came
                 // for. Everything above it is about the title itself.
-                val selectedVersion = detail.versions
-                    .firstOrNull { it.id == state.selectedVersionId }
-                    ?: detail.versions.firstOrNull()
                 if (selectedVersion != null) {
                     item(key = "mediaInfo") {
                         MediaInfoSection(
@@ -768,7 +772,11 @@ private fun DetailTopBar(
  * page, where no single ink would work.
  */
 @Composable
-private fun TitleBlock(detail: MediaDetail, modifier: Modifier = Modifier) {
+private fun TitleBlock(
+    detail: MediaDetail,
+    version: MediaVersion?,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -808,6 +816,18 @@ private fun TitleBlock(detail: MediaDetail, modifier: Modifier = Modifier) {
         detail.genres.firstOrNull()?.let { genre ->
             Spacer(Modifier.height(8.dp))
             Text(genre, style = sc(11.5f, 500), color = ArtworkInkFaint, maxLines = 1)
+        }
+        // Only what this copy actually carries. A page that always claims Dolby says
+        // nothing; here the badge is the answer to "is this the good file", which on a
+        // title the library holds twice is the question being asked.
+        val dolbyVision = version?.isDolbyVision == true
+        val dolbyAtmos = version?.hasDolbyAtmos == true
+        if (dolbyVision || dolbyAtmos) {
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                if (dolbyVision) DolbyBadge("VISION", ArtworkInk)
+                if (dolbyAtmos) DolbyBadge("ATMOS", ArtworkInk)
+            }
         }
     }
 }
@@ -1572,7 +1592,12 @@ private fun SourceCard(
             CountChip(AppIcons.Volume, source?.audioTrackCount ?: 0)
             CountChip(AppIcons.Subtitle, source?.subtitleTrackCount ?: 0)
             Spacer(Modifier.weight(1f))
-            source?.quality?.takeIf { it.isNotBlank() }?.let { quality ->
+            // The mark rather than the words: at this size "Dolby Vision" would take the
+            // width of the rest of the row, and the mark is what the eye is scanning for.
+            if (source?.dolbyVision == true) {
+                DolbyChip("VISION", if (selected) accent else palette.sub)
+            }
+            source?.quality?.takeIf { it.isNotBlank() && source.dolbyVision != true }?.let { quality ->
                 Text(
                     quality,
                     style = mr(9f, 700),

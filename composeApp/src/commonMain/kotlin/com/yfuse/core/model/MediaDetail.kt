@@ -21,6 +21,12 @@ data class SourceInfo(
     val subtitleTrackCount: Int = 0,
     /** Raw bytes, kept alongside the formatted [size] so cards can be ranked. */
     val sizeBytes: Long? = null,
+    /** `HDR10` / `Dolby Vision` / `SDR` — the chip, always populated. */
+    val rangeLabel: String = "SDR",
+    val dolbyVision: Boolean = false,
+    val dolbyAtmos: Boolean = false,
+    /** `60fps`, absent when the server did not report a frame rate. */
+    val frameRate: String? = null,
 ) {
     /** `4K HDR · 42.3 GB · 68 Mbps` */
     val summary: String get() = listOfNotNull(quality, size, bitrate).joinToString(" · ")
