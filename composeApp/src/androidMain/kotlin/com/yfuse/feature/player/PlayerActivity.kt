@@ -1630,7 +1630,7 @@ private fun PlayerRoot(
         if (!inPictureInPicture) {
             PlayerControls(
                 state = state,
-                titles = items.map { it.title },
+                episodes = activeItems.toEpisodeCards(),
                 filled = filled,
                 onBack = onBack,
                 onPlayPause = { playbackGate.togglePlayPause() },

@@ -8,6 +8,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackSegment
@@ -77,6 +78,18 @@ data class PlayerMediaItem(
     val versions: List<PlayerMediaVersion> = emptyList(),
     /** Which of [versions] the URLs above were built from. */
     val versionId: String? = null,
+    /**
+     * The episode still, for the strip along the bottom of the player.
+     *
+     * Carried on the queue rather than fetched by the strip: the queue is built from a
+     * list query that already returns the image tag, and a picker that fires a request per
+     * thumbnail the moment it opens is the reason the old drawer had grey tiles instead.
+     */
+    val stillUrl: String? = null,
+    /** 0f..1f, how far through this entry the viewer already is. Null for untouched. */
+    val progress: Float? = null,
+    /** `第 4 集` — the coordinate alone, under the episode's own name. */
+    val caption: String? = null,
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.
@@ -198,6 +211,9 @@ class PlayerStoreFactory(
                     seriesName: String? = null,
                     seriesProviderIds: Map<String, String>? = null,
                     versions: List<MediaVersion> = emptyList(),
+                    stillTag: String? = null,
+                    progress: Float? = null,
+                    caption: String? = null,
                 ): PlayerMediaItem {
                   val playerVersions = versionsOf(id, versions)
                   // The file the detail page picked, else the server's first — which is
@@ -243,6 +259,17 @@ class PlayerStoreFactory(
                     ),
                     versions = playerVersions,
                     versionId = chosen?.id,
+                    stillUrl = stillTag?.let {
+                        EmbyImages.primary(
+                            server.baseUrl,
+                            id,
+                            it,
+                            maxHeight = 240,
+                            accessToken = server.accessToken,
+                        )
+                    },
+                    progress = progress,
+                    caption = caption,
                   )
                 }
 
@@ -297,6 +324,15 @@ class PlayerStoreFactory(
                                 // populate a picker almost nobody opens isn't worth the
                                 // round trips.
                                 versions = if (ep.id == itemId) detail.versions else emptyList(),
+                                stillTag = ep.primaryTag,
+                                // A finished episode reads as full rather than as untouched:
+                                // Emby clears the resume percentage on completion, so the
+                                // two are indistinguishable without the played flag.
+                                progress = when {
+                                    ep.played -> 1f
+                                    else -> ep.playedPercentage?.let { (it / 100.0).toFloat() }
+                                },
+                                caption = ep.indexNumber?.let { "第 $it 集" },
                             )
                         }
                         val index = items.indexOfFirst { it.id == itemId }.coerceAtLeast(0)

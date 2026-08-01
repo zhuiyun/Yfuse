@@ -127,7 +127,8 @@ private enum class Tab(val label: String) {
 @Composable
 fun PlayerControls(
     state: PlaybackState,
-    titles: List<String>,
+    /** The queue, as the strip and the title bar both read it. */
+    episodes: List<EpisodeCard>,
     filled: Boolean,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
@@ -444,7 +445,7 @@ fun PlayerControls(
 
         if (visible) {
             TopBar(
-                title = titles.getOrNull(state.currentIndex).orEmpty(),
+                title = episodes.getOrNull(state.currentIndex)?.title.orEmpty(),
                 subtitle = state.readoutLine(sourceLabel, containerLabel),
                 filled = filled,
                 hasEpisodes = state.itemCount > 1,
@@ -605,8 +606,8 @@ fun PlayerControls(
         }
 
         if (drawerOpen) {
-            EpisodeDrawer(
-                titles = titles,
+            EpisodeStrip(
+                episodes = episodes,
                 currentIndex = state.currentIndex,
                 onSelect = if (watchLocked) {
                     // Guests can still browse what's in the room's queue; picking is the
@@ -616,7 +617,7 @@ fun PlayerControls(
                     { onSelectItem(it); drawerOpen = false }
                 },
                 onDismiss = { drawerOpen = false },
-                modifier = Modifier.align(Alignment.CenterEnd),
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
 
@@ -2185,103 +2186,6 @@ internal fun OptionRow(
             )
 
             selected -> Icon(AppIcons.Check, null, tint = accent, modifier = Modifier.size(12.dp))
-        }
-    }
-}
-
-/**
- * Episode drawer — `width:190px`, `rgba(18,22,34,.7)` behind a
- * `rgba(255,255,255,.14)` left hairline, `padding:16px 12px`, `gap:8px`.
- */
-@Composable
-private fun EpisodeDrawer(
-    titles: List<String>,
-    currentIndex: Int,
-    onSelect: (Int) -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)).noRippleClickable(onDismiss))
-    Column(
-        modifier
-            .fillMaxHeight()
-            .width(190.dp)
-            .glass(
-                shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp),
-                fill = PlayerTokens.drawerFillLandscape,
-                border = Color.White.copy(alpha = 0.24f),
-            )
-            .noRippleClickable { }
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("剧集列表", style = sc(12f, 700), color = Color.White)
-            Icon(
-                AppIcons.Close,
-                contentDescription = "关闭",
-                tint = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier.size(11.dp).noRippleClickable(onDismiss),
-            )
-        }
-
-        titles.forEachIndexed { index, title ->
-            val current = index == currentIndex
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .glass(
-                        shape = GlassShapes.thumb,
-                        fill = if (current) {
-                            PlayerTokens.episodeActiveFill
-                        } else {
-                            PlayerTokens.episodeIdleFill
-                        },
-                        border = if (current) {
-                            Color.White.copy(alpha = 0.28f)
-                        } else {
-                            Color.White.copy(alpha = 0.12f)
-                        },
-                    )
-                    .noRippleClickable { onSelect(index) }
-                    .padding(6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // 48×30 thumbnail slot; the queue carries no stills, so it stays a tile.
-                Box(
-                    Modifier
-                        .width(48.dp)
-                        .height(30.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(PlayerTokens.drawerFill),
-                )
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        title.ifEmpty { "第 ${index + 1} 集" },
-                        style = sc(10.5f, 600),
-                        color = if (current) Color.White else Color.White.copy(alpha = 0.85f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        if (current) "正在播放" else "第 ${index + 1} 集",
-                        style = mr(9f, 400),
-                        color = if (current) {
-                            PlayerTokens.episodeActiveSub
-                        } else {
-                            Color.White.copy(alpha = 0.4f)
-                        },
-                        maxLines = 1,
-                    )
-                }
-            }
         }
     }
 }
