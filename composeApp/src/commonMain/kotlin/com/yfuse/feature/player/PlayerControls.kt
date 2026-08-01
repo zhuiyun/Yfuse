@@ -161,20 +161,8 @@ fun PlayerControls(
     onDiscoverCast: () -> Unit = {},
     onCastTo: (String) -> Unit = {},
     onStopCast: () -> Unit = {},
-    danmakuConfigured: Boolean = false,
-    danmakuEnabled: Boolean = false,
-    danmakuCount: Int = 0,
-    danmakuLoading: Boolean = false,
-    danmakuError: String? = null,
-    danmakuAreaOptions: List<Pair<String, Boolean>> = emptyList(),
-    danmakuFontOptions: List<Pair<String, Boolean>> = emptyList(),
-    danmakuSpeedOptions: List<Pair<String, Boolean>> = emptyList(),
-    danmakuOpacityOptions: List<Pair<String, Boolean>> = emptyList(),
-    onToggleDanmaku: () -> Unit = {},
-    onSelectDanmakuArea: (Int) -> Unit = {},
-    onSelectDanmakuFont: (Int) -> Unit = {},
-    onSelectDanmakuSpeed: (Int) -> Unit = {},
-    onSelectDanmakuOpacity: (Int) -> Unit = {},
+    danmaku: DanmakuPanelState = DanmakuPanelState(),
+    danmakuActions: DanmakuPanelActions = DanmakuPanelActions(),
     skipSegmentLabel: String? = null,
     onSkipSegment: () -> Unit = {},
     /** Seconds left before an automatic skip fires, or null when none is armed. */
@@ -221,6 +209,7 @@ fun PlayerControls(
     var settingsTab by remember { mutableStateOf<Tab?>(null) }
     var drawerOpen by remember { mutableStateOf(false) }
     var watchDialogOpen by remember { mutableStateOf(false) }
+    var danmakuSearchOpen by remember { mutableStateOf(false) }
     var gestureHud by remember { mutableStateOf<String?>(null) }
     // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
     // is held. [holdSeekTarget] is where the timeline has run to, committed on release.
@@ -248,8 +237,18 @@ fun PlayerControls(
         visible = true
     }
 
-    LaunchedEffect(visible, locked, settingsTab, drawerOpen, state.playing, interactions) {
-        if (!visible || !state.playing || settingsTab != null || drawerOpen) return@LaunchedEffect
+    LaunchedEffect(
+        visible,
+        locked,
+        settingsTab,
+        drawerOpen,
+        danmakuSearchOpen,
+        state.playing,
+        interactions,
+    ) {
+        if (!visible || !state.playing || settingsTab != null || drawerOpen || danmakuSearchOpen) {
+            return@LaunchedEffect
+        }
         delay(AUTO_HIDE_MS)
         visible = false
     }
@@ -320,6 +319,7 @@ fun PlayerControls(
                         },
                         onTap = {
                             when {
+                                danmakuSearchOpen -> danmakuSearchOpen = false
                                 settingsTab != null -> settingsTab = null
                                 drawerOpen -> drawerOpen = false
                                 visible -> visible = false
@@ -460,7 +460,7 @@ fun PlayerControls(
                 onScrub = { interactions++ },
                 onOpenTab = { poke(); settingsTab = it },
                 casting = castingDeviceId != null,
-                danmakuEnabled = danmakuEnabled,
+                danmakuEnabled = danmaku.enabled,
                 onOpenDanmaku = {
                     poke()
                     settingsTab = Tab.Danmaku
@@ -508,15 +508,13 @@ fun PlayerControls(
                 castingDeviceId = castingDeviceId,
                 castDiscovering = castDiscovering,
                 castError = castError,
-                danmakuConfigured = danmakuConfigured,
-                danmakuEnabled = danmakuEnabled,
-                danmakuCount = danmakuCount,
-                danmakuLoading = danmakuLoading,
-                danmakuError = danmakuError,
-                danmakuAreaOptions = danmakuAreaOptions,
-                danmakuFontOptions = danmakuFontOptions,
-                danmakuSpeedOptions = danmakuSpeedOptions,
-                danmakuOpacityOptions = danmakuOpacityOptions,
+                danmaku = danmaku,
+                danmakuActions = danmakuActions,
+                onOpenDanmakuSearch = {
+                    settingsTab = null
+                    danmakuActions.onOpenSearch()
+                    danmakuSearchOpen = true
+                },
                 onTab = { settingsTab = it },
                 onSelectSubtitle = { onSelectSubtitle(it); settingsTab = null },
                 onSelectAudio = { onSelectAudio(it); settingsTab = null },
@@ -526,11 +524,6 @@ fun PlayerControls(
                 onDiscoverCast = onDiscoverCast,
                 onCastTo = onCastTo,
                 onStopCast = onStopCast,
-                onToggleDanmaku = onToggleDanmaku,
-                onSelectDanmakuArea = onSelectDanmakuArea,
-                onSelectDanmakuFont = onSelectDanmakuFont,
-                onSelectDanmakuSpeed = onSelectDanmakuSpeed,
-                onSelectDanmakuOpacity = onSelectDanmakuOpacity,
                 onLock = {
                     settingsTab = null
                     locked = true
@@ -604,6 +597,22 @@ fun PlayerControls(
                     { onSelectItem(it); drawerOpen = false }
                 },
                 onDismiss = { drawerOpen = false },
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
+        }
+
+        if (danmakuSearchOpen) {
+            DanmakuSearchPanel(
+                state = danmaku,
+                // Picking closes the sheet: the choice is made, and the result of it is
+                // the 弹幕 now running over the picture the sheet is covering.
+                actions = danmakuActions.copy(
+                    onPickEpisode = {
+                        danmakuActions.onPickEpisode(it)
+                        danmakuSearchOpen = false
+                    },
+                ),
+                onDismiss = { danmakuSearchOpen = false },
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
         }
@@ -1435,15 +1444,9 @@ private fun SettingsPanel(
     castingDeviceId: String?,
     castDiscovering: Boolean,
     castError: String?,
-    danmakuConfigured: Boolean,
-    danmakuEnabled: Boolean,
-    danmakuCount: Int,
-    danmakuLoading: Boolean,
-    danmakuError: String?,
-    danmakuAreaOptions: List<Pair<String, Boolean>>,
-    danmakuFontOptions: List<Pair<String, Boolean>>,
-    danmakuSpeedOptions: List<Pair<String, Boolean>>,
-    danmakuOpacityOptions: List<Pair<String, Boolean>>,
+    danmaku: DanmakuPanelState,
+    danmakuActions: DanmakuPanelActions,
+    onOpenDanmakuSearch: () -> Unit,
     onTab: (Tab) -> Unit,
     onSelectSubtitle: (String) -> Unit,
     onSelectAudio: (String) -> Unit,
@@ -1453,11 +1456,6 @@ private fun SettingsPanel(
     onDiscoverCast: () -> Unit,
     onCastTo: (String) -> Unit,
     onStopCast: () -> Unit,
-    onToggleDanmaku: () -> Unit,
-    onSelectDanmakuArea: (Int) -> Unit,
-    onSelectDanmakuFont: (Int) -> Unit,
-    onSelectDanmakuSpeed: (Int) -> Unit,
-    onSelectDanmakuOpacity: (Int) -> Unit,
     onLock: () -> Unit,
     watchConnected: Boolean,
     watchRoomCode: String?,
@@ -1560,46 +1558,11 @@ private fun SettingsPanel(
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 when (tab) {
-                    Tab.Danmaku -> {
-                        GroupLabel("弹幕")
-                        OptionRow(
-                            if (danmakuEnabled) "关闭弹幕" else "开启弹幕",
-                            danmakuEnabled,
-                            onClick = onToggleDanmaku,
-                        )
-                        Text(
-                            when {
-                                !danmakuConfigured -> "请先在个人中心配置弹幕链接"
-                                danmakuLoading -> "正在加载弹幕…"
-                                danmakuError != null -> danmakuError
-                                else -> "已加载 $danmakuCount 条弹幕"
-                            },
-                            style = mr(10.5f, 500),
-                            color = if (danmakuError != null) {
-                                Brand.Danger
-                            } else {
-                                Color.White.copy(alpha = 0.56f)
-                            },
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp),
-                        )
-
-                        GroupLabel("显示区域")
-                        danmakuAreaOptions.forEachIndexed { index, (label, selected) ->
-                            OptionRow(label, selected) { onSelectDanmakuArea(index) }
-                        }
-                        GroupLabel("字体大小")
-                        danmakuFontOptions.forEachIndexed { index, (label, selected) ->
-                            OptionRow(label, selected) { onSelectDanmakuFont(index) }
-                        }
-                        GroupLabel("移动速度")
-                        danmakuSpeedOptions.forEachIndexed { index, (label, selected) ->
-                            OptionRow(label, selected) { onSelectDanmakuSpeed(index) }
-                        }
-                        GroupLabel("透明度")
-                        danmakuOpacityOptions.forEachIndexed { index, (label, selected) ->
-                            OptionRow(label, selected) { onSelectDanmakuOpacity(index) }
-                        }
-                    }
+                    Tab.Danmaku -> DanmakuTab(
+                        state = danmaku,
+                        actions = danmakuActions,
+                        onOpenSearch = onOpenDanmakuSearch,
+                    )
 
                     Tab.Subtitle -> {
                         if (state.subtitleTracks.isNotEmpty()) {
@@ -2033,7 +1996,7 @@ private fun Float.asFrameRate(): String {
 
 /** `600 11px Manrope`, above each group in the 字幕·音轨 tab. */
 @Composable
-private fun GroupLabel(text: String) {
+internal fun GroupLabel(text: String) {
     Text(
         text,
         style = mr(11f, 600),
@@ -2048,7 +2011,7 @@ private fun GroupLabel(text: String) {
  * `#3D64C9` is a light-theme ink and goes muddy against this fill.
  */
 @Composable
-private fun OptionRow(
+internal fun OptionRow(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
@@ -2204,7 +2167,7 @@ private fun EpisodeDrawer(
 
 /** Taps on the overlay shouldn't flash a ripple over the picture. */
 @Composable
-private fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier {
+internal fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     return clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
 }

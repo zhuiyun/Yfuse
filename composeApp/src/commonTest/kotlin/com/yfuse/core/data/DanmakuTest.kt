@@ -11,23 +11,95 @@ class DanmakuTest {
     @Test
     fun preferences_survive_recreation() {
         val settings = MapSettings()
-        DanmakuPreferences(settings).apply {
-            setUrlTemplate("https://example.com/{title}/{id}")
+        val first = DanmakuPreferences(settings).apply {
+            addSource("夏天", "https://example.com/{title}/{id}")
+            addSource("alpha2", "https://danmaku.example.com")
             setEnabled(false)
             setDisplayArea(DanmakuDisplayArea.ThreeQuarters)
             setFontSize(DanmakuFontSize.Large)
             setSpeed(DanmakuSpeed.Fast)
             setOpacity(DanmakuOpacity.High)
         }
+        val second = first.sources.value[1]
+        first.selectSource(second.id)
 
         val restored = DanmakuPreferences(settings)
 
-        assertEquals("https://example.com/{title}/{id}", restored.urlTemplate.value)
+        assertEquals(listOf("夏天", "alpha2"), restored.sources.value.map { it.name })
+        assertEquals(second.id, restored.activeSourceId.value)
+        assertEquals("alpha2", restored.activeSource()?.name)
         assertFalse(restored.enabled.value)
         assertEquals(DanmakuDisplayArea.ThreeQuarters, restored.displayArea.value)
         assertEquals(DanmakuFontSize.Large, restored.fontSize.value)
         assertEquals(DanmakuSpeed.Fast, restored.speed.value)
         assertEquals(DanmakuOpacity.High, restored.opacity.value)
+    }
+
+    @Test
+    fun the_single_stored_link_becomes_the_first_source() {
+        val settings = MapSettings()
+        settings.putString("danmaku.urlTemplate", "https://example.com/{id}")
+
+        val migrated = DanmakuPreferences(settings)
+
+        assertEquals(1, migrated.sources.value.size)
+        assertEquals("https://example.com/{id}", migrated.sources.value.first().url)
+        assertEquals(migrated.sources.value.first().id, migrated.activeSourceId.value)
+        // The list is now authoritative: deleting the last source has to stick, rather
+        // than falling back to the key it was seeded from.
+        migrated.removeSource(migrated.sources.value.first().id)
+        assertTrue(DanmakuPreferences(settings).sources.value.isEmpty())
+    }
+
+    @Test
+    fun the_first_source_added_is_the_one_in_use() {
+        val prefs = DanmakuPreferences(MapSettings())
+        val only = prefs.addSource("", "https://danmaku.example.com")
+
+        assertEquals(only?.id, prefs.activeSourceId.value)
+        // A blank name still has to name something in a chip row.
+        assertEquals("弹幕源 1", only?.name)
+        assertTrue(only?.supportsSearch == true)
+    }
+
+    @Test
+    fun deleting_a_source_drops_the_matches_that_named_it() {
+        val prefs = DanmakuPreferences(MapSettings())
+        val kept = requireNotNull(prefs.addSource("kept", "https://a.example.com"))
+        val dropped = requireNotNull(prefs.addSource("dropped", "https://b.example.com"))
+        prefs.bind("item-1", DanmakuBinding(kept.id, "e1", "A - 第1集"))
+        prefs.bind("item-2", DanmakuBinding(dropped.id, "e2", "B - 第2集"))
+
+        prefs.removeSource(dropped.id)
+
+        assertEquals(listOf("item-1"), prefs.bindings.value.keys.toList())
+        assertEquals(kept.id, prefs.activeSourceId.value)
+    }
+
+    @Test
+    fun a_deleted_active_source_hands_off_rather_than_leaving_nothing_selected() {
+        val prefs = DanmakuPreferences(MapSettings())
+        val first = requireNotNull(prefs.addSource("first", "https://a.example.com"))
+        val second = requireNotNull(prefs.addSource("second", "https://b.example.com"))
+
+        prefs.removeSource(first.id)
+
+        assertEquals(second.id, prefs.activeSourceId.value)
+        assertEquals("second", prefs.activeSource()?.name)
+    }
+
+    @Test
+    fun a_stale_active_id_still_resolves_to_a_usable_source() {
+        val sources = listOf(DanmakuSource("a", "A", "https://a.example.com"))
+
+        assertEquals("A", sources.activeOr("gone")?.name)
+        assertEquals(null, emptyList<DanmakuSource>().activeOr("a"))
+    }
+
+    @Test
+    fun a_server_address_is_searchable_and_a_template_is_not() {
+        assertTrue(DanmakuSource("a", "A", "https://a.example.com").supportsSearch)
+        assertFalse(DanmakuSource("b", "B", "https://b.example.com/d?id={id}").supportsSearch)
     }
 
     @Test
@@ -91,5 +163,97 @@ class DanmakuTest {
         assertEquals(DanmakuKind.Bottom, comments[2].kind)
         assertEquals(0x0000FF, comments[2].color)
         assertTrue(comments.all { it.text.isNotBlank() })
+    }
+
+    @Test
+    fun parses_dandanplay_comments() {
+        val comments = DanmakuParser.parse(
+            """
+            {
+              "count": 3,
+              "comments": [
+                {"cid": 1, "p": "12.5,1,16711680,1234567", "m": "滚动"},
+                {"cid": 2, "p": "13,5,16777215,1234567", "m": "顶部"},
+                {"cid": 3, "p": "14,4,255,1234567", "m": "底部"}
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(3, comments.size)
+        assertEquals(12_500L, comments[0].timeMs)
+        // Four fields, so the colour is at index 2 — the same attribute in Bilibili's XML
+        // carries a font size there and puts the colour one further along.
+        assertEquals(0xFF0000, comments[0].color)
+        assertEquals(DanmakuKind.Top, comments[1].kind)
+        assertEquals(DanmakuKind.Bottom, comments[2].kind)
+        assertEquals(0x0000FF, comments[2].color)
+    }
+
+    @Test
+    fun parses_a_search_response() {
+        val results = DanmakuApi.parseSearch(
+            """
+            {"animes":[
+              {"animeId":1,"animeTitle":"九门(2021)【电影】","typeDescription":"电影",
+               "episodeCount":1,"startDate":"2021-05-01T00:00:00"},
+              {"animeId":2,"animeTitle":"九门(2026)【电视剧】","typeDescription":"电视剧",
+               "episodeCount":8,"year":2026}
+            ]}
+            """.trimIndent(),
+        )
+
+        assertEquals(2, results.size)
+        assertEquals("1", results[0].animeId)
+        assertEquals("电影 · 1 集 · 2021", results[0].subtitle)
+        assertEquals("电视剧 · 8 集 · 2026", results[1].subtitle)
+    }
+
+    @Test
+    fun parses_an_episode_list_nested_under_bangumi() {
+        val episodes = DanmakuApi.parseEpisodes(
+            """
+            {"bangumi":{"episodes":[
+              {"episodeId":1001,"episodeTitle":"第1集 九门 01","episodeNumber":"1"},
+              {"episodeId":1004,"episodeTitle":"第4集 九门 04","episodeNumber":"4"}
+            ]}}
+            """.trimIndent(),
+            "九门(2026)【电视剧】",
+        )
+
+        assertEquals(2, episodes.size)
+        assertEquals("1004", episodes[1].episodeId)
+        assertEquals("九门(2026)【电视剧】- 第4集 九门 04", episodes[1].label)
+    }
+
+    @Test
+    fun an_automatic_match_takes_the_episode_being_played() {
+        val body = """
+            {"animes":[{"animeId":2,"animeTitle":"九门(2026)","episodes":[
+              {"episodeId":1001,"episodeTitle":"第1集","episodeNumber":"1"},
+              {"episodeId":1004,"episodeTitle":"第4集","episodeNumber":"4"}
+            ]}]}
+        """.trimIndent()
+
+        assertEquals("1004", DanmakuApi.parseMatch(body, episodeNumber = 4)?.episodeId)
+        // No number to go on — the server's own ordering is the only answer left.
+        assertEquals("1001", DanmakuApi.parseMatch(body, episodeNumber = null)?.episodeId)
+        assertEquals(null, DanmakuApi.parseMatch("{\"animes\":[]}", episodeNumber = 1))
+    }
+
+    @Test
+    fun a_server_root_is_found_whether_or_not_the_api_path_was_pasted() {
+        with(DanmakuRepository) {
+            assertEquals(
+                "https://d.example.com",
+                DanmakuSource("a", "A", "https://d.example.com/api/v2/").apiRoot(),
+            )
+            assertEquals(
+                "https://d.example.com/danmu",
+                DanmakuSource("a", "A", "https://d.example.com/danmu").apiRoot(),
+            )
+            // A template addresses one file; there is no index behind it to search.
+            assertEquals(null, DanmakuSource("a", "A", "https://d.example.com/{id}").apiRoot())
+        }
     }
 }

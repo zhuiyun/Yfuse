@@ -46,10 +46,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
+import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.data.activeOr
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
@@ -110,7 +112,8 @@ fun ProfileScreen(component: ProfileComponent) {
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
-    val danmakuUrl by component.danmakuPreferences.urlTemplate.collectAsState()
+    val danmakuSources by component.danmakuPreferences.sources.collectAsState()
+    val danmakuActiveSourceId by component.danmakuPreferences.activeSourceId.collectAsState()
     val skipTimesBySeries by component.skipSegmentPreferences.bySeries.collectAsState()
     val autoSkip by component.skipSegmentPreferences.autoSkip.collectAsState()
     val customUserAgent by component.userAgentPreferences.userAgent.collectAsState()
@@ -251,7 +254,16 @@ fun ProfileScreen(component: ProfileComponent) {
                             SettingsDivider()
                             SettingRow(
                                 "弹幕链接",
-                                if (danmakuUrl.isBlank()) "未配置 ›" else "已配置 ›",
+                                when (danmakuSources.size) {
+                                    0 -> "未配置 ›"
+                                    1 -> "${danmakuSources.first().name} ›"
+                                    // Which one is in force matters once there are several,
+                                    // and it is switchable from the player as well as here.
+                                    else -> {
+                                        val active = danmakuSources.activeOr(danmakuActiveSourceId)
+                                        "${danmakuSources.size} 个 · ${active?.name.orEmpty()} ›"
+                                    }
+                                },
                                 embedded = true,
                                 onClick = { sheet = Sheet.DanmakuSource },
                             )
@@ -429,15 +441,12 @@ fun ProfileScreen(component: ProfileComponent) {
             )
 
             Sheet.DanmakuSource -> DanmakuSourceDialog(
-                current = danmakuUrl,
-                onSave = {
-                    component.danmakuPreferences.setUrlTemplate(it)
-                    sheet = null
-                },
-                onClear = {
-                    component.danmakuPreferences.setUrlTemplate("")
-                    sheet = null
-                },
+                sources = danmakuSources,
+                activeSourceId = danmakuActiveSourceId,
+                onSelect = { component.danmakuPreferences.selectSource(it) },
+                onAdd = { name, url -> component.danmakuPreferences.addSource(name, url) },
+                onUpdate = component.danmakuPreferences::updateSource,
+                onRemove = component.danmakuPreferences::removeSource,
                 onDismiss = { sheet = null },
             )
 
@@ -632,87 +641,242 @@ private fun UserAgentDialog(
     }
 }
 
+/**
+ * 弹幕链接 — the list of servers, because one is rarely enough.
+ *
+ * Any of these can be a **弹幕服务器地址** (a dandanplay-compatible root, which the player
+ * can search and match against) or a **模板链接** carrying `{id}` / `{title}` placeholders,
+ * which resolves straight to one file per entry. The URL says which; nothing here has to be
+ * declared.
+ *
+ * Two modes in one panel: the list, and the editor for one entry. A separate 添加 sheet
+ * would be a second overlay over the first for a form with two fields in it.
+ */
 @Composable
 private fun DanmakuSourceDialog(
-    current: String,
-    onSave: (String) -> Unit,
-    onClear: () -> Unit,
+    sources: List<DanmakuSource>,
+    activeSourceId: String?,
+    onSelect: (String) -> Unit,
+    onAdd: (String, String) -> Unit,
+    onUpdate: (String, String, String) -> Unit,
+    onRemove: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var draft by remember(current) { mutableStateOf(current) }
-    val normalized = draft.trim()
-    val valid = normalized.startsWith("http://") || normalized.startsWith("https://")
     val palette = LocalPalette.current
+    // Non-null while one entry is being written. Its id is null for a new source.
+    var draft by remember { mutableStateOf<DanmakuSourceDraft?>(null) }
+    val active = sources.activeOr(activeSourceId)
 
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
-            title = "自定义弹幕链接",
-            subtitle = "支持 Bilibili XML、DPlayer 与常见 JSON；可使用媒体占位符。",
+            title = if (draft == null) "弹幕链接" else "编辑弹幕源",
+            subtitle = if (draft == null) {
+                "可以配置多个，选中的那个负责搜索和匹配，播放器里也能切换。"
+            } else {
+                "填服务器地址即可搜索；带 {id} 等占位符的链接按模板直接取。"
+            },
             onClose = onDismiss,
         )
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-        ) {
-            Box(contentAlignment = Alignment.CenterStart) {
-                if (draft.isBlank()) {
-                    Text(
-                        "https://example.com/danmaku?id={id}",
-                        style = mr(12f, 500),
-                        color = palette.hint,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+
+        val editing = draft
+        if (editing == null) {
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                sources.forEach { source ->
+                    DanmakuSourceRow(
+                        source = source,
+                        selected = source.id == active?.id,
+                        onSelect = { onSelect(source.id) },
+                        onEdit = {
+                            draft = DanmakuSourceDraft(source.id, source.name, source.url)
+                        },
                     )
                 }
-                BasicTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    singleLine = true,
-                    textStyle = mr(12f, 500).copy(color = palette.text),
-                    cursorBrush = SolidColor(Brand.Primary),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (sources.isEmpty()) {
+                    Text(
+                        "还没有弹幕源。",
+                        style = mr(11f, 400),
+                        color = palette.sub2,
+                        modifier = Modifier.padding(vertical = 10.dp),
+                    )
+                }
             }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "占位符：{id} 媒体 ID · {title} 标题 · {season} 季号 · {episode} 集号 · {serverId} 服务器 ID",
-            style = mr(10.5f, 400),
-            color = palette.sub2,
-        )
-        if (normalized.isNotEmpty() && !valid) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "链接必须以 http:// 或 https:// 开头",
-                style = sc(10.5f, 500),
-                color = Brand.Danger,
-            )
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(top = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (current.isNotBlank()) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OverlayButton("完成", onDismiss, Modifier.weight(1f))
                 OverlayButton(
-                    label = "清除",
-                    onClick = onClear,
+                    label = "添加",
+                    onClick = { draft = DanmakuSourceDraft(null, "", "") },
                     modifier = Modifier.weight(1f),
-                    tone = OverlayButtonTone.Destructive,
+                    tone = OverlayButtonTone.Primary,
                 )
-            } else {
-                OverlayButton("取消", onDismiss, Modifier.weight(1f))
             }
-            OverlayButton(
-                label = "保存",
-                onClick = { onSave(normalized) },
-                modifier = Modifier.weight(1f),
-                tone = OverlayButtonTone.Primary,
-                enabled = valid,
+        } else {
+            val normalizedUrl = editing.url.trim()
+            val valid = normalizedUrl.startsWith("http://") || normalizedUrl.startsWith("https://")
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                DanmakuField(
+                    value = editing.name,
+                    placeholder = "名称，例如 夏天",
+                    keyboardType = KeyboardType.Text,
+                    onValueChange = { draft = editing.copy(name = it) },
+                )
+                DanmakuField(
+                    value = editing.url,
+                    placeholder = "https://danmaku.example.com",
+                    keyboardType = KeyboardType.Uri,
+                    onValueChange = { draft = editing.copy(url = it) },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "占位符：{id} 媒体 ID · {title} 标题 · {season} 季号 · {episode} 集号 · {serverId} 服务器 ID",
+                style = mr(10.5f, 400),
+                color = palette.sub2,
+            )
+            if (normalizedUrl.isNotEmpty() && !valid) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "链接必须以 http:// 或 https:// 开头",
+                    style = sc(10.5f, 500),
+                    color = Brand.Danger,
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (editing.id == null) {
+                    OverlayButton("取消", { draft = null }, Modifier.weight(1f))
+                } else {
+                    OverlayButton(
+                        label = "删除",
+                        onClick = {
+                            onRemove(editing.id)
+                            draft = null
+                        },
+                        modifier = Modifier.weight(1f),
+                        tone = OverlayButtonTone.Destructive,
+                    )
+                }
+                OverlayButton(
+                    label = "保存",
+                    onClick = {
+                        if (editing.id == null) {
+                            onAdd(editing.name, normalizedUrl)
+                        } else {
+                            onUpdate(editing.id, editing.name, normalizedUrl)
+                        }
+                        draft = null
+                    },
+                    modifier = Modifier.weight(1f),
+                    tone = OverlayButtonTone.Primary,
+                    enabled = valid,
+                )
+            }
+        }
+    }
+}
+
+/** One entry mid-edit. A null [id] is a source that does not exist yet. */
+private data class DanmakuSourceDraft(val id: String?, val name: String, val url: String)
+
+@Composable
+private fun DanmakuSourceRow(
+    source: DanmakuSource,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onEdit: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .glass(
+                RoundedCornerShape(13.dp),
+                if (selected) Brand.Primary.copy(alpha = 0.12f) else palette.card2,
+                if (selected) Brand.Primary.copy(alpha = 0.35f) else palette.border,
+            )
+            .pressable(onClick = onSelect)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                source.name,
+                style = sc(12.5f, 700),
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                // Templates and servers behave differently enough that the row says which.
+                if (source.isTemplate) "模板链接 · ${source.url}" else source.url,
+                style = mr(10f, 400),
+                color = palette.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
+        if (selected) {
+            Icon(
+                AppIcons.Check,
+                contentDescription = "使用中",
+                tint = Brand.Primary,
+                modifier = Modifier.size(13.dp),
+            )
+        }
+        Text(
+            "编辑",
+            style = sc(11f, 600),
+            color = Brand.Primary,
+            modifier = Modifier.pressable(onClick = onEdit).padding(horizontal = 6.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun DanmakuField(
+    value: String,
+    placeholder: String,
+    keyboardType: KeyboardType,
+    onValueChange: (String) -> Unit,
+) {
+    val palette = LocalPalette.current
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        if (value.isBlank()) {
+            Text(
+                placeholder,
+                style = mr(12f, 500),
+                color = palette.hint,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = mr(12f, 500).copy(color = palette.text),
+            cursorBrush = SolidColor(Brand.Primary),
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

@@ -62,6 +62,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.core.content.ContextCompat
+import com.yfuse.core.data.DanmakuBinding
 import com.yfuse.core.data.DanmakuComment
 import com.yfuse.core.data.DanmakuDisplayArea
 import com.yfuse.core.data.DanmakuFontSize
@@ -78,6 +79,7 @@ import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.data.activeOr
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.YfuseTheme
@@ -1013,7 +1015,9 @@ private fun PlayerRoot(
     val state by engine.state.collectAsState()
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by watchTogetherPreferences.endpoint.collectAsState()
-    val danmakuUrl by danmakuPreferences.urlTemplate.collectAsState()
+    val danmakuSources by danmakuPreferences.sources.collectAsState()
+    val danmakuActiveSourceId by danmakuPreferences.activeSourceId.collectAsState()
+    val danmakuBindings by danmakuPreferences.bindings.collectAsState()
     val danmakuEnabled by danmakuPreferences.enabled.collectAsState()
     val danmakuArea by danmakuPreferences.displayArea.collectAsState()
     val danmakuFont by danmakuPreferences.fontSize.collectAsState()
@@ -1022,6 +1026,10 @@ private fun PlayerRoot(
     var danmakuComments by remember { mutableStateOf(emptyList<DanmakuComment>()) }
     var danmakuLoading by remember { mutableStateOf(false) }
     var danmakuError by remember { mutableStateOf<String?>(null) }
+    /** Which episode the comments on screen came from, for the 弹幕 panel to print. */
+    var danmakuMatch by remember { mutableStateOf<String?>(null) }
+    var danmakuSearch by remember { mutableStateOf(DanmakuSearchState()) }
+    val danmakuSource = danmakuSources.activeOr(danmakuActiveSourceId)
     val currentItem = activeItems.getOrNull(state.currentIndex)
     // Read as state so editing this series' times mid-episode takes effect on the open
     // player rather than only on the next launch.
@@ -1089,29 +1097,170 @@ private fun PlayerRoot(
         settledSkip = skipOccurrence
         latestSkipSegment()
     }
-    LaunchedEffect(currentItem?.id, danmakuUrl, danmakuEnabled) {
+    // A hand-picked match, if this entry has one and the source it names still exists.
+    val danmakuBinding = currentItem?.id
+        ?.let(danmakuBindings::get)
+        ?.takeIf { binding -> danmakuSources.any { it.id == binding.sourceId } }
+    LaunchedEffect(currentItem?.id, danmakuSource, danmakuBinding, danmakuEnabled) {
         danmakuComments = emptyList()
         danmakuError = null
+        danmakuMatch = null
         danmakuLoading = false
         val item = currentItem ?: return@LaunchedEffect
-        if (!danmakuEnabled || danmakuUrl.isBlank()) return@LaunchedEffect
+        if (!danmakuEnabled) return@LaunchedEffect
+        val source = danmakuSource ?: return@LaunchedEffect
+        val media = DanmakuMedia(
+            id = item.id,
+            title = item.title,
+            season = item.seasonNumber,
+            episode = item.episodeNumber,
+            serverId = item.serverId,
+        )
 
         danmakuLoading = true
-        danmakuRepository.load(
-            template = danmakuUrl,
-            media = DanmakuMedia(
-                id = item.id,
-                title = item.title,
-                season = item.seasonNumber,
-                episode = item.episodeNumber,
-                serverId = item.serverId,
-            ),
-        ).fold(
+        val loaded = when {
+            // A hand-picked match outranks everything: it exists precisely because the
+            // automatic one was wrong, and re-guessing would undo the correction.
+            danmakuBinding != null -> {
+                danmakuMatch = danmakuBinding.label
+                val pinned = danmakuSources.first { it.id == danmakuBinding.sourceId }
+                danmakuRepository.loadEpisode(pinned, danmakuBinding.episodeId)
+            }
+
+            source.isTemplate -> danmakuRepository.load(source.url, media)
+
+            else -> danmakuRepository.match(
+                source = source,
+                // A 弹幕 server files episodes under the show, not under the episode's own
+                // title — "楼内暗藏玄机怪事频发" is in nobody's index.
+                media = media.copy(
+                    title = item.seriesName?.takeIf { it.isNotBlank() } ?: item.title,
+                ),
+            ).fold(
+                onSuccess = { episode ->
+                    if (episode == null) {
+                        Result.failure(IllegalStateException("没有匹配到弹幕，可用搜索手动选择"))
+                    } else {
+                        danmakuMatch = episode.label
+                        danmakuRepository.loadEpisode(source, episode.episodeId)
+                    }
+                },
+                onFailure = { Result.failure(it) },
+            )
+        }
+        loaded.fold(
             onSuccess = { danmakuComments = it },
             onFailure = { danmakuError = it.message ?: "弹幕加载失败" },
         )
         danmakuLoading = false
     }
+    val danmakuActions = DanmakuPanelActions(
+        onToggle = { danmakuPreferences.setEnabled(!danmakuEnabled) },
+        onSelectArea = { index ->
+            danmakuPreferences.setDisplayArea(DanmakuDisplayArea.entries[index])
+        },
+        onSelectFont = { index -> danmakuPreferences.setFontSize(DanmakuFontSize.entries[index]) },
+        onSelectSpeed = { index -> danmakuPreferences.setSpeed(DanmakuSpeed.entries[index]) },
+        onSelectOpacity = { index ->
+            danmakuPreferences.setOpacity(DanmakuOpacity.entries[index])
+        },
+        onSelectSource = { id ->
+            danmakuPreferences.selectSource(id)
+            // Ids are per server. Keeping the old hits would offer results that the newly
+            // selected source has never heard of.
+            danmakuSearch = DanmakuSearchState(query = danmakuSearch.query)
+        },
+        onOpenSearch = {
+            // Seeded with the show's name, which is what the index is keyed on and what
+            // someone would have typed anyway.
+            if (danmakuSearch.query.isBlank()) {
+                val seed = currentItem?.let { item ->
+                    item.seriesName?.takeIf { it.isNotBlank() } ?: item.title
+                }
+                danmakuSearch = danmakuSearch.copy(query = seed.orEmpty())
+            }
+        },
+        onQueryChange = { danmakuSearch = danmakuSearch.copy(query = it) },
+        onSubmitSearch = {
+            val keyword = danmakuSearch.query.trim()
+            if (danmakuSource != null && keyword.isNotEmpty()) {
+                danmakuSearch = danmakuSearch.copy(
+                    running = true,
+                    error = null,
+                    openResult = null,
+                    episodes = emptyList(),
+                )
+                scope.launch {
+                    danmakuRepository.search(danmakuSource, keyword).fold(
+                        onSuccess = { results ->
+                            danmakuSearch = danmakuSearch.copy(
+                                running = false,
+                                results = results,
+                                searched = true,
+                            )
+                        },
+                        onFailure = { error ->
+                            danmakuSearch = danmakuSearch.copy(
+                                running = false,
+                                results = emptyList(),
+                                error = error.message ?: "搜索失败",
+                            )
+                        },
+                    )
+                }
+            }
+        },
+        onOpenResult = { result ->
+            danmakuSource?.let { source ->
+                danmakuSearch = danmakuSearch.copy(
+                    openResult = result,
+                    episodes = emptyList(),
+                    running = true,
+                    error = null,
+                )
+                scope.launch {
+                    danmakuRepository.episodes(source, result).fold(
+                        onSuccess = { episodes ->
+                            danmakuSearch = danmakuSearch.copy(
+                                running = false,
+                                episodes = episodes,
+                            )
+                        },
+                        onFailure = { error ->
+                            danmakuSearch = danmakuSearch.copy(
+                                running = false,
+                                error = error.message ?: "读取剧集失败",
+                            )
+                        },
+                    )
+                }
+            }
+        },
+        onBackToResults = {
+            danmakuSearch = danmakuSearch.copy(
+                openResult = null,
+                episodes = emptyList(),
+                error = null,
+            )
+        },
+        onPickEpisode = { episode ->
+            val item = currentItem
+            if (item != null && danmakuSource != null) {
+                danmakuPreferences.bind(
+                    itemId = item.id,
+                    binding = DanmakuBinding(
+                        sourceId = danmakuSource.id,
+                        episodeId = episode.episodeId,
+                        label = episode.label,
+                    ),
+                )
+                // Picking an episode is a decision to watch with 弹幕; making that two
+                // steps would be a chore with one sensible answer.
+                if (!danmakuEnabled) danmakuPreferences.setEnabled(true)
+            }
+        },
+        onClearMatch = { currentItem?.id?.let(danmakuPreferences::unbind) },
+    )
     val latestEngine by rememberUpdatedState(engine)
     val latestPlaybackState by rememberUpdatedState(state)
     val mediaMatcher = remember(watchTogether) {
@@ -1417,38 +1566,30 @@ private fun PlayerRoot(
                         playbackGate.play()
                     }
                 },
-                danmakuConfigured = danmakuUrl.isNotBlank(),
-                danmakuEnabled = danmakuEnabled,
-                danmakuCount = danmakuComments.size,
-                danmakuLoading = danmakuLoading,
-                danmakuError = danmakuError,
-                danmakuAreaOptions = DanmakuDisplayArea.entries.map {
-                    it.label to (it == danmakuArea)
-                },
-                danmakuFontOptions = DanmakuFontSize.entries.map {
-                    it.label to (it == danmakuFont)
-                },
-                danmakuSpeedOptions = DanmakuSpeed.entries.map {
-                    it.label to (it == danmakuSpeed)
-                },
-                danmakuOpacityOptions = DanmakuOpacity.entries.map {
-                    it.label to (it == danmakuOpacity)
-                },
-                onToggleDanmaku = {
-                    danmakuPreferences.setEnabled(!danmakuEnabled)
-                },
-                onSelectDanmakuArea = { index ->
-                    danmakuPreferences.setDisplayArea(DanmakuDisplayArea.entries[index])
-                },
-                onSelectDanmakuFont = { index ->
-                    danmakuPreferences.setFontSize(DanmakuFontSize.entries[index])
-                },
-                onSelectDanmakuSpeed = { index ->
-                    danmakuPreferences.setSpeed(DanmakuSpeed.entries[index])
-                },
-                onSelectDanmakuOpacity = { index ->
-                    danmakuPreferences.setOpacity(DanmakuOpacity.entries[index])
-                },
+                danmaku = DanmakuPanelState(
+                    sources = danmakuSources,
+                    activeSourceId = danmakuActiveSourceId,
+                    enabled = danmakuEnabled,
+                    count = danmakuComments.size,
+                    loading = danmakuLoading,
+                    error = danmakuError,
+                    matchLabel = danmakuMatch,
+                    matchPinned = danmakuBinding != null,
+                    areaOptions = DanmakuDisplayArea.entries.map {
+                        it.label to (it == danmakuArea)
+                    },
+                    fontOptions = DanmakuFontSize.entries.map {
+                        it.label to (it == danmakuFont)
+                    },
+                    speedOptions = DanmakuSpeed.entries.map {
+                        it.label to (it == danmakuSpeed)
+                    },
+                    opacityOptions = DanmakuOpacity.entries.map {
+                        it.label to (it == danmakuOpacity)
+                    },
+                    search = danmakuSearch,
+                ),
+                danmakuActions = danmakuActions,
                 skipSegmentLabel = activeSegment?.type?.skipLabel,
                 onSkipSegment = skipSegment,
                 skipCountdownSeconds = skipCountdownSeconds,
