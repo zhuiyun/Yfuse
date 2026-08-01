@@ -1046,14 +1046,22 @@ private fun PlayerRoot(
             ?.activeVersion
             ?.needsDolbyDecoder == true
         if (!needsDolby) return@LaunchedEffect
-        AppLog.info(
+        // The engine says whether it had anywhere to fall back to. When it did not, the
+        // picture is going to be wrong and the log is the only place that will say why —
+        // so it must not claim a switch that never happened.
+        val switched = engine.switchToTranscode()
+        AppLog.warning(
             category = "player",
-            event = "dolby_requires_transcode",
-            message = "Dolby Vision without a compatible base layer on a non-Dolby engine; " +
-                "switching to the server transcode",
+            event = if (switched) "dolby_requires_transcode" else "dolby_undecodable",
+            message = if (switched) {
+                "Dolby Vision without a compatible base layer on a non-Dolby engine; " +
+                    "switched to the server transcode"
+            } else {
+                "Dolby Vision without a compatible base layer and no transcode to fall " +
+                    "back to; the picture will be wrong"
+            },
             attributes = mapOf("engine" to kind.name),
         )
-        engine.switchToTranscode()
     }
 
     val watchState by watchTogether.state.collectAsState()

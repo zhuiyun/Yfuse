@@ -200,9 +200,13 @@ fun CalendarScreen(component: CalendarComponent) {
                     // single row of drift, which would make it a permanent fixture.
                     val awayFromToday by remember(state.todayIndex) {
                         derivedStateOf {
-                            listState.layoutInfo.visibleItemsInfo.none {
-                                it.index == state.todayIndex
-                            }
+                            val layout = listState.layoutInfo
+                            // Before the first layout pass nothing is visible, which would
+                            // otherwise read as "today is off screen" and flash the chip
+                            // for a frame on every open.
+                            layout.totalItemsCount > 0 &&
+                                layout.visibleItemsInfo.isNotEmpty() &&
+                                layout.visibleItemsInfo.none { it.index == state.todayIndex }
                         }
                     }
 

@@ -82,4 +82,21 @@ class DolbyVisionTest {
         assertEquals("Dolby Vision", version(videoRange = "Dolby Vision").rangeLabel)
         assertEquals("HDR10", version(videoRange = "HDR10").rangeLabel)
     }
+
+    @Test
+    fun a_reported_profile_is_dolby_even_when_every_other_field_says_hdr10() {
+        // What a real Emby row for a profile 5 file often looks like: the range and the
+        // profile both describe the HEVC base layer, and only DvProfile names the format.
+        val subject = version(
+            videoRange = "HDR10",
+            codec = "hevc",
+            profile = "Main 10",
+            dolbyProfile = 5,
+        )
+
+        assertTrue(subject.isDolbyVision)
+        assertEquals(5, subject.dolbyProfile)
+        // The whole point: this is the file the P5 guard exists for.
+        assertTrue(subject.needsDolbyCapableDecoder)
+    }
 }

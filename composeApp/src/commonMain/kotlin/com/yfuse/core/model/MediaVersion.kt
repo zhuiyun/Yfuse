@@ -68,10 +68,19 @@ data class MediaVersion(
      * being what actually distinguishes Dolby Vision from HDR10. Checking one field misses
      * it on half the libraries, and the badge exists precisely to answer "is this the
      * Dolby copy" — a badge that is sometimes right is worse than none.
+     *
+     * A reported `DvProfile` settles it outright and is checked first. It has to be: a
+     * server that fills that field often *also* reports `VideoRange` as plain `HDR10` and
+     * the HEVC base layer's `Main 10` as the profile, with no `dvhe` tag anywhere — so
+     * asking the heuristics alone would answer "not Dolby" about a file whose profile the
+     * server just told us. That was worth more than a wrong badge: [dolbyProfile] and
+     * [needsDolbyCapableDecoder] both hang off this, so profile 5 would have sailed past
+     * the one check that exists to catch it.
      */
     val isDolbyVision: Boolean
-        get() = listOf(videoRange, videoCodec, video?.profile, video?.displayTitle)
-            .any(String?::mentionsDolbyVision)
+        get() = video?.dolbyProfile != null ||
+            listOf(videoRange, videoCodec, video?.profile, video?.displayTitle)
+                .any(String?::mentionsDolbyVision)
 
     /** Atmos rides on TrueHD or E-AC-3 and is only named in the track's profile or title. */
     val hasDolbyAtmos: Boolean
