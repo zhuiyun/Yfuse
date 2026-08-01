@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -21,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.glass
 
 @Composable
@@ -63,9 +62,12 @@ fun PlayerScreen(component: PlayerComponent) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.AutoMirrored.Rounded.ArrowBack,
+                // The app's own mark, like every other 返回 in the app. This was the one
+                // Material icon left, and it cost a whole icon pack on the dependency list.
+                AppIcons.ChevronLeft,
                 contentDescription = "返回",
                 tint = Color.White,
+                modifier = Modifier.size(15.dp),
             )
         }
     }

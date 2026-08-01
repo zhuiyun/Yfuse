@@ -24,8 +24,6 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
-            implementation(compose.materialIconsExtended)
-            implementation(compose.components.resources)
 
             implementation(libs.decompose)
             implementation(libs.decompose.compose)
@@ -69,10 +67,6 @@ kotlin {
             implementation(libs.settings.test)
         }
     }
-}
-
-compose.resources {
-    packageOfResClass = "com.yfuse.resources"
 }
 
 // TMDB token comes from local.properties (gitignored) so it never lands in git.
@@ -123,6 +117,15 @@ android {
 
     buildFeatures {
         buildConfig = true
+    }
+
+    androidResources {
+        // Every androidx and Material artifact ships its own strings in ~80 locales. This
+        // app's own copy is written in Chinese and its only translated strings come from
+        // those libraries, so the rest is weight no device here can reach. The unqualified
+        // (English) resources are always kept, which is what anything outside this list
+        // falls back to.
+        localeFilters += listOf("zh", "zh-rCN", "zh-rTW", "zh-rHK", "en")
     }
 
     defaultConfig {

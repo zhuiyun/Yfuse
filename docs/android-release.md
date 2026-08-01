@@ -80,3 +80,48 @@ reporting success.
 
 The generated APK and `update.json` are also retained as a GitHub Actions
 artifact for 30 days.
+
+## APK size
+
+The build is already configured for a small package: R8 with resource
+shrinking, `arm64-v8a` only, legacy (deflated) `jniLibs` packaging so the
+download stays compact, and META-INF exclusions. What remains is dominated by
+the native players rather than by anything in the app's own code.
+
+Measured for `libmpv-release.aar` (arm64-v8a), which is what the APK actually
+carries after deflate:
+
+| Library | On disk | In the APK |
+| --- | --- | --- |
+| `libavcodec.so` | 11.4 MB | 5.8 MB |
+| `libmpv.so` | 6.2 MB | 2.6 MB |
+| `libavformat.so` | 2.8 MB | 1.3 MB |
+| `libc++_shared.so`, `libswscale.so`, `libavutil.so`, rest | 3.3 MB | 1.3 MB |
+| **mpv total** | **23.7 MB** | **11.0 MB** |
+
+MDK is a second, independent stack of the same kind — its own FFmpeg, linked
+into `libmdk.so` — on top of ExoPlayer/media3, which is Java and comparatively
+small. Three playback engines ship in every APK and a device uses one at a
+time.
+
+So the only change that materially moves the number is dropping a native
+engine. Either one is worth roughly the table above; the choice is about which
+formats and containers the app must still play without transcoding, not about
+build configuration.
+
+To see the real breakdown of a build rather than an estimate:
+
+```bash
+./gradlew :composeApp:assembleRelease
+unzip -l composeApp/build/outputs/apk/release/*.apk | sort -k1 -nr | head -30
+```
+
+Two things that look like savings and are not: turning off
+`useLegacyPackaging` makes the APK *larger* (uncompressed `.so`, in exchange
+for a smaller install footprint), and the `.so` files in both engines are
+already stripped, so there is nothing for `strip` to remove.
+
+Unrelated to the APK: `mpvaar/` is 24 MB of an extracted libmpv AAR tracked in
+git. No build file references it — `composeApp` consumes
+`libs/libmpv-release.aar`, which `scripts/fetch-engines.sh` downloads — so it
+costs every clone 24 MB and ships nothing.

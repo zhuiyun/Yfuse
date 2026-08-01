@@ -1,7 +1,8 @@
 # Yfuse Logo Design QA
 
 - Source visual truth: `C:\Users\app-inkbird\.codex\generated_images\019f9308-ea2b-7f21-aa74-17eb6d660b10\call_I8HEKBGMyjqP7ziiNEhJMnGt.png`
-- Production asset: `D:\Demo\Yfuse\composeApp\src\androidMain\res\drawable-nodpi\yfuse_logo_mark.png`
+- Production asset: `audit/v26-logo/yfuse_logo_mark.png` (design reference only — it lived in
+  `res/drawable-nodpi/` and nothing ever loaded it, so every build carried 386 KB of source art)
 - Implementation comparison: `D:\Demo\Yfuse\audit\v26-logo\source-vs-production.png`
 - Adaptive-mask preview: `D:\Demo\Yfuse\audit\v26-logo\adaptive-mask-preview-v2.png`
 - Source pixels: 1254 × 1254 RGB
