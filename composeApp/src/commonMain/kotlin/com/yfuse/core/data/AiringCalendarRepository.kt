@@ -82,11 +82,44 @@ class AiringCalendarRepository(
             )
             return unresolved { if (it.airDate > today) LibraryStatus.Unaired else LibraryStatus.Unknown }
         }
+        // Films are indexed separately and carry their own watched flag: a film *is* the
+        // row, so there is no episode below it to read 已看 from. A failure here costs the
+        // film rows their status and leaves the episode rows alone.
+        val filmIndex = if (episodes.none { it.isMovie }) {
+            emptyMap()
+        } else {
+            emby.movieProviderIndex(server).getOrElse { error ->
+                AppLog.warning(
+                    category = "feature.calendar",
+                    event = "movie_index_failed",
+                    message = "Library movie index could not be read; films show release dates only",
+                    throwable = error,
+                )
+                emptyMap()
+            }
+        }
 
         // Episode lists are fetched once per series, not once per broadcast: a show
         // contributes its last and next episode, which are usually the same season.
         val episodesBySeries = mutableMapOf<String, List<Episode>>()
         return episodes.map { episode ->
+            if (episode.isMovie) {
+                val hit = filmIndex["tmdb:${episode.showTmdbId}"]
+                return@map CalendarEntry(
+                    episode = episode,
+                    status = when {
+                        hit != null && hit.played -> LibraryStatus.Watched
+                        hit != null -> LibraryStatus.Available
+                        episode.airDate > today -> LibraryStatus.Unaired
+                        else -> LibraryStatus.Missing
+                    },
+                    itemId = hit?.itemId,
+                    serverId = server.id,
+                    // A film is its own entry; there is no series above it to fall back to,
+                    // so 未入库 stays a row you cannot open — there is nothing to open.
+                    seriesItemId = hit?.itemId,
+                )
+            }
             val seriesId = index["tmdb:${episode.showTmdbId}"]
             if (seriesId == null) {
                 // The show is not in the library at all, so no episode of it can be either.

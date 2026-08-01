@@ -1,5 +1,6 @@
 package com.yfuse.core.data
 
+import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.feature.json
 import io.ktor.client.HttpClient
@@ -139,5 +140,103 @@ class TmdbRepositoryTest {
         assertEquals(listOf("科幻", "剧情"), detail.genres)
         assertEquals("演员甲", detail.cast.single().name)
         assertEquals("主角", detail.cast.single().role)
+    }
+
+    /**
+     * The bug that emptied 国产 out of the calendar.
+     *
+     * A Chinese web drama's TMDB season routinely lists every episode by name with no
+     * `air_date` on any of them; the only dates on the record are the show-level
+     * `next_episode_to_air` / `last_episode_to_air`. The season list was therefore
+     * non-empty, the "fall back to last/next" branch never fired, and every undated stub
+     * was dropped — so the show contributed no rows at all.
+     */
+    @Test
+    fun a_season_whose_episodes_carry_no_dates_falls_back_to_the_show_record() = runTest {
+        val client = HttpClient(
+            MockEngine { request ->
+                val path = request.url.encodedPath
+                when {
+                    path.endsWith("/discover/tv") -> {
+                        val domestic = request.url.parameters["with_origin_country"] == "CN"
+                        if (!domestic) return@MockEngine json("""{"results":[]}""")
+                        json(
+                            """{"results":[{"id":7,"name":"国产日更剧","poster_path":"/p.jpg",""" +
+                                """"first_air_date":"2026-07-01","vote_count":40,""" +
+                                """"original_language":"zh","popularity":90.0}]}""",
+                        )
+                    }
+                    path.endsWith("/discover/movie") -> json("""{"results":[]}""")
+                    path.endsWith("/tv/7") -> json(
+                        """{"id":7,"name":"国产日更剧","poster_path":"/p.jpg",""" +
+                            """"last_episode_to_air":{"air_date":"2026-08-01","season_number":1,""" +
+                            """"episode_number":12,"name":"第 12 集"},""" +
+                            """"next_episode_to_air":{"air_date":"2026-08-02","season_number":1,""" +
+                            """"episode_number":13,"name":"第 13 集"}}""",
+                    )
+                    // Named episodes, not one of them dated — which is the whole point.
+                    path.contains("/season/") -> json(
+                        """{"season_number":1,"episodes":[""" +
+                            """{"episode_number":1,"name":"第 1 集"},""" +
+                            """{"episode_number":2,"name":"第 2 集"}]}""",
+                    )
+                    else -> json("""{"results":[]}""")
+                }
+            },
+        ) {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+        }
+
+        val result = TmdbRepository(client)
+            .airingCalendar(fromDate = "2026-07-28", toDate = "2026-08-05")
+
+        assertTrue(result.isSuccess, result.toString())
+        val episodes = result.getOrThrow()
+        assertEquals(listOf(12, 13), episodes.map { it.episodeNumber })
+        assertTrue(episodes.all { it.showTitle == "国产日更剧" })
+    }
+
+    @Test
+    fun the_calendar_carries_film_releases_alongside_broadcasts() = runTest {
+        val client = HttpClient(
+            MockEngine { request ->
+                val path = request.url.encodedPath
+                when {
+                    path.endsWith("/discover/movie") -> {
+                        val domestic = request.url.parameters["with_origin_country"] == "CN"
+                        json(
+                            if (domestic) {
+                                """{"results":[{"id":50,"title":"国产电影","poster_path":"/m.jpg",""" +
+                                    """"release_date":"2026-08-01","vote_count":30,""" +
+                                    """"original_language":"zh","popularity":40.0}]}"""
+                            } else {
+                                """{"results":[{"id":60,"title":"外国电影","poster_path":"/n.jpg",""" +
+                                    """"release_date":"2026-08-03","vote_count":30,""" +
+                                    """"original_language":"en","popularity":40.0}]}"""
+                            },
+                        )
+                    }
+                    else -> json("""{"results":[]}""")
+                }
+            },
+        ) {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+        }
+
+        val result = TmdbRepository(client)
+            .airingCalendar(fromDate = "2026-07-28", toDate = "2026-08-05")
+
+        assertTrue(result.isSuccess, result.toString())
+        val films = result.getOrThrow()
+        assertEquals(listOf("国产电影", "外国电影"), films.map { it.showTitle })
+        assertTrue(films.all { it.isMovie })
+        assertEquals(listOf(ShowOrigin.Domestic, ShowOrigin.Foreign), films.map { it.origin })
+        // A film has no coordinate, so its key is the film itself.
+        assertEquals("tmdb-movie:50", films.first().mediaKey)
+        assertEquals("电影上映", films.first().episodeLabel)
     }
 }

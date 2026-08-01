@@ -12,6 +12,15 @@ import kotlinx.serialization.Serializable
 enum class ShowOrigin { Domestic, Foreign }
 
 /**
+ * Whether a dated row is an episode or a film opening.
+ *
+ * The calendar was episodes only, which left it answering half the question it is opened
+ * for. A film has one date and no coordinate, so it needs a row shape of its own rather
+ * than being forced into 第 0 季第 0 集.
+ */
+enum class AiringKind { Episode, Movie }
+
+/**
  * One episode with a broadcast date, and what this library has to say about it.
  *
  * The date is TMDB's `air_date`: the **origin country's** broadcast date. A Thursday US
@@ -30,21 +39,34 @@ data class AiringEpisode(
     /** ISO-8601 `YYYY-MM-DD`, in the origin country's calendar. */
     val airDate: String,
     val origin: ShowOrigin,
+    /** Defaulted so the stored schedule of an older build still decodes as episodes. */
+    val kind: AiringKind = AiringKind.Episode,
 ) {
+    val isMovie: Boolean get() = kind == AiringKind.Movie
+
     /**
-     * The cross-server coordinate for this episode, in the form `EmbyRepository`'s
+     * The cross-server coordinate for this row, in the form `EmbyRepository`'s
      * `findByMediaKey` already resolves — the same one watch-together uses to match an
-     * episode across two people's servers.
+     * episode across two people's servers. A film has no coordinate beyond its own id.
      */
-    val mediaKey: String get() = "tmdb:$showTmdbId/s${seasonNumber}e$episodeNumber"
+    val mediaKey: String
+        get() = if (isMovie) {
+            "tmdb-movie:$showTmdbId"
+        } else {
+            "tmdb:$showTmdbId/s${seasonNumber}e$episodeNumber"
+        }
 
     /** `第 3 集` — TMDB episode titles are often absent or a bare "第 3 集" repeat. */
     val episodeLabel: String
-        get() = listOfNotNull(
-            "第 $episodeNumber 集".takeIf { seasonNumber <= 1 }
-                ?: "S$seasonNumber E$episodeNumber",
-            episodeTitle?.takeIf { it.isNotBlank() && it != "第 $episodeNumber 集" },
-        ).joinToString(" · ")
+        get() = if (isMovie) {
+            "电影上映"
+        } else {
+            listOfNotNull(
+                "第 $episodeNumber 集".takeIf { seasonNumber <= 1 }
+                    ?: "S$seasonNumber E$episodeNumber",
+                episodeTitle?.takeIf { it.isNotBlank() && it != "第 $episodeNumber 集" },
+            ).joinToString(" · ")
+        }
 }
 
 /**
@@ -55,7 +77,7 @@ data class AiringEpisode(
  * exist, so to it a missing episode is indistinguishable from one that was never made.
  */
 enum class LibraryStatus {
-    /** Its broadcast date has not arrived. */
+    /** Its broadcast or release date has not arrived. */
     Unaired,
 
     /** Broadcast, but no copy on the server. */

@@ -2,6 +2,7 @@ package com.yfuse.core.data
 
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.AiringEpisode
+import com.yfuse.core.model.AiringKind
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbDetail
@@ -397,6 +398,39 @@ class TmdbRepository(private val client: HttpClient) {
                     ),
                 )
             }
+            // Films, which the calendar had none of. A release date is the same kind of
+            // fact as a broadcast date and is the other half of "what's out this week";
+            // leaving it out meant the page answered half the question it is opened for.
+            val domesticFilms = async {
+                fetch(
+                    "/discover/movie",
+                    language,
+                    "movie",
+                    mapOf(
+                        "with_origin_country" to "CN",
+                        "with_original_language" to "zh",
+                        "primary_release_date.gte" to fromDate,
+                        "primary_release_date.lte" to toDate,
+                        "region" to "CN",
+                        "sort_by" to "popularity.desc",
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
+            val foreignFilms = async {
+                fetch(
+                    "/discover/movie",
+                    language,
+                    "movie",
+                    mapOf(
+                        "primary_release_date.gte" to fromDate,
+                        "primary_release_date.lte" to toDate,
+                        "sort_by" to "popularity.desc",
+                        "vote_count.gte" to GLOBAL_UPCOMING_MIN_VOTES.toString(),
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                    ),
+                )
+            }
             val domesticShows = domestic.await()
             // A Chinese show popular enough to chart globally comes back from both queries;
             // it is domestic, and the foreign list must not claim it a second time.
@@ -427,10 +461,7 @@ class TmdbRepository(private val client: HttpClient) {
                             ?.let { season(show.id, it, language) }
                             ?.episodes
                             .orEmpty()
-                        val stubs = seasonEpisodes.ifEmpty {
-                            listOfNotNull(dto.lastEpisode, dto.nextEpisode)
-                        }
-                        stubs.mapNotNull { stub ->
+                        fun stubsOf(source: List<TmdbEpisodeStubDto>) = source.mapNotNull { stub ->
                             stub.toAiringEpisode(
                                 showTmdbId = dto.id,
                                 showTitle = showTitle,
@@ -440,17 +471,49 @@ class TmdbRepository(private val client: HttpClient) {
                                 // it is the season that was asked for.
                                 fallbackSeason = currentSeason,
                             )
+                        }.filter { it.airDate in fromDate..toDate }
+
+                        // Fall back on what the *season* yielded, not on whether the season
+                        // list was empty.
+                        //
+                        // This is where 国产剧 were disappearing. A Chinese web drama's TMDB
+                        // season is routinely listed with every episode named and none of
+                        // them dated — the only dates on the record are the show-level
+                        // `next_episode_to_air` / `last_episode_to_air`. The season list was
+                        // therefore non-empty, `ifEmpty` never fired, every undated stub was
+                        // dropped for having no air date, and the show contributed nothing
+                        // at all. Asking whether anything usable came back covers both that
+                        // case and the empty one it was written for.
+                        stubsOf(seasonEpisodes).ifEmpty {
+                            stubsOf(listOfNotNull(dto.lastEpisode, dto.nextEpisode))
                         }
                     }
                 }
                 .awaitAll()
                 .flatten()
-                // A show's "last episode" can predate the window by weeks when it is between
-                // seasons; the calendar only draws the range it was asked for.
+                .distinctBy { it.mediaKey }
+
+            val domesticFilmIds = domesticFilms.await().map { it.id }.toSet()
+            val films = interleave(
+                domesticFilms.await(),
+                foreignFilms.await().filterNot { it.id in domesticFilmIds },
+            )
+                .take(CALENDAR_MAX_FILMS)
+                .mapNotNull { film ->
+                    film.toAiringFilm(
+                        origin = if (film.id in domesticFilmIds) {
+                            ShowOrigin.Domestic
+                        } else {
+                            ShowOrigin.Foreign
+                        },
+                    )
+                }
                 .filter { it.airDate in fromDate..toDate }
                 .distinctBy { it.mediaKey }
-                .sortedWith(compareBy({ it.airDate }, { it.showTitle }))
-            Result.success(episodes)
+
+            Result.success(
+                (episodes + films).sortedWith(compareBy({ it.airDate }, { it.showTitle })),
+            )
         }
     } catch (e: CancellationException) {
         throw e
@@ -500,6 +563,26 @@ class TmdbRepository(private val client: HttpClient) {
             )
             null
         }
+
+    /** A film as a dated calendar row. Its title is the row; it has no coordinate. */
+    private fun TmdbItem.toAiringFilm(origin: ShowOrigin): AiringEpisode? {
+        val date = releaseDate?.takeIf { it.isNotBlank() } ?: return null
+        if (title.isBlank()) return null
+        return AiringEpisode(
+            showTmdbId = id,
+            showTitle = title,
+            posterPath = posterPath,
+            // Zero rather than null: the field is not optional, and no film has a
+            // coordinate, so any constant reads the same. [AiringEpisode.kind] is what the
+            // UI actually branches on.
+            seasonNumber = 0,
+            episodeNumber = 0,
+            episodeTitle = null,
+            airDate = date,
+            origin = origin,
+            kind = AiringKind.Movie,
+        )
+    }
 
     private fun TmdbEpisodeStubDto.toAiringEpisode(
         showTmdbId: Int,
@@ -606,5 +689,11 @@ class TmdbRepository(private val client: HttpClient) {
 
         /** One `/tv/{id}` request each, so the list is capped rather than unbounded. */
         const val CALENDAR_MAX_SHOWS = 24
+
+        /**
+         * Fewer than the shows, because a film is one row and a 日更 drama is fourteen.
+         * Matching the show budget would make the calendar mostly cinema listings.
+         */
+        const val CALENDAR_MAX_FILMS = 12
     }
 }

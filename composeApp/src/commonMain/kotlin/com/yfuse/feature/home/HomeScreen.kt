@@ -29,7 +29,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +61,7 @@ import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.sharedMediaElement
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 
@@ -78,6 +81,9 @@ fun HomeScreen(component: HomeComponent) {
         }
     }
     StatusBarIconStyle(darkIcons = !heroVisible && !palette.isDark)
+    // The shelf opened out into a grid, or null. Held here rather than in the store: it is
+    // which page is on screen, not anything about the data.
+    var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         when {
@@ -151,7 +157,10 @@ fun HomeScreen(component: HomeComponent) {
                             title = row.title,
                             items = row.items,
                             showReleaseDate = row.title == "即将上映",
-                            onSeeAll = component.onOpenLibrary,
+                            // Opens this shelf, not the 库 tab. These come from TMDB and
+                            // most are not in the library at all, so the old destination
+                            // showed none of what the chip had just offered.
+                            onSeeAll = { expandedRow = row },
                             onClick = { component.store.accept(HomeIntent.Open(it)) },
                         )
                         }
@@ -162,6 +171,19 @@ fun HomeScreen(component: HomeComponent) {
 
         if (state.resolving) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
+        }
+
+        expandedRow?.let { row ->
+            TmdbRowPage(
+                title = row.title,
+                items = row.items,
+                showReleaseDate = row.title == "即将上映",
+                onOpen = {
+                    component.store.accept(HomeIntent.Open(it))
+                    expandedRow = null
+                },
+                onDismiss = { expandedRow = null },
+            )
         }
     }
 }

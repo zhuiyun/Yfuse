@@ -70,6 +70,9 @@ data class AuthedServer(
  * Talks to Emby. Stateless with respect to sessions: every call targets an
  * explicit server. Failures carry an [EmbyErrorException].
  */
+/** One library item found by provider id: what to open, and whether it was watched. */
+data class ProviderHit(val itemId: String, val played: Boolean)
+
 class EmbyRepository(private val client: HttpClient) {
 
     suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> = call("public_users") {
@@ -654,21 +657,38 @@ class EmbyRepository(private val client: HttpClient) {
      * not, so fetching it whole is cheaper than querying it piecemeal.
      */
     suspend fun seriesProviderIndex(server: SavedServer): Result<Map<String, String>> =
-        call("series_provider_index") {
+        providerIndex(server, "Series").map { index -> index.mapValues { it.value.itemId } }
+
+    /**
+     * Every film in the library, keyed by provider id and carrying whether it was watched.
+     *
+     * Separate from [seriesProviderIndex] because a film *is* the thing the calendar row is
+     * about — there is no episode below it — so 已看 has to come from the same request. A
+     * series' watched state belongs to its episodes and is read from the episode list.
+     */
+    suspend fun movieProviderIndex(server: SavedServer): Result<Map<String, ProviderHit>> =
+        providerIndex(server, "Movie")
+
+    private suspend fun providerIndex(
+        server: SavedServer,
+        includeItemTypes: String,
+    ): Result<Map<String, ProviderHit>> =
+        call("provider_index") {
             val dto: ItemsResponseDto = client.get(
                 "${server.baseUrl}/Users/${server.userId}/Items",
             ) {
                 header("X-Emby-Token", server.accessToken)
-                parameter("IncludeItemTypes", "Series")
+                parameter("IncludeItemTypes", includeItemTypes)
                 parameter("Recursive", "true")
                 parameter("Fields", "ProviderIds")
                 parameter("EnableImages", "false")
             }.body()
             buildMap {
                 dto.Items.forEach { item ->
+                    val hit = ProviderHit(item.Id, item.UserData?.Played == true)
                     item.ProviderIds.orEmpty().forEach { (provider, value) ->
                         if (value.isNotBlank()) {
-                            put("${provider.lowercase()}:$value", item.Id)
+                            put("${provider.lowercase()}:$value", hit)
                         }
                     }
                 }
