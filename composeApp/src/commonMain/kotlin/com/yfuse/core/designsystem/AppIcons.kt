@@ -213,6 +213,23 @@ object AppIcons {
         moveTo(5f, 12f); horizontalLineToRelative(14f)
     }.build()
 
+    /**
+     * ↻ — 追剧日历's manual re-check.
+     *
+     * Three-quarters of a circle with an arrowhead on the open end, which is the shape
+     * everyone reads as "do that again". Drawn rather than borrowed so it carries the same
+     * 1.8 stroke as everything beside it.
+     */
+    val Refresh = strokeVector("refresh", cap = StrokeCap.Round, join = StrokeJoin.Round) {
+        // The gap sits at the top right, where the arrowhead goes.
+        moveTo(19.5f, 8.5f)
+        arcToRelative(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = false, 1.5f, 4.5f)
+        // The arrowhead, pointing back along the arc.
+        moveTo(19.5f, 3.5f)
+        verticalLineTo(8.5f)
+        horizontalLineTo(14.5f)
+    }.build()
+
     /** Source prototype's download glyph. */
     val Download = strokeVector("download", width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round) {
         moveTo(12f, 4f); verticalLineTo(15f)

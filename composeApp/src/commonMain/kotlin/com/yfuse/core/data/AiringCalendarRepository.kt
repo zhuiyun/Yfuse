@@ -115,7 +115,10 @@ class AiringCalendarRepository(
                 episode = episode,
                 status = classifyAiring(match, episode.airDate, today),
                 itemId = match?.id,
-                serverId = match?.let { server.id },
+                // The show is on this server whether or not tonight's episode is, so the
+                // server id travels with either — a 未入库 row still opens the series.
+                serverId = server.id,
+                seriesItemId = seriesId,
             )
         }
     }

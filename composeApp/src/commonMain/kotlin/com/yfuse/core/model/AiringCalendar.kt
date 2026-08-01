@@ -78,7 +78,22 @@ data class CalendarEntry(
     /** Set when the episode is on the server, so the row can open or play it. */
     val itemId: String? = null,
     val serverId: String? = null,
-)
+    /**
+     * The *show* on the server, when the library holds it at all.
+     *
+     * Set even for episodes the library is missing, and that is the point of it. Without
+     * this, a 未入库 row is a dead end — the app knows perfectly well which series it
+     * belongs to and can open it, and "追剧" means the shows you already follow, which is
+     * the only thing this field can distinguish them by.
+     */
+    val seriesItemId: String? = null,
+) {
+    /** True for a show this library follows, whether or not it has tonight's episode. */
+    val inLibrary: Boolean get() = seriesItemId != null
+
+    /** What tapping the row opens: the episode when there is one, else the show. */
+    val openItemId: String? get() = itemId ?: seriesItemId
+}
 
 /** A day's broadcasts, which is the unit the calendar is laid out in. */
 data class CalendarDay(

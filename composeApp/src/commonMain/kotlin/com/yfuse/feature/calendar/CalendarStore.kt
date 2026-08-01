@@ -8,6 +8,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.util.currentIsoDate
@@ -16,20 +17,28 @@ import kotlinx.coroutines.launch
 /**
  * Which slice of the calendar is on screen.
  *
+ * 我的 is the one this screen is named after. The schedule comes from a popularity chart,
+ * so out of the box the list is mostly shows the reader has never watched — useful for
+ * finding something new, useless for the thing 追剧 means. Filtering to the shows the
+ * library already holds turns the same data into "what's out tonight for the shows I
+ * follow", which is the question that made anyone open a calendar.
+ *
  * 国产 and 国外 are separated because they are watched differently — a domestic drama posts
  * daily and a foreign one weekly — and because a combined list ordered by popularity buries
  * whichever of the two the user came for.
  */
 enum class CalendarFilter(val label: String) {
     All("全部"),
+    Mine("我的"),
     Domestic("国产"),
     Foreign("国外"),
     ;
 
-    fun accepts(origin: ShowOrigin): Boolean = when (this) {
+    fun accepts(entry: CalendarEntry): Boolean = when (this) {
         All -> true
-        Domestic -> origin == ShowOrigin.Domestic
-        Foreign -> origin == ShowOrigin.Foreign
+        Mine -> entry.inLibrary
+        Domestic -> entry.episode.origin == ShowOrigin.Domestic
+        Foreign -> entry.episode.origin == ShowOrigin.Foreign
     }
 }
 
@@ -46,11 +55,26 @@ data class CalendarState(
             days
         } else {
             days.mapNotNull { day ->
-                day.entries.filter { filter.accepts(it.episode.origin) }
+                day.entries.filter(filter::accepts)
                     .takeIf { it.isNotEmpty() }
                     ?.let { day.copy(entries = it) }
             }
         }
+
+    /**
+     * Where today sits in [visibleDays], or the first day after it when today has no
+     * broadcasts — which is most days once 我的 is on.
+     *
+     * The list runs oldest-first and starts a week back, so without this it opens on last
+     * Tuesday. Landing on today and letting the reader scroll *up* into the past keeps
+     * "what have I missed" one gesture away while answering "what's on now" immediately.
+     */
+    val todayIndex: Int
+        get() = visibleDays.indexOfFirst { it.date >= today }.takeIf { it >= 0 }
+            ?: (visibleDays.size - 1).coerceAtLeast(0)
+
+    /** True once the schedule has arrived but the filter leaves nothing — 我的, usually. */
+    val filteredToNothing: Boolean get() = days.isNotEmpty() && visibleDays.isEmpty()
 }
 
 sealed interface CalendarIntent {

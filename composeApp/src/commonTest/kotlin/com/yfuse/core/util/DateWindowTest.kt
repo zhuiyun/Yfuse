@@ -42,4 +42,22 @@ class DateWindowTest {
         assertEquals("2026-07", shiftIsoDate("2026-07", 1))
         assertEquals(0, daysBetweenIso("2026-07-31", "not-a-date"))
     }
+
+    @Test
+    fun names_the_weekday_a_date_falls_on() {
+        // 1970-01-01 is the anchor the epoch-day arithmetic is offset from.
+        assertEquals("周四", isoWeekdayLabel("1970-01-01"))
+        assertEquals("周三", isoWeekdayLabel("1969-12-31"))
+        assertEquals("周六", isoWeekdayLabel("2026-08-01"))
+        assertEquals("周日", isoWeekdayLabel("2026-08-02"))
+        assertEquals("周一", isoWeekdayLabel("2026-08-03"))
+        assertEquals("", isoWeekdayLabel("not-a-date"))
+    }
+
+    @Test
+    fun shortens_a_date_for_a_chip() {
+        assertEquals("8-1", isoShortDate("2026-08-01"))
+        assertEquals("12-25", isoShortDate("2026-12-25"))
+        assertEquals("not-a-date", isoShortDate("not-a-date"))
+    }
 }

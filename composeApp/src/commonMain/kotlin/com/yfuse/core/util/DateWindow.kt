@@ -28,6 +28,29 @@ fun daysBetweenIso(from: String, to: String): Int {
     return (isoToEpochDay(b.first, b.second, b.third) - isoToEpochDay(a.first, a.second, a.third)).toInt()
 }
 
+/**
+ * `周四` — which day of the week an ISO date falls on.
+ *
+ * From the epoch day rather than a platform calendar: 1970-01-01 was a Thursday, so the
+ * weekday is the epoch day modulo seven and needs no timezone and no date type. Kotlin's
+ * `%` keeps the sign of the dividend, hence the extra wrap for dates before 1970.
+ */
+fun isoWeekdayLabel(date: String): String {
+    val parsed = parseIso(date) ?: return ""
+    val epochDay = isoToEpochDay(parsed.first, parsed.second, parsed.third)
+    val index = (((epochDay + 3) % 7 + 7) % 7).toInt()
+    return WEEKDAYS[index]
+}
+
+/** Indexed from Monday, which is where [isoWeekdayLabel]'s `+3` offset lands 1970-01-01. */
+private val WEEKDAYS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+/** `7-30` — a date short enough for a chip, since the year is never in question here. */
+fun isoShortDate(date: String): String {
+    val parsed = parseIso(date) ?: return date
+    return "${parsed.second}-${parsed.third}"
+}
+
 private fun parseIso(date: String): Triple<Int, Int, Int>? {
     val parts = date.split('-')
     if (parts.size != 3) return null

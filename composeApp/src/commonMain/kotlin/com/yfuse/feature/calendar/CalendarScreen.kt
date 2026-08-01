@@ -17,13 +17,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +59,9 @@ import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.daysBetweenIso
+import com.yfuse.core.util.isoShortDate
+import com.yfuse.core.util.isoWeekdayLabel
+import kotlinx.coroutines.launch
 
 /**
  * 追剧日历 — broadcasts by day, each marked with what this library has.
@@ -95,6 +104,31 @@ fun CalendarScreen(component: CalendarComponent) {
                         style = mr(10f, 400),
                         color = palette.sub2,
                     )
+                }
+                // The schedule is cached for the day, so nothing else re-reads it; a new
+                // download landing is exactly when someone wants 未入库 → 可播放 checked
+                // again, and only they know it happened.
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .pressable { component.store.accept(CalendarIntent.Refresh) }
+                        .solidGlass(CircleShape, palette.card2, palette.border),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (state.loading) {
+                        CircularProgressIndicator(
+                            Modifier.size(15.dp),
+                            color = Brand.Primary,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            AppIcons.Refresh,
+                            contentDescription = "刷新",
+                            tint = palette.text,
+                            modifier = Modifier.size(15.dp),
+                        )
+                    }
                 }
             }
 
@@ -142,25 +176,147 @@ fun CalendarScreen(component: CalendarComponent) {
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
 
+                state.filteredToNothing -> PageHint(
+                    "这段时间「${state.filter.label}」没有更新",
+                    Modifier.align(Alignment.CenterHorizontally),
+                )
+
                 days.isEmpty() -> PageHint(
                     "这段时间没有查到在播剧集",
                     Modifier.align(Alignment.CenterHorizontally),
                 )
 
-                else -> LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = TabBarInset),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
-                ) {
-                    items(days, key = { it.date }) { day ->
-                        DaySection(
-                            day = day,
-                            today = state.today,
-                            onOpen = { entry ->
-                                entry.itemId?.let { component.onOpenItem(entry.serverId, it) }
-                            },
-                        )
+                else -> {
+                    val listState = rememberLazyListState()
+                    val scope = rememberCoroutineScope()
+                    // Today, not the top. The list runs oldest-first over a week of
+                    // history, so opening at index 0 lands on last Tuesday. Re-run when
+                    // the filter changes, because that changes which index today is.
+                    LaunchedEffect(state.filter, days.size, state.today) {
+                        runCatching { listState.scrollToItem(state.todayIndex) }
                     }
+                    // Offered only once today has left the screen entirely. Keyed on the
+                    // index rather than the scroll position so it doesn't appear after a
+                    // single row of drift, which would make it a permanent fixture.
+                    val awayFromToday by remember(state.todayIndex) {
+                        derivedStateOf {
+                            listState.layoutInfo.visibleItemsInfo.none {
+                                it.index == state.todayIndex
+                            }
+                        }
+                    }
+
+                    DayStrip(
+                        days = days,
+                        today = state.today,
+                        onSelect = { index ->
+                            scope.launch { listState.animateScrollToItem(index) }
+                        },
+                    )
+                    Spacer(Modifier.height(12.dp))
+
+                    Box(Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            Modifier.fillMaxSize(),
+                            state = listState,
+                            contentPadding = PaddingValues(bottom = TabBarInset),
+                            verticalArrangement = Arrangement.spacedBy(18.dp),
+                        ) {
+                            items(days, key = { it.date }) { day ->
+                                DaySection(
+                                    day = day,
+                                    today = state.today,
+                                    onOpen = { entry ->
+                                        // The episode when the library has it, else the
+                                        // show — a 未入库 row knows perfectly well which
+                                        // series it belongs to.
+                                        entry.openItemId?.let {
+                                            component.onOpenItem(entry.serverId, it)
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                        if (awayFromToday) {
+                            Text(
+                                "回到今天",
+                                style = sc(11.5f, 700),
+                                color = Color.White,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = TabBarInset + 12.dp)
+                                    .pressable {
+                                        scope.launch {
+                                            listState.animateScrollToItem(state.todayIndex)
+                                        }
+                                    }
+                                    .clip(GlassShapes.chip)
+                                    .background(Brand.Primary)
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The days that have something on them, as a row of chips above the list.
+ *
+ * Built from the days that survived the filter rather than from the whole window: a chip
+ * for a date the list does not contain would scroll to the wrong place, and an empty
+ * Tuesday is not worth a tap target. Tapping scrolls rather than filters — the list stays
+ * one continuous thing you can keep reading past the day you jumped to.
+ */
+@Composable
+private fun DayStrip(days: List<CalendarDay>, today: String, onSelect: (Int) -> Unit) {
+    val palette = LocalPalette.current
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        itemsIndexed(days, key = { _, day -> day.date }) { index, day ->
+            val isToday = day.isToday(today)
+            Column(
+                Modifier
+                    .pressable { onSelect(index) }
+                    .clip(GlassShapes.chip)
+                    .background(if (isToday) Brand.Primary else Color.Transparent)
+                    .then(
+                        if (isToday) {
+                            Modifier
+                        } else {
+                            Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                        },
+                    )
+                    .padding(horizontal = 11.dp, vertical = 7.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    if (isToday) "今天" else isoWeekdayLabel(day.date),
+                    style = sc(10.5f, 700),
+                    color = if (isToday) Color.White else palette.text,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    isoShortDate(day.date),
+                    style = mr(9f, 500),
+                    color = if (isToday) Color.White.copy(alpha = 0.8f) else palette.sub2,
+                    maxLines = 1,
+                )
+                // A day with gaps is the only one worth marking from up here; the count
+                // itself is on the day's own header, where there is room for it.
+                if (day.missingCount > 0) {
+                    Spacer(Modifier.height(3.dp))
+                    Box(
+                        Modifier
+                            .size(4.dp)
+                            .clip(CircleShape)
+                            .background(if (isToday) Color.White else Brand.Danger),
+                    )
                 }
             }
         }
@@ -218,12 +374,13 @@ private fun dayLabel(date: String, today: String): String = when (val delta = da
 @Composable
 private fun EntryRow(entry: CalendarEntry, onOpen: () -> Unit) {
     val palette = LocalPalette.current
-    val playable = entry.itemId != null
+    // Tappable for anything the library holds — the episode if it has it, the show if not.
+    val openable = entry.openItemId != null
     Row(
         Modifier
             .fillMaxWidth()
             .glass(GlassShapes.card, palette.card2, palette.border)
-            .then(if (playable) Modifier.pressable(onClick = onOpen) else Modifier)
+            .then(if (openable) Modifier.pressable(onClick = onOpen) else Modifier)
             .padding(10.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -259,7 +416,7 @@ private fun EntryRow(entry: CalendarEntry, onOpen: () -> Unit) {
             Spacer(Modifier.height(6.dp))
             StatusBadge(entry.status)
         }
-        if (playable) {
+        if (openable) {
             Icon(
                 AppIcons.ChevronRight,
                 contentDescription = null,
