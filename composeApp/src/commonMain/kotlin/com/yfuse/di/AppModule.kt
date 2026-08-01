@@ -10,6 +10,7 @@ import com.yfuse.core.data.AiringScheduleCache
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
@@ -41,6 +42,7 @@ fun appModule(settings: Settings) = module {
     single { WatchTogetherPreferences(get()) }
     single { DanmakuPreferences(get()) }
     single { SkipSegmentPreferences(get()) }
+    single { PlaybackTrackRequest() }
     single { LibraryCache(get()) }
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }

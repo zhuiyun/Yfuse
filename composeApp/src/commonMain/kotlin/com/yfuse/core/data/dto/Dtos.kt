@@ -227,6 +227,8 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         type = Type ?: "",
         seriesId = SeriesId,
         seriesName = SeriesName,
+        seasonNumber = ParentIndexNumber,
+        episodeNumber = IndexNumber,
         overview = Overview,
         year = ProductionYear,
         genres = Genres ?: emptyList(),

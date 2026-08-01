@@ -73,6 +73,7 @@ import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DanmakuSpeed
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.SkipTimes
@@ -1097,6 +1098,22 @@ private fun PlayerRoot(
         settledSkip = skipOccurrence
         latestSkipSegment()
     }
+    // 详情页 picked a 音轨 / 字幕 before this opened; apply it once the engine has published
+    // what the file actually holds. Consumed rather than remembered — see PlaybackTrackRequest.
+    val trackRequest = remember { GlobalContext.get().get<PlaybackTrackRequest>() }
+    LaunchedEffect(currentItem?.id, state.audioTracks.size, state.subtitleTracks.size) {
+        if (state.audioTracks.isEmpty() && state.subtitleTracks.isEmpty()) return@LaunchedEffect
+        val requested = trackRequest.consume(currentItem?.id) ?: return@LaunchedEffect
+        requested.audioLanguage?.let { language ->
+            state.audioTracks.matching(language)?.let(engine::selectAudioTrack)
+        }
+        when (val subtitle = requested.subtitleLanguage) {
+            null -> Unit
+            PlaybackTrackRequest.SUBTITLES_OFF -> engine.selectSubtitleTrack(EngineTrack.OFF)
+            else -> state.subtitleTracks.matching(subtitle)?.let(engine::selectSubtitleTrack)
+        }
+    }
+
     // A hand-picked match, if this entry has one and the source it names still exists.
     val danmakuBinding = currentItem?.id
         ?.let(danmakuBindings::get)
@@ -1655,6 +1672,23 @@ private fun PlayerRoot(
             )
         }
     }
+}
+
+/**
+ * The engine track that answers to a language the detail page named.
+ *
+ * Deliberately forgiving, in that order: an exact language-code match, then a code sharing
+ * its first two letters, then a label that mentions it. Emby reports `chi`, an engine may
+ * report `zho` or nothing at all and put 国语 only in the title, and a picker that silently
+ * does nothing because two three-letter codes disagree is worse than one that reads the
+ * label. No match returns null and the file's own default stands — which is where it began.
+ */
+private fun List<EngineTrack>.matching(language: String): String? {
+    val wanted = language.trim().lowercase()
+    if (wanted.isEmpty()) return null
+    return firstOrNull { it.language?.lowercase() == wanted }?.id
+        ?: firstOrNull { it.language?.lowercase()?.startsWith(wanted.take(2)) == true }?.id
+        ?: firstOrNull { it.label.contains(language, ignoreCase = true) }?.id
 }
 
 @Composable

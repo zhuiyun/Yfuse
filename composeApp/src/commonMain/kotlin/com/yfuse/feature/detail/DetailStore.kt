@@ -6,6 +6,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
@@ -29,6 +30,27 @@ data class DetailState(
      * which is also what a library with a single file always resolves to.
      */
     val selectedVersionId: String? = null,
+    /**
+     * The 音轨 / 字幕 to open with, as languages.
+     *
+     * Null means "whatever the file defaults to", which is what every entry starts as and
+     * what most stay. See `PlaybackTrackRequest` for why these travel as languages and why
+     * they are not part of the navigation config.
+     */
+    val preferredAudioLanguage: String? = null,
+    val preferredSubtitleLanguage: String? = null,
+    /**
+     * The entry 播放 would actually open, resolved at load rather than on the tap.
+     *
+     * For a film that is the item itself. For a series it is the 下一集 — a different item
+     * with its own file, its own runtime and its own progress, none of which the series
+     * carries. The page needs all three before anything is tapped: the button says what it
+     * will play, 从头播放 only appears when there is something to rewind, and the 杜比 badge
+     * describes a file, which a series does not have one of.
+     */
+    val playTarget: MediaDetail? = null,
+    /** Where [playTarget] would resume from, in Emby ticks. Zero for something unstarted. */
+    val playPositionTicks: Long = 0L,
     val seasons: List<Season> = emptyList(),
     val selectedSeasonId: String? = null,
     val episodes: List<Episode> = emptyList(),
@@ -46,10 +68,16 @@ sealed interface DetailIntent {
     data object ToggleFavorite : DetailIntent
     data object TogglePlayed : DetailIntent
     data object AddToWatchLater : DetailIntent
+    /** 从头播放 — the same target as [Play], with the stored progress ignored. */
+    data object PlayFromStart : DetailIntent
     data class PlaySource(val serverId: String, val itemId: String) : DetailIntent
     /** Picks one of the several files the server holds for this title. */
     data class SelectVersion(val versionId: String) : DetailIntent
     data class SelectSeason(val seasonId: String) : DetailIntent
+    /** Null restores the file's own default track. */
+    data class SelectAudioLanguage(val language: String?) : DetailIntent
+    /** `PlaybackTrackRequest.SUBTITLES_OFF` starts with subtitles off. */
+    data class SelectSubtitleLanguage(val language: String?) : DetailIntent
     data class PlayEpisode(val episodeId: String, val startPositionTicks: Long) : DetailIntent
 }
 
@@ -80,6 +108,9 @@ private sealed interface DetailMsg {
     data class FavoriteChanged(val value: Boolean) : DetailMsg
     data class PlayedChanged(val value: Boolean) : DetailMsg
     data class ActionMessage(val value: String?) : DetailMsg
+    data class PlayTargetLoaded(val detail: MediaDetail?, val positionTicks: Long) : DetailMsg
+    data class AudioLanguageSelected(val language: String?) : DetailMsg
+    data class SubtitleLanguageSelected(val language: String?) : DetailMsg
 }
 
 class DetailStoreFactory(
@@ -106,7 +137,8 @@ class DetailStoreFactory(
         override fun executeIntent(intent: DetailIntent) {
             when (intent) {
                 DetailIntent.Retry -> load()
-                DetailIntent.Play -> play()
+                DetailIntent.Play -> play(fromStart = false)
+                DetailIntent.PlayFromStart -> play(fromStart = true)
                 DetailIntent.ToggleFavorite -> toggleFavorite()
                 DetailIntent.TogglePlayed -> togglePlayed()
                 DetailIntent.AddToWatchLater -> addToWatchLater()
@@ -115,6 +147,10 @@ class DetailStoreFactory(
                 is DetailIntent.SelectVersion ->
                     dispatch(DetailMsg.VersionSelected(intent.versionId))
                 is DetailIntent.SelectSeason -> selectSeason(intent.seasonId)
+                is DetailIntent.SelectAudioLanguage ->
+                    dispatch(DetailMsg.AudioLanguageSelected(intent.language))
+                is DetailIntent.SelectSubtitleLanguage ->
+                    dispatch(DetailMsg.SubtitleLanguageSelected(intent.language))
                 is DetailIntent.PlayEpisode -> {
                     val server = state().server ?: return
                     publish(
@@ -152,6 +188,7 @@ class DetailStoreFactory(
                     .onSuccess { detail ->
                         dispatch(DetailMsg.Loaded(detail, server))
                         seriesIdOf(detail)?.let { loadSeasons(server, it) }
+                        loadPlayTarget(server, detail)
                         loadSources(server, detail)
                         loadRelated(server, detail)
                     }
@@ -165,6 +202,31 @@ class DetailStoreFactory(
                         )
                         dispatch(DetailMsg.Failed(it.toUserMessage("加载失败")))
                     }
+            }
+        }
+
+        /**
+         * Works out what 播放 opens, before it is pressed.
+         *
+         * A film already knows: it is the item on screen, versions and resume position
+         * included, so this costs nothing. A series does not — `NextUp` names an episode,
+         * and only that episode's own detail carries the file and the progress. One extra
+         * request per series page buys the button its label, 从头播放 its reason to exist,
+         * and the 杜比 badge something to describe.
+         *
+         * Failure is silent on purpose: everything it feeds is an enrichment, and the page
+         * behaves exactly as it did before when it does not arrive.
+         */
+        private fun loadPlayTarget(server: SavedServer, detail: MediaDetail) {
+            if (detail.type != "Series") {
+                dispatch(DetailMsg.PlayTargetLoaded(detail, detail.resumePositionTicks ?: 0L))
+                return
+            }
+            scope.launch {
+                val target = repo.resolvePlayTarget(server, detail).getOrNull()
+                    ?: return@launch
+                val episode = repo.itemDetail(server, target.itemId).getOrNull()
+                dispatch(DetailMsg.PlayTargetLoaded(episode, target.startPositionTicks))
             }
         }
 
@@ -256,7 +318,7 @@ class DetailStoreFactory(
             loadEpisodes(server, seriesId, seasonId)
         }
 
-        private fun play() {
+        private fun play(fromStart: Boolean) {
             val current = state()
             val detail = current.detail ?: return
             val server = current.server ?: return
@@ -266,11 +328,18 @@ class DetailStoreFactory(
                 repo.resolvePlayTarget(server, detail)
                     .onSuccess {
                         dispatch(DetailMsg.Resolving(false))
+                        // Handed over just before the player opens, against the entry that
+                        // actually resolved — for a series that is the episode, not the show.
+                        GlobalContext.get().get<PlaybackTrackRequest>().set(
+                            itemId = it.itemId,
+                            audioLanguage = current.preferredAudioLanguage,
+                            subtitleLanguage = current.preferredSubtitleLanguage,
+                        )
                         publish(
                             DetailLabel.Play(
                                 serverId = server.id,
                                 itemId = it.itemId,
-                                startPositionTicks = it.startPositionTicks,
+                                startPositionTicks = if (fromStart) 0L else it.startPositionTicks,
                                 // Only when the target is the item whose versions were on
                                 // screen: a series resolves to an episode, whose files are
                                 // its own and have nothing to do with the picker above.
@@ -373,6 +442,12 @@ class DetailStoreFactory(
                 actionMessage = null,
             )
             is DetailMsg.ActionMessage -> copy(actionMessage = msg.value)
+            is DetailMsg.AudioLanguageSelected -> copy(preferredAudioLanguage = msg.language)
+            is DetailMsg.SubtitleLanguageSelected -> copy(preferredSubtitleLanguage = msg.language)
+            is DetailMsg.PlayTargetLoaded -> copy(
+                playTarget = msg.detail,
+                playPositionTicks = msg.positionTicks,
+            )
         }
     }
 }

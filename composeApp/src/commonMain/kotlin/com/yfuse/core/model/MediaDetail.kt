@@ -53,6 +53,9 @@ data class MediaDetail(
     val seriesId: String?,
     /** Set for episodes, for naming the series apart from this episode's own title. */
     val seriesName: String? = null,
+    /** Set for episodes: `S1 E4` is built from these, and only an episode has them. */
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
     val overview: String?,
     val year: Int?,
     val genres: List<String>,

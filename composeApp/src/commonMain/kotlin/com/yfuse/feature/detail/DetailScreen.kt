@@ -95,6 +95,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherClient
@@ -141,6 +142,18 @@ fun DetailScreen(component: DetailComponent) {
     // of the page spells the same file out — one answer to "which file", read twice.
     val selectedVersion = detail?.versions?.firstOrNull { it.id == state.selectedVersionId }
         ?: detail?.versions?.firstOrNull()
+    // `S1 E4 · 20:01`, under the key. Rebuilt only when the target or the progress moves.
+    val playDetailLine = remember(state.playTarget, state.playPositionTicks) {
+        val target = state.playTarget
+        val coordinate = listOfNotNull(
+            target?.seasonNumber?.let { "S$it" },
+            target?.episodeNumber?.let { "E$it" },
+        ).joinToString(" ").takeIf { it.isNotBlank() }
+        val resume = state.playPositionTicks
+            .takeIf { it > 0L }
+            ?.let { clockLabel(it / 10_000L) }
+        listOfNotNull(coordinate, resume).joinToString(" · ").takeIf { it.isNotBlank() }
+    }
 
     val watchTogether = remember { GlobalContext.get().get<WatchTogetherClient>() }
     val watchPreferences = remember { GlobalContext.get().get<WatchTogetherPreferences>() }
@@ -220,7 +233,10 @@ fun DetailScreen(component: DetailComponent) {
                     ) {
                         TitleBlock(
                             detail = detail,
-                            version = selectedVersion,
+                            // A series has no file of its own, so its 杜比 facts belong to
+                            // the episode 继续观看 would open — which is the copy the badge
+                            // would be describing anyway.
+                            version = selectedVersion ?: state.playTarget?.versions?.firstOrNull(),
                             modifier = Modifier.onSizeChanged {
                                 captionLift = with(density) { it.height.toDp() } + SheetGap
                             },
@@ -228,10 +244,15 @@ fun DetailScreen(component: DetailComponent) {
                         DetailActionDock(
                             accent = Brand.Primary,
                             label = if (detail.type == "Series") "继续观看" else "播放",
+                            detailLine = playDetailLine,
                             resolving = state.resolvingPlay,
                             favorite = detail.isFavorite,
                             played = detail.played,
+                            canPlayFromStart = state.playPositionTicks > 0L,
                             onPlay = { component.store.accept(DetailIntent.Play) },
+                            onPlayFromStart = {
+                                component.store.accept(DetailIntent.PlayFromStart)
+                            },
                             onFavorite = {
                                 component.store.accept(DetailIntent.ToggleFavorite)
                             },
@@ -279,6 +300,31 @@ fun DetailScreen(component: DetailComponent) {
                             accent = Brand.Primary,
                             onSelect = {
                                 component.store.accept(DetailIntent.SelectVersion(it))
+                            },
+                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                        )
+                    }
+                }
+
+                // The tracks of whatever file will actually open. A film's own, or, for a
+                // series, the episode 继续观看 resolves to — the same copy the 杜比 badge
+                // above describes.
+                val playableVersion = selectedVersion ?: state.playTarget?.versions?.firstOrNull()
+                if (playableVersion != null &&
+                    (playableVersion.audioTracks.size > 1 ||
+                        playableVersion.subtitleTracks.isNotEmpty())
+                ) {
+                    item(key = "tracks") {
+                        TrackSection(
+                            version = playableVersion,
+                            audioLanguage = state.preferredAudioLanguage,
+                            subtitleLanguage = state.preferredSubtitleLanguage,
+                            accent = Brand.Primary,
+                            onSelectAudio = {
+                                component.store.accept(DetailIntent.SelectAudioLanguage(it))
+                            },
+                            onSelectSubtitle = {
+                                component.store.accept(DetailIntent.SelectSubtitleLanguage(it))
                             },
                             modifier = Modifier.padding(top = Dimens.sectionGap),
                         )
@@ -872,6 +918,16 @@ private fun TitleBlock(
     }
 }
 
+/** `20:01` / `1:20:01` — a position on a timeline, in the shape a player prints it. */
+private fun clockLabel(positionMs: Long): String {
+    val totalSeconds = positionMs / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    val tail = "${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+    return if (hours > 0) "$hours:$tail" else "$minutes:${seconds.toString().padStart(2, '0')}"
+}
+
 /** `1小时13分钟` — hours only when there are any, because "0小时13分钟" reads as a bug. */
 private fun runtimeLabel(minutes: Int): String {
     val hours = minutes / 60
@@ -929,10 +985,21 @@ private fun CertificationBadge(label: String) {
 private fun DetailActionDock(
     accent: Color,
     label: String,
+    /**
+     * `S1 E4 · 20:01` — which entry the key opens and where it picks up.
+     *
+     * The button used to say 继续观看 and nothing else, which on a show is the one word that
+     * leaves the actual question unanswered: continue *what*. Null for a film that has
+     * never been started, where there is nothing to add.
+     */
+    detailLine: String?,
     resolving: Boolean,
     favorite: Boolean,
     played: Boolean,
+    /** Shown only when there is progress to discard. */
+    canPlayFromStart: Boolean,
     onPlay: () -> Unit,
+    onPlayFromStart: () -> Unit,
     onFavorite: () -> Unit,
     onTogglePlayed: () -> Unit,
 ) {
@@ -977,7 +1044,33 @@ private fun DetailActionDock(
                 Icon(AppIcons.Play, null, tint = playInk, modifier = Modifier.size(15.dp))
             }
             Spacer(Modifier.width(9.dp))
-            Text(label, style = sc(14.5f, 750), color = playInk)
+            if (detailLine == null) {
+                Text(label, style = sc(14.5f, 750), color = playInk)
+            } else {
+                Column(horizontalAlignment = Alignment.Start) {
+                    Text(label, style = sc(13.5f, 750), color = playInk, maxLines = 1)
+                    Text(
+                        detailLine,
+                        style = mr(10f, 500),
+                        color = playInk.copy(alpha = 0.62f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        if (canPlayFromStart) {
+            Spacer(Modifier.height(10.dp))
+            // A quiet second option, not a second key. Restarting is the rarer of the two
+            // and giving it equal weight would make the page ask a question every time.
+            Text(
+                "从头播放",
+                style = sc(12f, 600),
+                color = palette.sub,
+                modifier = Modifier
+                    .pressable(onClick = onPlayFromStart)
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            )
         }
         Spacer(Modifier.height(16.dp))
         // Only the two states worth reading at a glance stay on the page. 下载, 稍后观看 and
@@ -1444,6 +1537,105 @@ private fun VersionSection(
                     onSelect = { onSelect(version.id) },
                 )
             }
+        }
+    }
+}
+
+/**
+ * 音轨 / 字幕 — which track the player should open with.
+ *
+ * The player has had these pickers all along; what it has not had is a way to answer the
+ * question *before* the film starts. A release with a 国语 and an 原声 track opens on
+ * whichever the file marks default, and finding out it was the wrong one means hearing it,
+ * pausing, and going two panels deep while the room waits.
+ *
+ * Selection travels as a language rather than a stream number — see [PlaybackTrackRequest].
+ * 默认 is a real choice and always present: it is the only one that says "I have no opinion",
+ * and without it a picker that has been touched can never be untouched.
+ */
+@Composable
+private fun TrackSection(
+    version: MediaVersion,
+    audioLanguage: String?,
+    subtitleLanguage: String?,
+    accent: Color,
+    onSelectAudio: (String?) -> Unit,
+    onSelectSubtitle: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (version.audioTracks.size > 1) {
+            Column {
+                SectionHeader("音轨", Modifier.padding(horizontal = Dimens.pageHorizontal))
+                TrackChipRow(
+                    options = buildList {
+                        add(TrackChoice(null, "默认"))
+                        // A track the server tagged with no language is unreachable —
+                        // language is the only handle the player has on it — so it is not
+                        // offered rather than offered and silently ignored.
+                        version.audioTracks.forEach { track ->
+                            track.language?.let { add(TrackChoice(it, track.label)) }
+                        }
+                    },
+                    selected = audioLanguage,
+                    accent = accent,
+                    onSelect = onSelectAudio,
+                )
+            }
+        }
+        if (version.subtitleTracks.isNotEmpty()) {
+            Column {
+                SectionHeader("字幕", Modifier.padding(horizontal = Dimens.pageHorizontal))
+                TrackChipRow(
+                    options = buildList {
+                        add(TrackChoice(null, "默认"))
+                        add(TrackChoice(PlaybackTrackRequest.SUBTITLES_OFF, "关闭"))
+                        version.subtitleTracks.forEach { track ->
+                            track.language?.let { add(TrackChoice(it, track.label)) }
+                        }
+                    },
+                    selected = subtitleLanguage,
+                    accent = accent,
+                    onSelect = onSelectSubtitle,
+                )
+            }
+        }
+    }
+}
+
+/** One selectable track, as the value that travels and the words on the chip. */
+private data class TrackChoice(val value: String?, val label: String)
+
+@Composable
+private fun TrackChipRow(
+    options: List<TrackChoice>,
+    selected: String?,
+    accent: Color,
+    onSelect: (String?) -> Unit,
+) {
+    val palette = LocalPalette.current
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // Positional keys on purpose: a file can carry two tracks the server tags with the
+        // same language, so the value is not unique and cannot be one.
+        items(options) { option ->
+            val active = option.value == selected
+            Text(
+                option.label,
+                style = sc(11.5f, if (active) 700 else 500),
+                color = if (active) accent else palette.body,
+                maxLines = 1,
+                modifier = Modifier
+                    .glass(
+                        shape = GlassShapes.chip,
+                        fill = if (active) accent.copy(alpha = 0.10f) else palette.card2,
+                        border = if (active) accent.copy(alpha = 0.42f) else palette.border,
+                    )
+                    .pressable(onClick = { onSelect(option.value) })
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+            )
         }
     }
 }
