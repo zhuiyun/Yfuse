@@ -94,6 +94,17 @@ data class MediaStreamDto(
     /** `"24000/1001"` as often as a decimal, so it is parsed rather than shown raw. */
     val AverageFrameRate: Double? = null,
     val RealFrameRate: Double? = null,
+    /**
+     * Dolby Vision, as the server reports it. Newer Emby and Jellyfin send these; older
+     * ones send nothing and the profile is read out of the codec tag instead.
+     *
+     * The profile is the only thing that says whether a device without a Dolby decoder can
+     * do anything with the file — see [com.yfuse.core.model.MediaVersion.dolbyProfile].
+     */
+    val DvProfile: Int? = null,
+    val DvLevel: Int? = null,
+    /** 1 = HDR10 base layer, 2 = SDR, 4 = HLG. 0 means there is no compatible layer. */
+    val DvBlSignalCompatibilityId: Int? = null,
 )
 
 /**
@@ -257,6 +268,23 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
     )
 }
 
+/**
+ * The Dolby Vision profile written into the codec tag, for servers that do not report it.
+ *
+ * `dvhe.05.06` / `dvh1.08.09` — the two digits after the four-character codec are the
+ * profile. Emby puts the tag in `Codec` on some libraries and in `Profile` on others, so
+ * both are tried; anything that is not a Dolby tag yields null rather than a guess.
+ */
+internal fun dolbyProfileFromCodecTag(codec: String?, profile: String?): Int? =
+    listOfNotNull(codec, profile)
+        .firstNotNullOfOrNull { value ->
+            val lower = value.lowercase()
+            val marker = listOf("dvhe.", "dvh1.", "dvav.", "dva1.")
+                .firstOrNull { lower.startsWith(it) || lower.contains(it) }
+                ?: return@firstNotNullOfOrNull null
+            lower.substringAfter(marker).take(2).toIntOrNull()
+        }
+
 /** `4K HDR · 42.3 GB · 68 Mbps`, from the first video stream and the container. */
 fun MediaSourceDto.toSourceInfo(): SourceInfo? {
     val video = MediaStreams?.firstOrNull { it.Type == "Video" }
@@ -338,6 +366,9 @@ fun MediaSourceDto.toMediaVersion(fallbackId: String, ordinal: Int): MediaVersio
                 level = stream.Level,
                 aspectRatio = stream.AspectRatio?.takeIf { it.isNotBlank() },
                 bitDepth = stream.BitDepth,
+                dolbyProfile = stream.DvProfile
+                    ?: dolbyProfileFromCodecTag(stream.Codec, stream.Profile),
+                dolbyBaseLayerCompatibility = stream.DvBlSignalCompatibilityId,
             )
         },
         audioTracks = MediaStreams.orEmpty()

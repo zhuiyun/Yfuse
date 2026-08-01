@@ -98,6 +98,8 @@ import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.sync.WatchTogetherClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.collect
@@ -810,43 +812,43 @@ class PlayerActivity : ComponentActivity() {
         )
 }
 
-/**
- * Versions travel as one row per entry, matching how playback segments already cross the
- * intent boundary. Field and record separators are the ASCII unit/record characters, which
- * cannot appear in a URL or in a server-supplied label.
- */
-private const val VERSION_FIELD = ''
-private const val VERSION_RECORD = ''
-
 /** Separator for the `|`-joined `matchKeys` row; absent from provider ids and Emby ids. */
 private const val MATCH_KEY_SEPARATOR = '|'
 
+/**
+ * Versions across the intent boundary, as JSON.
+ *
+ * This used to be six fields joined by an ASCII unit separator, positionally decoded. It
+ * broke silently the first time a field was added to [PlayerMediaVersion] and nobody
+ * remembered to touch both ends: the encoder wrote six, the decoder read six, and the
+ * container and 杜比 flags added later arrived as their defaults — so the badge the player
+ * was supposed to show never appeared and nothing anywhere reported a problem.
+ *
+ * A serializer cannot make that mistake. Unknown keys are ignored and missing ones take
+ * their defaults, so the two ends can also be different versions of the app mid-update.
+ */
+private val versionsJson = Json { ignoreUnknownKeys = true }
+private val versionsSerializer = ListSerializer(PlayerMediaVersion.serializer())
+
 private fun encodeVersions(item: PlayerMediaItem): String =
-    item.versions.joinToString(VERSION_RECORD.toString()) { version ->
-        listOf(
-            version.id,
-            version.label,
-            version.detail,
-            version.url,
-            version.transcodeUrl,
-            version.fallbackTranscodeUrl,
-        ).joinToString(VERSION_FIELD.toString())
+    if (item.versions.isEmpty()) {
+        ""
+    } else {
+        versionsJson.encodeToString(versionsSerializer, item.versions)
     }
 
 private fun decodeVersions(raw: String): List<PlayerMediaVersion> {
     if (raw.isEmpty()) return emptyList()
-    return raw.split(VERSION_RECORD).mapNotNull { row ->
-        val fields = row.split(VERSION_FIELD)
-        if (fields.size < 6) return@mapNotNull null
-        PlayerMediaVersion(
-            id = fields[0],
-            label = fields[1],
-            detail = fields[2],
-            url = fields[3],
-            transcodeUrl = fields[4],
-            fallbackTranscodeUrl = fields[5],
+    return runCatching {
+        versionsJson.decodeFromString(versionsSerializer, raw)
+    }.onFailure {
+        AppLog.warning(
+            category = "feature.player",
+            event = "versions_undecodable",
+            message = "Playback versions could not be read from the launch intent",
+            throwable = it,
         )
-    }
+    }.getOrDefault(emptyList())
 }
 
 private fun encodePlaybackSegments(item: PlayerMediaItem): String =
@@ -937,7 +939,24 @@ private fun PlayerRoot(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var kind by remember { mutableStateOf(initialEngine) }
+    /**
+     * Dolby Vision that only a Dolby decoder can render picks the engine that has one.
+     *
+     * ExoPlayer is the only one of the three that goes through Android's `MediaCodec` and
+     * can therefore reach a device's Dolby Vision decoder at all; libmpv and MDK have no
+     * RPU handling, so a profile 5 file decodes "successfully" into a magenta-and-green
+     * picture and nothing in either pipeline reports an error to fall back on. Choosing
+     * for the user beats letting them discover that.
+     *
+     * Only for the profiles that have no compatible base layer — profile 8 plays as HDR10
+     * on any engine, which is a fine thing to leave to whichever they preferred.
+     */
+    val dolbyNeedsExo = remember(items, startIndex) {
+        items.getOrNull(startIndex)?.activeVersion?.needsDolbyDecoder == true
+    }
+    var kind by remember {
+        mutableStateOf(if (dolbyNeedsExo) PlayerEngine.Exo else initialEngine)
+    }
     // Where a newly built engine should start: index + position, updated on
     // every handover so the switch is seamless.
     var resume by remember { mutableStateOf(startIndex to startPositionMs) }
@@ -1018,6 +1037,25 @@ private fun PlayerRoot(
     }
 
     val state by engine.state.collectAsState()
+    // The same guard, for the cases the initial choice cannot cover: a queue that moves
+    // into a Dolby-only episode, or someone picking libmpv by hand while one is playing.
+    // The server's transcode is the only thing left that will put a correct picture up.
+    LaunchedEffect(engine, kind, state.currentIndex, state.transcoding) {
+        if (kind == PlayerEngine.Exo || state.transcoding) return@LaunchedEffect
+        val needsDolby = activeItems.getOrNull(state.currentIndex)
+            ?.activeVersion
+            ?.needsDolbyDecoder == true
+        if (!needsDolby) return@LaunchedEffect
+        AppLog.info(
+            category = "player",
+            event = "dolby_requires_transcode",
+            message = "Dolby Vision without a compatible base layer on a non-Dolby engine; " +
+                "switching to the server transcode",
+            attributes = mapOf("engine" to kind.name),
+        )
+        engine.switchToTranscode()
+    }
+
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by watchTogetherPreferences.endpoint.collectAsState()
     val danmakuSources by danmakuPreferences.sources.collectAsState()

@@ -303,6 +303,20 @@ class MpvVideoEngine(
             }
             instance.requireOption("keepaspect", "yes")
             instance.requireOption("panscan", "0")
+            // HDR, which mpv otherwise does nothing about.
+            //
+            // Without these an HDR10 or HLG file is handed to an SDR panel with its PQ
+            // curve intact, which is why every HDR film looked washed-out and grey on this
+            // engine while ExoPlayer showed it correctly. `target-colorspace-hint` passes
+            // the signal through to the display on the devices that can take it (Android 13
+            // and up), and the tone-mapping pair is what happens on the ones that cannot.
+            //
+            // Optional rather than required: which of these exists depends on the libmpv
+            // build that `scripts/fetch-engines.sh` fetched, and a missing option is a
+            // reason to lose tone mapping, not a reason to fail to start a film.
+            instance.optionalOption("target-colorspace-hint", "yes")
+            instance.optionalOption("tone-mapping", "bt.2390")
+            instance.optionalOption("hdr-compute-peak", "yes")
             instance.init()
 
             mpv = instance
@@ -635,6 +649,24 @@ class MpvVideoEngine(
     private fun MPVLib.requireOption(name: String, value: String) {
         val result = setOptionString(name, value)
         check(result >= 0) { "mpv rejected option $name (error $result)" }
+    }
+
+    /**
+     * An option worth having and not worth dying for.
+     *
+     * For anything whose availability depends on the libmpv build rather than on this
+     * code being right — a rejection is logged and playback carries on without it.
+     */
+    private fun MPVLib.optionalOption(name: String, value: String) {
+        val result = setOptionString(name, value)
+        if (result < 0) {
+            AppLog.info(
+                category = "player.mpv",
+                event = "option_unavailable",
+                message = "mpv build does not support an optional option; continuing without it",
+                attributes = mapOf("option" to name, "code" to result.toString()),
+            )
+        }
     }
 
     /** mpv calls throw once the handle is gone; every call site tolerates a miss. */

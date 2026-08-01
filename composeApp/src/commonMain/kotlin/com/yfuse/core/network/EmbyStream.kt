@@ -20,6 +20,31 @@ object EmbyStream {
             mediaSourceParam(mediaSourceId, itemId)
 
     /**
+     * The width and bitrate a transcode of this source should aim at.
+     *
+     * Transcoding happens because playback *failed*, not because the file was too big.
+     * A 4K Dolby Vision remux that falls back to a fixed 1080p / 6 Mbps loses far more
+     * than the Dolby layer that made the fallback necessary — and the ceiling was fixed
+     * at a time when the setting that would have raised it had already been withdrawn.
+     *
+     * So: follow the source, capped at 4K, never upscaled, and never below the old
+     * default — a server that could manage 1080p before can still manage it. The bitrate
+     * follows the width rather than the source's own, because H.264 needs more bits than
+     * the HEVC it is usually replacing and the source figure would starve it.
+     */
+    fun transcodeTarget(sourceWidth: Int?, sourceBitrateBps: Int?): Pair<Int, Int> {
+        val width = (sourceWidth ?: 0).coerceIn(1920, 3840)
+        val bitrate = when {
+            width > 2560 -> 24_000_000
+            width > 1920 -> 16_000_000
+            else -> 8_000_000
+        }
+        // A source that is genuinely thinner than the ladder does not need padding out.
+        val capped = sourceBitrateBps?.takeIf { it in 1..bitrate } ?: bitrate
+        return width to capped
+    }
+
+    /**
      * Server-side transcode to H.264/AAC over HLS. Needed for sources the
      * device cannot decode or render — notably Dolby Vision Profile 5, which
      * has no HDR10 fallback layer and plays with sound but no picture.

@@ -79,10 +79,37 @@ data class MediaVersion(
             track.profile.mentionsAtmos() || track.displayTitle.mentionsAtmos()
         }
 
+    /**
+     * Which Dolby Vision profile this copy is, when it is one at all.
+     *
+     * The profile is the whole story for playback. 8 and 9 carry a base layer an ordinary
+     * HEVC/AVC decoder can read, so a device with no Dolby support still gets a correct —
+     * if less bright — picture. **5 does not.** Profile 5 is IPT-PQ-C2 all the way down:
+     * a decoder without Dolby support will happily decode it and put a magenta-and-green
+     * picture on screen, which is worse than failing, because nothing in the pipeline
+     * reports an error for anyone to act on.
+     */
+    val dolbyProfile: Int? get() = video?.dolbyProfile?.takeIf { isDolbyVision }
+
+    /**
+     * True when only a Dolby-capable decoder can render this file correctly.
+     *
+     * Profile 5, and profile 7 or 8 that the server explicitly marks as having no
+     * compatible base layer. Everything else degrades to HDR10 or SDR on its own.
+     */
+    val needsDolbyCapableDecoder: Boolean
+        get() {
+            if (!isDolbyVision) return false
+            if (dolbyProfile == 5) return true
+            return video?.dolbyBaseLayerCompatibility == 0
+        }
+
     /** `SDR` when the server reported no range at all — the chip always says something. */
     val rangeLabel: String
         get() = when {
-            isDolbyVision -> "Dolby Vision"
+            // The profile is worth the four characters: it is what decides whether this
+            // file plays on this device at all.
+            isDolbyVision -> dolbyProfile?.let { "Dolby Vision P$it" } ?: "Dolby Vision"
             else -> videoRange?.takeIf { it.isNotBlank() } ?: "SDR"
         }
 
@@ -130,6 +157,10 @@ data class VideoStreamInfo(
     val level: Double? = null,
     val aspectRatio: String? = null,
     val bitDepth: Int? = null,
+    /** 5 / 7 / 8 / 9, or null when the file is not Dolby Vision (or nobody said). */
+    val dolbyProfile: Int? = null,
+    /** Emby's `DvBlSignalCompatibilityId`: 1 = HDR10 base, 2 = SDR, 4 = HLG, 0 = none. */
+    val dolbyBaseLayerCompatibility: Int? = null,
 ) {
     val resolutionLabel: String?
         get() = if (width != null && height != null) "${width}x$height" else null

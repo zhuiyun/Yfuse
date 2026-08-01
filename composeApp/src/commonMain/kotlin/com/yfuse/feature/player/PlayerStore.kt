@@ -16,6 +16,7 @@ import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
 
 /**
  * One selectable file behind a queue entry, with its stream URLs already built.
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
  * network and no credentials in the player: every version's addresses were resolved when
  * the queue was built.
  */
+@Serializable
 data class PlayerMediaVersion(
     val id: String,
     /** The server's name for this file — "Bluray 2160p", or its container. */
@@ -42,6 +44,19 @@ data class PlayerMediaVersion(
      */
     val dolbyVision: Boolean = false,
     val dolbyAtmos: Boolean = false,
+    /** 5 / 7 / 8 / 9. See [com.yfuse.core.model.MediaVersion.dolbyProfile]. */
+    val dolbyProfile: Int? = null,
+    /** True when nothing but a Dolby-capable decoder will render this correctly. */
+    val needsDolbyDecoder: Boolean = false,
+    /**
+     * What the original file is, so a transcode can aim at it instead of a fixed 1080p.
+     *
+     * Transcoding happens because playback failed, not because the file was too big; a 4K
+     * remux that falls back to 1080p/6 Mbps is a far larger loss than the one that made
+     * the fallback necessary.
+     */
+    val sourceWidth: Int? = null,
+    val sourceBitrateBps: Int? = null,
 )
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
@@ -172,6 +187,12 @@ class PlayerStoreFactory(
                 }
 
                 fun versionsOf(id: String, versions: List<MediaVersion>) = versions.map {
+                    // Aim the fallback at the file it is replacing rather than at a fixed
+                    // 1080p — see EmbyStream.transcodeTarget.
+                    val (targetWidth, targetBitrate) = EmbyStream.transcodeTarget(
+                        sourceWidth = it.video?.width,
+                        sourceBitrateBps = it.bitrateBps ?: it.video?.bitrateBps,
+                    )
                     PlayerMediaVersion(
                         id = it.id,
                         label = it.name,
@@ -186,17 +207,25 @@ class PlayerStoreFactory(
                             server.baseUrl,
                             id,
                             server.accessToken,
+                            maxWidth = targetWidth,
+                            videoBitrate = targetBitrate,
                             mediaSourceId = it.id,
                         ),
                         fallbackTranscodeUrl = EmbyStream.progressiveTranscode(
                             server.baseUrl,
                             id,
                             server.accessToken,
+                            maxWidth = targetWidth,
+                            videoBitrate = targetBitrate,
                             mediaSourceId = it.id,
                         ),
                         container = it.container?.uppercase(),
                         dolbyVision = it.isDolbyVision,
                         dolbyAtmos = it.hasDolbyAtmos,
+                        dolbyProfile = it.dolbyProfile,
+                        needsDolbyDecoder = it.needsDolbyCapableDecoder,
+                        sourceWidth = it.video?.width,
+                        sourceBitrateBps = it.bitrateBps ?: it.video?.bitrateBps,
                     )
                 }
 
