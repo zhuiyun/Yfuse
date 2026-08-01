@@ -105,18 +105,20 @@ fun HomeScreen(component: HomeComponent) {
                 // 首屏大图 runs edge to edge from the very top, with the greeting row
                 // floating on it — so it is the first item, not a padded card.
                 item {
+                    // One item, read once: 播放 and 收藏 have to act on the title actually
+                    // on screen, and three separate reads of the list is how they would
+                    // eventually stop agreeing.
+                    val todaysPick = state.featuredToday
                     Hero(
-                        item = state.content.featured.firstOrNull(),
+                        item = todaysPick,
                         onOpenProfile = component.onOpenProfile,
                         onOpenSearch = component.onOpenSearch,
                         onOpenCalendar = component.onOpenCalendar,
                         onPlay = {
-                            state.content.featured.firstOrNull()
-                                ?.let { component.store.accept(HomeIntent.Open(it)) }
+                            todaysPick?.let { component.store.accept(HomeIntent.Open(it)) }
                         },
                         onFavorite = {
-                            state.content.featured.firstOrNull()
-                                ?.let { component.store.accept(HomeIntent.Favorite(it)) }
+                            todaysPick?.let { component.store.accept(HomeIntent.Favorite(it)) }
                         },
                     )
                 }

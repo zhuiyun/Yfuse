@@ -51,6 +51,25 @@ fun isoShortDate(date: String): String {
     return "${parsed.second}-${parsed.third}"
 }
 
+/** Days since 1970-01-01 for an ISO date, or null when it is not one. */
+fun isoEpochDay(date: String): Long? =
+    parseIso(date)?.let { (y, m, d) -> isoToEpochDay(y, m, d) }
+
+/**
+ * Today's entry out of a pool: the same all day, a different one tomorrow.
+ *
+ * Rotating on the date rather than picking at random is what makes it a *pick* — two
+ * people opening the app on the same day see the same thing, closing and reopening does
+ * not reshuffle it, and it still moves on overnight. The pool wraps, so a list of twenty
+ * comes back round in twenty days.
+ */
+fun <T> List<T>.pickForDay(date: String): T? {
+    if (isEmpty()) return null
+    val day = isoEpochDay(date) ?: return first()
+    // Kotlin keeps the sign of the dividend, and dates before 1970 are negative.
+    return this[(((day % size) + size) % size).toInt()]
+}
+
 private fun parseIso(date: String): Triple<Int, Int, Int>? {
     val parts = date.split('-')
     if (parts.size != 3) return null

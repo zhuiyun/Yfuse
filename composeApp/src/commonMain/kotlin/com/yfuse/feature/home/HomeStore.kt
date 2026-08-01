@@ -13,6 +13,8 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.util.currentIsoDate
+import com.yfuse.core.util.pickForDay
 import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
@@ -23,6 +25,11 @@ import kotlinx.coroutines.launch
 data class HomeState(
     val loading: Boolean = true,
     val content: TmdbHome = TmdbHome(),
+    /**
+     * Recomputed on every load: the app can outlive midnight, and 今日精选 that is still
+     * yesterday's after the date has turned is the bug this field exists to prevent.
+     */
+    val today: String = currentIsoDate(),
     /**
      * The server [resume] was loaded from, kept beside it rather than read from the
      * registry at draw time. The row is addressed by item id against one server's base
@@ -35,7 +42,18 @@ data class HomeState(
     val resolving: Boolean = false,
     val error: String? = null,
     val actionMessage: String? = null,
-)
+) {
+    /**
+     * 今日精选 — one title out of [TmdbHome.featured], chosen by the date.
+     *
+     * The hero used to render `featured.first()`, which is TMDB's most popular title and
+     * nothing to do with today: that chart's top row holds for weeks at a time, so a badge
+     * reading 今日精选 sat over the same film for a month. Rotating on the date gives the
+     * label something to be true about, and does it without randomness — the pick is the
+     * same all day, the same for everyone, and survives closing the app.
+     */
+    val featuredToday: TmdbItem? get() = content.featured.pickForDay(today)
+}
 
 sealed interface HomeIntent {
     data object Retry : HomeIntent
@@ -232,7 +250,11 @@ class HomeStoreFactory(
     private object ReducerImpl : Reducer<HomeState, Msg> {
         override fun HomeState.reduce(msg: Msg): HomeState = when (msg) {
             Msg.Loading -> copy(loading = true, error = null)
-            is Msg.Loaded -> copy(loading = false, content = msg.content)
+            is Msg.Loaded -> copy(
+                loading = false,
+                content = msg.content,
+                today = currentIsoDate(),
+            )
             is Msg.ResumeLoaded -> copy(resume = msg.items)
             // Items and the server they are addressed against move together: anything the
             // previous server served would be requested from one that never held it.

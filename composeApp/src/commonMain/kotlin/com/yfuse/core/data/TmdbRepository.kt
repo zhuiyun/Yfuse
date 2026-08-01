@@ -277,7 +277,9 @@ class TmdbRepository(private val client: HttpClient) {
                     item.releaseDate?.let { it >= today && it <= nextYearEnd } == true
                 }
 
-            val featured = popular.filter { it.backdropPath != null }.take(5)
+            // The pool 今日精选 rotates through, not a shortlist anyone sees all of. Only
+            // one is shown per day, so a handful would come back round inside a fortnight.
+            val featured = popular.filter { it.backdropPath != null }.take(FEATURED_POOL)
             val rows = listOf(
                 TmdbRow("热门", popular),
                 TmdbRow("正在上映", nowPlaying),
@@ -688,6 +690,9 @@ class TmdbRepository(private val client: HttpClient) {
         const val GLOBAL_UPCOMING_MIN_VOTES = 3
 
         /** One `/tv/{id}` request each, so the list is capped rather than unbounded. */
+        /** Three weeks of daily picks before one repeats. */
+        const val FEATURED_POOL = 21
+
         const val CALENDAR_MAX_SHOWS = 24
 
         /**

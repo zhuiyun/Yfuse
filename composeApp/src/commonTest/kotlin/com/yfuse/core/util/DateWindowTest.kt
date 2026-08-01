@@ -2,6 +2,7 @@ package com.yfuse.core.util
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class DateWindowTest {
 
@@ -59,5 +60,41 @@ class DateWindowTest {
         assertEquals("8-1", isoShortDate("2026-08-01"))
         assertEquals("12-25", isoShortDate("2026-12-25"))
         assertEquals("not-a-date", isoShortDate("not-a-date"))
+    }
+
+    @Test
+    fun the_daily_pick_is_stable_within_a_day_and_moves_on_overnight() {
+        val pool = listOf("a", "b", "c", "d", "e")
+
+        // Same date, same answer — reopening the app must not reshuffle it.
+        assertEquals(pool.pickForDay("2026-08-01"), pool.pickForDay("2026-08-01"))
+        assertTrue(pool.pickForDay("2026-08-01") != pool.pickForDay("2026-08-02"))
+    }
+
+    @Test
+    fun the_daily_pick_walks_the_whole_pool_before_repeating() {
+        val pool = listOf("a", "b", "c", "d", "e")
+        val week = (1..5).map { day -> pool.pickForDay("2026-08-0$day") }
+
+        assertEquals(pool.size, week.distinct().size)
+        // And wraps rather than running off the end.
+        assertEquals(pool.pickForDay("2026-08-01"), pool.pickForDay("2026-08-06"))
+    }
+
+    @Test
+    fun the_daily_pick_copes_with_an_empty_pool_a_bad_date_and_dates_before_1970() {
+        assertEquals(null, emptyList<String>().pickForDay("2026-08-01"))
+        // An unparseable date still has to yield something rather than nothing.
+        assertEquals("a", listOf("a", "b").pickForDay("not-a-date"))
+        // A negative epoch day must not index backwards out of the list.
+        assertTrue(listOf("a", "b", "c").pickForDay("1969-01-01") in listOf("a", "b", "c"))
+    }
+
+    @Test
+    fun the_epoch_day_is_anchored_where_the_weekday_maths_expects() {
+        assertEquals(0L, isoEpochDay("1970-01-01"))
+        assertEquals(1L, isoEpochDay("1970-01-02"))
+        assertEquals(-1L, isoEpochDay("1969-12-31"))
+        assertEquals(null, isoEpochDay("not-a-date"))
     }
 }
