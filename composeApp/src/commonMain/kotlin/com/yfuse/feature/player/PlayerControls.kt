@@ -218,6 +218,7 @@ fun PlayerControls(
     var drawerOpen by remember { mutableStateOf(false) }
     var watchDialogOpen by remember { mutableStateOf(false) }
     var danmakuSearchOpen by remember { mutableStateOf(false) }
+    var danmakuSendOpen by remember { mutableStateOf(false) }
     var gestureHud by remember { mutableStateOf<String?>(null) }
     // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
     // is held. [holdSeekTarget] is where the timeline has run to, committed on release.
@@ -251,12 +252,12 @@ fun PlayerControls(
         settingsTab,
         drawerOpen,
         danmakuSearchOpen,
+        danmakuSendOpen,
         state.playing,
         interactions,
     ) {
-        if (!visible || !state.playing || settingsTab != null || drawerOpen || danmakuSearchOpen) {
-            return@LaunchedEffect
-        }
+        val overlayOpen = settingsTab != null || drawerOpen || danmakuSearchOpen || danmakuSendOpen
+        if (!visible || !state.playing || overlayOpen) return@LaunchedEffect
         delay(AUTO_HIDE_MS)
         visible = false
     }
@@ -327,6 +328,7 @@ fun PlayerControls(
                         },
                         onTap = {
                             when {
+                                danmakuSendOpen -> danmakuSendOpen = false
                                 danmakuSearchOpen -> danmakuSearchOpen = false
                                 settingsTab != null -> settingsTab = null
                                 drawerOpen -> drawerOpen = false
@@ -525,6 +527,10 @@ fun PlayerControls(
                     danmakuActions.onOpenSearch()
                     danmakuSearchOpen = true
                 },
+                onOpenDanmakuSend = {
+                    settingsTab = null
+                    danmakuSendOpen = true
+                },
                 onTab = { settingsTab = it },
                 onSelectSubtitle = { onSelectSubtitle(it); settingsTab = null },
                 onSelectAudio = { onSelectAudio(it); settingsTab = null },
@@ -627,6 +633,18 @@ fun PlayerControls(
                 ),
                 onDismiss = { danmakuSearchOpen = false },
                 modifier = Modifier.align(Alignment.CenterEnd),
+            )
+        }
+
+        if (danmakuSendOpen) {
+            DanmakuSendDialog(
+                sending = danmaku.sending,
+                error = danmaku.sendError,
+                onSend = {
+                    danmakuActions.onSend(it)
+                    danmakuSendOpen = false
+                },
+                onDismiss = { danmakuSendOpen = false },
             )
         }
 
@@ -1470,6 +1488,7 @@ private fun SettingsPanel(
     danmaku: DanmakuPanelState,
     danmakuActions: DanmakuPanelActions,
     onOpenDanmakuSearch: () -> Unit,
+    onOpenDanmakuSend: () -> Unit,
     onTab: (Tab) -> Unit,
     onSelectSubtitle: (String) -> Unit,
     onSelectAudio: (String) -> Unit,
@@ -1588,6 +1607,7 @@ private fun SettingsPanel(
                         state = danmaku,
                         actions = danmakuActions,
                         onOpenSearch = onOpenDanmakuSearch,
+                        onOpenSend = onOpenDanmakuSend,
                     )
 
                     Tab.Subtitle -> {

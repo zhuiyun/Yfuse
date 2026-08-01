@@ -27,10 +27,18 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,7 +48,11 @@ import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.activeOr
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
+import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
@@ -69,6 +81,12 @@ data class DanmakuPanelState(
     val matchLabel: String? = null,
     /** True when [matchLabel] is a hand-picked match rather than the server's guess. */
     val matchPinned: Boolean = false,
+    val mergeDuplicates: Boolean = true,
+    /** True when this source can be written to at all — a template cannot. */
+    val canSend: Boolean = false,
+    /** Non-null while a 发送 is in flight or has just failed. */
+    val sendError: String? = null,
+    val sending: Boolean = false,
     val areaOptions: List<Pair<String, Boolean>> = emptyList(),
     val fontOptions: List<Pair<String, Boolean>> = emptyList(),
     val speedOptions: List<Pair<String, Boolean>> = emptyList(),
@@ -97,6 +115,8 @@ data class DanmakuSearchState(
     val episodes: List<DanmakuEpisode> = emptyList(),
     /** True after a search that came back with nothing, so "无结果" isn't shown before one. */
     val searched: Boolean = false,
+    /** Newest first. Shown in place of the hint before anything has been typed. */
+    val recent: List<String> = emptyList(),
 )
 
 /** Callbacks for [DanmakuPanelState], grouped for the same reason the state is. */
@@ -116,6 +136,10 @@ data class DanmakuPanelActions(
     val onPickEpisode: (DanmakuEpisode) -> Unit = {},
     /** Drops a hand-picked match and goes back to whatever the server matches on its own. */
     val onClearMatch: () -> Unit = {},
+    val onToggleMerge: () -> Unit = {},
+    /** Re-runs the load that failed, without changing anything about the match. */
+    val onRetry: () -> Unit = {},
+    val onSend: (String) -> Unit = {},
 )
 
 /** The 弹幕 tab of the settings panel. */
@@ -124,6 +148,7 @@ internal fun DanmakuTab(
     state: DanmakuPanelState,
     actions: DanmakuPanelActions,
     onOpenSearch: () -> Unit,
+    onOpenSend: () -> Unit,
 ) {
     GroupLabel("弹幕")
     OptionRow(
@@ -143,6 +168,11 @@ internal fun DanmakuTab(
         color = if (state.error != null) Brand.Danger else Color.White.copy(alpha = 0.56f),
         modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp),
     )
+    // A failed load used to be a red line and nothing else: the only way to try again was
+    // to leave the episode and come back. Most of these failures are a timeout.
+    if (state.error != null && !state.loading) {
+        OptionRow("重试", selected = false, onClick = actions.onRetry)
+    }
     // What the comments are actually from. A wrong match is the single most common thing
     // to go wrong here and the only way to see it is to print it.
     state.matchLabel?.let { label ->
@@ -166,6 +196,12 @@ internal fun DanmakuTab(
             onAction = actions.onClearMatch,
         )
     }
+
+    if (state.canSend) {
+        OptionRow("发送弹幕", selected = false, onClick = onOpenSend)
+    }
+    // The single most effective thing that can be done to fourteen thousand comments.
+    OptionRow("合并重复弹幕", state.mergeDuplicates, onClick = actions.onToggleMerge)
 
     GroupLabel("显示区域")
     state.areaOptions.forEachIndexed { index, (label, selected) ->
@@ -239,6 +275,9 @@ internal fun DanmakuSearchPanel(
             value = search.query,
             onValueChange = actions.onQueryChange,
             onSubmit = actions.onSubmitSearch,
+            // The sheet exists to be typed into; opening it and then having to tap the
+            // field is a step with exactly one possible answer.
+            autoFocus = true,
         )
 
         // Which server answers. Only drawn with a real choice to make — one source is not
@@ -323,9 +362,86 @@ internal fun DanmakuSearchPanel(
 
             search.searched -> PanelNote("没有搜到这个名字", Color.White.copy(alpha = 0.5f))
 
+            search.recent.isNotEmpty() -> Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                // The same show, next episode, tomorrow night. Retyping a title on a
+                // landscape keyboard is the sort of chore a list of eight strings removes.
+                Text(
+                    "最近搜索",
+                    style = mr(10f, 600),
+                    color = Color.White.copy(alpha = 0.42f),
+                    modifier = Modifier.padding(vertical = 2.dp),
+                )
+                search.recent.forEach { keyword ->
+                    SearchRow(
+                        title = keyword,
+                        subtitle = null,
+                        onClick = {
+                            actions.onQueryChange(keyword)
+                            actions.onSubmitSearch()
+                        },
+                    )
+                }
+            }
+
             else -> PanelNote(
                 "输入片名后搜索，选中的集会记住，下次进入这一集直接用。",
                 Color.White.copy(alpha = 0.5f),
+            )
+        }
+    }
+}
+
+/**
+ * 发送弹幕 — one line, onto the episode the player is matched to.
+ *
+ * A dialog rather than a bar along the bottom of the picture: sending is occasional, the
+ * bar would be permanent, and the player already treats a modal question this way (一起看
+ * asks for a room code the same way). It closes on send, because the sent line appearing
+ * over the picture is the confirmation.
+ *
+ * The position is taken at the moment 发送 is pressed rather than when the dialog opened —
+ * the film has been playing the whole time it was being typed, and a comment that lands
+ * twenty seconds early is a comment about the wrong shot.
+ */
+@Composable
+internal fun DanmakuSendDialog(
+    sending: Boolean,
+    error: String?,
+    onSend: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by remember { mutableStateOf("") }
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "发送弹幕",
+            subtitle = "发到当前匹配的那一集，出现在此刻的位置。",
+            onClose = onDismiss,
+        )
+        SearchField(
+            value = draft,
+            onValueChange = { draft = it.take(120) },
+            onSubmit = { if (draft.isNotBlank()) onSend(draft) },
+            autoFocus = true,
+            placeholder = "说点什么",
+            action = null,
+        )
+        if (error != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(error, style = mr(10.5f, 500), color = Brand.Danger)
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            OverlayButton("取消", onDismiss, Modifier.weight(1f))
+            OverlayButton(
+                label = if (sending) "发送中…" else "发送",
+                onClick = { onSend(draft) },
+                modifier = Modifier.weight(1f),
+                tone = OverlayButtonTone.Primary,
+                enabled = draft.isNotBlank() && !sending,
             )
         }
     }
@@ -336,7 +452,15 @@ private fun SearchField(
     value: String,
     onValueChange: (String) -> Unit,
     onSubmit: () -> Unit,
+    autoFocus: Boolean = false,
+    placeholder: String = "片名",
+    /** The trailing icon. Null leaves the field bare, for a form with its own buttons. */
+    action: ImageVector? = AppIcons.Search,
 ) {
+    val focusRequester = remember { FocusRequester() }
+    if (autoFocus) {
+        LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -352,7 +476,7 @@ private fun SearchField(
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             if (value.isEmpty()) {
                 Text(
-                    "片名",
+                    placeholder,
                     style = mr(12f, 500),
                     color = Color.White.copy(alpha = 0.38f),
                     maxLines = 1,
@@ -366,15 +490,17 @@ private fun SearchField(
                 cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
             )
         }
-        Icon(
-            AppIcons.Search,
-            contentDescription = "搜索",
-            tint = Color.White,
-            modifier = Modifier.size(16.dp).noRippleClickable(onSubmit),
-        )
+        action?.let { icon ->
+            Icon(
+                icon,
+                contentDescription = "搜索",
+                tint = Color.White,
+                modifier = Modifier.size(16.dp).noRippleClickable(onSubmit),
+            )
+        }
     }
 }
 

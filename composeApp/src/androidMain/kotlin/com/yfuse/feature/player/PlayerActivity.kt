@@ -44,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,6 +65,7 @@ import androidx.media3.ui.PlayerView
 import androidx.core.content.ContextCompat
 import com.yfuse.core.data.DanmakuBinding
 import com.yfuse.core.data.DanmakuComment
+import com.yfuse.core.data.DanmakuFilter
 import com.yfuse.core.data.DanmakuDisplayArea
 import com.yfuse.core.data.DanmakuFontSize
 import com.yfuse.core.data.DanmakuMedia
@@ -82,6 +84,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
+import com.yfuse.core.data.danmakuBindingKey
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.YfuseTheme
@@ -1025,12 +1028,21 @@ private fun PlayerRoot(
     val danmakuFont by danmakuPreferences.fontSize.collectAsState()
     val danmakuSpeed by danmakuPreferences.speed.collectAsState()
     val danmakuOpacity by danmakuPreferences.opacity.collectAsState()
+    val danmakuMerge by danmakuPreferences.mergeDuplicates.collectAsState()
+    val danmakuBlocked by danmakuPreferences.blockedWords.collectAsState()
+    val danmakuRecent by danmakuPreferences.recentSearches.collectAsState()
     var danmakuComments by remember { mutableStateOf(emptyList<DanmakuComment>()) }
     var danmakuLoading by remember { mutableStateOf(false) }
     var danmakuError by remember { mutableStateOf<String?>(null) }
     /** Which episode the comments on screen came from, for the 弹幕 panel to print. */
     var danmakuMatch by remember { mutableStateOf<String?>(null) }
     var danmakuSearch by remember { mutableStateOf(DanmakuSearchState()) }
+    var danmakuSending by remember { mutableStateOf(false) }
+    var danmakuSendError by remember { mutableStateOf<String?>(null) }
+    /** Bumped by 重试, which is the only thing that re-runs a load nothing else changed. */
+    var danmakuReloads by remember { mutableIntStateOf(0) }
+    /** The episode the loaded comments came from — what 发送弹幕 posts to. */
+    var danmakuEpisodeId by remember { mutableStateOf<String?>(null) }
     val danmakuSource = danmakuSources.activeOr(danmakuActiveSourceId)
     val currentItem = activeItems.getOrNull(state.currentIndex)
     // Read as state so editing this series' times mid-episode takes effect on the open
@@ -1120,14 +1132,36 @@ private fun PlayerRoot(
         }
     }
 
+    // Keyed on the show and its coordinate rather than the library's item id, so a match
+    // made on one server still holds on another — see danmakuBindingKey.
+    val danmakuKey = currentItem?.let { item ->
+        danmakuBindingKey(
+            itemId = item.id,
+            title = item.title,
+            seriesName = item.seriesName,
+            seasonNumber = item.seasonNumber,
+            episodeNumber = item.episodeNumber,
+        )
+    }
     // A hand-picked match, if this entry has one and the source it names still exists.
-    val danmakuBinding = currentItem?.id
-        ?.let(danmakuBindings::get)
+    val danmakuBinding = danmakuKey
+        ?.let { key ->
+            // Read through the flow rather than the preference object so a fresh match
+            // re-runs the loader below; `bindings` is what changes when one is written.
+            danmakuBindings[key] ?: currentItem?.id?.let(danmakuBindings::get)
+        }
         ?.takeIf { binding -> danmakuSources.any { it.id == binding.sourceId } }
-    LaunchedEffect(currentItem?.id, danmakuSource, danmakuBinding, danmakuEnabled) {
+    LaunchedEffect(
+        currentItem?.id,
+        danmakuSource,
+        danmakuBinding,
+        danmakuEnabled,
+        danmakuReloads,
+    ) {
         danmakuComments = emptyList()
         danmakuError = null
         danmakuMatch = null
+        danmakuEpisodeId = null
         danmakuLoading = false
         val item = currentItem ?: return@LaunchedEffect
         if (!danmakuEnabled) return@LaunchedEffect
@@ -1146,6 +1180,7 @@ private fun PlayerRoot(
             // automatic one was wrong, and re-guessing would undo the correction.
             danmakuBinding != null -> {
                 danmakuMatch = danmakuBinding.label
+                danmakuEpisodeId = danmakuBinding.episodeId
                 val pinned = danmakuSources.first { it.id == danmakuBinding.sourceId }
                 danmakuRepository.loadEpisode(pinned, danmakuBinding.episodeId)
             }
@@ -1165,17 +1200,27 @@ private fun PlayerRoot(
                         Result.failure(IllegalStateException("没有匹配到弹幕，可用搜索手动选择"))
                     } else {
                         danmakuMatch = episode.label
+                        danmakuEpisodeId = episode.episodeId
                         danmakuRepository.loadEpisode(source, episode.episodeId)
                     }
                 },
                 onFailure = { Result.failure(it) },
             )
         }
+        // Kept exactly as the server sent it. 合并重复 and the block list are applied on
+        // the way to the screen, so toggling either is instant and 弹幕条数 keeps reporting
+        // what the episode actually has rather than what survived the filter.
         loaded.fold(
             onSuccess = { danmakuComments = it },
             onFailure = { danmakuError = it.message ?: "弹幕加载失败" },
         )
         danmakuLoading = false
+    }
+    // Applied once per load rather than per frame — the overlay is already allocating lanes
+    // sixty times a second — but not inside the loader, so toggling 合并重复 is instant
+    // instead of re-downloading fourteen thousand comments to hide six of them.
+    val danmakuVisible = remember(danmakuComments, danmakuMerge, danmakuBlocked) {
+        DanmakuFilter.apply(danmakuComments, danmakuMerge, danmakuBlocked)
     }
     val danmakuActions = DanmakuPanelActions(
         onToggle = { danmakuPreferences.setEnabled(!danmakuEnabled) },
@@ -1214,6 +1259,7 @@ private fun PlayerRoot(
                     episodes = emptyList(),
                 )
                 scope.launch {
+                    danmakuPreferences.rememberSearch(keyword)
                     danmakuRepository.search(danmakuSource, keyword).fold(
                         onSuccess = { results ->
                             danmakuSearch = danmakuSearch.copy(
@@ -1270,7 +1316,13 @@ private fun PlayerRoot(
             val item = currentItem
             if (item != null && danmakuSource != null) {
                 danmakuPreferences.bind(
-                    itemId = item.id,
+                    itemId = danmakuBindingKey(
+                        itemId = item.id,
+                        title = item.title,
+                        seriesName = item.seriesName,
+                        seasonNumber = item.seasonNumber,
+                        episodeNumber = item.episodeNumber,
+                    ),
                     binding = DanmakuBinding(
                         sourceId = danmakuSource.id,
                         episodeId = episode.episodeId,
@@ -1282,7 +1334,44 @@ private fun PlayerRoot(
                 if (!danmakuEnabled) danmakuPreferences.setEnabled(true)
             }
         },
-        onClearMatch = { currentItem?.id?.let(danmakuPreferences::unbind) },
+        onToggleMerge = { danmakuPreferences.setMergeDuplicates(!danmakuMerge) },
+        onRetry = { danmakuReloads++ },
+        onSend = { text ->
+            val source = danmakuSource
+            val episodeId = danmakuEpisodeId
+            if (source != null && episodeId != null) {
+                danmakuSending = true
+                danmakuSendError = null
+                scope.launch {
+                    danmakuRepository.send(
+                        source = source,
+                        episodeId = episodeId,
+                        text = text,
+                        // Read from the state this action object was built with, which is
+                        // rebuilt on every position tick — so it is where the film is when
+                        // 发送 is pressed, not where it was when the dialog opened.
+                        positionMs = state.positionMs,
+                    ).fold(
+                        onSuccess = {
+                            danmakuSending = false
+                            // The line is on the server, not in the list on screen. One
+                            // reload is cheaper than inventing a local comment that might
+                            // not match what the server stored.
+                            danmakuReloads++
+                        },
+                        onFailure = {
+                            danmakuSending = false
+                            danmakuSendError = it.message ?: "发送失败"
+                        },
+                    )
+                }
+            }
+        },
+        onClearMatch = {
+            // Both keys: the current one, and the item id an older build may have used.
+            danmakuKey?.let(danmakuPreferences::unbind)
+            currentItem?.id?.let(danmakuPreferences::unbind)
+        },
     )
     val latestEngine by rememberUpdatedState(engine)
     val latestPlaybackState by rememberUpdatedState(state)
@@ -1525,9 +1614,9 @@ private fun PlayerRoot(
             is ExoVideoEngine -> ExoSurface(engine, filled, Modifier.fillMaxSize())
         }
 
-        if (!inPictureInPicture && danmakuEnabled && danmakuComments.isNotEmpty()) {
+        if (!inPictureInPicture && danmakuEnabled && danmakuVisible.isNotEmpty()) {
             DanmakuOverlay(
-                comments = danmakuComments,
+                comments = danmakuVisible,
                 positionMs = state.positionMs,
                 playing = state.playing && !state.buffering,
                 playbackRate = state.speed,
@@ -1598,6 +1687,12 @@ private fun PlayerRoot(
                     error = danmakuError,
                     matchLabel = danmakuMatch,
                     matchPinned = danmakuBinding != null,
+                    mergeDuplicates = danmakuMerge,
+                    // Only a real server takes writes, and only once something is matched
+                    // — there is no episode to post against otherwise.
+                    canSend = danmakuSource?.supportsSearch == true && danmakuEpisodeId != null,
+                    sending = danmakuSending,
+                    sendError = danmakuSendError,
                     areaOptions = DanmakuDisplayArea.entries.map {
                         it.label to (it == danmakuArea)
                     },
@@ -1610,7 +1705,7 @@ private fun PlayerRoot(
                     opacityOptions = DanmakuOpacity.entries.map {
                         it.label to (it == danmakuOpacity)
                     },
-                    search = danmakuSearch,
+                    search = danmakuSearch.copy(recent = danmakuRecent),
                 ),
                 danmakuActions = danmakuActions,
                 // 关闭 keeps the stored boundaries and stops offering them. Gating here

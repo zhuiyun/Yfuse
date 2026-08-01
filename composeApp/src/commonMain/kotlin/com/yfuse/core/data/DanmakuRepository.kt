@@ -5,6 +5,11 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,6 +18,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
@@ -24,7 +30,15 @@ data class DanmakuComment(
     val text: String,
     val color: Long = 0xFFFFFF,
     val kind: DanmakuKind = DanmakuKind.Scroll,
-)
+    /**
+     * How many identical lines this one stands for once 合并重复 has run. 1 means it
+     * stands for itself, which is what everything loaded off the wire starts as.
+     */
+    val repeats: Int = 1,
+) {
+    /** `笑死 ×128` — what the overlay draws. The count only appears once there is one. */
+    val displayText: String get() = if (repeats > 1) "$text ×$repeats" else text
+}
 
 data class DanmakuMedia(
     val id: String,
@@ -131,6 +145,47 @@ class DanmakuRepository(private val client: HttpClient) {
         )
     }
 
+    /**
+     * 发送弹幕 — post one line to the episode currently matched.
+     *
+     * `POST /api/v2/comment/{episodeId}` is dandanplay's shape and what its clones accept.
+     * Whether a given server allows anonymous writes is the server's business, so a refusal
+     * comes back as the plain HTTP reason rather than being pre-empted here: a 403 means
+     * "this server does not take comments from you", which is exactly what the user needs
+     * to be told, and guessing in advance would forbid every server that does allow it.
+     */
+    suspend fun send(
+        source: DanmakuSource,
+        episodeId: String,
+        text: String,
+        positionMs: Long,
+        color: Long = 0xFFFFFF,
+    ): Result<Unit> = withContext(Dispatchers.Default) {
+        val message = text.trim().take(120)
+        if (message.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("弹幕内容不能为空"))
+        }
+        val root = source.apiRoot()
+            ?: return@withContext Result.failure(
+                IllegalArgumentException("这个弹幕源不支持发送弹幕"),
+            )
+        val body = buildJsonObject {
+            // Seconds with two decimals, which is the unit the `p` attribute reads back in.
+            put("time", JsonPrimitive(positionMs / 1000.0))
+            put("mode", JsonPrimitive(1))
+            put("color", JsonPrimitive(color))
+            put("comment", JsonPrimitive(message))
+        }
+        post("$root/api/v2/comment/${encodeUrlComponent(episodeId)}", body.toString()).map { }
+    }
+
+    private suspend fun post(url: String, body: String): Result<String> = request(url) {
+        client.post(url) {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+    }
+
     private suspend fun fetchComments(url: String): Result<List<DanmakuComment>> =
         fetch(url).mapCatching { body ->
             val comments = DanmakuParser.parse(body)
@@ -152,8 +207,18 @@ class DanmakuRepository(private val client: HttpClient) {
             comments
         }
 
-    /** One request, with every failure turned into something safe to put on screen. */
-    private suspend fun fetch(url: String): Result<String> {
+    private suspend fun fetch(url: String): Result<String> = request(url) { client.get(url) }
+
+    /**
+     * One request, with every failure turned into something safe to put on screen.
+     *
+     * The scheme check lives here rather than at each call site so a verb added later
+     * cannot skip it — a template pointing at `file://` is a user typo, not a request.
+     */
+    private suspend fun request(
+        url: String,
+        call: suspend () -> HttpResponse,
+    ): Result<String> {
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             AppLog.warning(
                 category = "danmaku",
@@ -165,7 +230,7 @@ class DanmakuRepository(private val client: HttpClient) {
             )
         }
         return try {
-            val body: String = client.get(url).body()
+            val body: String = call().body()
             Result.success(body)
         } catch (error: CancellationException) {
             throw error

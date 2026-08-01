@@ -256,4 +256,116 @@ class DanmakuTest {
             assertEquals(null, DanmakuSource("a", "A", "https://d.example.com/{id}").apiRoot())
         }
     }
+
+    @Test
+    fun repeated_lines_collapse_into_one_with_a_count() {
+        val comments = DanmakuFilter.merge(
+            listOf(
+                DanmakuComment(1_000L, "笑死"),
+                DanmakuComment(2_000L, "笑死"),
+                DanmakuComment(3_000L, "别的话"),
+                DanmakuComment(4_000L, "笑死"),
+            ),
+        )
+
+        assertEquals(2, comments.size)
+        // The earliest survives: a comment reacts to something that just happened, so the
+        // first one is the one whose timing is right.
+        assertEquals(1_000L, comments[0].timeMs)
+        assertEquals(3, comments[0].repeats)
+        assertEquals("笑死 ×3", comments[0].displayText)
+        assertEquals(1, comments[1].repeats)
+        assertEquals("别的话", comments[1].displayText)
+    }
+
+    @Test
+    fun the_same_line_far_apart_stays_two_comments() {
+        val comments = DanmakuFilter.merge(
+            listOf(
+                DanmakuComment(0L, "片头曲好听"),
+                DanmakuComment(21_000L, "片头曲好听"),
+            ),
+            windowMs = 20_000L,
+        )
+
+        assertEquals(2, comments.size)
+        assertTrue(comments.all { it.repeats == 1 })
+    }
+
+    @Test
+    fun blocked_words_match_anywhere_in_the_line_and_ignore_case() {
+        val comments = DanmakuFilter.apply(
+            comments = listOf(
+                DanmakuComment(0L, "前面有剧透注意"),
+                DanmakuComment(1_000L, "SPOILER ahead"),
+                DanmakuComment(2_000L, "画面真好"),
+            ),
+            merge = false,
+            blockedWords = listOf("剧透", "spoiler"),
+        )
+
+        assertEquals(listOf("画面真好"), comments.map { it.text })
+    }
+
+    @Test
+    fun an_episode_match_is_keyed_on_the_show_so_it_survives_changing_servers() {
+        val onServerA = danmakuBindingKey(
+            itemId = "aaa",
+            title = "九门 第4集",
+            seriesName = "九门",
+            seasonNumber = 1,
+            episodeNumber = 4,
+        )
+        val onServerB = danmakuBindingKey(
+            itemId = "bbb",
+            title = "Jiu Men E04",
+            seriesName = " 九门 ",
+            seasonNumber = 1,
+            episodeNumber = 4,
+        )
+
+        assertEquals(onServerA, onServerB)
+    }
+
+    @Test
+    fun a_different_episode_is_a_different_key() {
+        val fourth = danmakuBindingKey("a", "x", seriesName = "九门", episodeNumber = 4)
+        val fifth = danmakuBindingKey("a", "x", seriesName = "九门", episodeNumber = 5)
+
+        assertTrue(fourth != fifth)
+    }
+
+    @Test
+    fun a_film_is_keyed_on_its_title_and_anything_nameless_on_its_id() {
+        assertEquals(
+            danmakuBindingKey("aaa", "Blade Runner 2049"),
+            danmakuBindingKey("bbb", "blade  runner 2049"),
+        )
+        assertEquals("i:only-an-id", danmakuBindingKey("only-an-id", "   "))
+    }
+
+    @Test
+    fun recent_searches_are_newest_first_deduplicated_and_capped() {
+        val prefs = DanmakuPreferences(MapSettings())
+        repeat(10) { prefs.rememberSearch("片 $it") }
+        prefs.rememberSearch("片 0")
+
+        val recent = prefs.recentSearches.value
+
+        assertEquals(8, recent.size)
+        assertEquals("片 0", recent.first())
+        assertEquals(recent.size, recent.distinct().size)
+    }
+
+    @Test
+    fun blocked_words_survive_recreation_and_ignore_duplicates() {
+        val settings = MapSettings()
+        DanmakuPreferences(settings).apply {
+            addBlockedWord("剧透")
+            addBlockedWord(" 剧透 ")
+            addBlockedWord("")
+        }
+
+        assertEquals(listOf("剧透"), DanmakuPreferences(settings).blockedWords.value)
+    }
 }

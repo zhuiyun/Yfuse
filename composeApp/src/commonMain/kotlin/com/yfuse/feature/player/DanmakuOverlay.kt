@@ -258,7 +258,7 @@ fun DanmakuOverlay(
                     val measuredWidth = widthCache.getOrPut(index) {
                         with(density) {
                             textMeasurer.measure(
-                                text = AnnotatedString(comment.text),
+                                text = AnnotatedString(comment.displayText),
                                 style = textStyle,
                                 maxLines = 1,
                             ).size.width.toDp().value
@@ -285,7 +285,7 @@ fun DanmakuOverlay(
                 val elapsed = renderedPositionMs - comment.timeMs
                 if (elapsed !in 0..duration) return@forEach
 
-                key(placement.input.index, comment.timeMs, comment.text) {
+                key(placement.input.index, comment.timeMs, comment.displayText) {
                     val measuredWidth = placement.input.width.dp
                     val x = when (comment.kind) {
                         DanmakuKind.Scroll -> {
@@ -298,7 +298,7 @@ fun DanmakuOverlay(
                     }
                     val y = laneHeight * placement.lane.toFloat()
                     Text(
-                        text = comment.text,
+                        text = comment.displayText,
                         maxLines = 1,
                         color = Color(0xFF000000 or comment.color)
                             .copy(alpha = opacity.alpha),

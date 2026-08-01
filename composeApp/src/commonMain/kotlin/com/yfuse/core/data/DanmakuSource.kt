@@ -84,6 +84,46 @@ data class DanmakuEpisode(
 }
 
 /**
+ * What a hand-picked match is filed under, so it survives changing servers.
+ *
+ * Keyed on the *show and its coordinate* rather than on the library's item id. The same
+ * episode on two Emby servers has two different ids and nothing else about it differs;
+ * matching 第4集 by hand on one server and then watching it on the other would mean doing
+ * the work twice for the same file. What actually identifies the episode across both is the
+ * show's name plus its season and episode number, which is also exactly what the 弹幕 index
+ * is keyed on.
+ *
+ * Films fall back to their title. A title collision would mean two unrelated films with the
+ * same name in the same collection of servers — possible, far rarer than the id churn this
+ * avoids, and the cost is one wrong match that 取消匹配 undoes.
+ *
+ * The id remains the last resort for anything with neither, and old bindings written under
+ * the id alone are still read — see [DanmakuPreferences.binding].
+ */
+fun danmakuBindingKey(
+    itemId: String,
+    title: String,
+    seriesName: String? = null,
+    seasonNumber: Int? = null,
+    episodeNumber: Int? = null,
+): String {
+    val show = seriesName?.normalizedForMatching()
+    if (show != null && episodeNumber != null) {
+        return "s:$show|${seasonNumber ?: 1}|$episodeNumber"
+    }
+    val film = title.normalizedForMatching()
+    return if (film != null) "m:$film" else "i:$itemId"
+}
+
+/**
+ * Case, spacing and punctuation are where the same title differs between two libraries;
+ * everything that survives all three is what the two copies genuinely share.
+ */
+private fun String.normalizedForMatching(): String? = lowercase()
+    .filter { it.isLetterOrDigit() }
+    .takeIf { it.isNotEmpty() }
+
+/**
  * The source a chip row would show as selected.
  *
  * Falls back to the first entry rather than to nothing: a stored id can name a source that

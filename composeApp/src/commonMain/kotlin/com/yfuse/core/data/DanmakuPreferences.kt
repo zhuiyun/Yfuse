@@ -62,6 +62,12 @@ class DanmakuPreferences(private val settings: Settings) {
         const val KEY_FONT_SIZE = "danmaku.fontSize"
         const val KEY_SPEED = "danmaku.speed"
         const val KEY_OPACITY = "danmaku.opacity"
+        const val KEY_MERGE = "danmaku.mergeDuplicates"
+        const val KEY_BLOCKED = "danmaku.blockedWords"
+        const val KEY_RECENT = "danmaku.recentSearches"
+
+        /** Enough to get back to last night's show; more is a list nobody reads. */
+        const val MAX_RECENT = 8
 
         /**
          * Hand-picked matches worth remembering. Each is a few dozen bytes and they are only
@@ -107,6 +113,47 @@ class DanmakuPreferences(private val settings: Settings) {
         load(KEY_OPACITY, DanmakuOpacity.entries, DanmakuOpacity.Standard),
     )
     val opacity: StateFlow<DanmakuOpacity> = _opacity.asStateFlow()
+
+    /**
+     * On by default. A popular episode is mostly the same six sentences, and the first thing
+     * anyone does with a wall of them is look for this switch.
+     */
+    private val _mergeDuplicates = MutableStateFlow(settings.getBoolean(KEY_MERGE, true))
+    val mergeDuplicates: StateFlow<Boolean> = _mergeDuplicates.asStateFlow()
+
+    private val _blockedWords = MutableStateFlow(loadList(KEY_BLOCKED))
+    val blockedWords: StateFlow<List<String>> = _blockedWords.asStateFlow()
+
+    private val _recentSearches = MutableStateFlow(loadList(KEY_RECENT))
+    val recentSearches: StateFlow<List<String>> = _recentSearches.asStateFlow()
+
+    fun setMergeDuplicates(enabled: Boolean) {
+        _mergeDuplicates.value = enabled
+        settings.putBoolean(KEY_MERGE, enabled)
+    }
+
+    fun addBlockedWord(word: String) {
+        val normalized = word.trim().take(40)
+        if (normalized.isEmpty() || _blockedWords.value.any { it.equals(normalized, true) }) return
+        _blockedWords.value = _blockedWords.value + normalized
+        persistList(KEY_BLOCKED, _blockedWords.value)
+    }
+
+    fun removeBlockedWord(word: String) {
+        if (word !in _blockedWords.value) return
+        _blockedWords.value = _blockedWords.value - word
+        persistList(KEY_BLOCKED, _blockedWords.value)
+    }
+
+    /** Newest first, deduplicated, capped — the shape every recent-search list has. */
+    fun rememberSearch(keyword: String) {
+        val normalized = keyword.trim().take(40)
+        if (normalized.isEmpty()) return
+        _recentSearches.value = (
+            listOf(normalized) + _recentSearches.value.filterNot { it.equals(normalized, true) }
+            ).take(MAX_RECENT)
+        persistList(KEY_RECENT, _recentSearches.value)
+    }
 
     /** The source a chip row shows as selected, resolved against deletions. */
     fun activeSource(): DanmakuSource? = _sources.value.activeOr(_activeSourceId.value)
@@ -161,6 +208,16 @@ class DanmakuPreferences(private val settings: Settings) {
         }
     }
 
+    /**
+     * A hand-picked match for this entry, under its own key or the item id an older build
+     * wrote it under.
+     *
+     * The fallback is one line and it saves everyone who has already corrected a match from
+     * having to do it again after upgrading.
+     */
+    fun binding(key: String, legacyItemId: String?): DanmakuBinding? =
+        _bindings.value[key] ?: legacyItemId?.let { _bindings.value[it] }
+
     fun bind(itemId: String, binding: DanmakuBinding) {
         if (itemId.isBlank()) return
         // Re-inserting moves the entry to the end, so trimming from the front drops the
@@ -209,6 +266,27 @@ class DanmakuPreferences(private val settings: Settings) {
     private fun <T : Enum<T>> load(key: String, values: List<T>, fallback: T): T {
         val stored = settings.getStringOrNull(key) ?: return fallback
         return values.firstOrNull { it.name == stored } ?: fallback
+    }
+
+    /**
+     * Stored newline-separated rather than as JSON.
+     *
+     * These are single words a person typed; a newline cannot occur in one, so the
+     * separator is unambiguous and the stored value stays something a human could read in
+     * a settings dump.
+     */
+    private fun loadList(key: String): List<String> =
+        settings.getStringOrNull(key)
+            ?.split('\n')
+            ?.mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+            .orEmpty()
+
+    private fun persistList(key: String, values: List<String>) {
+        if (values.isEmpty()) {
+            settings.remove(key)
+        } else {
+            settings.putString(key, values.joinToString("\n"))
+        }
     }
 
     private fun defaultName(): String = "弹幕源 ${_sources.value.size + 1}"

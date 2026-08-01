@@ -93,6 +93,7 @@ private enum class Sheet {
     Engine,
     Decoder,
     DanmakuSource,
+    DanmakuBlocked,
     SkipSegments,
     UserAgent,
     WatchTogether,
@@ -115,6 +116,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
     val danmakuSources by component.danmakuPreferences.sources.collectAsState()
     val danmakuActiveSourceId by component.danmakuPreferences.activeSourceId.collectAsState()
+    val danmakuBlocked by component.danmakuPreferences.blockedWords.collectAsState()
     val skipTimesBySeries by component.skipSegmentPreferences.bySeries.collectAsState()
     val skipMode by component.skipSegmentPreferences.skipMode.collectAsState()
     val customUserAgent by component.userAgentPreferences.userAgent.collectAsState()
@@ -267,6 +269,17 @@ fun ProfileScreen(component: ProfileComponent) {
                                 },
                                 embedded = true,
                                 onClick = { sheet = Sheet.DanmakuSource },
+                            )
+                            SettingsDivider()
+                            SettingRow(
+                                "弹幕屏蔽词",
+                                if (danmakuBlocked.isEmpty()) {
+                                    "未设置 ›"
+                                } else {
+                                    "${danmakuBlocked.size} 个 ›"
+                                },
+                                embedded = true,
+                                onClick = { sheet = Sheet.DanmakuBlocked },
                             )
                             SettingsDivider()
                             SettingRow(
@@ -448,6 +461,13 @@ fun ProfileScreen(component: ProfileComponent) {
                 onAdd = { name, url -> component.danmakuPreferences.addSource(name, url) },
                 onUpdate = component.danmakuPreferences::updateSource,
                 onRemove = component.danmakuPreferences::removeSource,
+                onDismiss = { sheet = null },
+            )
+
+            Sheet.DanmakuBlocked -> DanmakuBlockedDialog(
+                words = danmakuBlocked,
+                onAdd = component.danmakuPreferences::addBlockedWord,
+                onRemove = component.danmakuPreferences::removeBlockedWord,
                 onDismiss = { sheet = null },
             )
 
@@ -782,6 +802,88 @@ private fun DanmakuSourceDialog(
                     enabled = valid,
                 )
             }
+        }
+    }
+}
+
+/**
+ * 弹幕屏蔽词 — the lines never to draw.
+ *
+ * Substring matching, case-insensitive, on the comment text. Blunt on purpose: anything
+ * cleverer needs the user to describe a pattern, and the thing being blocked is usually a
+ * spoiler, a nickname or a bot's signature — all of which are just a word.
+ *
+ * Kept here rather than in the player because typing a word is a settings act, not a
+ * watching one; the player has the switch that matters mid-film (合并重复) and nothing else.
+ */
+@Composable
+private fun DanmakuBlockedDialog(
+    words: List<String>,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    var draft by remember { mutableStateOf("") }
+
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "弹幕屏蔽词",
+            subtitle = "含有这些词的弹幕不会显示。区分不了大小写，按包含匹配。",
+            onClose = onDismiss,
+        )
+        DanmakuField(
+            value = draft,
+            placeholder = "输入一个词后按添加",
+            keyboardType = KeyboardType.Text,
+            onValueChange = { draft = it },
+        )
+        if (words.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                words.forEach { word ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            word,
+                            style = sc(12f, 600),
+                            color = palette.text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "移除",
+                            style = sc(11f, 600),
+                            color = Brand.Danger,
+                            modifier = Modifier
+                                .pressable(onClick = { onRemove(word) })
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            OverlayButton("完成", onDismiss, Modifier.weight(1f))
+            OverlayButton(
+                label = "添加",
+                onClick = {
+                    onAdd(draft)
+                    draft = ""
+                },
+                modifier = Modifier.weight(1f),
+                tone = OverlayButtonTone.Primary,
+                enabled = draft.isNotBlank(),
+            )
         }
     }
 }
