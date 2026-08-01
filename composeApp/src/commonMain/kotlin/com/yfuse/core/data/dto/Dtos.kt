@@ -142,6 +142,7 @@ data class BaseItemDto(
     val OfficialRating: String? = null,
     val People: List<PersonDto>? = null,
     val ImageTags: Map<String, String>? = null,
+    val PremiereDate: String? = null,
     val BackdropImageTags: List<String>? = null,
     val UserData: UserDataDto? = null,
     val MediaSources: List<MediaSourceDto>? = null,
@@ -390,6 +391,8 @@ fun BaseItemDto.toEpisode() = Episode(
     playedPercentage = UserData?.PlayedPercentage,
     played = UserData?.Played == true,
     resumePositionTicks = UserData?.PlaybackPositionTicks,
+    // Emby sends a full timestamp; the date is the part that means anything here.
+    premiereDate = PremiereDate?.take(10)?.takeIf { it.length == 10 },
     playbackSegments = playbackSegments(),
     providerIds = ProviderIds.orEmpty(),
 )

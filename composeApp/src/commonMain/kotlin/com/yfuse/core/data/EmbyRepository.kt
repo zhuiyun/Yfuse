@@ -684,7 +684,10 @@ class EmbyRepository(private val client: HttpClient) {
             header("X-Emby-Token", server.accessToken)
             parameter("UserId", server.userId)
             if (seasonId != null) parameter("SeasonId", seasonId)
-            parameter("Fields", "Overview,Chapters,ProviderIds,RunTimeTicks,UserData")
+            parameter(
+                "Fields",
+                "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate",
+            )
         }.body()
         dto.Items.map { it.toEpisode() }
     }

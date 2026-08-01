@@ -26,6 +26,8 @@ data class Episode(
      */
     val played: Boolean = false,
     val resumePositionTicks: Long?,
+    /** `2026-07-30`, when the server knows it. Shown beside the runtime in the full list. */
+    val premiereDate: String? = null,
     val playbackSegments: List<PlaybackSegment> = emptyList(),
     val providerIds: Map<String, String> = emptyMap(),
 )

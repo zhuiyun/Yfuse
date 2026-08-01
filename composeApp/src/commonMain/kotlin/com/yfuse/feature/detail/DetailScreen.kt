@@ -149,6 +149,8 @@ fun DetailScreen(component: DetailComponent) {
     val share = rememberShareHandler()
     var shareSheetOpen by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
+    var sourceListOpen by remember { mutableStateOf(false) }
+    var allEpisodesOpen by remember { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
@@ -291,6 +293,7 @@ fun DetailScreen(component: DetailComponent) {
                             onSelect = { serverId, itemId ->
                                 component.store.accept(DetailIntent.PlaySource(serverId, itemId))
                             },
+                            onSeeAll = { sourceListOpen = true },
                             modifier = Modifier.padding(top = Dimens.sectionGap),
                         )
                     }
@@ -351,6 +354,7 @@ fun DetailScreen(component: DetailComponent) {
                                     ),
                                 )
                             },
+                            onSeeAll = { allEpisodesOpen = true },
                         )
                     }
                 }
@@ -454,6 +458,42 @@ fun DetailScreen(component: DetailComponent) {
                     },
                 )
             }
+        }
+
+        if (sourceListOpen) {
+            SourceListDialog(
+                sources = state.sources,
+                accent = Brand.Primary,
+                onSelect = { serverId, itemId ->
+                    sourceListOpen = false
+                    component.store.accept(DetailIntent.PlaySource(serverId, itemId))
+                },
+                onDismiss = { sourceListOpen = false },
+            )
+        }
+
+        // A layer rather than a route: it covers the page that owns this season and its
+        // artwork, and the detail store has already loaded the episodes it lists.
+        if (allEpisodesOpen && detail != null) {
+            SeasonEpisodesPage(
+                seasonLabel = state.seasons.firstOrNull { it.id == state.selectedSeasonId }
+                    ?.name
+                    ?: "剧集",
+                seriesName = detail.seriesName?.ifBlank { null } ?: detail.title,
+                episodes = state.episodes,
+                heroUrls = heroUrls,
+                baseUrl = baseUrl,
+                accessToken = accessToken,
+                accent = Brand.Primary,
+                currentEpisodeId = detail.id.takeIf { detail.type == "Episode" },
+                onPlayEpisode = { episode ->
+                    allEpisodesOpen = false
+                    component.store.accept(
+                        DetailIntent.PlayEpisode(episode.id, episode.resumePositionTicks ?: 0L),
+                    )
+                },
+                onDismiss = { allEpisodesOpen = false },
+            )
         }
 
         // Opened as soon as the room is asked for, not once it exists: the relay can be slow
@@ -1467,6 +1507,7 @@ private fun SourceSection(
     sources: List<ServerSource>,
     accent: Color,
     onSelect: (serverId: String, itemId: String) -> Unit,
+    onSeeAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
@@ -1478,11 +1519,23 @@ private fun SourceSection(
             title = "资源",
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         ) {
-            Text(
-                "${availableSources.size} 个媒体库",
-                style = mr(10.5f, 500),
-                color = palette.sub2,
-            )
+            Row(
+                Modifier.pressable(onClick = onSeeAll).padding(start = 10.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${availableSources.size} 个媒体库",
+                    style = mr(10.5f, 500),
+                    color = palette.sub2,
+                )
+                Icon(
+                    AppIcons.ChevronRight,
+                    contentDescription = "查看全部资源",
+                    tint = palette.hint,
+                    modifier = Modifier.size(11.dp),
+                )
+            }
         }
         // The biggest file is called out, because that is the question the row exists to
         // answer: given the same title on two servers, which copy is the better one.
@@ -1655,7 +1708,7 @@ private fun CountChip(icon: androidx.compose.ui.graphics.vector.ImageVector, cou
  * Derived from the id rather than stored: servers are added and removed, and a palette
  * index would drift every time the list changed.
  */
-private fun serverTint(serverId: String): Color {
+internal fun serverTint(serverId: String): Color {
     val palette = listOf(
         Color(0xFF4C7DF0), Color(0xFF41A98A), Color(0xFFD1705C),
         Color(0xFF8B6FD1), Color(0xFFD19A3F), Color(0xFF3FA3C4),
@@ -1679,6 +1732,7 @@ private fun EpisodeHeader(
     pickerOpen: Boolean,
     onTogglePicker: () -> Unit,
     onSelectSeason: (String) -> Unit,
+    onSeeAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
@@ -1689,7 +1743,21 @@ private fun EpisodeHeader(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("共 $episodeCount 集", style = mr(10.5f, 500), color = palette.sub2)
+                // 共 N 集 is the label and the way in: a rail shows four of them, and the
+                // count is exactly the promise the full list keeps.
+                Row(
+                    Modifier.pressable(onClick = onSeeAll),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("共 $episodeCount 集", style = mr(10.5f, 500), color = palette.sub2)
+                    Icon(
+                        AppIcons.ChevronRight,
+                        contentDescription = "查看全部剧集",
+                        tint = palette.hint,
+                        modifier = Modifier.size(11.dp),
+                    )
+                }
                 if (seasons.size > 1) {
                     Row(
                         Modifier
@@ -1773,10 +1841,12 @@ private fun EpisodeSection(
     onTogglePicker: () -> Unit,
     onSelectSeason: (String) -> Unit,
     onPlayEpisode: (Episode) -> Unit,
+    onSeeAll: () -> Unit,
 ) {
     Column(Modifier.padding(top = Dimens.sectionGap)) {
         EpisodeHeader(
             accent = accent,
+            onSeeAll = onSeeAll,
             seasonLabel = seasonLabel,
             episodeCount = episodeCount,
             seasons = seasons,
