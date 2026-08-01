@@ -1,0 +1,23 @@
+# Read by ktlint. The values here are the ones this codebase already follows; they are
+# written down so the linter agrees with the code rather than the other way round.
+root = true
+
+[*.{kt,kts}]
+indent_style = space
+indent_size = 4
+max_line_length = 120
+insert_final_newline = true
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
+
+# Rules switched off on purpose, each because the code disagrees with the default for a
+# reason rather than by accident:
+#
+#  - standard:function-naming — @Composable functions are PascalCase, which is the Compose
+#    convention and what every file here uses.
+#  - standard:filename — several files hold a small family of related declarations
+#    (DanmakuSource, DanmakuBinding, DanmakuSearchResult) rather than one public type.
+#  - standard:no-wildcard-imports is kept ON; there are none and there should stay none.
+ktlint_standard_function-naming = disabled
+ktlint_standard_filename = disabled
+ktlint_function_naming_ignore_when_annotated_with = Composable

@@ -1708,9 +1708,6 @@ private fun PlayerRoot(
                     search = danmakuSearch.copy(recent = danmakuRecent),
                 ),
                 danmakuActions = danmakuActions,
-                // 关闭 keeps the stored boundaries and stops offering them. Gating here
-                // rather than on the segment itself leaves 片头片尾 in the settings panel
-                // still showing what is set — turning the offer off is not forgetting it.
                 // Only worth naming when there is more than one server to be on. On a
                 // single-server install it is a constant, and a constant on a line meant
                 // for live facts is noise.
@@ -1720,13 +1717,6 @@ private fun PlayerRoot(
                 containerLabel = currentItem?.activeVersion?.container,
                 dolbyVision = currentItem?.activeVersion?.dolbyVision == true,
                 dolbyAtmos = currentItem?.activeVersion?.dolbyAtmos == true,
-                skipSegmentLabel = activeSegment?.type?.skipLabel
-                    ?.takeIf { skipMode != SkipMode.Off },
-                onSkipSegment = skipSegment,
-                skipCountdownSeconds = skipCountdownSeconds,
-                // Cancelling drops back to the manual pill rather than clearing the offer
-                // outright: "not automatically" is not the same as "not at all".
-                onCancelAutoSkip = { settledSkip = skipOccurrence },
                 versions = currentItem?.versions.orEmpty().map { version ->
                     version.id to listOfNotNull(
                         version.label,
@@ -1735,54 +1725,75 @@ private fun PlayerRoot(
                 },
                 selectedVersionId = currentItem?.versionId,
                 onSelectVersion = ::selectVersion,
-                skipSeriesName = currentItem?.seriesId?.let {
-                    currentItem.seriesName?.ifBlank { null } ?: "本剧"
-                },
-                skipIntroStartSeconds = skipTimes?.introStartSeconds ?: 0L,
-                skipIntroEndSeconds = skipTimes?.introEndSeconds ?: 0L,
-                skipCreditsLeadSeconds = skipTimes?.creditsLeadSeconds ?: 0L,
-                skipMode = skipMode,
-                onSetSkipTimes = { introStart, introEnd, creditsLead ->
-                    val seriesId = currentItem?.seriesId ?: return@PlayerControls
-                    skipSegmentPreferences.set(
-                        seriesId = seriesId,
-                        times = SkipTimes(
-                            introStartSeconds = introStart,
-                            introEndSeconds = introEnd,
-                            creditsLeadSeconds = creditsLead,
-                            seriesName = currentItem.seriesName.orEmpty(),
-                        ),
-                    )
-                },
-                onSelectSkipMode = skipSegmentPreferences::setSkipMode,
-                watchEndpoint = watchEndpoint,
-                watchConnecting = watchState.connecting,
-                watchConnected = watchState.connected,
-                watchReconnecting = watchState.reconnecting,
-                watchRoomCode = watchState.roomCode,
-                watchIsHost = watchState.isHost,
-                watchParticipantCount = watchState.participantCount,
-                watchError = watchState.error ?: watchState.syncWarning,
-                watchControlRequested = watchState.controlRequested,
-                watchControlRequesterName = watchState.controlRequest?.name,
-                onCreateWatchRoom = { endpoint ->
-                    currentItem?.let { item ->
-                        watchTogether.createRoom(endpoint, item.watchKey)
-                    }
-                },
-                onJoinWatchRoom = { endpoint, roomCode ->
-                    currentItem?.let { item ->
-                        watchTogether.joinRoom(endpoint, roomCode, item.watchKey)
-                    }
-                },
-                onLeaveWatchRoom = watchTogether::leave,
-                onRequestControl = watchTogether::requestControl,
-                onGrantControl = {
-                    watchState.controlRequest?.let { watchTogether.grantControl(it.clientId) }
-                },
-                onDenyControl = {
-                    watchState.controlRequest?.let { watchTogether.denyControl(it.clientId) }
-                },
+                skip = SkipSegmentState(
+                    // 关闭 keeps the stored boundaries and stops offering them. Gating
+                    // here rather than on the segment itself leaves 片头片尾 in the
+                    // settings panel still showing what is set — turning the offer off is
+                    // not forgetting it.
+                    segmentLabel = activeSegment?.type?.skipLabel
+                        ?.takeIf { skipMode != SkipMode.Off },
+                    countdownSeconds = skipCountdownSeconds,
+                    seriesName = currentItem?.seriesId?.let {
+                        currentItem.seriesName?.ifBlank { null } ?: "本剧"
+                    },
+                    introStartSeconds = skipTimes?.introStartSeconds ?: 0L,
+                    introEndSeconds = skipTimes?.introEndSeconds ?: 0L,
+                    creditsLeadSeconds = skipTimes?.creditsLeadSeconds ?: 0L,
+                    mode = skipMode,
+                ),
+                skipActions = SkipSegmentActions(
+                    onSkip = skipSegment,
+                    // Cancelling drops back to the manual pill rather than clearing the
+                    // offer outright: "not automatically" is not "not at all".
+                    onCancelAuto = { settledSkip = skipOccurrence },
+                    onSetTimes = { introStart, introEnd, creditsLead ->
+                        val seriesId = currentItem?.seriesId
+                        if (seriesId != null) {
+                            skipSegmentPreferences.set(
+                                seriesId = seriesId,
+                                times = SkipTimes(
+                                    introStartSeconds = introStart,
+                                    introEndSeconds = introEnd,
+                                    creditsLeadSeconds = creditsLead,
+                                    seriesName = currentItem.seriesName.orEmpty(),
+                                ),
+                            )
+                        }
+                    },
+                    onSelectMode = skipSegmentPreferences::setSkipMode,
+                ),
+                watch = WatchRoomState(
+                    endpoint = watchEndpoint,
+                    connecting = watchState.connecting,
+                    connected = watchState.connected,
+                    reconnecting = watchState.reconnecting,
+                    roomCode = watchState.roomCode,
+                    isHost = watchState.isHost,
+                    participantCount = watchState.participantCount,
+                    error = watchState.error ?: watchState.syncWarning,
+                    controlRequested = watchState.controlRequested,
+                    controlRequesterName = watchState.controlRequest?.name,
+                ),
+                watchActions = WatchRoomActions(
+                    onCreate = { endpoint ->
+                        currentItem?.let { item ->
+                            watchTogether.createRoom(endpoint, item.watchKey)
+                        }
+                    },
+                    onJoin = { endpoint, roomCode ->
+                        currentItem?.let { item ->
+                            watchTogether.joinRoom(endpoint, roomCode, item.watchKey)
+                        }
+                    },
+                    onLeave = watchTogether::leave,
+                    onRequestControl = watchTogether::requestControl,
+                    onGrantControl = {
+                        watchState.controlRequest?.let { watchTogether.grantControl(it.clientId) }
+                    },
+                    onDenyControl = {
+                        watchState.controlRequest?.let { watchTogether.denyControl(it.clientId) }
+                    },
+                ),
             )
         }
     }

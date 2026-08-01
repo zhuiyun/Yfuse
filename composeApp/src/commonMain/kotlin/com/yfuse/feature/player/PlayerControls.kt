@@ -16,17 +16,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -42,37 +37,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
-import com.yfuse.core.data.SkipMode
 import com.yfuse.core.designsystem.DolbyChip
-import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.OverlayButton
-import com.yfuse.core.designsystem.OverlayButtonTone
-import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PlayerTokens
-import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
-import com.yfuse.core.designsystem.shadow
-import com.yfuse.core.sync.WatchInvite
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
@@ -109,7 +93,7 @@ private const val HOLD_SEEK_FAST_STEP_MS = 9_000L
 private const val HOLD_SEEK_RAMP_MS = 3_000L
 
 /** Settings use one consistent floating panel and one consistent chip family. */
-private enum class Tab(val label: String) {
+internal enum class Tab(val label: String) {
     Danmaku("弹幕"),
     Subtitle("字幕"),
     Cast("投屏"),
@@ -172,45 +156,14 @@ fun PlayerControls(
     containerLabel: String? = null,
     dolbyVision: Boolean = false,
     dolbyAtmos: Boolean = false,
-    skipSegmentLabel: String? = null,
-    onSkipSegment: () -> Unit = {},
-    /** Seconds left before an automatic skip fires, or null when none is armed. */
-    skipCountdownSeconds: Int? = null,
-    onCancelAutoSkip: () -> Unit = {},
     /** Files the server holds for this entry; a picker appears once there are two. */
     versions: List<Pair<String, String>> = emptyList(),
     selectedVersionId: String? = null,
     onSelectVersion: (String) -> Unit = {},
-    /** Non-null when this entry belongs to a series, which is what skip times are kept per. */
-    skipSeriesName: String? = null,
-    skipIntroStartSeconds: Long = 0L,
-    skipIntroEndSeconds: Long = 0L,
-    /** 片尾 starts this many seconds before the end — see `SkipTimes.creditsLeadSeconds`. */
-    skipCreditsLeadSeconds: Long = 0L,
-    skipMode: SkipMode = SkipMode.Button,
-    onSetSkipTimes: (Long, Long, Long) -> Unit = { _, _, _ -> },
-    onSelectSkipMode: (SkipMode) -> Unit = {},
-    watchEndpoint: String = "",
-    watchConnecting: Boolean = false,
-    watchConnected: Boolean = false,
-    /** True while a previously-established room connection is retrying. Distinct from
-     *  [watchConnected] — the room and its controls stay visible throughout, this only
-     *  adds a small "重连中" indicator. */
-    watchReconnecting: Boolean = false,
-    watchRoomCode: String? = null,
-    watchIsHost: Boolean = false,
-    watchParticipantCount: Int = 0,
-    watchError: String? = null,
-    /** This device has asked the host for control and hasn't been answered yet. */
-    watchControlRequested: Boolean = false,
-    /** Host side: who is asking for control right now, by name. Null when nobody is. */
-    watchControlRequesterName: String? = null,
-    onCreateWatchRoom: (String) -> Unit = {},
-    onJoinWatchRoom: (String, String) -> Unit = { _, _ -> },
-    onLeaveWatchRoom: () -> Unit = {},
-    onRequestControl: () -> Unit = {},
-    onGrantControl: () -> Unit = {},
-    onDenyControl: () -> Unit = {},
+    skip: SkipSegmentState = SkipSegmentState(),
+    skipActions: SkipSegmentActions = SkipSegmentActions(),
+    watch: WatchRoomState = WatchRoomState(),
+    watchActions: WatchRoomActions = WatchRoomActions(),
     modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(true) }
@@ -239,7 +192,7 @@ fun PlayerControls(
     // non-host: the room's host drives them, this device only follows. Volume, brightness,
     // subtitle/audio track, aspect ratio, cast and danmaku stay untouched by this — those
     // are per-viewer, not shared.
-    val watchLocked = watchConnected && !watchIsHost
+    val watchLocked = watch.locked
     val latestWatchLocked by rememberUpdatedState(watchLocked)
 
     fun poke() {
@@ -464,10 +417,10 @@ fun PlayerControls(
                 onPlayPause = { poke(); onPlayPause() },
                 onRewind = { poke(); onSeek((state.positionMs - 10_000L).coerceAtLeast(0L)) },
                 onForward = { poke(); onSeek(state.positionMs + 10_000L) },
-                skipCountdownLabel = skipCountdownSeconds?.let {
-                    skipCountdownLabel(skipSegmentLabel, it)
+                skipCountdownLabel = skip.countdownSeconds?.let {
+                    skipCountdownLabel(skip.segmentLabel, it)
                 },
-                onCancelAutoSkip = { poke(); onCancelAutoSkip() },
+                onCancelAutoSkip = { poke(); skipActions.onCancelAuto() },
                 onVolume = { poke(); onVolume(it) },
                 onSeek = { poke(); onSeek(it) },
                 onScrub = { interactions++ },
@@ -492,17 +445,17 @@ fun PlayerControls(
         // While the controls are up it is drawn under the progress bar by [BottomBar]; this
         // is the same pill for when they aren't.
         when {
-            skipCountdownSeconds != null && !visible -> SkipPill(
-                label = skipCountdownLabel(skipSegmentLabel, skipCountdownSeconds),
-                onClick = { poke(); onCancelAutoSkip() },
+            skip.countdownSeconds != null && !visible -> SkipPill(
+                label = skipCountdownLabel(skip.segmentLabel, skip.countdownSeconds),
+                onClick = { poke(); skipActions.onCancelAuto() },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 22.dp, bottom = 24.dp),
             )
 
-            skipCountdownSeconds == null && skipSegmentLabel != null -> SkipPill(
-                label = skipSegmentLabel,
-                onClick = { poke(); onSkipSegment() },
+            skip.countdownSeconds == null && skip.segmentLabel != null -> SkipPill(
+                label = skip.segmentLabel,
+                onClick = { poke(); skipActions.onSkip() },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 22.dp, bottom = if (visible) 92.dp else 24.dp),
@@ -546,11 +499,7 @@ fun PlayerControls(
                     locked = true
                     visible = true
                 },
-                watchConnected = watchConnected,
-                watchReconnecting = watchReconnecting,
-                watchIsHost = watchIsHost,
-                watchParticipantCount = watchParticipantCount,
-                watchRoomCode = watchRoomCode,
+                watch = watch,
                 onOpenWatchTogether = {
                     settingsTab = null
                     watchDialogOpen = true
@@ -558,36 +507,31 @@ fun PlayerControls(
                 versions = versions,
                 selectedVersionId = selectedVersionId,
                 onSelectVersion = { onSelectVersion(it); settingsTab = null },
-                skipSeriesName = skipSeriesName,
-                skipIntroStartSeconds = skipIntroStartSeconds,
-                skipIntroEndSeconds = skipIntroEndSeconds,
-                skipCreditsLeadSeconds = skipCreditsLeadSeconds,
-                skipMode = skipMode,
+                skip = skip,
                 // The panel stays open: setting a boundary is something you check against
                 // the picture behind it, and often two of the three in one visit.
-                onSetSkipTimes = onSetSkipTimes,
-                onSelectSkipMode = onSelectSkipMode,
+                skipActions = skipActions,
                 onDismiss = { settingsTab = null },
             )
         }
 
         if (watchDialogOpen) {
             WatchTogetherDialog(
-                endpoint = watchEndpoint,
-                connecting = watchConnecting,
-                connected = watchConnected,
-                roomCode = watchRoomCode,
-                isHost = watchIsHost,
-                participantCount = watchParticipantCount,
-                error = watchError,
-                controlRequested = watchControlRequested,
-                onCreate = onCreateWatchRoom,
-                onJoin = onJoinWatchRoom,
+                endpoint = watch.endpoint,
+                connecting = watch.connecting,
+                connected = watch.connected,
+                roomCode = watch.roomCode,
+                isHost = watch.isHost,
+                participantCount = watch.participantCount,
+                error = watch.error,
+                controlRequested = watch.controlRequested,
+                onCreate = watchActions.onCreate,
+                onJoin = watchActions.onJoin,
                 onLeave = {
-                    onLeaveWatchRoom()
+                    watchActions.onLeave()
                     watchDialogOpen = false
                 },
-                onRequestControl = onRequestControl,
+                onRequestControl = watchActions.onRequestControl,
                 onDismiss = { watchDialogOpen = false },
             )
         }
@@ -595,13 +539,13 @@ fun PlayerControls(
         // Outside `watchDialogOpen` on purpose: a request arrives when the asker taps, not
         // when the host happens to have the room dialog open, and an unanswered one leaves
         // that person waiting on a prompt nobody ever sees.
-        watchControlRequesterName?.let { requester ->
+        watch.controlRequesterName?.let { requester ->
             ControlRequestDialog(
                 requesterName = requester,
-                onGrant = onGrantControl,
+                onGrant = watchActions.onGrantControl,
                 // Dismissing is an answer too. Closing without one would leave the asker
                 // waiting indefinitely, which is what `denyControl` exists to avoid.
-                onDeny = onDenyControl,
+                onDeny = watchActions.onDenyControl,
             )
         }
 
@@ -652,11 +596,11 @@ fun PlayerControls(
         // Standing explanation for why the transport is dimmed. Also the only place the
         // reconnect state surfaces during playback — the room stays live and controls stay
         // in place, so a dropped socket reads as "catching up", not as the room vanishing.
-        if (watchConnected && visible) {
+        if (watch.connected && visible) {
             val roomNote = when {
-                watchReconnecting -> "一起看 · 重连中…"
-                !watchIsHost -> "一起看 · 房主控制播放"
-                else -> "一起看 · 你是房主 · $watchParticipantCount 人"
+                watch.reconnecting -> "一起看 · 重连中…"
+                !watch.isHost -> "一起看 · 房主控制播放"
+                else -> "一起看 · 你是房主 · ${watch.participantCount} 人"
             }
             Text(
                 roomNote,
@@ -667,7 +611,7 @@ fun PlayerControls(
                     .padding(top = 74.dp)
                     .glass(
                         shape = GlassShapes.chip,
-                        fill = if (watchReconnecting) {
+                        fill = if (watch.reconnecting) {
                             Brand.Danger.copy(alpha = 0.42f)
                         } else {
                             Color.Black.copy(alpha = 0.52f)
@@ -1039,7 +983,7 @@ private fun SkipPill(label: String, onClick: () -> Unit, modifier: Modifier = Mo
 }
 
 /** "片头结束 · 90 秒" / "片头结束 · 未设置". */
-private fun skipBoundaryLabel(name: String, seconds: Long): String =
+internal fun skipBoundaryLabel(name: String, seconds: Long): String =
     if (seconds > 0L) "$name · $seconds 秒" else "$name · 未设置"
 
 /**
@@ -1048,7 +992,7 @@ private fun skipBoundaryLabel(name: String, seconds: Long): String =
  * Spelled out rather than reusing [skipBoundaryLabel] because the number means the
  * opposite thing: 120 here is near the end of the episode, not two minutes into it.
  */
-private fun skipCreditsLabel(seconds: Long): String =
+internal fun skipCreditsLabel(seconds: Long): String =
     if (seconds > 0L) "片尾开始 · 距结束 $seconds 秒" else "片尾开始 · 未设置"
 
 /** "3 秒后跳过片头 · 点击取消" — the label says what will happen and how to stop it. */
@@ -1470,568 +1414,9 @@ private fun LockedOverlay(onUnlock: () -> Unit) {
     }
 }
 
-/**
- * Settings panel — `right:120px; bottom:70px; width:230px`, `rgba(255,255,255,.92)`,
- * `radius:18px`, `padding:6px 0 12px`, `0 20px 50px -12px rgba(30,40,70,.3)`.
- */
-@Composable
-private fun SettingsPanel(
-    tab: Tab,
-    state: PlaybackState,
-    speeds: List<Float>,
-    engineOptions: List<Pair<String, Boolean>>,
-    transcodeLabel: String?,
-    transcodeActive: Boolean,
-    castDevices: List<Pair<String, String>>,
-    castingDeviceId: String?,
-    castDiscovering: Boolean,
-    castError: String?,
-    danmaku: DanmakuPanelState,
-    danmakuActions: DanmakuPanelActions,
-    onOpenDanmakuSearch: () -> Unit,
-    onOpenDanmakuSend: () -> Unit,
-    onTab: (Tab) -> Unit,
-    onSelectSubtitle: (String) -> Unit,
-    onSelectAudio: (String) -> Unit,
-    onSpeed: (Float) -> Unit,
-    onSelectEngine: (Int) -> Unit,
-    onTranscode: () -> Unit,
-    onDiscoverCast: () -> Unit,
-    onCastTo: (String) -> Unit,
-    onStopCast: () -> Unit,
-    onLock: () -> Unit,
-    watchConnected: Boolean,
-    watchReconnecting: Boolean,
-    watchIsHost: Boolean,
-    watchParticipantCount: Int,
-    watchRoomCode: String?,
-    onOpenWatchTogether: () -> Unit,
-    versions: List<Pair<String, String>>,
-    selectedVersionId: String?,
-    onSelectVersion: (String) -> Unit,
-    skipSeriesName: String?,
-    skipIntroStartSeconds: Long,
-    skipIntroEndSeconds: Long,
-    skipCreditsLeadSeconds: Long,
-    skipMode: SkipMode,
-    onSetSkipTimes: (Long, Long, Long) -> Unit,
-    onSelectSkipMode: (SkipMode) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val tabs = buildList {
-        add(Tab.Danmaku)
-        // A lone audio track is not a choice — matching the chip's condition keeps the
-        // tab from appearing with nothing switchable in it.
-        if (state.subtitleTracks.isNotEmpty() || state.audioTracks.size > 1) add(Tab.Subtitle)
-        add(Tab.Cast)
-        add(Tab.Diagnostics)
-        add(Tab.More)
-    }
-    val shape = RoundedCornerShape(20.dp)
-
-    // Dismiss catcher only — the old full-screen `rgba(0,0,0,.35)` scrim dimmed the film
-    // itself every time a track list opened. The panel earns its separation from its own
-    // material and shadow instead, so the picture behind it stays untouched.
-    Box(Modifier.fillMaxSize().noRippleClickable(onDismiss))
-    Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier
-                .align(Alignment.BottomEnd)
-                // Sits directly above the chip row that opens it, on the same right edge.
-                .padding(end = 22.dp, bottom = 84.dp)
-                .width(248.dp)
-                .shadow(Shadows.playerSheet, shape)
-                .glass(
-                    shape = shape,
-                    fill = PlayerTokens.drawerFillLandscape,
-                    border = Color.White.copy(alpha = 0.20f),
-                )
-                .noRippleClickable { }
-                .padding(top = 8.dp, bottom = 10.dp),
-        ) {
-            // Segmented tab row. The pill alone carries the active state; the 2px rule
-            // underneath it was a second signal saying the same thing.
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                tabs.forEach { entry ->
-                    val active = entry == tab
-                    Text(
-                        entry.label,
-                        style = sc(12.5f, if (active) 700 else 500),
-                        color = if (active) {
-                            Color.White
-                        } else {
-                            Color.White.copy(alpha = 0.58f)
-                        },
-                        maxLines = 1,
-                        modifier = Modifier
-                            .weight(1f)
-                            .glass(
-                                shape = GlassShapes.thumb,
-                                fill = if (active) {
-                                    Color.White.copy(alpha = 0.18f)
-                                } else {
-                                    Color.Transparent
-                                },
-                                border = if (active) {
-                                    Color.White.copy(alpha = 0.26f)
-                                } else {
-                                    null
-                                },
-                            )
-                            .noRippleClickable { onTab(entry) }
-                            .padding(vertical = 7.dp),
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .height(1.dp)
-                    .background(Color.White.copy(alpha = 0.10f)),
-            )
-
-            // `padding:10px 14px 2px; max-height:150px`.
-            Column(
-                Modifier
-                    .heightIn(max = 210.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 2.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                when (tab) {
-                    Tab.Danmaku -> DanmakuTab(
-                        state = danmaku,
-                        actions = danmakuActions,
-                        onOpenSearch = onOpenDanmakuSearch,
-                        onOpenSend = onOpenDanmakuSend,
-                    )
-
-                    Tab.Subtitle -> {
-                        if (state.subtitleTracks.isNotEmpty()) {
-                            GroupLabel("字幕")
-                            OptionRow("关闭", state.subtitleTracks.none { it.selected }) {
-                                onSelectSubtitle(EngineTrack.OFF)
-                            }
-                            state.subtitleTracks.forEach { track ->
-                                OptionRow(track.label, track.selected) { onSelectSubtitle(track.id) }
-                            }
-                        }
-                        if (state.audioTracks.isNotEmpty()) {
-                            GroupLabel("音轨")
-                            state.audioTracks.forEach { track ->
-                                OptionRow(track.label, track.selected) { onSelectAudio(track.id) }
-                            }
-                        }
-                    }
-
-                    Tab.More -> {
-                        // 剧集列表与画面比例都在顶栏有常驻圆钮，这里不再重复列一遍；
-                        // 只留顶栏没有的入口。
-                        GroupLabel("播放")
-                        OptionRow("锁定控制", false, onClick = onLock)
-                        OptionRow(
-                            if (watchConnected) {
-                                "一起看 · ${watchRoomCode.orEmpty()}"
-                            } else {
-                                "一起看"
-                            },
-                            watchConnected,
-                            onClick = onOpenWatchTogether,
-                        )
-
-                        // A single file is not a choice, so the group only appears once
-                        // the library actually holds more than one copy of this title.
-                        if (versions.size > 1) {
-                            GroupLabel("版本")
-                            versions.forEach { (id, label) ->
-                                OptionRow(label, id == selectedVersionId) { onSelectVersion(id) }
-                            }
-                        }
-
-                        // Only for a series: an opening belongs to the show, and there is
-                        // nothing sensible to hang a film's times off. Setting a boundary
-                        // from where playback already is beats typing seconds at a
-                        // fullscreen landscape keyboard — 我的 has the numeric editor for
-                        // when a value needs nudging afterwards.
-                        if (skipSeriesName != null) {
-                            GroupLabel("片头片尾 · 点按设为当前进度")
-                            val here = (state.positionMs / 1000).coerceAtLeast(0L)
-                            // 片尾 is kept as a distance from the end, so what gets stored
-                            // is how much of the episode is left — the same tap, counted
-                            // from the other side. Zero when the duration is not known yet,
-                            // which reads as "unset" rather than "starts at the very end".
-                            val leftFromHere = ((state.durationMs - state.positionMs) / 1000)
-                                .coerceAtLeast(0L)
-                            OptionRow(
-                                label = skipBoundaryLabel("片头开始", skipIntroStartSeconds),
-                                selected = skipIntroStartSeconds > 0L,
-                                onClick = {
-                                    onSetSkipTimes(
-                                        here,
-                                        skipIntroEndSeconds,
-                                        skipCreditsLeadSeconds,
-                                    )
-                                },
-                                // Setting a boundary is one tap, so clearing one has to be
-                                // too: without this the only way back from a mistimed tap
-                                // was to wipe all three and re-enter the others.
-                                actionLabel = "取消".takeIf { skipIntroStartSeconds > 0L },
-                                onAction = {
-                                    onSetSkipTimes(0L, skipIntroEndSeconds, skipCreditsLeadSeconds)
-                                },
-                            )
-                            OptionRow(
-                                label = skipBoundaryLabel("片头结束", skipIntroEndSeconds),
-                                selected = skipIntroEndSeconds > 0L,
-                                onClick = {
-                                    onSetSkipTimes(
-                                        skipIntroStartSeconds,
-                                        here,
-                                        skipCreditsLeadSeconds,
-                                    )
-                                },
-                                actionLabel = "取消".takeIf { skipIntroEndSeconds > 0L },
-                                onAction = {
-                                    onSetSkipTimes(
-                                        skipIntroStartSeconds,
-                                        0L,
-                                        skipCreditsLeadSeconds,
-                                    )
-                                },
-                            )
-                            OptionRow(
-                                label = skipCreditsLabel(skipCreditsLeadSeconds),
-                                selected = skipCreditsLeadSeconds > 0L,
-                                onClick = {
-                                    onSetSkipTimes(
-                                        skipIntroStartSeconds,
-                                        skipIntroEndSeconds,
-                                        leftFromHere,
-                                    )
-                                },
-                                actionLabel = "取消".takeIf { skipCreditsLeadSeconds > 0L },
-                                onAction = {
-                                    onSetSkipTimes(skipIntroStartSeconds, skipIntroEndSeconds, 0L)
-                                },
-                            )
-                            // Three answers, not a switch: "don't skip automatically" and
-                            // "don't offer it at all" are different requests, and the second
-                            // used to be reachable only by deleting the times.
-                            GroupLabel("到达片头片尾时")
-                            SegmentedRow(
-                                options = SkipMode.entries.map { it.label },
-                                selectedIndex = SkipMode.entries.indexOf(skipMode),
-                                onSelect = { onSelectSkipMode(SkipMode.entries[it]) },
-                            )
-                            // Also offered for a half-entered intro, which is exactly when
-                            // starting over is most likely to be what's wanted.
-                            val anySkipTimeSet = skipIntroStartSeconds > 0L ||
-                                skipIntroEndSeconds > 0L ||
-                                skipCreditsLeadSeconds > 0L
-                            if (anySkipTimeSet) {
-                                OptionRow("清除《$skipSeriesName》的设置", false) {
-                                    onSetSkipTimes(0L, 0L, 0L)
-                                }
-                            }
-                        }
-
-                        GroupLabel("播放速度")
-                        speeds.forEach { speed ->
-                            OptionRow(speedLabel(speed), speed == state.speed) { onSpeed(speed) }
-                        }
-
-                        if (engineOptions.isNotEmpty() || transcodeLabel != null) {
-                            GroupLabel("播放器内核")
-                        }
-                        engineOptions.forEachIndexed { index, (label, selected) ->
-                            OptionRow(label, selected) { onSelectEngine(index) }
-                        }
-                        if (transcodeLabel != null) {
-                            OptionRow(transcodeLabel, transcodeActive, onClick = onTranscode)
-                        }
-                    }
-
-                    Tab.Diagnostics -> {
-                        val diagnostics = state.diagnostics
-                        GroupLabel("实时播放信息")
-                        DiagnosticRow("内核", diagnostics.engine.ifBlank { "未知" })
-                        DiagnosticRow("解码器", diagnostics.decoder)
-                        DiagnosticRow("播放方式", diagnostics.playMethod)
-                        DiagnosticRow(
-                            "画面",
-                            buildString {
-                                append(if (state.videoHeight > 0) "${state.videoHeight}P" else "未知分辨率")
-                                if (diagnostics.frameRate > 0f) {
-                                    append(" · ")
-                                    append(diagnostics.frameRate.asFrameRate())
-                                }
-                            },
-                        )
-                        DiagnosticRow("视频编码", diagnostics.videoCodec)
-                        DiagnosticRow("当前码率", diagnostics.bitrateBitsPerSecond.asBitrate())
-                        DiagnosticRow("网络速度", diagnostics.networkBitsPerSecond.asBitrate())
-                        DiagnosticRow(
-                            "缓冲",
-                            "${diagnostics.bufferedDurationMs / 1000.0f}s · ${diagnostics.bufferEvents} 次",
-                        )
-                        DiagnosticRow("丢帧", "${diagnostics.droppedFrames} 帧")
-
-                        // The room's own state, next to the playback state it is driving.
-                        // When 一起看 misbehaves the question is always the same — am I
-                        // still connected, who is in charge, how many of us are there —
-                        // and until now the only answer was the one-line banner.
-                        if (watchConnected || watchRoomCode != null) {
-                            GroupLabel("一起看")
-                            DiagnosticRow(
-                                "状态",
-                                when {
-                                    watchReconnecting -> "重连中"
-                                    watchConnected -> "已连接"
-                                    else -> "未连接"
-                                },
-                            )
-                            DiagnosticRow("房间", watchRoomCode ?: "—")
-                            DiagnosticRow("身份", if (watchIsHost) "房主" else "参与者")
-                            DiagnosticRow("在线", "$watchParticipantCount 人")
-                        }
-                    }
-
-                    Tab.Cast -> {
-                        GroupLabel("局域网投屏设备")
-                        if (castDiscovering) {
-                            Text(
-                                "正在发现 DLNA 设备…",
-                                style = mr(11.5f, 500),
-                                color = Color.White.copy(alpha = 0.55f),
-                                modifier = Modifier.padding(vertical = 10.dp),
-                            )
-                        }
-                        castDevices.forEach { (id, name) ->
-                            OptionRow(name, id == castingDeviceId) { onCastTo(id) }
-                        }
-                        if (castingDeviceId != null) {
-                            OptionRow("停止投屏", false, onClick = onStopCast)
-                        }
-                        if (castError != null) {
-                            Text(
-                                castError,
-                                style = mr(10.5f, 500),
-                                color = Brand.Danger,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                        }
-                        OptionRow("重新扫描", false, onClick = onDiscoverCast)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * In-player watch-together control. Since the entry points moved to where people actually
- * decide what to watch — 详情页 for hosting, an invite link for joining — this is now the
- * recovery path: "we're already watching, pull someone in."
- *
- * The relay address is deliberately not asked for here. It's infrastructure with a working
- * default, it belongs in 「我的」's settings, and putting it in front of someone mid-film (as
- * a required field, with both buttons disabled until it validated) was the single biggest
- * obstacle in the old flow.
- */
-@Composable
-private fun WatchTogetherDialog(
-    endpoint: String,
-    connecting: Boolean,
-    connected: Boolean,
-    roomCode: String?,
-    isHost: Boolean,
-    participantCount: Int,
-    error: String?,
-    controlRequested: Boolean,
-    onCreate: (String) -> Unit,
-    onJoin: (String, String) -> Unit,
-    onLeave: () -> Unit,
-    onRequestControl: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var roomDraft by remember { mutableStateOf("") }
-    val normalizedRoom = WatchInvite.normalizeCode(roomDraft)
-    val palette = LocalPalette.current
-
-    GlassDialog(onDismiss = onDismiss) {
-        OverlayHeader(
-            title = "一起看",
-            subtitle = if (connected) {
-                "房主控制播放、暂停与进度，其他成员自动跟随。"
-            } else {
-                "视频仍由每个人自己的媒体服务器播放，房间服务只同步状态。"
-            },
-            onClose = onDismiss,
-        )
-        if (connected) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .glass(RoundedCornerShape(14.dp), palette.card2, palette.border)
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                Text(
-                    roomCode.orEmpty(),
-                    style = sc(24f, 800),
-                    color = Brand.Primary,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                )
-                Text(
-                    "${if (isHost) "房主" else "成员"} · $participantCount 人在线",
-                    style = mr(11f, 500),
-                    color = palette.sub2,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                )
-            }
-            error?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(it, style = sc(10.5f, 500), color = Brand.Danger)
-            }
-            if (!isHost) {
-                // Deliberately still enabled once asked: a host who never answers would
-                // otherwise leave this pinned on "waiting" with no way to ask again.
-                OverlayButton(
-                    label = if (controlRequested) "再次请求控制权" else "请求控制权",
-                    onClick = onRequestControl,
-                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                    tone = OverlayButtonTone.Primary,
-                )
-                if (controlRequested) {
-                    Text(
-                        "已发送请求，等待房主响应。",
-                        style = sc(10.5f, 500),
-                        color = palette.sub2,
-                        modifier = Modifier.fillMaxWidth().padding(top = 7.dp),
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
-            OverlayButton(
-                label = "退出房间",
-                onClick = onLeave,
-                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                tone = OverlayButtonTone.Destructive,
-            )
-        } else {
-            WatchInput(
-                value = normalizedRoom,
-                placeholder = "输入 6 位房间码",
-                onValueChange = { roomDraft = it },
-            )
-            error?.let {
-                Spacer(Modifier.height(7.dp))
-                Text(it, style = sc(10.5f, 500), color = Brand.Danger)
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(top = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                OverlayButton(
-                    label = if (connecting) "连接中…" else "创建房间",
-                    onClick = { onCreate(endpoint) },
-                    modifier = Modifier.weight(1f),
-                    tone = OverlayButtonTone.Primary,
-                    enabled = !connecting,
-                )
-                OverlayButton(
-                    label = "加入房间",
-                    onClick = { onJoin(endpoint, normalizedRoom) },
-                    modifier = Modifier.weight(1f),
-                    enabled = WatchInvite.isCompleteCode(normalizedRoom) && !connecting,
-                )
-            }
-        }
-    }
-}
-
-/**
- * Host side of the control handoff: a member has asked to drive the room.
- *
- * Both answers are explicit. Granting moves the timeline to them — this device becomes a
- * follower and its own controls lock — and denying tells the asker so, rather than letting
- * the request expire into silence.
- */
-@Composable
-private fun ControlRequestDialog(
-    requesterName: String,
-    onGrant: () -> Unit,
-    onDeny: () -> Unit,
-) {
-    GlassDialog(onDismiss = onDeny) {
-        OverlayHeader(
-            title = "控制权请求",
-            subtitle = "$requesterName 想要控制这个房间。交出后由对方掌握播放、暂停、进度和集数，你会跟随他们。",
-            onClose = onDeny,
-        )
-        Row(
-            Modifier.fillMaxWidth().padding(top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            OverlayButton(
-                label = "拒绝",
-                onClick = onDeny,
-                modifier = Modifier.weight(1f),
-            )
-            OverlayButton(
-                label = "交给对方",
-                onClick = onGrant,
-                modifier = Modifier.weight(1f),
-                tone = OverlayButtonTone.Primary,
-            )
-        }
-    }
-}
 
 @Composable
-private fun WatchInput(
-    value: String,
-    placeholder: String,
-    onValueChange: (String) -> Unit,
-    keyboardType: KeyboardType = KeyboardType.Text,
-) {
-    val palette = LocalPalette.current
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        if (value.isBlank()) {
-            Text(
-                placeholder,
-                style = mr(12f, 500),
-                color = palette.hint,
-                maxLines = 1,
-            )
-        }
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = true,
-            textStyle = mr(12f, 500).copy(color = palette.text),
-            cursorBrush = SolidColor(Brand.Primary),
-            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
-@Composable
-private fun DiagnosticRow(label: String, value: String) {
+internal fun DiagnosticRow(label: String, value: String) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -2057,13 +1442,13 @@ private fun DiagnosticRow(label: String, value: String) {
     }
 }
 
-private fun Long.asBitrate(): String {
+internal fun Long.asBitrate(): String {
     if (this <= 0L) return "等待数据"
     val tenths = this / 100_000L
     return "${tenths / 10}.${tenths % 10} Mbps"
 }
 
-private fun Float.asFrameRate(): String {
+internal fun Float.asFrameRate(): String {
     val tenths = (this * 10f).toInt()
     return "${tenths / 10}.${tenths % 10} fps"
 }
@@ -2240,7 +1625,7 @@ private fun resolutionLabel(height: Int): String? = when {
     else -> "${height}P"
 }
 
-private fun speedLabel(speed: Float): String =
+internal fun speedLabel(speed: Float): String =
     if (speed == speed.toInt().toFloat()) "${speed.toInt()}x" else "${speed}x"
 
 private fun formatTime(ms: Long): String {
