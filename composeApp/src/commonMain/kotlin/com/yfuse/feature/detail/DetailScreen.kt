@@ -83,6 +83,7 @@ import com.yfuse.core.designsystem.rememberDominantColor
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaElement
+import com.yfuse.core.designsystem.sharedMediaForeground
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
@@ -205,7 +206,10 @@ fun DetailScreen(component: DetailComponent) {
         Box(Modifier.fillMaxSize().background(detailSurface))
 
         when {
-            state.loading && detail == null -> DetailSkeleton(heroHeight)
+            detail == null && state.error == null -> DetailSkeleton(
+                heroHeight = heroHeight,
+                sharedKey = "media-backdrop-${component.itemId}",
+            )
 
             detail == null -> ErrorState(
                 message = state.error ?: "加载失败",
@@ -232,6 +236,7 @@ fun DetailScreen(component: DetailComponent) {
                 item(key = "sheet") {
                     Column(
                         Modifier
+                            .sharedMediaForeground()
                             .fillMaxWidth()
                             .liftOverHero(captionLift)
                             .background(panelBrush)
@@ -709,7 +714,12 @@ private fun Hero(
             contentDescription = title,
             modifier = Modifier.fillMaxSize().sharedMediaElement(sharedKey),
         )
-        Box(Modifier.fillMaxSize().background(heroScrim(surfaceColor)))
+        Box(
+            Modifier
+                .sharedMediaForeground(zIndex = 0.5f)
+                .fillMaxSize()
+                .background(heroScrim(surfaceColor)),
+        )
     }
 }
 
@@ -733,7 +743,7 @@ private fun DetailTopBar(
 ) {
     val palette = LocalPalette.current
     val plateFill = surfaceColor.copy(alpha = 0.94f)
-    Box(Modifier.fillMaxWidth()) {
+    Box(Modifier.sharedMediaForeground(zIndex = 2f).fillMaxWidth()) {
         Box(
             Modifier
                 .matchParentSize()
@@ -1626,11 +1636,17 @@ private fun CastRow(
  * the grid lands on a layout instead of an empty screen.
  */
 @Composable
-private fun DetailSkeleton(heroHeight: Dp) {
+private fun DetailSkeleton(heroHeight: Dp, sharedKey: String) {
     val palette = LocalPalette.current
     val fill = if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color(0x2996A0B4)
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().height(heroHeight).background(fill))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(heroHeight)
+                .sharedMediaElement(sharedKey)
+                .background(fill),
+        )
         Column(
             Modifier
                 .padding(horizontal = Dimens.pageHorizontal)

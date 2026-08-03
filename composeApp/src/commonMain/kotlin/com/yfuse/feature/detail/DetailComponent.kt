@@ -21,7 +21,7 @@ class DetailComponent(
     storeFactory: StoreFactory,
     repo: EmbyRepository,
     registry: ServerRegistry,
-    itemId: String,
+    val itemId: String,
     serverId: String? = null,
     /**
      * Starts playback as soon as the item has loaded, without waiting for a tap.

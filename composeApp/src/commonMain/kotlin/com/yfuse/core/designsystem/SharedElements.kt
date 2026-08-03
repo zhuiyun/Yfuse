@@ -93,3 +93,19 @@ fun Modifier.sharedMediaElement(key: String?): Modifier {
         )
     }
 }
+
+/**
+ * Keeps detail-page chrome above artwork that is temporarily rendered in the shared
+ * transition overlay. Without this, the travelling image is drawn after the whole page
+ * and briefly covers titles and actions until the route animation finishes.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun Modifier.sharedMediaForeground(zIndex: Float = 1f): Modifier {
+    val sharedTransitionScope = LocalSharedTransitionScope.current ?: return this
+    return with(sharedTransitionScope) {
+        this@sharedMediaForeground.renderInSharedTransitionScopeOverlay(
+            zIndexInOverlay = zIndex,
+        )
+    }
+}
