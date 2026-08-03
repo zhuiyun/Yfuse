@@ -123,6 +123,16 @@ fun DetailScreen(component: DetailComponent) {
     // Emby answers 401 for artwork without it when the server requires authentication, so
     // every image on this page — hero, 艺术图, 剧集, 主演, 相关推荐 — is built with it.
     val accessToken = state.server?.accessToken.orEmpty()
+    // Episode details carry the episode title in `title` and the show's name separately.
+    // The artwork is the show's visual identity, so its caption and collapsed bar use the
+    // show name; episode coordinates remain on the play action below.
+    val displayTitle = detail?.let { item ->
+        if (item.type == "Episode") {
+            item.seriesName?.takeIf { it.isNotBlank() } ?: item.title
+        } else {
+            item.title
+        }
+    }.orEmpty()
 
     // The backdrop is the hero, the poster is what stands in when the item has none.
     val heroUrls = detail?.let {
@@ -209,7 +219,7 @@ fun DetailScreen(component: DetailComponent) {
                 item(key = "hero") {
                     Hero(
                         urls = heroUrls,
-                        title = detail.title,
+                        title = displayTitle,
                         height = heroHeight,
                         surfaceColor = detailSurface,
                         sharedKey = "media-backdrop-${detail.id}",
@@ -229,6 +239,7 @@ fun DetailScreen(component: DetailComponent) {
                     ) {
                         TitleBlock(
                             detail = detail,
+                            title = displayTitle,
                             // A series has no file of its own, so its 杜比 facts belong to
                             // the episode 继续观看 would open — which is the copy the badge
                             // would be describing anyway.
@@ -442,7 +453,7 @@ fun DetailScreen(component: DetailComponent) {
         }
 
         DetailTopBar(
-            title = detail?.title.orEmpty(),
+            title = displayTitle,
             progress = topBarProgress,
             surfaceColor = detailSurface,
             accent = accent,
@@ -857,6 +868,7 @@ private fun DetailTopBar(
 @Composable
 private fun TitleBlock(
     detail: MediaDetail,
+    title: String,
     version: MediaVersion?,
     modifier: Modifier = Modifier,
 ) {
@@ -865,7 +877,7 @@ private fun TitleBlock(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            detail.title,
+            title,
             style = sc(23f, 800),
             color = ArtworkInk,
             textAlign = TextAlign.Center,

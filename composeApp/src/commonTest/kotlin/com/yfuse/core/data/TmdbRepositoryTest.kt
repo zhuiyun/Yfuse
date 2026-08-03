@@ -20,15 +20,18 @@ class TmdbRepositoryTest {
         val client = HttpClient(
             MockEngine { request ->
                 val path = request.url.encodedPath
-                val domestic = request.url.parameters["with_origin_country"] == "CN"
+                val originCountries = request.url.parameters["with_origin_country"]
+                val domestic = originCountries?.split('|')?.contains("CN") == true
                 if (domestic) {
-                    assertEquals("CN", request.url.parameters["with_origin_country"])
                     assertEquals("zh", request.url.parameters["with_original_language"])
                 }
                 val tv = path.contains("/tv")
                 val upcoming = request.url.parameters["primary_release_date.gte"] != null ||
-                    request.url.parameters["first_air_date.gte"] != null ||
-                    path.endsWith("/movie/upcoming")
+                    request.url.parameters["first_air_date.gte"] != null
+                if (upcoming) {
+                    assertEquals(null, request.url.parameters["vote_count.gte"])
+                    if (domestic) assertEquals("CN|HK|TW", originCountries)
+                }
                 val now = request.url.parameters["primary_release_date.lte"] != null ||
                     request.url.parameters["first_air_date.lte"] != null ||
                     path.endsWith("/movie/now_playing") ||
@@ -65,12 +68,13 @@ class TmdbRepositoryTest {
     fun home_filters_talk_documentary_and_untrusted_domestic_metadata() = runTest {
         val client = HttpClient(
             MockEngine { request ->
-                val domestic = request.url.parameters["with_origin_country"] == "CN"
+                val domestic = request.url.parameters["with_origin_country"]
+                    ?.split('|')
+                    ?.contains("CN") == true
                 val path = request.url.encodedPath
                 val tv = path.contains("/tv")
                 val upcoming = request.url.parameters["primary_release_date.gte"] != null ||
-                    request.url.parameters["first_air_date.gte"] != null ||
-                    path.endsWith("/movie/upcoming")
+                    request.url.parameters["first_air_date.gte"] != null
                 val titleKey = if (tv) "name" else "title"
                 val dateKey = if (tv) "first_air_date" else "release_date"
                 val date = if (upcoming) "2027-01-01" else "2026-01-01"
@@ -99,13 +103,18 @@ class TmdbRepositoryTest {
             }
         }
 
-        val rows = TmdbRepository(client).home().getOrThrow().rows
-        val titles = rows.flatMap { it.items }.map { it.title }
+        val rows = TmdbRepository(client).home().getOrThrow().rows.associateBy { it.title }
+        val establishedTitles = listOf("热门", "正在上映")
+            .flatMap { rows.getValue(it).items }
+            .map { it.title }
+        val upcomingTitles = rows.getValue("即将上映").items.map { it.title }
+        val titles = establishedTitles + upcomingTitles
 
         assertTrue("可信国产" in titles)
         assertTrue("正常内容" in titles)
         assertTrue("百家讲坛" !in titles)
-        assertTrue("错误年份条目" !in titles)
+        assertTrue("错误年份条目" !in establishedTitles)
+        assertTrue("错误年份条目" in upcomingTitles)
         assertTrue("深夜脱口秀" !in titles)
     }
 

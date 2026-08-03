@@ -134,7 +134,23 @@ class TmdbRepository(private val client: HttpClient) {
             val popularShows = async { fetch("/tv/popular", language, "tv") }
             val nowMovies = async { fetch("/movie/now_playing", language, "movie") }
             val nowShows = async { fetch("/tv/airing_today", language, "tv") }
-            val upcomingMovies = async { fetch("/movie/upcoming", language, "movie") }
+            // `/movie/upcoming` is region-relative and can return dates that have already
+            // passed locally. Discover gives this shelf an explicit future window instead.
+            val upcomingMovies = async {
+                fetch(
+                    "/discover/movie",
+                    language,
+                    "movie",
+                    mapOf(
+                        "primary_release_date.gte" to today,
+                        "primary_release_date.lte" to nextYearEnd,
+                        "sort_by" to "popularity.desc",
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                        "include_adult" to "false",
+                        "include_video" to "false",
+                    ),
+                )
+            }
             val upcomingShows = async {
                 fetch(
                     "/discover/tv",
@@ -144,8 +160,8 @@ class TmdbRepository(private val client: HttpClient) {
                         "first_air_date.gte" to today,
                         "first_air_date.lte" to nextYearEnd,
                         "sort_by" to "popularity.desc",
-                        "vote_count.gte" to GLOBAL_UPCOMING_MIN_VOTES.toString(),
                         "without_genres" to BLOCKED_GENRES_PARAMETER,
+                        "include_adult" to "false",
                     ),
                 )
             }
@@ -216,13 +232,14 @@ class TmdbRepository(private val client: HttpClient) {
                     language,
                     "movie",
                     mapOf(
-                        "with_origin_country" to "CN",
+                        "with_origin_country" to CHINESE_ORIGIN_COUNTRIES_PARAMETER,
                         "with_original_language" to "zh",
                         "primary_release_date.gte" to today,
                         "primary_release_date.lte" to nextYearEnd,
-                        "region" to "CN",
                         "sort_by" to "popularity.desc",
                         "without_genres" to BLOCKED_GENRES_PARAMETER,
+                        "include_adult" to "false",
+                        "include_video" to "false",
                     ),
                 )
             }
@@ -232,12 +249,13 @@ class TmdbRepository(private val client: HttpClient) {
                     language,
                     "tv",
                     mapOf(
-                        "with_origin_country" to "CN",
+                        "with_origin_country" to CHINESE_ORIGIN_COUNTRIES_PARAMETER,
                         "with_original_language" to "zh",
                         "first_air_date.gte" to today,
                         "first_air_date.lte" to nextYearEnd,
                         "sort_by" to "popularity.desc",
                         "without_genres" to BLOCKED_GENRES_PARAMETER,
+                        "include_adult" to "false",
                     ),
                 )
             }
@@ -269,8 +287,9 @@ class TmdbRepository(private val client: HttpClient) {
             )
             val upcoming = integrateDomestic(
                 global = interleave(result[4], result[5]).eligibleCatalogItems(),
-                domestic = interleave(result[10], result[11])
-                    .filter { it.popularity >= DOMESTIC_UPCOMING_MIN_POPULARITY },
+                // Unreleased titles routinely have no votes and very low popularity. Those
+                // are not signs of bad metadata here, so keep the dated Chinese catalogue.
+                domestic = interleave(result[10], result[11]).eligibleCatalogItems(),
             )
                 .eligibleCatalogItems()
                 .filter { item ->
@@ -684,9 +703,10 @@ class TmdbRepository(private val client: HttpClient) {
     private companion object {
         val BLOCKED_GENRE_IDS = setOf(99, 10763, 10764, 10767)
         val BLOCKED_GENRES_PARAMETER = BLOCKED_GENRE_IDS.joinToString(",")
+        const val CHINESE_ORIGIN_COUNTRIES_PARAMETER = "CN|HK|TW"
         const val DOMESTIC_MIN_VOTES = 10
         const val DOMESTIC_MIN_POPULARITY = 3.0
-        const val DOMESTIC_UPCOMING_MIN_POPULARITY = 5.0
+        /** Calendar discovery still needs to bound the number of shows it expands. */
         const val GLOBAL_UPCOMING_MIN_VOTES = 3
 
         /** One `/tv/{id}` request each, so the list is capped rather than unbounded. */
