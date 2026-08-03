@@ -164,7 +164,7 @@ fun DetailScreen(component: DetailComponent) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val heroHeight = maxHeight * 0.40f
+        val heroHeight = maxHeight * 0.60f
         val heroHeightPx = with(density) { heroHeight.toPx() }
 
         // Lift the measured caption and the primary action over the artwork. The backdrop

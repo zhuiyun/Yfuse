@@ -47,7 +47,7 @@ object GlassShapes {
 }
 
 /**
- * Primary liquid-glass surface. A translucent diagonal sheen, luminous edge and
+ * Primary liquid-glass surface. A translucent diagonal sheen, single-colour edge and
  * ambient tint preserve depth without a platform-specific blur dependency.
  */
 @Composable
@@ -79,21 +79,11 @@ fun Modifier.glass(
             1f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.78f).coerceIn(0f, 1f)),
         )
     }
-    val edge = border?.let {
-        Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = if (palette.isDark) 0.38f else 0.92f),
-                it,
-                if (palette.isDark) Color(0xFF8FB2E8).copy(alpha = 0.16f)
-                else Brand.PrimaryGradTop.copy(alpha = 0.28f),
-            ),
-        )
-    }
     return this
         .clip(shape)
         .background(surface)
         .let { modifier ->
-            if (edge != null) modifier.border(Dimens.hairline, edge, shape) else modifier
+            if (border != null) modifier.border(Dimens.hairline, border, shape) else modifier
         }
 }
 
@@ -175,11 +165,11 @@ fun Modifier.solidGlass(
  * - a vertical body ramp that lightens towards the top and shades towards a depth tint at
  *   the bottom, which is the one depth cue that survives white glass on a white page;
  * - a 145° specular sweep, with a faint bounce on the far corner;
- * - a luminous edge running from near-white at the top to [border] shaded at the bottom.
+ * - a calm, single-colour [border] around the control.
  *
- * The edge is a stroke on the outline, drawn inside the clip so its outer half is cut away
- * and the remaining inner half lands exactly on [Dimens.hairline]. `Modifier.border` cannot
- * take its place: it paints a single flat colour over that stroke and flattens the ramp.
+ * The edge is a solid stroke on the outline, drawn inside the clip so its outer half is cut
+ * away and the remaining inner half lands exactly on [Dimens.hairline]. Borders stay flat
+ * across the app even when the body and its reflected sheen use gradients.
  *
  * [sheen] scales the specular only, for controls small enough that a full-strength highlight
  * reads as a blown-out patch rather than a reflection.
@@ -222,11 +212,6 @@ fun Modifier.liquidGlass(
         0.52f to Color.Transparent,
         1f to Color.White.copy(alpha = (if (pale) 0.20f else 0.10f) * sheen),
     )
-    val edge = Brush.verticalGradient(
-        0f to Color.White.copy(alpha = if (pale) 0.96f else 0.46f),
-        0.36f to lerp(border, Color.White, if (pale) 0.58f else 0.20f),
-        1f to lerp(border, depth, if (pale) 0.34f else 0.14f),
-    )
     return this
         .clip(shape)
         .drawWithCache {
@@ -235,7 +220,7 @@ fun Modifier.liquidGlass(
             onDrawBehind {
                 drawOutline(outline, brush = body)
                 drawOutline(outline, brush = gloss)
-                drawOutline(outline, brush = edge, style = stroke)
+                drawOutline(outline, color = border, style = stroke)
             }
         }
 }
