@@ -86,75 +86,82 @@ fun HomeScreen(component: HomeComponent) {
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
 
     Box(Modifier.fillMaxSize()) {
-        when {
-            state.loading && state.content.isEmpty ->
-                CircularProgressIndicator(Modifier.align(Alignment.Center))
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(bottom = TabBarInset),
+            verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
+        ) {
+            // Navigation in the hero header must remain available even when the remote
+            // recommendation feed is loading or unavailable.
+            item {
+                // One item, read once: 播放 and 收藏 have to act on the title actually
+                // on screen, and three separate reads of the list is how they would
+                // eventually stop agreeing.
+                val todaysPick = state.featuredToday
+                Hero(
+                    item = todaysPick,
+                    onOpenProfile = component.onOpenProfile,
+                    onOpenSearch = component.onOpenSearch,
+                    onOpenCalendar = component.onOpenCalendar,
+                    onPlay = {
+                        todaysPick?.let { component.store.accept(HomeIntent.Open(it)) }
+                    },
+                    onFavorite = {
+                        todaysPick?.let { component.store.accept(HomeIntent.Favorite(it)) }
+                    },
+                )
+            }
 
-            state.error != null && state.content.isEmpty -> ErrorState(
-                message = state.error!!,
-                onRetry = { component.store.accept(HomeIntent.Retry) },
-                modifier = Modifier.align(Alignment.Center),
-            )
-
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = listState,
-                contentPadding = PaddingValues(bottom = TabBarInset),
-                verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
-            ) {
-                // 首屏大图 runs edge to edge from the very top, with the greeting row
-                // floating on it — so it is the first item, not a padded card.
-                item {
-                    // One item, read once: 播放 and 收藏 have to act on the title actually
-                    // on screen, and three separate reads of the list is how they would
-                    // eventually stop agreeing.
-                    val todaysPick = state.featuredToday
-                    Hero(
-                        item = todaysPick,
-                        onOpenProfile = component.onOpenProfile,
-                        onOpenSearch = component.onOpenSearch,
-                        onOpenCalendar = component.onOpenCalendar,
-                        onPlay = {
-                            todaysPick?.let { component.store.accept(HomeIntent.Open(it)) }
-                        },
-                        onFavorite = {
-                            todaysPick?.let { component.store.accept(HomeIntent.Favorite(it)) }
-                        },
+            if (state.loading && state.content.isEmpty) {
+                item(key = "recommendations-loading") {
+                    Box(Modifier.fillMaxWidth().height(96.dp)) {
+                        CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    }
+                }
+            } else if (state.error != null && state.content.isEmpty) {
+                item(key = "recommendations-error") {
+                    ErrorState(
+                        message = state.error!!,
+                        onRetry = { component.store.accept(HomeIntent.Retry) },
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                state.actionMessage?.let { message ->
-                    item {
-                        Text(
-                            message,
-                            style = sc(11.5f, 650),
-                            color = Brand.Primary,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = Dimens.pageHorizontal)
-                                .glass(GlassShapes.chip)
-                                .padding(10.dp),
-                        )
-                    }
-                }
+            }
 
-                if (state.resume.isNotEmpty()) {
-                    item {
-                        ContinueWatching(
-                            // From the same state as the items themselves — see
-                            // [HomeState.server].
-                            baseUrl = state.server?.baseUrl.orEmpty(),
-                            accessToken = state.server?.accessToken.orEmpty(),
-                            items = state.resume,
-                            onSeeAll = component.onOpenLibrary,
-                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
-                        )
-                    }
+            state.actionMessage?.let { message ->
+                item {
+                    Text(
+                        message,
+                        style = sc(11.5f, 650),
+                        color = Brand.Primary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Dimens.pageHorizontal)
+                            .glass(GlassShapes.chip)
+                            .padding(10.dp),
+                    )
                 }
+            }
 
-                state.content.rows.forEach { row ->
-                    if (row.items.isNotEmpty()) {
-                        item(key = "tmdb-${row.title}") {
+            if (state.resume.isNotEmpty()) {
+                item {
+                    ContinueWatching(
+                        // From the same state as the items themselves — see
+                        // [HomeState.server].
+                        baseUrl = state.server?.baseUrl.orEmpty(),
+                        accessToken = state.server?.accessToken.orEmpty(),
+                        items = state.resume,
+                        onSeeAll = component.onOpenLibrary,
+                        onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
+                    )
+                }
+            }
+
+            state.content.rows.forEach { row ->
+                if (row.items.isNotEmpty()) {
+                    item(key = "tmdb-${row.title}") {
                         Recommended(
                             title = row.title,
                             items = row.items,
@@ -165,7 +172,6 @@ fun HomeScreen(component: HomeComponent) {
                             onSeeAll = { expandedRow = row },
                             onClick = { component.store.accept(HomeIntent.Open(it)) },
                         )
-                        }
                     }
                 }
             }

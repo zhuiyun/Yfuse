@@ -104,6 +104,9 @@ private val TopBarHeight = 52.dp
 /** The sheet's own rhythm — above the title block, and between it and everything after. */
 private val SheetGap = 18.dp
 
+/** Keep the hero artwork visible for 20dp below the 52dp primary play button. */
+private val PlayButtonHeroOverlap = SheetGap + 52.dp + 20.dp
+
 /**
  * A one-line title with year, rating and genre under it. Only the seed for the measured
  * lift, so being a little out costs one frame of settling and nothing else.
@@ -164,13 +167,12 @@ fun DetailScreen(component: DetailComponent) {
         val heroHeight = maxHeight * 0.40f
         val heroHeightPx = with(density) { heroHeight.toPx() }
 
-        // How far the sheet rides up over the artwork: its own title block, plus the gap
-        // above it, so the artwork's lower edge lands exactly where 播放 begins. Measured
-        // rather than fixed — a two-line title is 30dp taller than a one-line one, and a
-        // guess would either clip the artwork short or push the title off it. Seeded with
-        // a typical height so the first frame is already close and the correction does not
-        // read as a jump.
-        var captionLift by remember { mutableStateOf(TypicalCaptionHeight + SheetGap) }
+        // Lift the measured caption and the primary action over the artwork. The backdrop
+        // continues 20dp below 播放, while the blend into the page still begins at the
+        // artwork's physical lower edge.
+        var captionLift by remember {
+            mutableStateOf(TypicalCaptionHeight + SheetGap + PlayButtonHeroOverlap)
+        }
 
         val detailSurface = remember(accent, palette.isDark) {
             heroSurface(accent, palette.isDark)
@@ -232,7 +234,8 @@ fun DetailScreen(component: DetailComponent) {
                             // would be describing anyway.
                             version = selectedVersion ?: state.playTarget?.versions?.firstOrNull(),
                             modifier = Modifier.onSizeChanged {
-                                captionLift = with(density) { it.height.toDp() } + SheetGap
+                                captionLift = with(density) { it.height.toDp() } +
+                                    SheetGap + PlayButtonHeroOverlap
                             },
                         )
                         DetailActionDock(
@@ -844,7 +847,7 @@ private fun DetailTopBar(
  * tall, to restate a poster the user had just tapped and a title the top bar already
  * carries. Dropping the plate gave the backdrop its height back; riding on the artwork
  * rather than under it means the block costs the picture nothing at all — the artwork now
- * runs the full way down to 播放.
+ * continues beneath 播放 and ends after the primary action.
  *
  * Which is also why the inks here are fixed rather than from the palette: this copy is on
  * a photograph in both themes. The caller keeps the artwork clean behind it — see the

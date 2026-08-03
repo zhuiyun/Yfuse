@@ -38,6 +38,7 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
       # Public certificate fingerprint pinned from the currently published APK.
       # Changing this requires an explicit signing-key migration.
       EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
@@ -79,6 +80,7 @@ jobs:
             ANDROID_KEYSTORE_PASSWORD
             ANDROID_KEY_ALIAS
             ANDROID_KEY_PASSWORD
+            TMDB_TOKEN
             DEPLOY_SSH_PRIVATE_KEY
             DEPLOY_KNOWN_HOSTS
           )
@@ -189,6 +191,13 @@ jobs:
             printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
           } > keystore.properties
           chmod 600 keystore.properties
+
+      - name: Configure app services
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'tmdb.token=%s\n' "$TMDB_TOKEN" > local.properties
+          chmod 600 local.properties
 
       - name: Verify configured keystore certificate
         shell: bash
