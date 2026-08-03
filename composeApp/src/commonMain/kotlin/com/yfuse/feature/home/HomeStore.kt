@@ -53,6 +53,17 @@ data class HomeState(
      * same all day, the same for everyone, and survives closing the app.
      */
     val featuredToday: TmdbItem? get() = content.featured.pickForDay(today)
+
+    /**
+     * Keep today's deterministic pick first, then expose the rest to the hero carousel.
+     * This preserves the meaning of 今日精选 without collapsing a full recommendation
+     * feed into one static image.
+     */
+    val featuredSlides: List<TmdbItem>
+        get() {
+            val first = featuredToday ?: return emptyList()
+            return listOf(first) + content.featured.filterNot { it.id == first.id }
+        }
 }
 
 sealed interface HomeIntent {

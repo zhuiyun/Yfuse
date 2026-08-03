@@ -34,6 +34,7 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.ServerSource
 
 /**
@@ -108,18 +109,26 @@ private fun SourceRow(
     val palette = LocalPalette.current
     val source = entry.source
     val selected = entry.isCurrent
+    val edge = when {
+        selected -> accent
+        palette.isDark -> Color.White.copy(alpha = 0.16f)
+        else -> Color(0xFF141A26).copy(alpha = 0.12f)
+    }
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(GlassShapes.card)
-            .background(if (palette.isDark) Color.White.copy(alpha = 0.06f) else Color.White)
+            .solidGlass(
+                shape = GlassShapes.card,
+                fill = if (palette.isDark) {
+                    Color.White.copy(alpha = 0.06f)
+                } else {
+                    Color.White.copy(alpha = 0.82f)
+                },
+                border = null,
+            )
             .border(
                 if (selected) 1.5.dp else Dimens.hairline,
-                when {
-                    selected -> accent
-                    palette.isDark -> Color.White.copy(alpha = 0.16f)
-                    else -> Color(0xFF141A26).copy(alpha = 0.10f)
-                },
+                edge,
                 GlassShapes.card,
             )
             .pressable(enabled = !selected, onClick = onSelect)

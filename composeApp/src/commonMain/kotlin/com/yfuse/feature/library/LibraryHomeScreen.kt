@@ -69,6 +69,10 @@ import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.loopingCarouselItemIndex
+import com.yfuse.core.designsystem.loopingCarouselPageCount
+import com.yfuse.core.designsystem.loopingCarouselStartPage
+import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDominantColor
@@ -112,8 +116,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val palette = LocalPalette.current
 
     val slides = state.content.featured.take(4)
-    val pagerState = rememberPagerState(pageCount = { slides.size.coerceAtLeast(1) })
-    val slideIndex = pagerState.currentPage.coerceIn(0, (slides.size - 1).coerceAtLeast(0))
+    val pagerState = rememberPagerState(
+        pageCount = { loopingCarouselPageCount(slides.size) },
+    )
+    val slideIndex = loopingCarouselItemIndex(pagerState.currentPage, slides.size)
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
     val slide = slides.getOrNull(slideIndex)
@@ -129,11 +135,14 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val lightPageReached by rememberScrolledPastHero(listState, HeroHeight)
     StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
 
+    LaunchedEffect(slides.map { it.id }) {
+        pagerState.scrollToPage(loopingCarouselStartPage(slides.size))
+    }
     LaunchedEffect(slides.size, carouselDragging) {
         if (slides.size <= 1 || carouselDragging) return@LaunchedEffect
         while (true) {
             delay(6_000)
-            pagerState.animateScrollToPage((pagerState.currentPage + 1) % slides.size)
+            pagerState.animateScrollToPage(pagerState.currentPage + 1)
         }
     }
 
@@ -166,8 +175,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 state = pagerState,
                                 modifier = Modifier.fillMaxWidth().height(HeroHeight),
                                 beyondViewportPageCount = 1,
-                                key = { page -> slides[page].id },
-                            ) { animatedIndex ->
+                                key = { page -> page },
+                            ) { page ->
+                                val animatedIndex = loopingCarouselItemIndex(page, slides.size)
                                 val animatedItem = slides.getOrNull(animatedIndex) ?: slide
                                 // Backdrop first, poster as the understudy: an item can
                                 // carry a backdrop id whose image the server no longer has,
@@ -194,9 +204,15 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                     accent = animatedAccent,
                                     slideCount = slides.size,
                                     slideIndex = animatedIndex,
-                                    onSelectSlide = {
+                                    onSelectSlide = { targetIndex ->
                                         carouselScope.launch {
-                                            pagerState.animateScrollToPage(it)
+                                            pagerState.animateScrollToPage(
+                                                loopingCarouselTargetPage(
+                                                    currentPage = pagerState.currentPage,
+                                                    targetIndex = targetIndex,
+                                                    itemCount = slides.size,
+                                                ),
+                                            )
                                         }
                                     },
                                     serverName = state.currentServer?.serverName.orEmpty(),

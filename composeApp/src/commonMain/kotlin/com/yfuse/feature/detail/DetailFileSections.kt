@@ -173,6 +173,13 @@ private fun SpecCard(
     rows: List<Pair<String, String>>,
 ) {
     val palette = LocalPalette.current
+    // A white palette border disappears against this card's pale surface. Keep the
+    // glass card body, but give it one calm, solid outline in both themes.
+    val edge = if (palette.isDark) {
+        Color.White.copy(alpha = 0.16f)
+    } else {
+        Color(0xFF141A26).copy(alpha = 0.12f)
+    }
     Column(
         Modifier
             .width(width)
@@ -183,7 +190,7 @@ private fun SpecCard(
                 } else {
                     Color.White.copy(alpha = 0.72f)
                 },
-                border = palette.border,
+                border = edge,
             )
             .padding(horizontal = 13.dp, vertical = 12.dp),
     ) {
@@ -495,7 +502,8 @@ private fun SourceCard(
     val selected = entry.isCurrent
     val source = entry.source
     // 1.5dp on the selected ring, so switching sources moves the edge as well as the
-    // colour — `solidGlass` is fixed at `Dimens.hairline`, hence the explicit border.
+    // colour. The body keeps its glass-card sheen; the edge itself is always one solid
+    // colour and is drawn separately so it can become heavier for the selected source.
     val edge = when {
         selected -> accent
         palette.isDark -> Color.White.copy(alpha = 0.16f)
@@ -504,9 +512,14 @@ private fun SourceCard(
     Column(
         Modifier
             .width(width)
-            .clip(GlassShapes.card)
-            .background(
-                if (palette.isDark) Color.White.copy(alpha = 0.06f) else Color.White,
+            .solidGlass(
+                shape = GlassShapes.card,
+                fill = if (palette.isDark) {
+                    Color.White.copy(alpha = 0.06f)
+                } else {
+                    Color.White.copy(alpha = 0.82f)
+                },
+                border = null,
             )
             .border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
             .pressable(onClick = onSelect)

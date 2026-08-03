@@ -1,8 +1,11 @@
 package com.yfuse.feature.home
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,16 +24,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +62,10 @@ import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.YfuseMark
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.loopingCarouselItemIndex
+import com.yfuse.core.designsystem.loopingCarouselPageCount
+import com.yfuse.core.designsystem.loopingCarouselStartPage
+import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.scrim
@@ -64,6 +75,8 @@ import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * 首页 — the prototype's `isHome` screen:
@@ -95,21 +108,13 @@ fun HomeScreen(component: HomeComponent) {
             // Navigation in the hero header must remain available even when the remote
             // recommendation feed is loading or unavailable.
             item {
-                // One item, read once: 播放 and 收藏 have to act on the title actually
-                // on screen, and three separate reads of the list is how they would
-                // eventually stop agreeing.
-                val todaysPick = state.featuredToday
-                Hero(
-                    item = todaysPick,
+                HomeHeroCarousel(
+                    items = state.featuredSlides.take(5),
                     onOpenProfile = component.onOpenProfile,
                     onOpenSearch = component.onOpenSearch,
                     onOpenCalendar = component.onOpenCalendar,
-                    onPlay = {
-                        todaysPick?.let { component.store.accept(HomeIntent.Open(it)) }
-                    },
-                    onFavorite = {
-                        todaysPick?.let { component.store.accept(HomeIntent.Favorite(it)) }
-                    },
+                    onPlay = { component.store.accept(HomeIntent.Open(it)) },
+                    onFavorite = { component.store.accept(HomeIntent.Favorite(it)) },
                 )
             }
 
@@ -203,15 +208,85 @@ fun HomeScreen(component: HomeComponent) {
  * entry is a circular button in that row — the full-width search field is gone.
  */
 @Composable
-private fun Hero(
-    item: TmdbItem?,
+private fun HomeHeroCarousel(
+    items: List<TmdbItem>,
     onOpenProfile: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenCalendar: () -> Unit,
+    onPlay: (TmdbItem) -> Unit,
+    onFavorite: (TmdbItem) -> Unit,
+) {
+    val pagerState = rememberPagerState(
+        pageCount = { loopingCarouselPageCount(items.size) },
+    )
+    val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
+    val carouselScope = rememberCoroutineScope()
+
+    LaunchedEffect(items.map { it.id }) {
+        pagerState.scrollToPage(loopingCarouselStartPage(items.size))
+    }
+    LaunchedEffect(items.size, carouselDragging) {
+        if (items.size <= 1 || carouselDragging) return@LaunchedEffect
+        while (true) {
+            delay(6_000)
+            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+        }
+    }
+
+    Box(Modifier.fillMaxWidth().height(390.dp)) {
+        if (items.isEmpty()) {
+            HeroSlide(item = null, onPlay = {}, onFavorite = {})
+        } else {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                beyondViewportPageCount = 1,
+                key = { page -> page },
+            ) { page ->
+                val item = items[loopingCarouselItemIndex(page, items.size)]
+                HeroSlide(
+                    item = item,
+                    onPlay = { onPlay(item) },
+                    onFavorite = { onFavorite(item) },
+                )
+            }
+        }
+
+        HeroHeader(
+            onOpenProfile = onOpenProfile,
+            onOpenSearch = onOpenSearch,
+            onOpenCalendar = onOpenCalendar,
+            modifier = Modifier.align(Alignment.TopStart),
+        )
+
+        if (items.size > 1) {
+            HeroPageIndicator(
+                slideCount = items.size,
+                slideIndex = loopingCarouselItemIndex(pagerState.currentPage, items.size),
+                onSelectSlide = { targetIndex ->
+                    carouselScope.launch {
+                        pagerState.animateScrollToPage(
+                            loopingCarouselTargetPage(
+                                currentPage = pagerState.currentPage,
+                                targetIndex = targetIndex,
+                                itemCount = items.size,
+                            ),
+                        )
+                    }
+                },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeroSlide(
+    item: TmdbItem?,
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
 ) {
-    Box(Modifier.fillMaxWidth().height(390.dp)) {
+    Box(Modifier.fillMaxSize()) {
         if (item != null) {
             // The shelves below already walk image.tmdb.org → media.themoviedb.org; the hero
             // was the one artwork on this page still betting everything on the first host,
@@ -240,13 +315,6 @@ private fun Hero(
             ),
         )
 
-        HeroHeader(
-            onOpenProfile = onOpenProfile,
-            onOpenSearch = onOpenSearch,
-            onOpenCalendar = onOpenCalendar,
-            modifier = Modifier.align(Alignment.TopStart),
-        )
-
         if (item != null) {
             HeroCaption(
                 item = item,
@@ -254,6 +322,32 @@ private fun Hero(
                 onFavorite = onFavorite,
                 onInfo = onPlay,
                 modifier = Modifier.align(Alignment.BottomStart),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeroPageIndicator(
+    slideCount: Int,
+    slideIndex: Int,
+    onSelectSlide: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        repeat(slideCount) { index ->
+            val width by animateFloatAsState(
+                targetValue = if (index == slideIndex) 16f else 6f,
+                animationSpec = tween(250),
+                label = "home-hero-dot",
+            )
+            Box(
+                Modifier
+                    .width(width.dp)
+                    .height(6.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = if (index == slideIndex) 0.92f else 0.42f))
+                    .clickable { onSelectSlide(index) },
             )
         }
     }
