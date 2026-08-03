@@ -190,6 +190,30 @@ jobs:
           } > keystore.properties
           chmod 600 keystore.properties
 
+      - name: Verify configured keystore certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          configured_cert="$(
+            keytool -list -v \
+              -keystore signing/yfuse-release.jks \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              -alias "$ANDROID_KEY_ALIAS" |
+              sed -n 's/^[[:space:]]*SHA256: //p' |
+              head -n 1 |
+              tr -d ':[:space:]' |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          expected_cert="$(
+            tr -d ':[:space:]' <<<"$EXPECTED_ANDROID_CERT_SHA256" |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          if [[ -z "$configured_cert" || "$configured_cert" != "$expected_cert" ]]; then
+            echo "::error::Configured keystore certificate mismatch: actual=${configured_cert:-missing}, expected=$expected_cert"
+            exit 1
+          fi
+
       - name: Build signed release APK
         shell: bash
         run: |
@@ -229,7 +253,7 @@ jobs:
               tr '[:upper:]' '[:lower:]'
           )"
           if [[ -z "$actual_cert" || "$actual_cert" != "$expected_cert" ]]; then
-            echo "::error::APK signing certificate does not match the pinned production certificate"
+            echo "::error::APK signing certificate mismatch: actual=${actual_cert:-missing}, expected=$expected_cert"
             exit 1
           fi
 
