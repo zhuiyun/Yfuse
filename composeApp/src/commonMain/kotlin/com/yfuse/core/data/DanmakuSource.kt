@@ -79,7 +79,7 @@ data class DanmakuEpisode(
 ) {
     val label: String
         get() = listOfNotNull(animeTitle?.takeIf { it.isNotBlank() }, title.takeIf { it.isNotBlank() })
-            .joinToString(" - ")
+            .joinToString("- ")
             .ifBlank { title }
 }
 

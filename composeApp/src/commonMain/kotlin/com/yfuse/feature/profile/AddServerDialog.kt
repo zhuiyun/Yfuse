@@ -62,11 +62,12 @@ fun AddServerDialog(
 ) {
     val palette = LocalPalette.current
     val form = state.form
+    val editing = state.editingServerId != null
 
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
-            title = "添加服务器",
-            subtitle = "连接你自己的 Emby 服务器",
+            title = if (editing) "编辑服务器" else "添加服务器",
+            subtitle = if (editing) "修改服务器信息后重新登录" else "连接你自己的 Emby 服务器",
             onClose = onDismiss,
         )
 
@@ -270,7 +271,7 @@ fun AddServerDialog(
         }
 
         OverlayButton(
-            label = "连接到服务器",
+            label = if (editing) "保存修改" else "连接到服务器",
             onClick = { onIntent(ServersIntent.Submit) },
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,

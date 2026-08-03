@@ -351,5 +351,17 @@ internal actual fun writeDiagnosticLog(
     throwable: Throwable?,
     attributes: Map<String, String>,
 ) {
+    // Mirror to logcat so developers can tail diagnostics via `adb logcat` without having
+    // to export the in-app diagnostic bundle. The on-disk store remains the source of truth
+    // for exportable logs; this is just a convenience for live debugging.
+    val priority = when (level) {
+        DiagnosticLevel.Debug -> Log.DEBUG
+        DiagnosticLevel.Info -> Log.INFO
+        DiagnosticLevel.Warning -> Log.WARN
+        DiagnosticLevel.Error -> Log.ERROR
+        DiagnosticLevel.Critical -> Log.ERROR
+    }
+    val attrString = if (attributes.isEmpty()) "" else " " + attributes.entries.joinToString(", ") { "${it.key}=${it.value}" }
+    Log.println(priority, category, "$event | $message$attrString")
     DiagnosticLogStore.record(level, category, event, message, throwable, attributes)
 }

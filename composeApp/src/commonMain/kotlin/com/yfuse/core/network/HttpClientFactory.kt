@@ -14,6 +14,15 @@ import kotlinx.serialization.json.Json
 expect fun embyHttpEngine(): HttpClientEngine
 
 /**
+ * Default User-Agent string sent to the user's Emby server when the user has not
+ * set a custom one. Mirrors the official "Emby for Android Mobile" client string so
+ * that server-side device lists, playback sessions, and any UA-based feature gating
+ * treat us as the stock mobile client. The user's custom UA, if set, overrides this
+ * everywhere — see [com.yfuse.core.data.UserAgentPreferences].
+ */
+const val DEFAULT_EMBY_USER_AGENT: String = "Emby for Android Mobile"
+
+/**
  * Creates the shared Ktor client for Emby.
  *
  * - `ContentEncoding(gzip)`: Emby returns gzip-compressed responses by default.

@@ -218,7 +218,10 @@ class WatchMediaMatcher(private val onWarning: (String?) -> Unit) {
                 item.episodeNumber == coordinate.episodeNumber &&
                     (item.seasonNumber ?: 0) == coordinate.seasonNumber &&
                     item.knownSeriesKeys().let { known ->
-                        known.isEmpty() || roomShow == null || roomShow in known
+                        known.isEmpty() ||
+                            roomShow == null ||
+                            roomShow in known ||
+                            known.none { it.providerName() == roomShow.providerName() }
                     }
             }
             if (byCoordinate >= 0) {
@@ -249,3 +252,6 @@ private const val LOCAL_KEY_PREFIX = "emby:"
 private fun PlayerMediaItem.knownSeriesKeys(): List<String> =
     matchKeys.mapNotNull { parseEpisodeWatchKey(it)?.seriesKey }
         .filterNot { it.startsWith(LOCAL_KEY_PREFIX) }
+
+/** A different id is only contradictory when both sides use the same metadata provider. */
+private fun String.providerName(): String = substringBefore(':')

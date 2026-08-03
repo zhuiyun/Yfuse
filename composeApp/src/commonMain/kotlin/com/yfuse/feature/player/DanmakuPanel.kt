@@ -205,19 +205,19 @@ internal fun DanmakuTab(
 
     GroupLabel("显示区域")
     state.areaOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected) { actions.onSelectArea(index) }
+        OptionRow(label, selected, onClick = { actions.onSelectArea(index) })
     }
     GroupLabel("字体大小")
     state.fontOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected) { actions.onSelectFont(index) }
+        OptionRow(label, selected, onClick = { actions.onSelectFont(index) })
     }
     GroupLabel("移动速度")
     state.speedOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected) { actions.onSelectSpeed(index) }
+        OptionRow(label, selected, onClick = { actions.onSelectSpeed(index) })
     }
     GroupLabel("透明度")
     state.opacityOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected) { actions.onSelectOpacity(index) }
+        OptionRow(label, selected, onClick = { actions.onSelectOpacity(index) })
     }
 }
 

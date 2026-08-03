@@ -56,10 +56,10 @@ data class AuthedServer(
     val userName: String,
     val accessToken: String,
 ) {
-    fun toSavedServer() = SavedServer(
+    fun toSavedServer(serverName: String? = null) = SavedServer(
         id = SavedServer.idOf(baseUrl, userId),
         baseUrl = baseUrl,
-        serverName = serverName,
+        serverName = serverName ?: this.serverName,
         userId = userId,
         userName = userName,
         accessToken = accessToken,

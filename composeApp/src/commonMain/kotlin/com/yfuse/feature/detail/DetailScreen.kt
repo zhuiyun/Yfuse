@@ -1275,6 +1275,7 @@ private fun externalLinks(providerIds: Map<String, String>): List<Pair<String, S
     }
 }
 
+@Composable
 internal fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,

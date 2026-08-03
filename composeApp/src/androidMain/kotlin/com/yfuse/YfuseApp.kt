@@ -36,7 +36,30 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
     // shared by every poster/backdrop and can be cleared from Profile.
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
-            .components { add(KtorNetworkFetcherFactory()) }
+            .components {
+                add(
+                    KtorNetworkFetcherFactory(
+                        httpClient = {
+                            io.ktor.client.HttpClient {
+                                // Many Emby deployments sit behind an Nginx reverse proxy that
+                                // gates `/Items/{id}/Images/...` by User-Agent; the default
+                                // `Ktor/x.x` UA gets a 403 and images silently fail to load
+                                // even though the URL and api_key are correct. Mirror the
+                                // app's stock Emby UA so the proxy lets the request through.
+                                install(io.ktor.client.plugins.HttpTimeout) {
+                                    requestTimeoutMillis = 15_000
+                                    connectTimeoutMillis = 10_000
+                                    socketTimeoutMillis = 15_000
+                                }
+                                install(io.ktor.client.plugins.UserAgent) {
+                                    agent = com.yfuse.core.network.DEFAULT_EMBY_USER_AGENT
+                                }
+                                expectSuccess = false
+                            }
+                        },
+                    ),
+                )
+            }
             .memoryCache {
                 MemoryCache.Builder()
                     .maxSizePercent(context, percent = 0.20)

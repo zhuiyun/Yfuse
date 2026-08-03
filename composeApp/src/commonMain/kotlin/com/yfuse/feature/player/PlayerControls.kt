@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -109,7 +110,7 @@ internal enum class Tab(val label: String) {
  * Everything shown comes from [state], so ExoPlayer and libmpv get the same controls.
  */
 @Composable
-fun PlayerControls(
+internal fun PlayerControls(
     state: PlaybackState,
     /** The queue, as the strip and the title bar both read it. */
     episodes: List<EpisodeCard>,

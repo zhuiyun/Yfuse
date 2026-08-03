@@ -475,11 +475,21 @@ private fun encodeQrPayload(raw: String): String {
 
 private fun decodeQrPayload(value: String): String {
     if (!value.startsWith("YFUSE1:")) return value
-    val bytes = android.util.Base64.decode(
-        value.removePrefix("YFUSE1:"),
-        android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING,
-    )
-    return GZIPInputStream(ByteArrayInputStream(bytes)).bufferedReader().use { it.readText() }
+    val bytes = try {
+        android.util.Base64.decode(
+            value.removePrefix("YFUSE1:"),
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING,
+        )
+    } catch (e: IllegalArgumentException) {
+        error("不是有效的迁移二维码（编码格式不匹配）")
+    }
+    return try {
+        GZIPInputStream(ByteArrayInputStream(bytes)).bufferedReader().use { it.readText() }
+    } catch (e: java.util.zip.ZipException) {
+        error("不是有效的迁移二维码（数据已损坏）")
+    } catch (e: java.io.IOException) {
+        error("不是有效的迁移二维码（数据已损坏）")
+    }
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {

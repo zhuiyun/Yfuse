@@ -78,6 +78,19 @@ internal fun parseServerAddress(value: String): ParsedServerAddress? {
     )
 }
 
+/**
+ * Splits a saved server's absolute baseUrl (e.g. `https://demo.example.com:8096`) back into
+ * the (https, host, port) triple the add-server form expects. Falls back to the form's
+ * defaults when the URL is missing components, so editing never throws.
+ */
+internal fun parseBaseUrl(baseUrl: String): Triple<Boolean, String, String> {
+    val https = baseUrl.startsWith("https://", ignoreCase = true)
+    val withoutScheme = baseUrl.substringAfter("://", baseUrl).trimEnd('/')
+    val host = withoutScheme.substringBefore(':')
+    val port = withoutScheme.substringAfter(':', "").ifBlank { defaultServerPort(https).toString() }
+    return Triple(https, host, port)
+}
+
 data class ServersState(
     val servers: List<SavedServer> = emptyList(),
     val defaultServerId: String? = null,
@@ -86,11 +99,19 @@ data class ServersState(
     val scanning: Boolean = false,
     val discovered: List<DiscoveredServer> = emptyList(),
     val publicUsers: List<PublicUserDto> = emptyList(),
+    /** Non-null when the dialog is open in "edit existing server" mode; the saved server's
+     *  id is preserved so [ServersStore] can replace it on submit (the user may change the
+     *  host or account, which would otherwise create a new entry). */
+    val editingServerId: String? = null,
 )
 
 sealed interface ServersIntent {
     data object OpenAddDialog : ServersIntent
     data object DismissDialog : ServersIntent
+    /** Open the dialog in edit mode, prefilled from the saved server. The user must re-enter
+     *  the password — tokens aren't stored in plaintext so we can't keep them, and changing
+     *  the host or account requires re-authenticating anyway. */
+    data class EditServer(val server: SavedServer) : ServersIntent
     data class ProtocolChanged(val https: Boolean) : ServersIntent
     data class HostChanged(val value: String) : ServersIntent
     data class PortChanged(val value: String) : ServersIntent
@@ -117,6 +138,7 @@ private sealed interface Msg {
     data class Data(val servers: List<SavedServer>, val defaultId: String?) : Msg
     data object DialogOpen : Msg
     data object DialogClose : Msg
+    data class EditOpen(val server: SavedServer) : Msg
     data class Protocol(val https: Boolean) : Msg
     data class Host(val v: String) : Msg
     data class Port(val v: String) : Msg
@@ -160,6 +182,7 @@ class ServersStoreFactory(
             when (intent) {
                 ServersIntent.OpenAddDialog -> dispatch(Msg.DialogOpen)
                 ServersIntent.DismissDialog -> dispatch(Msg.DialogClose)
+                is ServersIntent.EditServer -> dispatch(Msg.EditOpen(intent.server))
                 is ServersIntent.ProtocolChanged -> dispatch(Msg.Protocol(intent.https))
                 is ServersIntent.HostChanged -> dispatch(Msg.Host(intent.value))
                 is ServersIntent.PortChanged -> dispatch(Msg.Port(intent.value))
@@ -228,12 +251,27 @@ class ServersStoreFactory(
         private fun submit() {
             val form = state().form
             if (!form.canSubmit) return
+            val editingId = state().editingServerId
             dispatch(Msg.Submitting)
             scope.launch {
                 repo.authenticate(form.url, form.username.trim(), form.password)
                     .onSuccess {
-                        val savedServer = it.toSavedServer()
+                        val authResult = it
+                        // Preserve the user's chosen server name when editing — otherwise
+                        // a fresh login would clobber it with whatever the server reports
+                        // as the user's display name. New servers fall back to that name.
+                        val savedServer = if (editingId != null) {
+                            val existing = state().servers.firstOrNull { it.id == editingId }
+                            authResult.toSavedServer(serverName = existing?.serverName)
+                        } else {
+                            authResult.toSavedServer()
+                        }
                         registry.addOrUpdate(savedServer)
+                        // If the user edited the host or account, the new id won't match
+                        // editingId — remove the stale entry so we don't leave a duplicate.
+                        if (editingId != null && savedServer.id != editingId) {
+                            registry.remove(editingId)
+                        }
                         AppLog.info(
                             category = "server.auth",
                             event = "login_succeeded",
@@ -262,8 +300,27 @@ class ServersStoreFactory(
     private object ReducerImpl : Reducer<ServersState, Msg> {
         override fun ServersState.reduce(msg: Msg): ServersState = when (msg) {
             is Msg.Data -> copy(servers = msg.servers, defaultServerId = msg.defaultId)
-            Msg.DialogOpen -> copy(dialogVisible = true, form = LoginForm())
-            Msg.DialogClose -> copy(dialogVisible = false, form = LoginForm())
+            Msg.DialogOpen -> copy(dialogVisible = true, form = LoginForm(), editingServerId = null)
+            Msg.DialogClose -> copy(dialogVisible = false, form = LoginForm(), editingServerId = null)
+            is Msg.EditOpen -> {
+                // Reuse the add dialog in-place by prefilling the form from the saved
+                // server. Password is deliberately left blank — the stored access token
+                // can't be reversed to a password, and any host/account change requires
+                // re-authenticating anyway. editingServerId tells submit() to treat the
+                // result as a replacement rather than a brand-new server.
+                val (https, host, port) = parseBaseUrl(msg.server.baseUrl)
+                copy(
+                    dialogVisible = true,
+                    editingServerId = msg.server.id,
+                    form = LoginForm(
+                        https = https,
+                        host = host,
+                        port = port,
+                        username = msg.server.userName,
+                        password = "",
+                    ),
+                )
+            }
             is Msg.Protocol -> copy(
                 form = form.copy(
                     https = msg.https,

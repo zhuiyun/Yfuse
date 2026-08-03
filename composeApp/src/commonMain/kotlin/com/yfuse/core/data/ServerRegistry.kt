@@ -124,7 +124,11 @@ class ServerRegistry(private val settings: Settings) {
      */
     fun importBackup(payload: String): Result<Int> =
         runCatching {
-            val backup = json.decodeFromString(PortableServerBackup.serializer(), payload.trim())
+            val backup = try {
+                json.decodeFromString(PortableServerBackup.serializer(), payload.trim())
+            } catch (e: Exception) {
+                error("二维码内容无法识别，请确认扫描的是 Yfuse 服务器迁移码")
+            }
             require(backup.version == 1) { "不支持的备份版本" }
             require(backup.servers.isNotEmpty()) { "备份中没有服务器" }
             val imported = backup.servers.map {

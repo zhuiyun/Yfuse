@@ -106,7 +106,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val danmakuBlocked by component.danmakuPreferences.blockedWords.collectAsState()
     val skipTimesBySeries by component.skipSegmentPreferences.bySeries.collectAsState()
     val skipMode by component.skipSegmentPreferences.skipMode.collectAsState()
-    val customUserAgent by component.userAgentPreferences.userAgent.collectAsState()
+    val customUserAgent by component.userAgentPreferences.customValue.collectAsState()
     val offlineItems by component.offlineMedia.items.collectAsState()
     val recoverySnapshot by component.playbackRecovery.snapshot.collectAsState()
     val syncState by component.syncManager.state.collectAsState()
@@ -187,6 +187,11 @@ fun ProfileScreen(component: ProfileComponent) {
                                             )
                                         },
                                         onLongClick = { confirmRemove = server },
+                                        onEdit = {
+                                            component.serversStore.accept(
+                                                ServersIntent.EditServer(server),
+                                            )
+                                        },
                                     )
                                 }
                             }
@@ -687,6 +692,7 @@ private fun ServerRow(
     isCurrent: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val shape = GlassShapes.chip
@@ -749,6 +755,15 @@ private fun ServerRow(
             Icon(AppIcons.Check, null, tint = Brand.Primary, modifier = Modifier.size(13.dp))
         } else {
             Text("切换", style = mr(11f, 400), color = Brand.Offline)
+        }
+        Box(
+            Modifier
+                .size(22.dp)
+                .clip(GlassShapes.chip)
+                .clickable(onClick = onEdit),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(AppIcons.Edit, "编辑服务器", tint = palette.sub, modifier = Modifier.size(13.dp))
         }
     }
 }

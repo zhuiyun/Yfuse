@@ -26,7 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.designsystem.AppIcons
@@ -430,7 +432,9 @@ internal fun SourceSection(
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         ) {
             Row(
-                Modifier.pressable(onClick = onSeeAll).padding(start = 10.dp, vertical = 2.dp),
+                Modifier
+                    .pressable(onClick = onSeeAll)
+                    .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

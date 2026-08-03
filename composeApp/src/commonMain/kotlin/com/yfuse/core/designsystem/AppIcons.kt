@@ -74,6 +74,16 @@ object AppIcons {
         moveTo(6f, 4.5f); verticalLineToRelative(15f); lineToRelative(14f, -7.5f); lineToRelative(-14f, -7.5f); close()
     }
 
+    /** Pencil — used by the inline "edit server" affordance in the server list. */
+    val Edit = strokeVector("edit", width = 1.8f, cap = StrokeCap.Round, join = StrokeJoin.Round) {
+        // M14.5 5.5 18.5 9.5 8 20H4v-4L14.5 5.5z
+        moveTo(14.5f, 5.5f); lineTo(18.5f, 9.5f); lineTo(8f, 20f); lineTo(4f, 20f)
+        verticalLineTo(16f); lineTo(14.5f, 5.5f); close()
+    }.andPath(width = 1.8f, cap = StrokeCap.Round) {
+        // M13 7 17 11  (separation line between body and tip)
+        moveTo(13f, 7f); lineTo(17f, 11f)
+    }.build()
+
     val Pause = fillVector("pause") {
         roundRect(5f, 4f, 5f, 16f, 1.5f)
         roundRect(14f, 4f, 5f, 16f, 1.5f)

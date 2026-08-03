@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.DanmakuSource
@@ -482,7 +483,11 @@ internal fun SkipSegmentDialog(
             // from deleting a show's boundaries — and the only one that used to be
             // impossible without throwing the work away.
             SkipMode.entries.forEach { mode ->
-                OverlayOptionRow(mode.label, mode == skipMode) { onSelectSkipMode(mode) }
+                OverlayOptionRow(
+                    mode.label,
+                    mode == skipMode,
+                    onClick = { onSelectSkipMode(mode) },
+                )
             }
             if (bySeries.isEmpty()) {
                 Spacer(Modifier.height(10.dp))

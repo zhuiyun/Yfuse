@@ -174,17 +174,19 @@ internal fun SettingsPanel(
                     Tab.Subtitle -> {
                         if (state.subtitleTracks.isNotEmpty()) {
                             GroupLabel("字幕")
-                            OptionRow("关闭", state.subtitleTracks.none { it.selected }) {
-                                onSelectSubtitle(EngineTrack.OFF)
-                            }
+                            OptionRow(
+                                "关闭",
+                                state.subtitleTracks.none { it.selected },
+                                onClick = { onSelectSubtitle(EngineTrack.OFF) },
+                            )
                             state.subtitleTracks.forEach { track ->
-                                OptionRow(track.label, track.selected) { onSelectSubtitle(track.id) }
+                                OptionRow(track.label, track.selected, onClick = { onSelectSubtitle(track.id) })
                             }
                         }
                         if (state.audioTracks.isNotEmpty()) {
                             GroupLabel("音轨")
                             state.audioTracks.forEach { track ->
-                                OptionRow(track.label, track.selected) { onSelectAudio(track.id) }
+                                OptionRow(track.label, track.selected, onClick = { onSelectAudio(track.id) })
                             }
                         }
                     }
@@ -209,7 +211,7 @@ internal fun SettingsPanel(
                         if (versions.size > 1) {
                             GroupLabel("版本")
                             versions.forEach { (id, label) ->
-                                OptionRow(label, id == selectedVersionId) { onSelectVersion(id) }
+                                OptionRow(label, id == selectedVersionId, onClick = { onSelectVersion(id) })
                             }
                         }
 
@@ -291,22 +293,24 @@ internal fun SettingsPanel(
                             // Also offered for a half-entered intro, which is exactly when
                             // starting over is most likely to be what's wanted.
                             if (skip.anySet) {
-                                OptionRow("清除《${skip.seriesName}》的设置", false) {
-                                    skipActions.onSetTimes(0L, 0L, 0L)
-                                }
+                                OptionRow(
+                                    "清除《${skip.seriesName}》的设置",
+                                    false,
+                                    onClick = { skipActions.onSetTimes(0L, 0L, 0L) },
+                                )
                             }
                         }
 
                         GroupLabel("播放速度")
                         speeds.forEach { speed ->
-                            OptionRow(speedLabel(speed), speed == state.speed) { onSpeed(speed) }
+                            OptionRow(speedLabel(speed), speed == state.speed, onClick = { onSpeed(speed) })
                         }
 
                         if (engineOptions.isNotEmpty() || transcodeLabel != null) {
                             GroupLabel("播放器内核")
                         }
                         engineOptions.forEachIndexed { index, (label, selected) ->
-                            OptionRow(label, selected) { onSelectEngine(index) }
+                            OptionRow(label, selected, onClick = { onSelectEngine(index) })
                         }
                         if (transcodeLabel != null) {
                             OptionRow(transcodeLabel, transcodeActive, onClick = onTranscode)
@@ -369,7 +373,7 @@ internal fun SettingsPanel(
                             )
                         }
                         castDevices.forEach { (id, name) ->
-                            OptionRow(name, id == castingDeviceId) { onCastTo(id) }
+                            OptionRow(name, id == castingDeviceId, onClick = { onCastTo(id) })
                         }
                         if (castingDeviceId != null) {
                             OptionRow("停止投屏", false, onClick = onStopCast)

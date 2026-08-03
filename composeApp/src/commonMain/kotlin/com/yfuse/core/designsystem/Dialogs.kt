@@ -39,6 +39,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * One overlay material for the whole app, in one position.
@@ -109,6 +111,12 @@ private fun ReportOverlayVisible() {
 /**
  * Centred modal. Use for decisions and forms — anything the user must answer before
  * carrying on. Tapping the scrim dismisses; taps inside the panel never leak through.
+ *
+ * Lifted into a platform [Dialog] window so its `Center` alignment is the real screen
+ * centre even when the call site is nested inside a scrolling container (e.g. the
+ * migration tools row in 「我的」 lives inside a `LazyColumn` with status-bar and
+ * tab-bar insets, which would otherwise centre the dialog in the truncated viewport
+ * rather than on the screen).
  */
 @Composable
 fun GlassDialog(
@@ -116,38 +124,46 @@ fun GlassDialog(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    ReportOverlayVisible()
-    val palette = LocalPalette.current
-    val solidSurface = if (palette.isDark) Color(0xFF111A29) else Color.White
-    val progress = rememberOverlayEntrance(Motion.TAB)
-    Box(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer { alpha = progress() }
-            .background(ScrimColor.copy(alpha = 0.46f))
-            .pointerInput(onDismiss) { detectTapGestures { onDismiss() } },
-        contentAlignment = Alignment.Center,
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
     ) {
-        Column(
+        ReportOverlayVisible()
+        val palette = LocalPalette.current
+        val solidSurface = if (palette.isDark) Color(0xFF111A29) else Color.White
+        val progress = rememberOverlayEntrance(Motion.TAB)
+        Box(
             Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 26.dp)
-                .imePadding()
-                .graphicsLayer {
-                    val scale = 0.94f + 0.06f * progress()
-                    scaleX = scale
-                    scaleY = scale
-                }
-                .shadow(Shadows.sheet, OverlayShape)
-                .clip(OverlayShape)
-                .background(solidSurface)
-                .border(1.dp, palette.border, OverlayShape)
-                // Swallow taps so the scrim's dismiss gesture stops at the panel edge.
-                .pointerInput(Unit) { detectTapGestures { } }
-                .then(modifier)
-                .padding(18.dp),
-            content = content,
-        )
+                .fillMaxSize()
+                .graphicsLayer { alpha = progress() }
+                .background(ScrimColor.copy(alpha = 0.46f))
+                .pointerInput(onDismiss) { detectTapGestures { onDismiss() } },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 26.dp)
+                    .imePadding()
+                    .graphicsLayer {
+                        val scale = 0.94f + 0.06f * progress()
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .shadow(Shadows.sheet, OverlayShape)
+                    .clip(OverlayShape)
+                    .background(solidSurface)
+                    .border(1.dp, palette.border, OverlayShape)
+                    // Swallow taps so the scrim's dismiss gesture stops at the panel edge.
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    .then(modifier)
+                    .padding(18.dp),
+                content = content,
+            )
+        }
     }
 }
 

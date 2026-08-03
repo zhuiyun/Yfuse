@@ -15,7 +15,9 @@ import android.widget.TextView
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.MultiFormatReader
+import com.google.zxing.NotFoundException
 import com.google.zxing.PlanarYUVLuminanceSource
+import com.google.zxing.common.GlobalHistogramBinarizer
 import com.google.zxing.common.HybridBinarizer
 import com.yfuse.core.logging.AppLog
 import java.util.concurrent.Executors
@@ -71,6 +73,8 @@ class QrScannerActivity : Activity(), SurfaceHolder.Callback, Camera.PreviewCall
                 parameters = parameters.apply {
                     focusMode = supportedFocusModes
                         ?.firstOrNull { it == Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE }
+                        ?: supportedFocusModes
+                            ?.firstOrNull { it == Camera.Parameters.FOCUS_MODE_AUTO }
                         ?: focusMode
                 }
                 setPreviewDisplay(holder)
@@ -79,6 +83,12 @@ class QrScannerActivity : Activity(), SurfaceHolder.Callback, Camera.PreviewCall
                 parameters.previewSize.let {
                     width = it.width
                     height = it.height
+                }
+                // Devices that only have FOCUS_MODE_AUTO (or no explicit focus mode) don't
+                // refocus on their own — kick off a continuous manual auto-focus loop so the
+                // image stays sharp while the user lines up the QR code.
+                if (parameters.focusMode != Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE) {
+                    startAutoFocusLoop()
                 }
             }
         }.onFailure {
@@ -93,27 +103,62 @@ class QrScannerActivity : Activity(), SurfaceHolder.Callback, Camera.PreviewCall
         }
     }
 
+    private fun startAutoFocusLoop() {
+        val camera = camera ?: return
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val cycle = object : Runnable {
+            override fun run() {
+                this@QrScannerActivity.camera?.let { cam ->
+                    try {
+                        cam.autoFocus { _, _ ->
+                            handler.postDelayed(this, 1200)
+                        }
+                    } catch (_: Throwable) {
+                        handler.postDelayed(this, 1200)
+                    }
+                } ?: return
+            }
+        }
+        handler.postDelayed(cycle, 800)
+    }
+
     override fun onPreviewFrame(data: ByteArray?, sourceCamera: Camera?) {
         if (data == null || width == 0 || height == 0 || !decoding.compareAndSet(false, true)) return
         executor.execute {
-            try {
-                val source = PlanarYUVLuminanceSource(
-                    data,
-                    width,
-                    height,
-                    0,
-                    0,
-                    width,
-                    height,
-                    false,
-                )
-                val result = reader.decodeWithState(BinaryBitmap(HybridBinarizer(source)))
+            // Original YUV data orientation depends on sensor + display rotation; the
+            // camera buffer is landscape-native, so rotating it 90° is the right primary
+            // orientation for a portrait scanner. To maximise the decode success rate we
+            // also try the three other rotations and fall back to a second binarizer —
+            // HybridBinarizer is fast and good for clean frames, GlobalHistogramBinarizer
+            // rescues under-exposed / high-contrast scenes (dark bar, dim room).
+            val rotations = listOf(true, false).map { rotate ->
+                PlanarYUVLuminanceSource(data, width, height, 0, 0, width, height, rotate)
+            }
+            val binarizers = listOf(
+                { s: PlanarYUVLuminanceSource -> HybridBinarizer(s) },
+                { s: PlanarYUVLuminanceSource -> GlobalHistogramBinarizer(s) },
+            )
+            var decoded: com.google.zxing.Result? = null
+            for (source in rotations) {
+                for (binarizer in binarizers) {
+                    try {
+                        decoded = reader.decode(BinaryBitmap(binarizer(source)))
+                        break
+                    } catch (_: NotFoundException) {
+                        reader.reset()
+                    } catch (_: Throwable) {
+                        reader.reset()
+                    }
+                }
+                if (decoded != null) break
+            }
+            val result = decoded
+            if (result != null) {
                 runOnUiThread {
                     setResult(RESULT_OK, Intent().putExtra(EXTRA_RESULT, result.text))
                     finish()
                 }
-            } catch (_: Throwable) {
-                reader.reset()
+            } else {
                 decoding.set(false)
             }
         }
