@@ -126,6 +126,17 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         modifier = Modifier.align(Alignment.Center),
                     )
 
+                    state.items.isEmpty() -> Text(
+                        text = when (component.title) {
+                            "我的收藏" -> "还没有收藏的影视"
+                            "稍后观看" -> "还没有稍后观看的内容"
+                            else -> "暂无内容"
+                        },
+                        style = mr(13f, 500),
+                        color = palette.sub,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+
                     else -> LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         contentPadding = PaddingValues(

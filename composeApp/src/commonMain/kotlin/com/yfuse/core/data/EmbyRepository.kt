@@ -73,6 +73,18 @@ data class AuthedServer(
 /** One library item found by provider id: what to open, and whether it was watched. */
 data class ProviderHit(val itemId: String, val played: Boolean)
 
+/** Virtual library ids routed to user-specific Emby collections. */
+internal const val FAVORITES_COLLECTION_ID = "__yfuse_favorites__"
+internal const val WATCH_LATER_COLLECTION_ID = "__yfuse_watch_later__"
+
+private const val PERSONAL_COLLECTION_PREVIEW_LIMIT = 16
+private const val PERSONAL_COLLECTION_GRID_LIMIT = 120
+
+private data class PersonalCollection(
+    val items: List<MediaItem>,
+    val totalCount: Int,
+)
+
 class EmbyRepository(private val client: HttpClient) {
 
     suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> = call("public_users") {
@@ -136,17 +148,7 @@ class EmbyRepository(private val client: HttpClient) {
      */
     suspend fun addToWatchLater(server: SavedServer, itemId: String): Result<Unit> =
         call("add_to_watch_later") {
-        val playlists: ItemsResponseDto =
-            client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("Recursive", true)
-                parameter("IncludeItemTypes", "Playlist")
-                parameter("SearchTerm", "稍后观看")
-                parameter("Limit", 20)
-            }.body()
-        val playlistId = playlists.Items
-            .firstOrNull { it.Name.equals("稍后观看", ignoreCase = true) }
-            ?.Id
+        val playlistId = findWatchLaterPlaylistId(server)
         if (playlistId != null) {
             client.post("${server.baseUrl}/Playlists/$playlistId/Items") {
                 header("X-Emby-Token", server.accessToken)
@@ -232,6 +234,50 @@ class EmbyRepository(private val client: HttpClient) {
                     }
                     .getOrDefault(emptyList())
             }
+            val favoritesDeferred = async {
+                runCatching {
+                    val collection = fetchFavorites(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
+                    HomeRow(
+                        libraryId = FAVORITES_COLLECTION_ID,
+                        title = "我的收藏",
+                        items = collection.items,
+                        totalCount = collection.totalCount,
+                    )
+                }.onFailure {
+                    AppLog.warning(
+                        category = "emby",
+                        event = "home_section_degraded",
+                        message = "Favorites section failed and was left empty",
+                        throwable = it,
+                        attributes = mapOf(
+                            "serverId" to server.id,
+                            "section" to "favorites",
+                        ),
+                    )
+                }.getOrDefault(HomeRow(FAVORITES_COLLECTION_ID, "我的收藏", emptyList()))
+            }
+            val watchLaterDeferred = async {
+                runCatching {
+                    val collection = fetchWatchLater(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
+                    HomeRow(
+                        libraryId = WATCH_LATER_COLLECTION_ID,
+                        title = "稍后观看",
+                        items = collection.items,
+                        totalCount = collection.totalCount,
+                    )
+                }.onFailure {
+                    AppLog.warning(
+                        category = "emby",
+                        event = "home_section_degraded",
+                        message = "Watch-later section failed and was left empty",
+                        throwable = it,
+                        attributes = mapOf(
+                            "serverId" to server.id,
+                            "section" to "watch_later",
+                        ),
+                    )
+                }.getOrDefault(HomeRow(WATCH_LATER_COLLECTION_ID, "稍后观看", emptyList()))
+            }
             val rowDeferred = views.map { view ->
                 async {
                     val items = runCatching { fetchLatest(server, view.id) }
@@ -268,7 +314,8 @@ class EmbyRepository(private val client: HttpClient) {
                 }
             }
             val resume = resumeDeferred.await()
-            val rows = rowDeferred.awaitAll().filter { it.items.isNotEmpty() }
+            val rows = listOf(favoritesDeferred.await(), watchLaterDeferred.await()) +
+                rowDeferred.awaitAll().filter { it.items.isNotEmpty() }
             val featured = (resume + rows.flatMap { it.items })
                 .filter { it.backdropTag != null }
                 .distinctBy { it.id }
@@ -280,6 +327,12 @@ class EmbyRepository(private val client: HttpClient) {
     /** All movies/series in a library, for the "see all" grid. */
     suspend fun libraryItems(server: SavedServer, libraryId: String): Result<List<MediaItem>> =
         call("library_items") {
+        when (libraryId) {
+            FAVORITES_COLLECTION_ID ->
+                return@call fetchFavorites(server, PERSONAL_COLLECTION_GRID_LIMIT).items
+            WATCH_LATER_COLLECTION_ID ->
+                return@call fetchWatchLater(server, PERSONAL_COLLECTION_GRID_LIMIT).items
+        }
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
             header("X-Emby-Token", server.accessToken)
             parameter("ParentId", libraryId)
@@ -711,6 +764,67 @@ class EmbyRepository(private val client: HttpClient) {
         }.body()
         dto.Items.map { it.toEpisode() }
     }
+
+    private suspend fun findWatchLaterPlaylistId(server: SavedServer): String? {
+        val playlists: ItemsResponseDto =
+            client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("Recursive", true)
+                parameter("IncludeItemTypes", "Playlist")
+                parameter("SearchTerm", "稍后观看")
+                parameter("Limit", 20)
+            }.body()
+        return playlists.Items
+            .firstOrNull { it.Name.equals("稍后观看", ignoreCase = true) }
+            ?.Id
+    }
+
+    private suspend fun fetchFavorites(
+        server: SavedServer,
+        limit: Int,
+    ): PersonalCollection {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("Recursive", true)
+            parameter("Filters", "IsFavorite")
+            parameter("IncludeItemTypes", "Movie,Series")
+            parameter("SortBy", "DateCreated")
+            parameter("SortOrder", "Descending")
+            personalCollectionParameters(limit)
+        }.body()
+        return dto.toPersonalCollection()
+    }
+
+    private suspend fun fetchWatchLater(
+        server: SavedServer,
+        limit: Int,
+    ): PersonalCollection {
+        val playlistId = findWatchLaterPlaylistId(server)
+            ?: return PersonalCollection(emptyList(), 0)
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Playlists/$playlistId/Items") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("UserId", server.userId)
+            personalCollectionParameters(limit)
+        }.body()
+        return dto.toPersonalCollection()
+    }
+
+    private fun io.ktor.client.request.HttpRequestBuilder.personalCollectionParameters(limit: Int) {
+        parameter(
+            "Fields",
+            "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+                "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+        )
+        parameter("EnableImageTypes", "Primary,Backdrop")
+        parameter("ImageTypeLimit", 2)
+        parameter("Limit", limit)
+    }
+
+    private fun ItemsResponseDto.toPersonalCollection(): PersonalCollection = PersonalCollection(
+        items = Items.map { it.toMediaItem() },
+        // Some Emby-compatible servers omit TotalRecordCount on playlist routes.
+        totalCount = TotalRecordCount.coerceAtLeast(Items.size),
+    )
 
     private suspend fun fetchViews(server: SavedServer): List<MediaLibrary> {
         val dto: ViewsDto = client.get("${server.baseUrl}/Users/${server.userId}/Views") {

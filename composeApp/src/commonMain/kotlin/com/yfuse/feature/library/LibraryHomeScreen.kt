@@ -55,6 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
+import com.yfuse.core.data.FAVORITES_COLLECTION_ID
+import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
@@ -296,7 +298,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 )
                             }
 
-                            state.content.rows.forEach { row ->
+                            state.content.rows.filter { it.items.isNotEmpty() }.forEach { row ->
                                 CategorySection(
                                     baseUrl = baseUrl,
                                     accessToken = accessToken,
@@ -695,12 +697,18 @@ private fun CategoryCards(
     rows: List<HomeRow>,
     onOpen: (HomeRow) -> Unit,
 ) {
+    val palette = LocalPalette.current
     LazyRow(
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         items(rows, key = { it.libraryId }) { row ->
             val cover = row.items.firstOrNull()
+            val personalIcon = when (row.libraryId) {
+                FAVORITES_COLLECTION_ID -> AppIcons.Heart
+                WATCH_LATER_COLLECTION_ID -> AppIcons.Bookmark
+                else -> null
+            }
             val coverUrl = cover?.let {
                 EmbyImages.backdrop(baseUrl, it, maxWidth = 480, accessToken = accessToken)
                     ?: EmbyImages.poster(baseUrl, it, accessToken = accessToken)
@@ -710,13 +718,26 @@ private fun CategoryCards(
                     .width(148.dp)
                     .height(88.dp)
                     .clip(GlassShapes.poster)
+                    .background(
+                        if (coverUrl == null && personalIcon != null) Color(0xFF4C5F83)
+                        else palette.card2,
+                    )
                     .clickable { onOpen(row) },
             ) {
-                FallbackImage(
-                    urls = listOf(coverUrl),
-                    contentDescription = row.title,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                if (coverUrl != null) {
+                    FallbackImage(
+                        urls = listOf(coverUrl),
+                        contentDescription = row.title,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else if (personalIcon != null) {
+                    Icon(
+                        imageVector = personalIcon,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.48f),
+                        modifier = Modifier.align(Alignment.Center).size(27.dp),
+                    )
+                }
                 Box(
                     Modifier.fillMaxSize().background(
                         scrim(

@@ -34,12 +34,15 @@ import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyChip
+import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.ServerSource
@@ -355,10 +358,18 @@ private fun TrackChipRow(
                 color = if (active) accent else palette.body,
                 maxLines = 1,
                 modifier = Modifier
-                    .glass(
+                    // Match 外部链接: the same lifted liquid-glass body in both themes.
+                    // Selection changes only the text and one solid-colour edge.
+                    .shadow(GlassLift.control, GlassShapes.chip)
+                    .liquidGlass(
                         shape = GlassShapes.chip,
-                        fill = if (active) accent.copy(alpha = 0.10f) else palette.card2,
-                        border = if (active) accent.copy(alpha = 0.42f) else palette.border,
+                        fill = if (palette.isDark) {
+                            Color.White.copy(alpha = 0.075f)
+                        } else {
+                            Color.White.copy(alpha = 0.72f)
+                        },
+                        border = if (active) accent.copy(alpha = 0.32f) else palette.border,
+                        sheen = 0.7f,
                     )
                     .pressable(onClick = { onSelect(option.value) })
                     .padding(horizontal = 12.dp, vertical = 7.dp),

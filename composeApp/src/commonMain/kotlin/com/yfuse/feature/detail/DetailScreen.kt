@@ -44,7 +44,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
@@ -104,8 +103,11 @@ private val TopBarHeight = 52.dp
 /** The sheet's own rhythm — above the title block, and between it and everything after. */
 private val SheetGap = 18.dp
 
-/** Keep the hero artwork visible for 20dp below the 52dp primary play button. */
-private val PlayButtonHeroOverlap = SheetGap + 52.dp + 20.dp
+/** The smaller primary key leaves room for 收藏 and 稍后观看 on the same row. */
+private val DetailPlayButtonHeight = 48.dp
+
+/** Keep the hero artwork visible for 20dp below the primary play button. */
+private val PlayButtonHeroOverlap = SheetGap + DetailPlayButtonHeight + 20.dp
 
 /**
  * A one-line title with year, rating and genre under it. Only the seed for the measured
@@ -255,7 +257,6 @@ fun DetailScreen(component: DetailComponent) {
                             detailLine = playDetailLine,
                             resolving = state.resolvingPlay,
                             favorite = detail.isFavorite,
-                            played = detail.played,
                             canPlayFromStart = state.playPositionTicks > 0L,
                             onPlay = { component.store.accept(DetailIntent.Play) },
                             onPlayFromStart = {
@@ -264,8 +265,8 @@ fun DetailScreen(component: DetailComponent) {
                             onFavorite = {
                                 component.store.accept(DetailIntent.ToggleFavorite)
                             },
-                            onTogglePlayed = {
-                                component.store.accept(DetailIntent.TogglePlayed)
+                            onWatchLater = {
+                                component.store.accept(DetailIntent.AddToWatchLater)
                             },
                         )
                         state.actionMessage?.let { message ->
@@ -485,11 +486,11 @@ fun DetailScreen(component: DetailComponent) {
                     },
                 )
                 OverlayOptionRow(
-                    label = "稍后观看",
-                    selected = false,
+                    label = if (detail.played) "标记未看" else "标记已看",
+                    selected = detail.played,
                     onClick = {
                         moreSheetOpen = false
-                        component.store.accept(DetailIntent.AddToWatchLater)
+                        component.store.accept(DetailIntent.TogglePlayed)
                     },
                 )
                 // 一起看 belongs where the decision is made — at the point of choosing what
@@ -817,7 +818,7 @@ private fun DetailTopBar(
             }
             if (showMore) {
                 // Unlike the title and the play shortcut this does not fade in with scroll:
-                // it is the only route to 下载 / 稍后观看 / 一起看, so it has to be reachable
+                // it is the only route to 下载 / 标记已看 / 一起看, so it has to be reachable
                 // from the top of the page as well as the bottom.
                 Icon(
                     AppIcons.More,
@@ -1004,107 +1005,101 @@ private fun DetailActionDock(
     detailLine: String?,
     resolving: Boolean,
     favorite: Boolean,
-    played: Boolean,
     /** Shown only when there is progress to discard. */
     canPlayFromStart: Boolean,
     onPlay: () -> Unit,
     onPlayFromStart: () -> Unit,
     onFavorite: () -> Unit,
-    onTogglePlayed: () -> Unit,
+    onWatchLater: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val ink = remember(accent) {
-        if (accent.luminance() > 0.55f) Color(0xFF141A26) else Color.White
-    }
-    Column(
+    Row(
         Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
     ) {
         // A white key over the artwork's own colour, as the reference has it. The accent is
-        // not spent here: it is the page's one highlight colour and is worth more on 收藏 /
-        // 已观看 and the selected version, where it distinguishes a *state*, than on the
+        // not spent here: it is the page's one highlight colour and is worth more on 收藏
+        // and the selected version, where it distinguishes a *state*, than on the
         // button whose position and size already make it unmistakable.
         //
         // White glass on the light theme's white page has no edge of its own, so the key
         // leans on the two cues [liquidGlass] adds — the cool shade along its lower half and
         // the luminous rim — plus the lift beneath it.
         val playInk = Color(0xFF141A26)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .pressable(enabled = !resolving, onClick = onPlay)
-                .shadow(GlassLift.key, CircleShape)
-                .liquidGlass(
-                    shape = CircleShape,
-                    fill = Color.White.copy(alpha = 0.90f),
-                    border = Color(0xFFC9D6E8),
-                ),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (resolving) {
-                CircularProgressIndicator(
-                    Modifier.size(15.dp),
-                    color = playInk,
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                Icon(AppIcons.Play, null, tint = playInk, modifier = Modifier.size(15.dp))
-            }
-            Spacer(Modifier.width(9.dp))
-            if (detailLine == null) {
-                Text(label, style = sc(14.5f, 750), color = playInk)
-            } else {
-                Column(horizontalAlignment = Alignment.Start) {
-                    Text(label, style = sc(13.5f, 750), color = playInk, maxLines = 1)
-                    Text(
-                        detailLine,
-                        style = mr(10f, 500),
-                        color = playInk.copy(alpha = 0.62f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(DetailPlayButtonHeight)
+                    .pressable(enabled = !resolving, onClick = onPlay)
+                    .shadow(GlassLift.key, CircleShape)
+                    .liquidGlass(
+                        shape = CircleShape,
+                        fill = Color.White.copy(alpha = 0.90f),
+                        border = Color(0xFFC9D6E8),
+                    ),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (resolving) {
+                    CircularProgressIndicator(
+                        Modifier.size(15.dp),
+                        color = playInk,
+                        strokeWidth = 2.dp,
                     )
+                } else {
+                    Icon(AppIcons.Play, null, tint = playInk, modifier = Modifier.size(15.dp))
+                }
+                Spacer(Modifier.width(8.dp))
+                if (detailLine == null) {
+                    Text(label, style = sc(14f, 750), color = playInk)
+                } else {
+                    Column(horizontalAlignment = Alignment.Start) {
+                        Text(label, style = sc(13f, 750), color = playInk, maxLines = 1)
+                        Text(
+                            detailLine,
+                            style = mr(9.5f, 500),
+                            color = playInk.copy(alpha = 0.62f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
+            if (canPlayFromStart) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "从头播放",
+                    style = sc(11.5f, 600),
+                    color = palette.sub,
+                    modifier = Modifier
+                        .pressable(onClick = onPlayFromStart)
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+            }
         }
-        if (canPlayFromStart) {
-            Spacer(Modifier.height(10.dp))
-            // A quiet second option, not a second key. Restarting is the rarer of the two
-            // and giving it equal weight would make the page ask a question every time.
-            Text(
-                "从头播放",
-                style = sc(12f, 600),
-                color = palette.sub,
-                modifier = Modifier
-                    .pressable(onClick = onPlayFromStart)
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-            )
-        }
-        Spacer(Modifier.height(16.dp))
-        // Only the two states worth reading at a glance stay on the page. 下载, 稍后观看 and
-        // 一起看 are each a one-off decision rather than a status, so they moved behind the
-        // top bar's ⋯ — six equal-weight buttons under the title made none of them primary.
-        Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            RoundAction(
-                icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
-                label = "收藏",
-                active = favorite,
-                accent = accent,
-                onClick = onFavorite,
-            )
-            RoundAction(
-                icon = AppIcons.Check,
-                label = if (played) "已观看" else "标记已看",
-                active = played,
-                accent = accent,
-                onClick = onTogglePlayed,
-            )
-        }
+        RoundAction(
+            icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
+            label = "收藏",
+            active = favorite,
+            accent = accent,
+            onClick = onFavorite,
+        )
+        RoundAction(
+            icon = AppIcons.Bookmark,
+            label = "稍后观看",
+            active = false,
+            accent = accent,
+            onClick = onWatchLater,
+        )
     }
 }
 
-/** A circular toggle with its name beneath — the reference's 收藏 / 已观看 pair. */
+/** A compact circular action with its name beneath, placed beside the primary play key. */
 @Composable
 private fun RoundAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,

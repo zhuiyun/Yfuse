@@ -84,8 +84,12 @@ class EmbyRepositoryTest {
         assertEquals("某剧", content.resume.first().title)
         assertEquals("s1", content.resume.first().posterItemId)
         // latest row present
-        assertTrue(content.rows.isNotEmpty())
-        assertEquals("某电影", content.rows.first().items.first().title)
+        assertTrue(content.rows.any { it.libraryId == FAVORITES_COLLECTION_ID })
+        assertTrue(content.rows.any { it.libraryId == WATCH_LATER_COLLECTION_ID })
+        assertEquals(
+            "某电影",
+            content.rows.first { it.libraryId == "lib1" }.items.first().title,
+        )
         // featured only includes items with a backdrop (the movie, not the episode)
         assertEquals(1, content.featured.size)
         assertEquals("某电影", content.featured.first().title)
@@ -102,6 +106,50 @@ class EmbyRepositoryTest {
         assertTrue(res.isSuccess, res.toString())
         assertEquals(1, res.getOrThrow().size)
         assertEquals("电影A", res.getOrThrow().first().title)
+    }
+
+    @Test
+    fun libraryItems_favorites_uses_user_favorite_filter() = runTest {
+        val repo = testRepo { request ->
+            assertEquals("IsFavorite", request.url.parameters["Filters"])
+            assertEquals("Movie,Series", request.url.parameters["IncludeItemTypes"])
+            json(
+                """{"Items":[{"Id":"m1","Name":"收藏电影","Type":"Movie",""" +
+                    """"ImageTags":{"Primary":"poster"},"UserData":{"IsFavorite":true}}],""" +
+                    """"TotalRecordCount":1}""",
+            )
+        }
+
+        val result = repo.libraryItems(server, FAVORITES_COLLECTION_ID)
+
+        assertTrue(result.isSuccess, result.toString())
+        assertEquals("收藏电影", result.getOrThrow().single().title)
+        assertTrue(result.getOrThrow().single().isFavorite)
+    }
+
+    @Test
+    fun libraryItems_watchLater_reads_the_account_playlist() = runTest {
+        val repo = testRepo { request ->
+            when {
+                request.url.encodedPath.endsWith("/Playlists/p1/Items") -> {
+                    assertEquals("u1", request.url.parameters["UserId"])
+                    json(
+                        """{"Items":[{"Id":"s1","Name":"稍后看的剧","Type":"Series",""" +
+                            """"ImageTags":{"Primary":"poster"}}],"TotalRecordCount":1}""",
+                    )
+                }
+                else -> {
+                    assertEquals("Playlist", request.url.parameters["IncludeItemTypes"])
+                    assertEquals("稍后观看", request.url.parameters["SearchTerm"])
+                    json("""{"Items":[{"Id":"p1","Name":"稍后观看","Type":"Playlist"}]}""")
+                }
+            }
+        }
+
+        val result = repo.libraryItems(server, WATCH_LATER_COLLECTION_ID)
+
+        assertTrue(result.isSuccess, result.toString())
+        assertEquals("稍后看的剧", result.getOrThrow().single().title)
     }
 
     @Test
