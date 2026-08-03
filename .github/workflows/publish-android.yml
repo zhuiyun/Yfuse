@@ -1,6 +1,11 @@
 name: Publish Android update
 
 on:
+  push:
+    branches:
+      - master
+    paths:
+      - version.properties
   workflow_dispatch:
     inputs:
       version_code:
@@ -54,6 +59,22 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
+      - name: Resolve automatic release request
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version_code="$(sed -n 's/^VERSION_CODE=//p' version.properties | tail -n 1 | tr -d '\r')"
+          version_name="$(sed -n 's/^VERSION_NAME=//p' version.properties | tail -n 1 | tr -d '\r')"
+          release_notes="$(tr '\r\n' '  ' < release-notes.txt | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+
+          {
+            echo "VERSION_CODE=$version_code"
+            echo "VERSION_NAME=$version_name"
+            echo "RELEASE_NOTES=$release_notes"
+          } >> "$GITHUB_ENV"
+
       - name: Validate release request
         shell: bash
         env:
@@ -72,6 +93,10 @@ jobs:
           fi
           if [[ ! "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::version_name must use numeric major.minor.patch format"
+            exit 1
+          fi
+          if [[ -z "${RELEASE_NOTES//[[:space:]]/}" ]]; then
+            echo "::error::release notes must not be empty"
             exit 1
           fi
 

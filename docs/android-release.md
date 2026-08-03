@@ -65,6 +65,22 @@ reuse a personal SSH key.
 
 ## Publishing
 
+### Automatic production release
+
+The normal release path is a push to the default branch that changes
+`version.properties`:
+
+1. Update `VERSION_CODE` and `VERSION_NAME` in `version.properties`.
+2. Write the in-app update text in `release-notes.txt`.
+3. Commit both files with the feature changes and push the default branch.
+4. GitHub Actions automatically builds, signs, uploads, and verifies the APK.
+
+Ordinary pushes that do not change `version.properties` do not publish an APK.
+The workflow still rejects a duplicate or older `VERSION_CODE`, so every release
+must advance the code stored in the repository.
+
+### Manual fallback
+
 1. Open **Actions → Publish Android update → Run workflow**.
 2. Select the repository default branch.
 3. Enter a new positive `version_code`, a numeric `version_name` such as
