@@ -26,9 +26,13 @@ class TmdbRepositoryTest {
                     assertEquals("zh", request.url.parameters["with_original_language"])
                 }
                 val tv = path.contains("/tv")
-                val upcoming = request.url.parameters["primary_release_date.gte"] != null ||
-                    request.url.parameters["first_air_date.gte"] != null
-                if (upcoming) {
+                val sortBy = request.url.parameters["sort_by"]
+                val latest = sortBy == "primary_release_date.desc" ||
+                    sortBy == "first_air_date.desc"
+                val upcoming = !latest &&
+                    (request.url.parameters["primary_release_date.gte"] != null ||
+                        request.url.parameters["first_air_date.gte"] != null)
+                if (upcoming || latest) {
                     assertEquals(null, request.url.parameters["vote_count.gte"])
                     if (domestic) assertEquals("CN|HK|TW", originCountries)
                 }
@@ -36,11 +40,15 @@ class TmdbRepositoryTest {
                     request.url.parameters["first_air_date.lte"] != null ||
                     path.endsWith("/movie/now_playing") ||
                     path.endsWith("/tv/airing_today")
-                val phase = if (upcoming) 3 else if (now) 2 else 1
+                val phase = if (latest) 4 else if (upcoming) 3 else if (now) 2 else 1
                 val id = (if (domestic) 100 else 200) + phase * 10 + if (tv) 1 else 0
                 val titleKey = if (tv) "name" else "title"
                 val dateKey = if (tv) "first_air_date" else "release_date"
-                val date = if (upcoming) "2027-01-01" else "2026-01-01"
+                val date = when {
+                    latest -> request.url.parameters[if (tv) "first_air_date.lte" else "primary_release_date.lte"]!!
+                    upcoming -> "2027-01-01"
+                    else -> "2026-01-01"
+                }
                 json(
                     """{"results":[{"id":$id,"$titleKey":""" +
                         """"${if (domestic) "国产" else "全球"}-$phase-${if (tv) "剧" else "影"}",""" +
@@ -60,6 +68,7 @@ class TmdbRepositoryTest {
         assertTrue(result.isSuccess, result.toString())
         val rows = result.getOrThrow().rows.associateBy { it.title }
         assertTrue(rows.getValue("热门").items.any { it.title.startsWith("国产") })
+        assertTrue(rows.getValue("最新上线").items.any { it.title.startsWith("国产") })
         assertTrue(rows.getValue("正在上映").items.any { it.title.startsWith("国产") })
         assertTrue(rows.getValue("即将上映").items.any { it.title.startsWith("国产") })
     }
@@ -73,11 +82,19 @@ class TmdbRepositoryTest {
                     ?.contains("CN") == true
                 val path = request.url.encodedPath
                 val tv = path.contains("/tv")
-                val upcoming = request.url.parameters["primary_release_date.gte"] != null ||
-                    request.url.parameters["first_air_date.gte"] != null
+                val sortBy = request.url.parameters["sort_by"]
+                val latest = sortBy == "primary_release_date.desc" ||
+                    sortBy == "first_air_date.desc"
+                val upcoming = !latest &&
+                    (request.url.parameters["primary_release_date.gte"] != null ||
+                        request.url.parameters["first_air_date.gte"] != null)
                 val titleKey = if (tv) "name" else "title"
                 val dateKey = if (tv) "first_air_date" else "release_date"
-                val date = if (upcoming) "2027-01-01" else "2026-01-01"
+                val date = when {
+                    latest -> request.url.parameters[if (tv) "first_air_date.lte" else "primary_release_date.lte"]!!
+                    upcoming -> "2027-01-01"
+                    else -> "2026-01-01"
+                }
                 val results = if (domestic) {
                     """[
                         {"id":1,"$titleKey":"可信国产","$dateKey":"$date","poster_path":"/1.jpg",
@@ -108,12 +125,14 @@ class TmdbRepositoryTest {
             .flatMap { rows.getValue(it).items }
             .map { it.title }
         val upcomingTitles = rows.getValue("即将上映").items.map { it.title }
-        val titles = establishedTitles + upcomingTitles
+        val latestTitles = rows.getValue("最新上线").items.map { it.title }
+        val titles = establishedTitles + latestTitles + upcomingTitles
 
         assertTrue("可信国产" in titles)
         assertTrue("正常内容" in titles)
         assertTrue("百家讲坛" !in titles)
         assertTrue("错误年份条目" !in establishedTitles)
+        assertTrue("错误年份条目" in latestTitles)
         assertTrue("错误年份条目" in upcomingTitles)
         assertTrue("深夜脱口秀" !in titles)
     }

@@ -165,7 +165,7 @@ fun HomeScreen(component: HomeComponent) {
                         Recommended(
                             title = row.title,
                             items = row.items,
-                            showReleaseDate = row.title == "即将上映",
+                            showReleaseDate = row.title == "即将上映" || row.title == "最新上线",
                             // Opens this shelf, not the 库 tab. These come from TMDB and
                             // most are not in the library at all, so the old destination
                             // showed none of what the chip had just offered.
@@ -185,7 +185,7 @@ fun HomeScreen(component: HomeComponent) {
             TmdbRowPage(
                 title = row.title,
                 items = row.items,
-                showReleaseDate = row.title == "即将上映",
+                showReleaseDate = row.title == "即将上映" || row.title == "最新上线",
                 onOpen = {
                     component.store.accept(HomeIntent.Open(it))
                     expandedRow = null

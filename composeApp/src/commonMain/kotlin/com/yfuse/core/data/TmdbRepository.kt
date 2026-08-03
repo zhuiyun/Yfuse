@@ -13,6 +13,7 @@ import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.TMDB_BASE
 import com.yfuse.core.util.currentIsoDate
+import com.yfuse.core.util.isoDateDaysBefore
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
@@ -128,6 +129,7 @@ class TmdbRepository(private val client: HttpClient) {
     suspend fun home(language: String = "zh-CN"): Result<TmdbHome> = try {
         coroutineScope {
             val today = currentIsoDate()
+            val recentStart = isoDateDaysBefore(today, RECENT_RELEASE_DAYS)
             val currentYear = today.take(4).toIntOrNull() ?: 2026
             val nextYearEnd = "${currentYear + 1}-12-31"
             val popularMovies = async { fetch("/movie/popular", language, "movie") }
@@ -259,6 +261,68 @@ class TmdbRepository(private val client: HttpClient) {
                     ),
                 )
             }
+            val latestMovies = async {
+                fetch(
+                    "/discover/movie",
+                    language,
+                    "movie",
+                    mapOf(
+                        "primary_release_date.gte" to recentStart,
+                        "primary_release_date.lte" to today,
+                        "sort_by" to "primary_release_date.desc",
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                        "include_adult" to "false",
+                        "include_video" to "false",
+                    ),
+                )
+            }
+            val latestShows = async {
+                fetch(
+                    "/discover/tv",
+                    language,
+                    "tv",
+                    mapOf(
+                        "first_air_date.gte" to recentStart,
+                        "first_air_date.lte" to today,
+                        "sort_by" to "first_air_date.desc",
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                        "include_adult" to "false",
+                    ),
+                )
+            }
+            val cnLatestMovies = async {
+                fetch(
+                    "/discover/movie",
+                    language,
+                    "movie",
+                    mapOf(
+                        "with_origin_country" to CHINESE_ORIGIN_COUNTRIES_PARAMETER,
+                        "with_original_language" to "zh",
+                        "primary_release_date.gte" to recentStart,
+                        "primary_release_date.lte" to today,
+                        "sort_by" to "primary_release_date.desc",
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                        "include_adult" to "false",
+                        "include_video" to "false",
+                    ),
+                )
+            }
+            val cnLatestShows = async {
+                fetch(
+                    "/discover/tv",
+                    language,
+                    "tv",
+                    mapOf(
+                        "with_origin_country" to CHINESE_ORIGIN_COUNTRIES_PARAMETER,
+                        "with_original_language" to "zh",
+                        "first_air_date.gte" to recentStart,
+                        "first_air_date.lte" to today,
+                        "sort_by" to "first_air_date.desc",
+                        "without_genres" to BLOCKED_GENRES_PARAMETER,
+                        "include_adult" to "false",
+                    ),
+                )
+            }
             val result = awaitAll(
                 popularMovies,
                 popularShows,
@@ -272,6 +336,10 @@ class TmdbRepository(private val client: HttpClient) {
                 cnNowShows,
                 cnUpcomingMovies,
                 cnUpcomingShows,
+                latestMovies,
+                latestShows,
+                cnLatestMovies,
+                cnLatestShows,
             )
             val popular = integrateDomestic(
                 global = interleave(result[0], result[1]).eligibleCatalogItems(),
@@ -295,12 +363,25 @@ class TmdbRepository(private val client: HttpClient) {
                 .filter { item ->
                     item.releaseDate?.let { it >= today && it <= nextYearEnd } == true
                 }
+            val latest = integrateDomestic(
+                global = interleave(result[12], result[13]).eligibleCatalogItems(),
+                domestic = interleave(result[14], result[15]).eligibleCatalogItems(),
+            )
+                .filter { item ->
+                    item.releaseDate?.let { it >= recentStart && it <= today } == true
+                }
+                .sortedWith(
+                    compareByDescending<TmdbItem> { it.releaseDate.orEmpty() }
+                        .thenByDescending { it.originalLanguage == "zh" }
+                        .thenByDescending { it.popularity },
+                )
 
             // The pool 今日精选 rotates through, not a shortlist anyone sees all of. Only
             // one is shown per day, so a handful would come back round inside a fortnight.
             val featured = popular.filter { it.backdropPath != null }.take(FEATURED_POOL)
             val rows = listOf(
                 TmdbRow("热门", popular),
+                TmdbRow("最新上线", latest),
                 TmdbRow("正在上映", nowPlaying),
                 TmdbRow("即将上映", upcoming),
             ).filter { it.items.isNotEmpty() }
@@ -706,6 +787,7 @@ class TmdbRepository(private val client: HttpClient) {
         const val CHINESE_ORIGIN_COUNTRIES_PARAMETER = "CN|HK|TW"
         const val DOMESTIC_MIN_VOTES = 10
         const val DOMESTIC_MIN_POPULARITY = 3.0
+        const val RECENT_RELEASE_DAYS = 30
         /** Calendar discovery still needs to bound the number of shows it expands. */
         const val GLOBAL_UPCOMING_MIN_VOTES = 3
 
