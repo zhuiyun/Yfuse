@@ -411,21 +411,48 @@ class EmbyRepository(private val client: HttpClient) {
     /** Title search, used by the search tab and to match TMDB picks to the library. */
     suspend fun search(server: SavedServer, query: String, limit: Int = 24): Result<List<MediaItem>> =
         call("search") {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("SearchTerm", query)
-            parameter("Recursive", true)
-            parameter("IncludeItemTypes", "Movie,Series")
-            parameter(
-                "Fields",
-                "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
-                    "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag",
-            )
-            parameter("EnableImageTypes", "Primary,Backdrop")
-            parameter("ImageTypeLimit", 2)
-            parameter("Limit", limit)
-        }.body()
-        dto.Items.map { it.toMediaItem() }
+        suspend fun request(term: String): ItemsResponseDto =
+            client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("SearchTerm", term)
+                parameter("Recursive", true)
+                parameter("IncludeItemTypes", "Movie,Series")
+                parameter(
+                    "Fields",
+                    "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
+                        "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag",
+                )
+                parameter("EnableImageTypes", "Primary,Backdrop")
+                parameter("ImageTypeLimit", 2)
+                parameter("Limit", limit)
+            }.body()
+
+        val exact = request(query).Items
+        if (exact.isNotEmpty()) return@call exact.map { it.toMediaItem() }
+
+        // Some Emby/Jellyfin search indexes reject a full CJK title even though a suffix
+        // returns it (for example 鬼迷东宫 -> no rows, 东宫 -> 鬼迷东宫). Query a small set
+        // of stable fragments, then require the returned title to contain the original
+        // text so broad fallback terms never pollute the result list.
+        val normalizedQuery = query.trim()
+        val fallbackTerms = buildList {
+            addAll(normalizedQuery.split(Regex("\\s+")).filter { it.length >= 2 })
+            if (normalizedQuery.length >= 3) add(normalizedQuery.takeLast(2))
+            if (normalizedQuery.length >= 4) {
+                add(normalizedQuery.drop(normalizedQuery.length / 2))
+                add(normalizedQuery.take(normalizedQuery.length / 2))
+            }
+        }.distinct().filterNot { it.equals(normalizedQuery, ignoreCase = true) }
+
+        val fallbackItems = buildList {
+            fallbackTerms.forEach { term -> addAll(request(term).Items) }
+        }
+        fallbackItems.asSequence()
+            .distinctBy { it.Id }
+            .filter { it.Name?.contains(normalizedQuery, ignoreCase = true) == true }
+            .take(limit)
+            .map { it.toMediaItem() }
+            .toList()
     }
 
     /** Complete user-state snapshot used by the real multi-server sync coordinator. */

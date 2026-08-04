@@ -172,6 +172,27 @@ class EmbyRepositoryTest {
     }
 
     @Test
+    fun search_recovers_full_cjk_title_from_suffix_index_match() = runTest {
+        val terms = mutableListOf<String>()
+        val repo = testRepo { request ->
+            val term = request.url.parameters["SearchTerm"].orEmpty()
+            terms += term
+            if (term == "东宫") {
+                json("""{"Items":[{"Id":"m1","Name":"鬼迷东宫","Type":"Series"}]}""")
+            } else {
+                json("""{"Items":[]}""")
+            }
+        }
+
+        val result = repo.search(server, "鬼迷东宫")
+
+        assertTrue(result.isSuccess, result.toString())
+        assertEquals("鬼迷东宫", result.getOrThrow().single().title)
+        assertTrue("鬼迷东宫" in terms)
+        assertTrue("东宫" in terms)
+    }
+
+    @Test
     fun findByTmdbId_uses_provider_id_and_media_type() = runTest {
         val repo = testRepo { request ->
             assertEquals("tmdb.1234", request.url.parameters["AnyProviderIdEquals"])

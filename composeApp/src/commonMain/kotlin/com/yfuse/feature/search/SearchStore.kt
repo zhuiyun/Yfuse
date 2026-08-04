@@ -81,7 +81,7 @@ class SearchStoreFactory(
     private inner class ExecutorImpl :
         CoroutineExecutor<SearchIntent, Nothing, SearchState, SearchMsg, Nothing>() {
 
-        private var searchJob: Job? = null
+        private var debounceJob: Job? = null
 
         override fun executeIntent(intent: SearchIntent) {
             when (intent) {
@@ -92,7 +92,7 @@ class SearchStoreFactory(
                 SearchIntent.Submit -> search(state().query)
                 SearchIntent.Retry -> search(state().searchedQuery.ifEmpty { state().query })
                 SearchIntent.Clear -> {
-                    searchJob?.cancel()
+                    debounceJob?.cancel()
                     dispatch(SearchMsg.Cleared)
                 }
                 is SearchIntent.ForgetRecent ->
@@ -103,15 +103,14 @@ class SearchStoreFactory(
         }
 
         private fun debouncedSearch(rawQuery: String) {
-            searchJob?.cancel()
+            debounceJob?.cancel()
             if (rawQuery.isBlank()) {
                 dispatch(SearchMsg.Cleared)
                 return
             }
-            searchJob = scope.launch {
+            debounceJob = scope.launch {
                 delay(DEBOUNCE_MS)
-                // Detach first: search() cancels searchJob, which is this coroutine.
-                searchJob = null
+                debounceJob = null
                 search(rawQuery)
             }
         }
@@ -119,7 +118,7 @@ class SearchStoreFactory(
         private fun search(rawQuery: String) {
             val query = rawQuery.trim()
             if (query.isEmpty()) {
-                searchJob?.cancel()
+                debounceJob?.cancel()
                 dispatch(SearchMsg.Cleared)
                 return
             }
@@ -135,13 +134,23 @@ class SearchStoreFactory(
                 return
             }
 
-            searchJob?.cancel()
+            debounceJob?.cancel()
             dispatch(SearchMsg.Loading(query))
-            searchJob = scope.launch {
+            scope.launch {
                 val groups = coroutineScope {
                     servers.map { server ->
                         async {
-                            repo.search(server, query).fold(
+                            val first = repo.search(server, query)
+                            // Search is read-only and cheap; one delayed retry absorbs a
+                            // recycled reverse-proxy connection without marking the whole
+                            // server disconnected on the page.
+                            val result = if (first.isFailure) {
+                                delay(300L)
+                                repo.search(server, query)
+                            } else {
+                                first
+                            }
+                            result.fold(
                                 onSuccess = {
                                     ServerSearchGroup(
                                         serverId = server.id,
@@ -202,21 +211,26 @@ class SearchStoreFactory(
                 error = null,
             )
             is SearchMsg.Loaded -> {
-                val allItems = msg.groups.flatMap { it.items }
-                copy(
-                searchedQuery = msg.query,
-                loading = false,
-                items = allItems,
-                groups = msg.groups,
-                recent = if (allItems.isEmpty()) {
-                    recent
+                if (msg.query != query.trim()) {
+                    this
                 } else {
-                    (listOf(msg.query) + recent.filterNot { it == msg.query }).take(RECENT_LIMIT)
-                },
-                error = null,
-            )
+                    val allItems = msg.groups.flatMap { it.items }
+                    copy(
+                        searchedQuery = msg.query,
+                        loading = false,
+                        items = allItems,
+                        groups = msg.groups,
+                        recent = if (allItems.isEmpty()) {
+                            recent
+                        } else {
+                            (listOf(msg.query) + recent.filterNot { it == msg.query })
+                                .take(RECENT_LIMIT)
+                        },
+                        error = null,
+                    )
+                }
             }
-            is SearchMsg.Failed -> copy(
+            is SearchMsg.Failed -> if (msg.query != query.trim()) this else copy(
                 searchedQuery = msg.query,
                 loading = false,
                 items = emptyList(),
