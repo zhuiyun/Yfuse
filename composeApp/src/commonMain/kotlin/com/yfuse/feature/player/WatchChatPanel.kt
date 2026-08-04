@@ -46,6 +46,7 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.sync.ChatDeliveryState
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchParticipant
 import com.yfuse.core.util.graphemeCount
@@ -60,7 +61,8 @@ internal fun WatchChatPanel(
     error: String?,
     sendingEnabled: Boolean,
     danmakuEnabled: Boolean,
-    onSend: (String) -> Unit,
+    onSend: (String) -> Boolean,
+    onRetry: (String) -> Unit,
     onClearError: () -> Unit,
     onToggleDanmaku: () -> Unit,
     onDismiss: () -> Unit,
@@ -76,8 +78,7 @@ internal fun WatchChatPanel(
     fun submit() {
         val text = draft.trim()
         if (text.isEmpty() || !sendingEnabled) return
-        onSend(text)
-        draft = ""
+        if (onSend(text)) draft = ""
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)).noRippleClickable(onDismiss))
@@ -102,7 +103,7 @@ internal fun WatchChatPanel(
             Column {
                 Text("房间聊天", style = sc(13.5f, 700), color = Color.White)
                 Text(
-                    "${participants.size} 人在线 · 最近 50 条",
+                    "${participants.size} 人在线 · ${participants.count { it.ready }} 人就绪 · 最近 50 条",
                     style = mr(9.5f, 500),
                     color = Color.White.copy(alpha = 0.48f),
                 )
@@ -163,6 +164,17 @@ internal fun WatchChatPanel(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.width(58.dp),
                         )
+                        Text(
+                            participant.playbackStatusLabel,
+                            style = mr(7.5f, 500),
+                            color = when {
+                                !participant.mediaAvailable -> Brand.Danger
+                                participant.buffering -> Color(0xFFFFC857)
+                                participant.ready -> Brand.Primary
+                                else -> Color.White.copy(alpha = 0.42f)
+                            },
+                            maxLines = 1,
+                        )
                     }
                 }
             }
@@ -184,7 +196,7 @@ internal fun WatchChatPanel(
                 verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 items(messages, key = { it.id }) { message ->
-                    WatchChatBubble(message)
+                    WatchChatBubble(message, onRetry)
                 }
             }
         }
@@ -271,7 +283,7 @@ internal fun WatchChatPanel(
 }
 
 @Composable
-private fun WatchChatBubble(message: WatchChatMessage) {
+private fun WatchChatBubble(message: WatchChatMessage, onRetry: (String) -> Unit) {
     Column(
         Modifier.fillMaxWidth(),
         horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start,
@@ -304,6 +316,28 @@ private fun WatchChatBubble(message: WatchChatMessage) {
                         )
                         .padding(horizontal = 11.dp, vertical = 8.dp),
                 )
+                if (message.deliveryState != ChatDeliveryState.Sent) {
+                    Text(
+                        if (message.deliveryState == ChatDeliveryState.Pending) {
+                            "发送中…"
+                        } else {
+                            "发送失败 · 点击重试"
+                        },
+                        style = mr(8f, 500),
+                        color = if (message.deliveryState == ChatDeliveryState.Failed) {
+                            Brand.Danger
+                        } else {
+                            Color.White.copy(alpha = 0.42f)
+                        },
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                            .noRippleClickable {
+                                if (message.deliveryState == ChatDeliveryState.Failed) {
+                                    message.clientMessageId?.let(onRetry)
+                                }
+                            },
+                    )
+                }
             }
         }
     }

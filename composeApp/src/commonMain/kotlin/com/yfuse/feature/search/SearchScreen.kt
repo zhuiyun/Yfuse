@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -197,6 +199,31 @@ private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) 
                                                 .glass(GlassShapes.card)
                                                 .padding(12.dp),
                                         )
+                                    } else if (group.items.size > 1) {
+                                        LazyRow(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            items(group.items, key = { it.id }) { item ->
+                                                ResultRow(
+                                                    baseUrl = component.serverBaseUrl(
+                                                        group.serverId,
+                                                    ),
+                                                    accessToken = component.serverAccessToken(
+                                                        group.serverId,
+                                                    ),
+                                                    serverId = group.serverId,
+                                                    item = item,
+                                                    onClick = {
+                                                        component.onOpenItem(
+                                                            group.serverId,
+                                                            item.id,
+                                                        )
+                                                    },
+                                                    modifier = Modifier.width(270.dp),
+                                                )
+                                            }
+                                        }
                                     } else {
                                         group.items.forEach { item ->
                                             ResultRow(
@@ -209,6 +236,7 @@ private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) 
                                                 onClick = {
                                                     component.onOpenItem(group.serverId, item.id)
                                                 },
+                                                modifier = Modifier.fillMaxWidth(),
                                             )
                                         }
                                     }
@@ -305,11 +333,11 @@ private fun ResultRow(
     serverId: String,
     item: MediaItem,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     Row(
-        Modifier
-            .fillMaxWidth()
+        modifier
             .glass(GlassShapes.card)
             .clickable(onClick = onClick)
             .padding(8.dp),

@@ -1416,7 +1416,7 @@ private fun PlayerRoot(
     }
     // A guest's playback is the host's to move. Arming here would fire a refused seek —
     // and its "当前由房主控制播放" toast — at every opening in the season.
-    val watchGuest = watchState.connected && !watchState.isHost
+    val watchGuest = watchState.connected && !watchState.canControl
     val skipArmed = skipOccurrence != null &&
         skipMode == SkipMode.Auto &&
         !watchGuest &&
@@ -1715,6 +1715,7 @@ private fun PlayerRoot(
     LaunchedEffect(watchState.connected, watchState.reconnecting, watchState.isHost) {
         if (!watchState.connected || watchState.isHost) {
             mediaMatcher.reset()
+            if (watchState.connected) watchTogether.updateSyncDrift(0L)
             return@LaunchedEffect
         }
         var lastAppliedRate: Float? = null
@@ -1785,6 +1786,7 @@ private fun PlayerRoot(
                         }
                         val expected = timeline.expectedPositionMs(watchTogether.estimatedServerNow())
                         val diff = expected - position
+                        watchTogether.updateSyncDrift(diff)
                         val desiredRate = when {
                             kotlin.math.abs(diff) >= HARD_SEEK_THRESHOLD_MS ||
                                 (recoveredFromBuffer &&
@@ -1815,6 +1817,24 @@ private fun PlayerRoot(
         } finally {
             mediaMatcher.reset()
             lastNominalRate?.let(latestEngine::setSpeed)
+        }
+    }
+    LaunchedEffect(
+        watchState.connected,
+        watchState.reconnecting,
+        watchState.localMediaAvailable,
+        watchState.canControl,
+        state.buffering,
+        state.error,
+        state.currentIndex,
+    ) {
+        if (watchState.connected && !watchState.reconnecting) {
+            watchTogether.updatePlaybackStatus(
+                ready = watchState.localMediaAvailable && !state.buffering && state.error == null,
+                buffering = state.buffering,
+                mediaAvailable = watchState.localMediaAvailable,
+                syncDriftMs = if (watchState.isHost) 0L else null,
+            )
         }
     }
 
@@ -2119,6 +2139,8 @@ private fun PlayerRoot(
                     reconnecting = watchState.reconnecting,
                     roomCode = watchState.roomCode,
                     isHost = watchState.isHost,
+                    canControl = watchState.canControl,
+                    controlMode = watchState.controlMode,
                     participantCount = watchState.participantCount,
                     participants = watchState.participants,
                     chatMessages = watchState.chatMessages,
@@ -2149,7 +2171,10 @@ private fun PlayerRoot(
                         watchState.controlRequest?.let { watchTogether.denyControl(it.clientId) }
                     },
                     onSendChat = watchTogether::sendChat,
+                    onRetryChat = watchTogether::retryChat,
                     onClearChatError = watchTogether::clearChatError,
+                    onSetControlMode = watchTogether::setControlMode,
+                    onSetModerator = watchTogether::setModerator,
                     onToggleChatDanmaku = {
                         watchTogetherPreferences.setChatDanmakuEnabled(!watchChatDanmaku)
                     },

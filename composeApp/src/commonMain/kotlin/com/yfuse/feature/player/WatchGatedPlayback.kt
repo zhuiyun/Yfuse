@@ -56,9 +56,9 @@ class WatchGatedPlayback(
      */
     private val state: PlaybackState? get() = engine()?.state?.value
 
-    /** True while someone else owns the room's timeline, so local input must be refused. */
+    /** True while this member lacks room timeline control, so local input must be refused. */
     val locked: Boolean
-        get() = watchTogether.state.value.let { it.connected && !it.isHost }
+        get() = watchTogether.state.value.let { it.connected && !it.canControl }
 
     fun togglePlayPause(): Boolean = gated { engine ->
         val willPlay = state?.playing != true

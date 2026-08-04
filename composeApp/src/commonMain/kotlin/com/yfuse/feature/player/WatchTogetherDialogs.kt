@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -36,8 +37,11 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.core.sync.WatchNetworkQuality
 import com.yfuse.core.sync.WatchParticipant
 
 /**
@@ -57,6 +61,8 @@ internal fun WatchTogetherDialog(
     connected: Boolean,
     roomCode: String?,
     isHost: Boolean,
+    canControl: Boolean,
+    controlMode: WatchControlMode,
     participantCount: Int,
     participants: List<WatchParticipant>,
     error: String?,
@@ -65,6 +71,8 @@ internal fun WatchTogetherDialog(
     onJoin: (String, String) -> Unit,
     onLeave: () -> Unit,
     onRequestControl: () -> Unit,
+    onSetControlMode: (WatchControlMode) -> Unit,
+    onSetModerator: (String, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var roomDraft by remember { mutableStateOf("") }
@@ -97,12 +105,34 @@ internal fun WatchTogetherDialog(
                     textAlign = TextAlign.Center,
                 )
                 Text(
-                    "${if (isHost) "房主" else "成员"} · $participantCount 人在线",
+                    "${if (isHost) "房主" else if (canControl) "可控制" else "成员"} · " +
+                        "$participantCount 人在线 · ${participants.count { it.ready }} 人就绪",
                     style = mr(11f, 500),
                     color = palette.sub2,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                 )
+            }
+            if (isHost) {
+                Text(
+                    "控制权限",
+                    style = mr(10f, 600),
+                    color = palette.sub2,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
+                )
+                SegmentedRow(
+                    options = WatchControlMode.entries.map { it.label },
+                    selectedIndex = WatchControlMode.entries.indexOf(controlMode),
+                    onSelect = { onSetControlMode(WatchControlMode.entries[it]) },
+                )
+                if (controlMode == WatchControlMode.Moderators) {
+                    Text(
+                        "点击下方成员可添加或取消管理员",
+                        style = mr(9f, 500),
+                        color = palette.sub2,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
             }
             if (participants.isNotEmpty()) {
                 Row(
@@ -114,7 +144,19 @@ internal fun WatchTogetherDialog(
                 ) {
                     participants.forEach { participant ->
                         Column(
-                            Modifier.width(58.dp),
+                            Modifier
+                                .width(108.dp)
+                                .pressable(
+                                    enabled = isHost &&
+                                        controlMode == WatchControlMode.Moderators &&
+                                        !participant.isHost,
+                                    onClick = {
+                                        onSetModerator(
+                                            participant.clientId,
+                                            !participant.isModerator,
+                                        )
+                                    },
+                                ),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
@@ -123,10 +165,35 @@ internal fun WatchTogetherDialog(
                                 when {
                                     participant.isSelf -> "我"
                                     participant.isHost -> "${participant.name} · 房主"
+                                    participant.isModerator -> "${participant.name} · 管理员"
+                                    participant.canControl -> "${participant.name} · 可控制"
                                     else -> participant.name
                                 },
                                 style = mr(8.5f, 500),
                                 color = palette.sub2,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                participant.playbackStatusLabel,
+                                style = mr(8f, 600),
+                                color = when {
+                                    !participant.mediaAvailable -> Brand.Danger
+                                    participant.buffering -> Color(0xFFFFC857)
+                                    participant.ready -> Brand.Primary
+                                    else -> palette.sub2
+                                },
+                                maxLines = 1,
+                            )
+                            Text(
+                                participant.networkStatusLabel,
+                                style = mr(7.5f, 500),
+                                color = when (participant.networkQuality) {
+                                    WatchNetworkQuality.Excellent -> Brand.Primary
+                                    WatchNetworkQuality.Fair -> Color(0xFFFFC857)
+                                    WatchNetworkQuality.Poor -> Brand.Danger
+                                    WatchNetworkQuality.Unknown -> palette.sub2
+                                },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -138,7 +205,7 @@ internal fun WatchTogetherDialog(
                 Spacer(Modifier.height(8.dp))
                 Text(it, style = sc(10.5f, 500), color = Brand.Danger)
             }
-            if (!isHost) {
+            if (!canControl) {
                 // Deliberately still enabled once asked: a host who never answers would
                 // otherwise leave this pinned on "waiting" with no way to ask again.
                 OverlayButton(

@@ -43,6 +43,10 @@ class WatchTogetherServerTest {
                 assertEquals(HttpStatusCode.OK, health.status)
                 assertEquals("ok", health.bodyAsText())
 
+                val protocol = client.get("/watch/version")
+                assertEquals(HttpStatusCode.OK, protocol.status)
+                assertEquals(3, protocol.bodyAsText().asJson()["protocolVersion"]!!.jsonPrimitive.int)
+
                 val update = client.get("/yfuse/update.json")
                 assertEquals(HttpStatusCode.OK, update.status)
                 assertEquals("""{"versionCode":29}""", update.bodyAsText())
@@ -143,7 +147,7 @@ class WatchTogetherServerTest {
         }
 
         val message = withTimeout(5_000L) { errorReceived.await() }
-        assertTrue(message.contains("房主"))
+        assertTrue(message.contains("控制权限"))
         host.cancelAndJoin()
         guest.cancelAndJoin()
     }
@@ -484,6 +488,160 @@ class WatchTogetherServerTest {
             assertEquals(5, member["avatarId"]?.jsonPrimitive?.int)
             assertTrue(member["isHost"]!!.jsonPrimitive.boolean)
         }
+    }
+
+    @Test
+    fun protocol_version_is_advertised_and_future_clients_are_rejected() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+
+        socketClient.webSocket("/watch") {
+            send(
+                """{"type":"hello","protocolVersion":3,"clientId":"host","mediaKey":"tmdb:30"}""",
+            )
+            val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
+            assertEquals(3, welcome["protocolVersion"]?.jsonPrimitive?.int)
+        }
+
+        socketClient.webSocket("/watch") {
+            send(
+                """{"type":"hello","protocolVersion":99,"clientId":"future","mediaKey":"tmdb:31"}""",
+            )
+            val error = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("protocol_incompatible", error["errorCode"]?.jsonPrimitive?.content)
+            assertEquals(3, error["protocolVersion"]?.jsonPrimitive?.int)
+        }
+    }
+
+    @Test
+    fun chat_client_message_id_acknowledges_and_deduplicates_retries() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+        var code = ""
+        var firstServerId = 0L
+
+        socketClient.webSocket("/watch") {
+            send("""{"type":"hello","clientId":"host","mediaKey":"tmdb:32"}""")
+            val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+            code = welcome["roomCode"]!!.jsonPrimitive.content
+            incoming.receive() // own roomUpdate
+
+            send("""{"type":"chat","clientMessageId":"local-1","text":"可靠送达 😀"}""")
+            val first = (incoming.receive() as Frame.Text).readText().asJson()["chat"]!!.jsonObject
+            firstServerId = first["id"]!!.jsonPrimitive.long
+            assertEquals("local-1", first["clientMessageId"]?.jsonPrimitive?.content)
+
+            send("""{"type":"chat","clientMessageId":"local-1","text":"可靠送达 😀"}""")
+            val retry = (incoming.receive() as Frame.Text).readText().asJson()["chat"]!!.jsonObject
+            assertEquals(firstServerId, retry["id"]?.jsonPrimitive?.long)
+        }
+
+        socketClient.webSocket("/watch") {
+            send("""{"type":"hello","roomCode":"$code","clientId":"guest"}""")
+            val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+            val history = welcome["chatHistory"]!!.jsonArray
+            assertEquals(1, history.size)
+            assertEquals(firstServerId, history.single().jsonObject["id"]?.jsonPrimitive?.long)
+        }
+    }
+
+    @Test
+    fun playback_status_broadcasts_readiness_latency_and_drift() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+
+        socketClient.webSocket("/watch") {
+            send("""{"type":"hello","protocolVersion":3,"clientId":"host","mediaKey":"tmdb:33"}""")
+            incoming.receive() // welcome
+            incoming.receive() // own roomUpdate
+            send(
+                """{"type":"playbackStatus","ready":true,"buffering":false,"mediaAvailable":true,"latencyMs":86,"syncDriftMs":-120}""",
+            )
+            val update = (incoming.receive() as Frame.Text).readText().asJson()
+            val member = update["participants"]!!.jsonArray.single().jsonObject
+            assertTrue(member["statusKnown"]!!.jsonPrimitive.boolean)
+            assertTrue(member["ready"]!!.jsonPrimitive.boolean)
+            assertEquals(86L, member["latencyMs"]?.jsonPrimitive?.long)
+            assertEquals(-120L, member["syncDriftMs"]?.jsonPrimitive?.long)
+        }
+    }
+
+    @Test
+    fun everyone_and_moderator_modes_allow_guest_control() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+        val roomCode = CompletableDeferred<String>()
+        val guestJoined = CompletableDeferred<Unit>()
+        val finished = CompletableDeferred<Unit>()
+        val testScope = CoroutineScope(currentCoroutineContext())
+
+        val host = testScope.launch {
+            socketClient.webSocket("/watch") {
+                send("""{"type":"hello","protocolVersion":3,"clientId":"host","mediaKey":"tmdb:34"}""")
+                val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
+                guestJoined.await()
+
+                send("""{"type":"setControlMode","controlMode":"everyone"}""")
+                var sawEveryoneSync = false
+                while (!sawEveryoneSync) {
+                    val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                    sawEveryoneSync = payload["type"]?.jsonPrimitive?.content == "sync" &&
+                        payload["positionMs"]?.jsonPrimitive?.long == 111L
+                }
+
+                send("""{"type":"setControlMode","controlMode":"moderators"}""")
+                send(
+                    """{"type":"setModerator","targetClientId":"guest","moderator":true}""",
+                )
+                var sawModeratorSync = false
+                while (!sawModeratorSync) {
+                    val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                    sawModeratorSync = payload["type"]?.jsonPrimitive?.content == "sync" &&
+                        payload["positionMs"]?.jsonPrimitive?.long == 222L
+                }
+                finished.complete(Unit)
+            }
+        }
+        val guest = testScope.launch {
+            socketClient.webSocket("/watch") {
+                send(
+                    """{"type":"hello","protocolVersion":3,"roomCode":"${roomCode.await()}","clientId":"guest"}""",
+                )
+                incoming.receive() // welcome
+                guestJoined.complete(Unit)
+                var sentEveryone = false
+                var sentModerator = false
+                while (!sentModerator) {
+                    val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                    if (payload["type"]?.jsonPrimitive?.content != "roomUpdate") continue
+                    val mode = payload["controlMode"]?.jsonPrimitive?.content
+                    val canControl = payload["canControl"]?.jsonPrimitive?.boolean == true
+                    if (mode == "everyone" && canControl && !sentEveryone) {
+                        sentEveryone = true
+                        send(
+                            """{"type":"sync","mediaKey":"tmdb:34","positionMs":111,"paused":false}""",
+                        )
+                    }
+                    if (mode == "moderators" && canControl && !sentModerator) {
+                        val self = payload["participants"]!!.jsonArray
+                            .map { it.jsonObject }
+                            .first { it["clientId"]?.jsonPrimitive?.content == "guest" }
+                        assertTrue(self["isModerator"]!!.jsonPrimitive.boolean)
+                        sentModerator = true
+                        send(
+                            """{"type":"sync","mediaKey":"tmdb:34","positionMs":222,"paused":false}""",
+                        )
+                    }
+                }
+                finished.await()
+            }
+        }
+
+        withTimeout(5_000L) { finished.await() }
+        host.cancelAndJoin()
+        guest.cancelAndJoin()
     }
 }
 
