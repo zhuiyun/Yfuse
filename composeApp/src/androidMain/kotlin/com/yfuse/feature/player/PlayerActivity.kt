@@ -1066,6 +1066,7 @@ private fun PlayerRoot(
 
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by watchTogetherPreferences.endpoint.collectAsState()
+    val watchChatPreview by watchTogetherPreferences.chatPreviewEnabled.collectAsState()
     val danmakuSources by danmakuPreferences.sources.collectAsState()
     val danmakuActiveSourceId by danmakuPreferences.activeSourceId.collectAsState()
     val danmakuBindings by danmakuPreferences.bindings.collectAsState()
@@ -1816,6 +1817,10 @@ private fun PlayerRoot(
                     roomCode = watchState.roomCode,
                     isHost = watchState.isHost,
                     participantCount = watchState.participantCount,
+                    participants = watchState.participants,
+                    chatMessages = watchState.chatMessages,
+                    chatError = watchState.chatError,
+                    chatPreviewEnabled = watchChatPreview,
                     error = watchState.error ?: watchState.syncWarning,
                     controlRequested = watchState.controlRequested,
                     controlRequesterName = watchState.controlRequest?.name,
@@ -1839,6 +1844,8 @@ private fun PlayerRoot(
                     onDenyControl = {
                         watchState.controlRequest?.let { watchTogether.denyControl(it.clientId) }
                     },
+                    onSendChat = watchTogether::sendChat,
+                    onClearChatError = watchTogether::clearChatError,
                 ),
             )
         }

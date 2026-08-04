@@ -51,9 +51,11 @@ private data class WireMessage(
     // hello / welcome / roomUpdate
     val clientId: String? = null,
     val name: String? = null,
+    val avatarId: Int? = null,
     val roomCode: String? = null,
     val isHost: Boolean? = null,
     val participantCount: Int? = null,
+    val participants: List<WireParticipant>? = null,
     // timeline snapshot — present on welcome / roomUpdate / sync
     val mediaKey: String? = null,
     val positionMs: Long? = null,
@@ -66,8 +68,31 @@ private data class WireMessage(
     val clientSentAtMs: Long? = null,
     // control handoff — who a grant/deny is aimed at
     val targetClientId: String? = null,
+    // room chat
+    val text: String? = null,
+    val chat: WireChatMessage? = null,
+    val chatHistory: List<WireChatMessage>? = null,
     // error
     val message: String? = null,
+    val errorCode: String? = null,
+)
+
+@Serializable
+private data class WireParticipant(
+    val clientId: String,
+    val name: String,
+    val avatarId: Int,
+    val isHost: Boolean,
+)
+
+@Serializable
+private data class WireChatMessage(
+    val id: Long,
+    val clientId: String,
+    val name: String,
+    val avatarId: Int,
+    val text: String,
+    val sentAtMs: Long,
 )
 
 /**
@@ -93,6 +118,7 @@ private data class Timeline(
 private class Participant(
     val id: String,
     val name: String,
+    val avatarId: Int,
     val session: WebSocketSession,
 )
 
@@ -107,6 +133,9 @@ private class Room(
     var hostId: String,
     var timeline: Timeline,
     val participants: LinkedHashMap<String, Participant> = linkedMapOf(),
+    /** Recent text only; discarded with the room and bounded independently of frame size. */
+    val chatHistory: ArrayDeque<WireChatMessage> = ArrayDeque(),
+    var nextChatId: Long = 0L,
     /** Null while occupied; set to the moment the last participant left. */
     var emptySinceMs: Long? = null,
     /**
@@ -158,6 +187,15 @@ private const val MAX_ROOMS = 500
 private const val MAX_PARTICIPANTS_PER_ROOM = 12
 private const val MAX_MESSAGES_PER_WINDOW = 240
 private const val RATE_WINDOW_MS = 10_000L
+private const val AVATAR_COUNT = 8
+private const val MAX_NAME_BYTES = 128
+private const val MAX_CHAT_GRAPHEMES = 30
+private const val MAX_CHAT_BYTES = 768
+private const val MAX_CHAT_HISTORY = 50
+private const val MAX_CHAT_MESSAGES_PER_WINDOW = 3
+private const val CHAT_RATE_WINDOW_MS = 3_000L
+private const val PROFILE_UPDATE_COOLDOWN_MS = 1_000L
+private val graphemeRegex = Regex("\\X")
 
 fun main() {
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
@@ -190,6 +228,8 @@ fun Application.watchTogetherModule(
             var joinedClientId: String? = null
             var windowStartedAtMs = System.currentTimeMillis()
             var messagesInWindow = 0
+            val recentChatAtMs = ArrayDeque<Long>()
+            var lastProfileUpdateAtMs = 0L
             try {
                 incoming.consumeEach { frame ->
                     if (frame !is Frame.Text) return@consumeEach
@@ -215,7 +255,8 @@ fun Application.watchTogetherModule(
                             if (joinedRoom != null) return@consumeEach
                             val clientId = message.clientId?.takeIf { it.isNotBlank() }
                                 ?: return@consumeEach sendError("缺少客户端标识")
-                            val name = message.name?.take(24).orEmpty().ifBlank { "访客" }
+                            val name = normalizeName(message.name)
+                            val avatarId = normalizeAvatarId(message.avatarId, clientId)
 
                             sweepExpiredRooms()
 
@@ -245,7 +286,12 @@ fun Application.watchTogetherModule(
                                     return@synchronized null
                                 }
                                 val stale = room.participants[clientId]?.session
-                                room.participants[clientId] = Participant(clientId, name, this)
+                                room.participants[clientId] = Participant(
+                                    clientId,
+                                    name,
+                                    avatarId,
+                                    this,
+                                )
                                 room.emptySinceMs = null
                                 if (clientId == room.hostId) {
                                     // The host is back inside its grace window; the slot was
@@ -355,6 +401,66 @@ fun Application.watchTogetherModule(
                                     session.sendMessage(WireMessage(type = "controlDenied"))
                                 }
                             }
+                        }
+
+                        "updateProfile" -> {
+                            val room = joinedRoom ?: return@consumeEach
+                            val clientId = joinedClientId ?: return@consumeEach
+                            val now = System.currentTimeMillis()
+                            if (now - lastProfileUpdateAtMs < PROFILE_UPDATE_COOLDOWN_MS) {
+                                return@consumeEach
+                            }
+                            lastProfileUpdateAtMs = now
+                            synchronized(room) {
+                                val current = room.participants[clientId] ?: return@synchronized
+                                room.participants[clientId] = Participant(
+                                    id = current.id,
+                                    name = normalizeName(message.name),
+                                    avatarId = normalizeAvatarId(message.avatarId, clientId),
+                                    session = current.session,
+                                )
+                            }
+                            broadcastRoomUpdate(room)
+                        }
+
+                        "chat" -> {
+                            val room = joinedRoom ?: return@consumeEach
+                            val clientId = joinedClientId ?: return@consumeEach
+                            val text = normalizeChat(message.text)
+                                ?: return@consumeEach sendError(
+                                    "消息为空、超过 30 字或内容过长",
+                                    "chat_invalid",
+                                )
+
+                            val now = System.currentTimeMillis()
+                            while (
+                                recentChatAtMs.isNotEmpty() &&
+                                now - recentChatAtMs.first() >= CHAT_RATE_WINDOW_MS
+                            ) {
+                                recentChatAtMs.removeFirst()
+                            }
+                            if (recentChatAtMs.size >= MAX_CHAT_MESSAGES_PER_WINDOW) {
+                                return@consumeEach sendError("发送太快了，请稍后再试", "chat_rate_limited")
+                            }
+                            recentChatAtMs.addLast(now)
+
+                            val chat = synchronized(room) {
+                                val sender = room.participants[clientId] ?: return@synchronized null
+                                WireChatMessage(
+                                    id = ++room.nextChatId,
+                                    clientId = clientId,
+                                    name = sender.name,
+                                    avatarId = sender.avatarId,
+                                    text = text,
+                                    sentAtMs = now,
+                                ).also { item ->
+                                    room.chatHistory.addLast(item)
+                                    while (room.chatHistory.size > MAX_CHAT_HISTORY) {
+                                        room.chatHistory.removeFirst()
+                                    }
+                                }
+                            } ?: return@consumeEach
+                            broadcastChat(room, chat)
                         }
 
                         "ping" -> {
@@ -481,6 +587,8 @@ private fun Room.welcomeMessage(clientId: String): WireMessage = synchronized(th
         roomCode = code,
         isHost = hostId == clientId,
         participantCount = participants.size,
+        participants = wireParticipants(),
+        chatHistory = chatHistory.toList(),
         mediaKey = timeline.mediaKey,
         positionMs = timeline.anchorPositionMs,
         paused = timeline.paused,
@@ -494,29 +602,100 @@ private suspend fun WebSocketSession.sendMessage(message: WireMessage) {
     send(json.encodeToString(WireMessage.serializer(), message.copy(serverAtMs = System.currentTimeMillis())))
 }
 
-private suspend fun WebSocketSession.sendError(message: String) {
-    sendMessage(WireMessage(type = "error", message = message))
+private suspend fun WebSocketSession.sendError(message: String, errorCode: String? = null) {
+    sendMessage(WireMessage(type = "error", message = message, errorCode = errorCode))
 }
 
 /** Membership or host changed; every member gets the current timeline too so a client that missed a `sync` can resync from this alone. */
 private suspend fun broadcastRoomUpdate(room: Room) {
-    val (members, timeline, hostId) = synchronized(room) {
-        Triple(room.participants.values.toList(), room.timeline, room.hostId)
+    val snapshot = synchronized(room) {
+        RoomBroadcastSnapshot(
+            members = room.participants.values.toList(),
+            participants = room.wireParticipants(),
+            timeline = room.timeline,
+            hostId = room.hostId,
+        )
     }
-    members.forEach { member ->
+    snapshot.members.forEach { member ->
         val payload = WireMessage(
             type = "roomUpdate",
             roomCode = room.code,
-            isHost = member.id == hostId,
-            participantCount = members.size,
-            mediaKey = timeline.mediaKey,
-            positionMs = timeline.anchorPositionMs,
-            paused = timeline.paused,
-            rate = timeline.rate,
-            seq = timeline.seq,
-            anchorAtMs = timeline.anchorAtServerMs,
+            isHost = member.id == snapshot.hostId,
+            participantCount = snapshot.members.size,
+            participants = snapshot.participants,
+            mediaKey = snapshot.timeline.mediaKey,
+            positionMs = snapshot.timeline.anchorPositionMs,
+            paused = snapshot.timeline.paused,
+            rate = snapshot.timeline.rate,
+            seq = snapshot.timeline.seq,
+            anchorAtMs = snapshot.timeline.anchorAtServerMs,
         )
         runCatching { member.session.sendMessage(payload) }
+    }
+}
+
+private data class RoomBroadcastSnapshot(
+    val members: List<Participant>,
+    val participants: List<WireParticipant>,
+    val timeline: Timeline,
+    val hostId: String,
+)
+
+private fun Room.wireParticipants(): List<WireParticipant> = participants.values.map { participant ->
+    WireParticipant(
+        clientId = participant.id,
+        name = participant.name,
+        avatarId = participant.avatarId,
+        isHost = participant.id == hostId,
+    )
+}
+
+private suspend fun broadcastChat(room: Room, chat: WireChatMessage) {
+    val members = synchronized(room) { room.participants.values.toList() }
+    members.forEach { member ->
+        runCatching { member.session.sendMessage(WireMessage(type = "chat", chat = chat)) }
+    }
+}
+
+private fun normalizeName(raw: String?): String = raw
+    .orEmpty()
+    .replace('\r', ' ')
+    .replace('\n', ' ')
+    .filterNot { it.code in 0x00..0x1F || it.code in 0x7F..0x9F }
+    .trim()
+    .takeGraphemes(24)
+    .takeGraphemesWithinUtf8Bytes(MAX_NAME_BYTES)
+    .ifBlank { "影友" }
+
+private fun normalizeAvatarId(raw: Int?, clientId: String): Int =
+    raw?.takeIf { it in 0 until AVATAR_COUNT }
+        ?: ((clientId.hashCode() and Int.MAX_VALUE) % AVATAR_COUNT)
+
+private fun normalizeChat(raw: String?): String? {
+    val text = raw
+        ?.replace('\r', ' ')
+        ?.replace('\n', ' ')
+        ?.filterNot { it.code in 0x00..0x1F || it.code in 0x7F..0x9F }
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: return null
+    if (text.toByteArray(Charsets.UTF_8).size > MAX_CHAT_BYTES) return null
+    if (graphemeRegex.findAll(text).count() > MAX_CHAT_GRAPHEMES) return null
+    return text
+}
+
+private fun String.takeGraphemes(limit: Int): String =
+    graphemeRegex.findAll(this).take(limit).joinToString(separator = "") { it.value }
+
+private fun String.takeGraphemesWithinUtf8Bytes(limit: Int): String {
+    var usedBytes = 0
+    return buildString {
+        for (match in graphemeRegex.findAll(this@takeGraphemesWithinUtf8Bytes)) {
+            val bytes = match.value.toByteArray(Charsets.UTF_8).size
+            if (usedBytes + bytes > limit) break
+            append(match.value)
+            usedBytes += bytes
+        }
     }
 }
 

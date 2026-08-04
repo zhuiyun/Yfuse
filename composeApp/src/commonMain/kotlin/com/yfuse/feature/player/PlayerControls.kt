@@ -54,6 +54,7 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.PlayerTokens
+import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
@@ -63,6 +64,7 @@ import kotlinx.coroutines.delay
 
 /** Controls fade out after this long without interaction, while playing. */
 private const val AUTO_HIDE_MS = 4_000L
+private const val CHAT_PREVIEW_MS = 4_000L
 
 /**
  * How long the volume slider stays up after the last press or drag.
@@ -172,6 +174,11 @@ internal fun PlayerControls(
     var settingsTab by remember { mutableStateOf<Tab?>(null) }
     var drawerOpen by remember { mutableStateOf(false) }
     var watchDialogOpen by remember { mutableStateOf(false) }
+    var watchChatOpen by remember { mutableStateOf(false) }
+    var chatPreviewVisible by remember { mutableStateOf(false) }
+    var previewRoomCode by remember { mutableStateOf<String?>(null) }
+    var lastPreviewedChatId by remember { mutableStateOf<Long?>(null) }
+    var lastReadChatId by remember { mutableStateOf<Long?>(null) }
     var danmakuSearchOpen by remember { mutableStateOf(false) }
     var danmakuSendOpen by remember { mutableStateOf(false) }
     var gestureHud by remember { mutableStateOf<String?>(null) }
@@ -201,6 +208,23 @@ internal fun PlayerControls(
         visible = true
     }
 
+    fun openWatchChat() {
+        settingsTab = null
+        drawerOpen = false
+        danmakuSearchOpen = false
+        danmakuSendOpen = false
+        watchDialogOpen = false
+        watchChatOpen = true
+        lastReadChatId = watch.chatMessages.lastOrNull()?.id
+        chatPreviewVisible = false
+        poke()
+    }
+
+    PlatformBackHandler(enabled = watchChatOpen) {
+        watchChatOpen = false
+        lastReadChatId = watch.chatMessages.lastOrNull()?.id
+    }
+
     LaunchedEffect(
         visible,
         locked,
@@ -208,10 +232,12 @@ internal fun PlayerControls(
         drawerOpen,
         danmakuSearchOpen,
         danmakuSendOpen,
+        watchChatOpen,
         state.playing,
         interactions,
     ) {
-        val overlayOpen = settingsTab != null || drawerOpen || danmakuSearchOpen || danmakuSendOpen
+        val overlayOpen = settingsTab != null || drawerOpen || danmakuSearchOpen ||
+            danmakuSendOpen || watchChatOpen
         if (!visible || !state.playing || overlayOpen) return@LaunchedEffect
         delay(AUTO_HIDE_MS)
         visible = false
@@ -220,6 +246,44 @@ internal fun PlayerControls(
         if (gestureHud != null) {
             delay(850)
             gestureHud = null
+        }
+    }
+    LaunchedEffect(
+        watch.roomCode,
+        watch.chatMessages.lastOrNull()?.id,
+        watchChatOpen,
+        watch.chatPreviewEnabled,
+    ) {
+        val latestId = watch.chatMessages.lastOrNull()?.id
+        if (previewRoomCode != watch.roomCode) {
+            previewRoomCode = watch.roomCode
+            lastPreviewedChatId = latestId
+            lastReadChatId = latestId
+            chatPreviewVisible = false
+            if (!watch.connected) watchChatOpen = false
+            return@LaunchedEffect
+        }
+        if (!watch.connected) {
+            watchChatOpen = false
+            chatPreviewVisible = false
+            return@LaunchedEffect
+        }
+        if (!watch.chatPreviewEnabled) {
+            lastPreviewedChatId = latestId
+            chatPreviewVisible = false
+            return@LaunchedEffect
+        }
+        if (watchChatOpen) {
+            lastReadChatId = latestId
+            lastPreviewedChatId = latestId
+            chatPreviewVisible = false
+            return@LaunchedEffect
+        }
+        if (latestId != null && latestId != lastPreviewedChatId) {
+            lastPreviewedChatId = latestId
+            chatPreviewVisible = true
+            delay(CHAT_PREVIEW_MS)
+            chatPreviewVisible = false
         }
     }
     // Runs for as long as the press is held; cancelled by the release setting the
@@ -283,6 +347,7 @@ internal fun PlayerControls(
                         },
                         onTap = {
                             when {
+                                watchChatOpen -> watchChatOpen = false
                                 danmakuSendOpen -> danmakuSendOpen = false
                                 danmakuSearchOpen -> danmakuSearchOpen = false
                                 settingsTab != null -> settingsTab = null
@@ -408,6 +473,11 @@ internal fun PlayerControls(
                 onBack = onBack,
                 onOpenDrawer = { poke(); drawerOpen = true },
                 onToggleFill = { poke(); onToggleFill() },
+                watchConnected = watch.connected,
+                unreadChat = watch.chatMessages.lastOrNull()?.id?.let { latest ->
+                    lastReadChatId?.let { latest > it } ?: true
+                } ?: false,
+                onOpenChat = ::openWatchChat,
                 modifier = Modifier.align(Alignment.TopCenter),
             )
 
@@ -524,6 +594,7 @@ internal fun PlayerControls(
                 roomCode = watch.roomCode,
                 isHost = watch.isHost,
                 participantCount = watch.participantCount,
+                participants = watch.participants,
                 error = watch.error,
                 controlRequested = watch.controlRequested,
                 onCreate = watchActions.onCreate,
@@ -540,6 +611,30 @@ internal fun PlayerControls(
         // Outside `watchDialogOpen` on purpose: a request arrives when the asker taps, not
         // when the host happens to have the room dialog open, and an unanswered one leaves
         // that person waiting on a prompt nobody ever sees.
+        if (watchChatOpen && watch.connected) {
+            WatchChatPanel(
+                participants = watch.participants,
+                messages = watch.chatMessages,
+                error = watch.chatError,
+                sendingEnabled = !watch.reconnecting,
+                onSend = watchActions.onSendChat,
+                onClearError = watchActions.onClearChatError,
+                onDismiss = {
+                    watchChatOpen = false
+                    lastReadChatId = watch.chatMessages.lastOrNull()?.id
+                },
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
+        } else if (chatPreviewVisible && watch.chatMessages.isNotEmpty()) {
+            WatchChatPreview(
+                messages = watch.chatMessages,
+                onOpen = ::openWatchChat,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = if (visible) 70.dp else 18.dp, end = 22.dp),
+            )
+        }
+
         watch.controlRequesterName?.let { requester ->
             ControlRequestDialog(
                 requesterName = requester,
@@ -599,9 +694,9 @@ internal fun PlayerControls(
         // in place, so a dropped socket reads as "catching up", not as the room vanishing.
         if (watch.connected && visible) {
             val roomNote = when {
-                watch.reconnecting -> "一起看 · 重连中…"
-                !watch.isHost -> "一起看 · 房主控制播放"
-                else -> "一起看 · 你是房主 · ${watch.participantCount} 人"
+                watch.reconnecting -> "一起看 · 重连中… · 聊天"
+                !watch.isHost -> "一起看 · 房主控制播放 · 聊天"
+                else -> "一起看 · 你是房主 · ${watch.participantCount} 人 · 聊天"
             }
             Text(
                 roomNote,
@@ -619,6 +714,7 @@ internal fun PlayerControls(
                         },
                         border = Color.White.copy(alpha = 0.24f),
                     )
+                    .noRippleClickable(::openWatchChat)
                     .padding(horizontal = 14.dp, vertical = 7.dp),
             )
         }
@@ -757,6 +853,9 @@ private fun TopBar(
     onBack: () -> Unit,
     onOpenDrawer: () -> Unit,
     onToggleFill: () -> Unit,
+    watchConnected: Boolean,
+    unreadChat: Boolean,
+    onOpenChat: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -813,6 +912,16 @@ private fun TopBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (watchConnected) {
+                CircleControl(
+                    AppIcons.Chat,
+                    if (unreadChat) "房间聊天，有新消息" else "房间聊天",
+                    30.dp,
+                    13.dp,
+                    filled = unreadChat,
+                    onClick = onOpenChat,
+                )
+            }
             if (hasEpisodes) {
                 CircleControl(AppIcons.Menu, "剧集列表", 30.dp, 13.dp, onClick = onOpenDrawer)
             }

@@ -149,6 +149,16 @@ object AppIcons {
         moveTo(13.5f, 14f); horizontalLineToRelative(3.5f)
     }.build()
 
+    /** Room chat — distinct from the lined 弹幕 bubble. */
+    val Chat = strokeVector("chat", cap = StrokeCap.Round, join = StrokeJoin.Round) {
+        roundRect(3f, 4f, 18f, 14f, 3f)
+        moveTo(8f, 18f); lineTo(6f, 21f); lineTo(12f, 18f)
+    }.andPath(width = 2.2f, cap = StrokeCap.Round) {
+        moveTo(8f, 11f); lineToRelative(0.01f, 0f)
+        moveTo(12f, 11f); lineToRelative(0.01f, 0f)
+        moveTo(16f, 11f); lineToRelative(0.01f, 0f)
+    }.build()
+
     val Volume = strokeVector("volume", join = StrokeJoin.Round) {
         // M4 10v4h4l5 4V6L8 10H4z
         moveTo(4f, 10f); verticalLineToRelative(4f); horizontalLineToRelative(4f)

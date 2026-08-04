@@ -25,6 +25,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -375,6 +376,114 @@ class WatchTogetherServerTest {
         assertTrue(withTimeout(5_000L) { rejected.await() })
         host.cancelAndJoin()
         guest.cancelAndJoin()
+    }
+
+    @Test
+    fun chat_uses_the_joined_profile_and_replays_history_to_new_members() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+        val roomCode = CompletableDeferred<String>()
+        val chatSent = CompletableDeferred<Unit>()
+        val historyChecked = CompletableDeferred<Boolean>()
+        val testScope = CoroutineScope(currentCoroutineContext())
+
+        val host = testScope.launch {
+            socketClient.webSocket("/watch") {
+                send(
+                    """{"type":"hello","clientId":"host","name":"小影迷 🎬","avatarId":3,"mediaKey":"tmdb:21"}""",
+                )
+                val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
+                val member = welcome["participants"]!!.jsonArray.single().jsonObject
+                assertEquals("小影迷 🎬", member["name"]?.jsonPrimitive?.content)
+                assertEquals(3, member["avatarId"]?.jsonPrimitive?.int)
+
+                send("""{"type":"chat","text":"今晚一起看 🍿👍🏽","name":"伪造昵称","avatarId":7}""")
+                while (true) {
+                    val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                    if (payload["type"]?.jsonPrimitive?.content == "chat") {
+                        val chat = payload["chat"]!!.jsonObject
+                        assertEquals("小影迷 🎬", chat["name"]?.jsonPrimitive?.content)
+                        assertEquals(3, chat["avatarId"]?.jsonPrimitive?.int)
+                        assertEquals("今晚一起看 🍿👍🏽", chat["text"]?.jsonPrimitive?.content)
+                        chatSent.complete(Unit)
+                        break
+                    }
+                }
+                historyChecked.await()
+            }
+        }
+
+        val guest = testScope.launch {
+            val code = roomCode.await()
+            chatSent.await()
+            socketClient.webSocket("/watch") {
+                send("""{"type":"hello","roomCode":"$code","clientId":"guest","name":"访客","avatarId":1}""")
+                val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                val history = welcome["chatHistory"]!!.jsonArray
+                assertEquals(1, history.size)
+                assertEquals(
+                    "今晚一起看 🍿👍🏽",
+                    history.single().jsonObject["text"]?.jsonPrimitive?.content,
+                )
+                assertEquals(2, welcome["participants"]?.jsonArray?.size)
+                historyChecked.complete(true)
+            }
+        }
+
+        assertTrue(withTimeout(5_000L) { historyChecked.await() })
+        host.cancelAndJoin()
+        guest.cancelAndJoin()
+    }
+
+    @Test
+    fun chat_enforces_grapheme_length_and_its_own_rate_limit() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+
+        socketClient.webSocket("/watch") {
+            send("""{"type":"hello","clientId":"host","mediaKey":"tmdb:22"}""")
+            incoming.receive() // welcome
+            incoming.receive() // own roomUpdate
+
+            send("""{"type":"chat","text":"${"😀".repeat(31)}"}""")
+            val invalid = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("chat_invalid", invalid["errorCode"]?.jsonPrimitive?.content)
+
+            repeat(4) { send("""{"type":"chat","text":"消息$it 😀"}""") }
+            var chats = 0
+            var rateLimited = false
+            while (!rateLimited) {
+                val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                when (payload["type"]?.jsonPrimitive?.content) {
+                    "chat" -> chats++
+                    "error" -> rateLimited =
+                        payload["errorCode"]?.jsonPrimitive?.content == "chat_rate_limited"
+                }
+            }
+            assertEquals(3, chats)
+            assertTrue(rateLimited)
+        }
+    }
+
+    @Test
+    fun profile_updates_are_broadcast_as_room_membership() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+
+        socketClient.webSocket("/watch") {
+            send("""{"type":"hello","clientId":"host","name":"旧昵称","avatarId":0,"mediaKey":"tmdb:23"}""")
+            incoming.receive() // welcome
+            incoming.receive() // own roomUpdate
+            send("""{"type":"updateProfile","name":"新昵称 🐼","avatarId":5}""")
+
+            val update = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("roomUpdate", update["type"]?.jsonPrimitive?.content)
+            val member = update["participants"]!!.jsonArray.single().jsonObject
+            assertEquals("新昵称 🐼", member["name"]?.jsonPrimitive?.content)
+            assertEquals(5, member["avatarId"]?.jsonPrimitive?.int)
+            assertTrue(member["isHost"]!!.jsonPrimitive.boolean)
+        }
     }
 }
 
