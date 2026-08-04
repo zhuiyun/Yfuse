@@ -16,7 +16,9 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -61,6 +63,7 @@ class ExoVideoEngine(
     autoNext: Boolean,
     quality: PlaybackQuality,
     customUserAgent: String,
+    videoCacheBytes: Long,
 ) : VideoEngine {
 
     private val _state = MutableStateFlow(
@@ -77,6 +80,7 @@ class ExoVideoEngine(
 
     private val transcodedIndices = mutableSetOf<Int>()
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
+    private val cacheHandle = VideoCachePool.acquire(context.applicationContext, videoCacheBytes)
 
     val player: ExoPlayer = run {
         // Emby 302-redirects stream requests to a CDN, often http -> https,
@@ -107,8 +111,29 @@ class ExoVideoEngine(
             .setMediaCodecSelector(selector)
             .setEnableDecoderFallback(decoderMode != DecoderMode.Hardware)
 
+        val upstream = DefaultDataSource.Factory(context, httpFactory)
+        val dataSourceFactory = cacheHandle?.let { handle ->
+            CacheDataSource.Factory()
+                .setCache(handle.cache)
+                .setUpstreamDataSourceFactory(upstream)
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        } ?: upstream
+        val loadControl = DefaultLoadControl.Builder()
+            // Keep enough media ahead to ride through ordinary Wi-Fi/reverse-proxy jitter.
+            // Time wins over the default byte target so high-bitrate remuxes are not starved.
+            .setBufferDurationsMs(
+                30_000,
+                120_000,
+                1_500,
+                3_500,
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(15_000, true)
+            .build()
+
         ExoPlayer.Builder(context, renderersFactory)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, httpFactory)))
+            .setLoadControl(loadControl)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             // Declare what this output is, so the system routes and mixes it as a film
             // rather than as the unspecified default. Focus itself is claimed once for the
             // whole player (see PlayerActivity) because the other two engines can't ask
@@ -391,6 +416,7 @@ class ExoVideoEngine(
         player.removeListener(listener)
         player.removeAnalyticsListener(analyticsListener)
         player.release()
+        cacheHandle?.close()
     }
 
     /**

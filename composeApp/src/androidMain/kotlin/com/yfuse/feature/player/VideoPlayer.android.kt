@@ -18,6 +18,7 @@ actual fun PlayerLauncher(
     val context = LocalContext.current
     LaunchedEffect(items, startIndex) {
         if (items.isEmpty()) return@LaunchedEffect
+        PlaybackSelection.update(items.getOrNull(startIndex))
         val preferencesResult = runCatching {
             GlobalContext.get().get<ThemePreferences>()
         }.onFailure {
@@ -42,7 +43,10 @@ actual fun PlayerLauncher(
                     // Quality switching is intentionally disabled: these servers
                     // cannot sustain per-session resolution transcoding.
                     quality = com.yfuse.core.model.PlaybackQuality.Auto,
-                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                ).addFlags(
+                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                        android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK,
+                ),
             )
         }.onSuccess {
             AppLog.info(
