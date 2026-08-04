@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
@@ -58,8 +59,10 @@ internal fun WatchChatPanel(
     messages: List<WatchChatMessage>,
     error: String?,
     sendingEnabled: Boolean,
+    danmakuEnabled: Boolean,
     onSend: (String) -> Unit,
     onClearError: () -> Unit,
+    onToggleDanmaku: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -104,12 +107,34 @@ internal fun WatchChatPanel(
                     color = Color.White.copy(alpha = 0.48f),
                 )
             }
-            Icon(
-                AppIcons.Close,
-                contentDescription = "关闭聊天",
-                tint = Color.White.copy(alpha = 0.55f),
-                modifier = Modifier.size(13.dp).noRippleClickable(onDismiss),
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (danmakuEnabled) "弹幕开" else "弹幕关",
+                    style = sc(9.5f, 650),
+                    color = if (danmakuEnabled) Color.White else Color.White.copy(alpha = 0.48f),
+                    modifier = Modifier
+                        .pressable(onClick = onToggleDanmaku)
+                        .glass(
+                            RoundedCornerShape(10.dp),
+                            if (danmakuEnabled) {
+                                Brand.Primary.copy(alpha = 0.45f)
+                            } else {
+                                Color.White.copy(alpha = 0.08f)
+                            },
+                            Color.White.copy(alpha = 0.16f),
+                        )
+                        .padding(horizontal = 9.dp, vertical = 6.dp),
+                )
+                Icon(
+                    AppIcons.Close,
+                    contentDescription = "关闭聊天",
+                    tint = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.size(13.dp).noRippleClickable(onDismiss),
+                )
+            }
         }
 
         if (participants.isNotEmpty()) {

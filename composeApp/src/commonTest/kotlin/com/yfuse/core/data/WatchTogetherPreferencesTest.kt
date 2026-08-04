@@ -18,8 +18,11 @@ class WatchTogetherPreferencesTest {
         assertEquals("小影迷 👨‍👩‍👧‍👦", restored.nickname.value)
         assertEquals(5, restored.avatarId.value)
         assertEquals(true, restored.chatPreviewEnabled.value)
+        assertEquals(true, restored.chatDanmakuEnabled.value)
         restored.setChatPreviewEnabled(false)
+        restored.setChatDanmakuEnabled(false)
         assertEquals(false, WatchTogetherPreferences(settings).chatPreviewEnabled.value)
+        assertEquals(false, WatchTogetherPreferences(settings).chatDanmakuEnabled.value)
     }
 
     @Test

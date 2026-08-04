@@ -31,6 +31,7 @@ data class WatchRoomState(
     val chatMessages: List<WatchChatMessage> = emptyList(),
     val chatError: String? = null,
     val chatPreviewEnabled: Boolean = true,
+    val chatDanmakuEnabled: Boolean = true,
     val error: String? = null,
     /** This device has asked the host for control and hasn't been answered yet. */
     val controlRequested: Boolean = false,
@@ -56,6 +57,7 @@ data class WatchRoomActions(
     val onDenyControl: () -> Unit = {},
     val onSendChat: (String) -> Unit = {},
     val onClearChatError: () -> Unit = {},
+    val onToggleChatDanmaku: () -> Unit = {},
 )
 
 /**

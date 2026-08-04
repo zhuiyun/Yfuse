@@ -321,6 +321,14 @@ internal fun PlayerControls(
     }
 
     Box(modifier.fillMaxSize()) {
+        if (watch.connected) {
+            WatchChatDanmakuOverlay(
+                roomCode = watch.roomCode,
+                messages = watch.chatMessages,
+                enabled = watch.chatDanmakuEnabled && !watchChatOpen,
+            )
+        }
+
         // Tap catcher sits below the controls, so buttons win the gesture.
         Box(
             Modifier
@@ -617,8 +625,10 @@ internal fun PlayerControls(
                 messages = watch.chatMessages,
                 error = watch.chatError,
                 sendingEnabled = !watch.reconnecting,
+                danmakuEnabled = watch.chatDanmakuEnabled,
                 onSend = watchActions.onSendChat,
                 onClearError = watchActions.onClearChatError,
+                onToggleDanmaku = watchActions.onToggleChatDanmaku,
                 onDismiss = {
                     watchChatOpen = false
                     lastReadChatId = watch.chatMessages.lastOrNull()?.id

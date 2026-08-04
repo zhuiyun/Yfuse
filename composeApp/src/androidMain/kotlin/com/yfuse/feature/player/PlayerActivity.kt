@@ -1067,6 +1067,7 @@ private fun PlayerRoot(
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by watchTogetherPreferences.endpoint.collectAsState()
     val watchChatPreview by watchTogetherPreferences.chatPreviewEnabled.collectAsState()
+    val watchChatDanmaku by watchTogetherPreferences.chatDanmakuEnabled.collectAsState()
     val danmakuSources by danmakuPreferences.sources.collectAsState()
     val danmakuActiveSourceId by danmakuPreferences.activeSourceId.collectAsState()
     val danmakuBindings by danmakuPreferences.bindings.collectAsState()
@@ -1821,6 +1822,7 @@ private fun PlayerRoot(
                     chatMessages = watchState.chatMessages,
                     chatError = watchState.chatError,
                     chatPreviewEnabled = watchChatPreview,
+                    chatDanmakuEnabled = watchChatDanmaku,
                     error = watchState.error ?: watchState.syncWarning,
                     controlRequested = watchState.controlRequested,
                     controlRequesterName = watchState.controlRequest?.name,
@@ -1846,6 +1848,9 @@ private fun PlayerRoot(
                     },
                     onSendChat = watchTogether::sendChat,
                     onClearChatError = watchTogether::clearChatError,
+                    onToggleChatDanmaku = {
+                        watchTogetherPreferences.setChatDanmakuEnabled(!watchChatDanmaku)
+                    },
                 ),
             )
         }

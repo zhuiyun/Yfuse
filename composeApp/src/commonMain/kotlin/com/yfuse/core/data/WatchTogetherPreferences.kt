@@ -16,6 +16,7 @@ class WatchTogetherPreferences(private val settings: Settings) {
         private const val NICKNAME_KEY = "watchTogether.nickname"
         private const val AVATAR_ID_KEY = "watchTogether.avatarId"
         private const val CHAT_PREVIEW_KEY = "watchTogether.chatPreview"
+        private const val CHAT_DANMAKU_KEY = "watchTogether.chatDanmaku"
 
         /**
          * Public so invite links can omit the relay when it's this one — a shared link only
@@ -51,6 +52,9 @@ class WatchTogetherPreferences(private val settings: Settings) {
     private val _chatPreviewEnabled = MutableStateFlow(settings.getBoolean(CHAT_PREVIEW_KEY, true))
     val chatPreviewEnabled: StateFlow<Boolean> = _chatPreviewEnabled.asStateFlow()
 
+    private val _chatDanmakuEnabled = MutableStateFlow(settings.getBoolean(CHAT_DANMAKU_KEY, true))
+    val chatDanmakuEnabled: StateFlow<Boolean> = _chatDanmakuEnabled.asStateFlow()
+
     fun setEndpoint(value: String) {
         val normalized = value.trim().trimEnd('/')
         _endpoint.value = normalized
@@ -70,6 +74,11 @@ class WatchTogetherPreferences(private val settings: Settings) {
     fun setChatPreviewEnabled(enabled: Boolean) {
         _chatPreviewEnabled.value = enabled
         settings.putBoolean(CHAT_PREVIEW_KEY, enabled)
+    }
+
+    fun setChatDanmakuEnabled(enabled: Boolean) {
+        _chatDanmakuEnabled.value = enabled
+        settings.putBoolean(CHAT_DANMAKU_KEY, enabled)
     }
 
     private fun String.normalizedWatchNickname(): String = replace('\r', ' ')

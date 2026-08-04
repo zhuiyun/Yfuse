@@ -105,6 +105,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val watchNickname by component.watchTogetherPreferences.nickname.collectAsState()
     val watchAvatarId by component.watchTogetherPreferences.avatarId.collectAsState()
     val watchChatPreview by component.watchTogetherPreferences.chatPreviewEnabled.collectAsState()
+    val watchChatDanmaku by component.watchTogetherPreferences.chatDanmakuEnabled.collectAsState()
     val danmakuSources by component.danmakuPreferences.sources.collectAsState()
     val danmakuActiveSourceId by component.danmakuPreferences.activeSourceId.collectAsState()
     val danmakuBlocked by component.danmakuPreferences.blockedWords.collectAsState()
@@ -340,6 +341,12 @@ fun ProfileScreen(component: ProfileComponent) {
                                 embedded = true,
                                 onClick = { sheet = Sheet.WatchProfile },
                             )
+                            SettingsDivider()
+                            SwitchRow(
+                                "聊天弹幕",
+                                watchChatDanmaku,
+                                embedded = true,
+                            ) { component.watchTogetherPreferences.setChatDanmakuEnabled(it) }
                             SettingsDivider()
                             SwitchRow(
                                 "聊天消息浮层",
