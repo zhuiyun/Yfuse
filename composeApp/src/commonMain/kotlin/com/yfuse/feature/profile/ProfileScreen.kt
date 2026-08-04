@@ -84,6 +84,7 @@ private enum class Sheet {
     SkipSegments,
     UserAgent,
     WatchTogether,
+    WatchProfile,
     WatchEndpoint,
 }
 
@@ -101,6 +102,10 @@ fun ProfileScreen(component: ProfileComponent) {
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
+    val watchNickname by component.watchTogetherPreferences.nickname.collectAsState()
+    val watchAvatarId by component.watchTogetherPreferences.avatarId.collectAsState()
+    val watchChatPreview by component.watchTogetherPreferences.chatPreviewEnabled.collectAsState()
+    val watchChatDanmaku by component.watchTogetherPreferences.chatDanmakuEnabled.collectAsState()
     val danmakuSources by component.danmakuPreferences.sources.collectAsState()
     val danmakuActiveSourceId by component.danmakuPreferences.activeSourceId.collectAsState()
     val danmakuBlocked by component.danmakuPreferences.blockedWords.collectAsState()
@@ -331,6 +336,25 @@ fun ProfileScreen(component: ProfileComponent) {
                             )
                             SettingsDivider()
                             SettingRow(
+                                "一起看资料",
+                                "$watchNickname ›",
+                                embedded = true,
+                                onClick = { sheet = Sheet.WatchProfile },
+                            )
+                            SettingsDivider()
+                            SwitchRow(
+                                "聊天弹幕",
+                                watchChatDanmaku,
+                                embedded = true,
+                            ) { component.watchTogetherPreferences.setChatDanmakuEnabled(it) }
+                            SettingsDivider()
+                            SwitchRow(
+                                "聊天消息浮层",
+                                watchChatPreview,
+                                embedded = true,
+                            ) { component.watchTogetherPreferences.setChatPreviewEnabled(it) }
+                            SettingsDivider()
+                            SettingRow(
                                 "一起看服务器",
                                 if (watchEndpoint.trimEnd('/') ==
                                     WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
@@ -522,6 +546,20 @@ fun ProfileScreen(component: ProfileComponent) {
                 onReset = {
                     component.watchTogetherPreferences.setEndpoint(
                         WatchTogetherPreferences.DEFAULT_ENDPOINT,
+                    )
+                    sheet = null
+                },
+                onDismiss = { sheet = null },
+            )
+
+            Sheet.WatchProfile -> WatchProfileDialog(
+                currentName = watchNickname,
+                currentAvatarId = watchAvatarId,
+                onSave = { name, avatarId ->
+                    component.watchTogetherPreferences.setProfile(name, avatarId)
+                    watchTogether.updateProfile(
+                        component.watchTogetherPreferences.nickname.value,
+                        component.watchTogetherPreferences.avatarId.value,
                     )
                     sheet = null
                 },

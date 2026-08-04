@@ -41,11 +41,16 @@ import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.Palette
+import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.core.util.graphemeCount
+import com.yfuse.core.util.takeGraphemes
+import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
+import com.yfuse.core.util.withoutControlCharacters
 
 /**
  * 我的 — the option sheets.
@@ -886,6 +891,110 @@ internal fun WatchEndpointDialog(
                 modifier = Modifier.weight(1f),
                 tone = OverlayButtonTone.Primary,
                 enabled = valid,
+            )
+        }
+    }
+}
+
+/** Device-local identity shown only inside watch-together rooms. */
+@Composable
+internal fun WatchProfileDialog(
+    currentName: String,
+    currentAvatarId: Int,
+    onSave: (String, Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by remember(currentName) { mutableStateOf(currentName) }
+    var selectedAvatar by remember(currentAvatarId) { mutableStateOf(currentAvatarId) }
+    val normalized = draft.replace('\r', ' ').replace('\n', ' ').trim()
+    val palette = LocalPalette.current
+
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "一起看资料",
+            subtitle = "昵称和头像只会显示给同一房间的成员，并保存在当前设备。",
+            onClose = onDismiss,
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            WatchAvatar(selectedAvatar, 48.dp)
+            Column(
+                Modifier
+                    .weight(1f)
+                    .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+            ) {
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (draft.isBlank()) {
+                        Text(
+                            WatchTogetherPreferences.DEFAULT_NICKNAME,
+                            style = mr(12f, 500),
+                            color = palette.hint,
+                        )
+                    }
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = { value ->
+                            draft = value.replace('\r', ' ')
+                                .replace('\n', ' ')
+                                .withoutControlCharacters()
+                                .takeGraphemes(WatchTogetherPreferences.MAX_NICKNAME_GRAPHEMES)
+                                .takeGraphemesWithinUtf8Bytes(
+                                    WatchTogetherPreferences.MAX_NICKNAME_BYTES,
+                                )
+                        },
+                        singleLine = true,
+                        textStyle = mr(12f, 500).copy(color = palette.text),
+                        cursorBrush = SolidColor(Brand.Primary),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Text(
+                    "${draft.graphemeCount()}/${WatchTogetherPreferences.MAX_NICKNAME_GRAPHEMES}",
+                    style = mr(9f, 500),
+                    color = palette.hint,
+                    modifier = Modifier.align(Alignment.End),
+                )
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+        Text("选择头像", style = sc(11f, 700), color = palette.sub2)
+        Column(
+            Modifier.fillMaxWidth().padding(top = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            (0 until WatchTogetherPreferences.AVATAR_COUNT).chunked(4).forEach { row ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    row.forEach { avatarId ->
+                        WatchAvatar(
+                            avatarId = avatarId,
+                            size = 42.dp,
+                            selected = avatarId == selectedAvatar,
+                            modifier = Modifier.pressable { selectedAvatar = avatarId },
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            OverlayButton("取消", onDismiss, Modifier.weight(1f))
+            OverlayButton(
+                label = "保存",
+                onClick = { onSave(normalized, selectedAvatar) },
+                modifier = Modifier.weight(1f),
+                tone = OverlayButtonTone.Primary,
+                enabled = normalized.isNotEmpty(),
             )
         }
     }

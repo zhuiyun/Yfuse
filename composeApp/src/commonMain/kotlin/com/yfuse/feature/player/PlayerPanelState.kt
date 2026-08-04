@@ -1,6 +1,8 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.data.SkipMode
+import com.yfuse.core.sync.WatchChatMessage
+import com.yfuse.core.sync.WatchParticipant
 
 /**
  * The 一起看 room, as the player chrome sees it.
@@ -25,6 +27,11 @@ data class WatchRoomState(
     val roomCode: String? = null,
     val isHost: Boolean = false,
     val participantCount: Int = 0,
+    val participants: List<WatchParticipant> = emptyList(),
+    val chatMessages: List<WatchChatMessage> = emptyList(),
+    val chatError: String? = null,
+    val chatPreviewEnabled: Boolean = true,
+    val chatDanmakuEnabled: Boolean = true,
     val error: String? = null,
     /** This device has asked the host for control and hasn't been answered yet. */
     val controlRequested: Boolean = false,
@@ -48,6 +55,9 @@ data class WatchRoomActions(
     val onRequestControl: () -> Unit = {},
     val onGrantControl: () -> Unit = {},
     val onDenyControl: () -> Unit = {},
+    val onSendChat: (String) -> Unit = {},
+    val onClearChatError: () -> Unit = {},
+    val onToggleChatDanmaku: () -> Unit = {},
 )
 
 /**

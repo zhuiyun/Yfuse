@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -22,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
@@ -29,10 +33,12 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.core.sync.WatchParticipant
 
 /**
  * In-player watch-together control. Since the entry points moved to where people actually
@@ -52,6 +58,7 @@ internal fun WatchTogetherDialog(
     roomCode: String?,
     isHost: Boolean,
     participantCount: Int,
+    participants: List<WatchParticipant>,
     error: String?,
     controlRequested: Boolean,
     onCreate: (String) -> Unit,
@@ -96,6 +103,36 @@ internal fun WatchTogetherDialog(
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                 )
+            }
+            if (participants.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    participants.forEach { participant ->
+                        Column(
+                            Modifier.width(58.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            WatchAvatar(participant.avatarId, 32.dp)
+                            Text(
+                                when {
+                                    participant.isSelf -> "我"
+                                    participant.isHost -> "${participant.name} · 房主"
+                                    else -> participant.name
+                                },
+                                style = mr(8.5f, 500),
+                                color = palette.sub2,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
             error?.let {
                 Spacer(Modifier.height(8.dp))
