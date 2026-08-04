@@ -435,6 +435,8 @@ private fun VersionCard(
 @Composable
 internal fun SourceSection(
     sources: List<ServerSource>,
+    selectedServerId: String?,
+    selectedItemId: String?,
     accent: Color,
     onSelect: (serverId: String, itemId: String) -> Unit,
     onSeeAll: () -> Unit,
@@ -490,6 +492,8 @@ internal fun SourceSection(
                 ) { _, entry ->
                     SourceCard(
                         entry = entry,
+                        selected = entry.serverId == selectedServerId &&
+                            entry.itemId == selectedItemId,
                         accent = accent,
                         best = entry.serverId == bestServerId,
                         width = cardWidth,
@@ -504,13 +508,13 @@ internal fun SourceSection(
 @Composable
 private fun SourceCard(
     entry: ServerSource,
+    selected: Boolean,
     accent: Color,
     best: Boolean,
     width: Dp,
     onSelect: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val selected = entry.isCurrent
     val source = entry.source
     // 1.5dp on the selected ring, so switching sources moves the edge as well as the
     // colour. The body keeps its glass-card sheen; the edge itself is always one solid

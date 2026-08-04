@@ -30,6 +30,10 @@ data class DetailState(
      * which is also what a library with a single file always resolves to.
      */
     val selectedVersionId: String? = null,
+    /** Resource and episode cards select on first tap and play only when tapped again. */
+    val selectedSourceServerId: String? = null,
+    val selectedSourceItemId: String? = null,
+    val selectedEpisodeId: String? = null,
     /**
      * The 音轨 / 字幕 to open with, as languages.
      *
@@ -70,7 +74,7 @@ sealed interface DetailIntent {
     data object AddToWatchLater : DetailIntent
     /** 从头播放 — the same target as [Play], with the stored progress ignored. */
     data object PlayFromStart : DetailIntent
-    data class PlaySource(val serverId: String, val itemId: String) : DetailIntent
+    data class SelectSource(val serverId: String, val itemId: String) : DetailIntent
     /** Picks one of the several files the server holds for this title. */
     data class SelectVersion(val versionId: String) : DetailIntent
     data class SelectSeason(val seasonId: String) : DetailIntent
@@ -78,7 +82,13 @@ sealed interface DetailIntent {
     data class SelectAudioLanguage(val language: String?) : DetailIntent
     /** `PlaybackTrackRequest.SUBTITLES_OFF` starts with subtitles off. */
     data class SelectSubtitleLanguage(val language: String?) : DetailIntent
-    data class PlayEpisode(val episodeId: String, val startPositionTicks: Long) : DetailIntent
+    data class SelectEpisode(val episodeId: String, val startPositionTicks: Long) : DetailIntent
+    /** Mirrors episode/resource/version changes made inside the dedicated player. */
+    data class SyncPlaybackSelection(
+        val serverId: String?,
+        val itemId: String?,
+        val versionId: String?,
+    ) : DetailIntent
 }
 
 sealed interface DetailLabel {
@@ -100,6 +110,8 @@ private sealed interface DetailMsg {
     data class Failed(val message: String) : DetailMsg
     data class Resolving(val value: Boolean) : DetailMsg
     data class VersionSelected(val versionId: String) : DetailMsg
+    data class SourceSelected(val serverId: String, val itemId: String) : DetailMsg
+    data class EpisodeSelected(val itemId: String) : DetailMsg
     data class SeasonsLoaded(val seasons: List<Season>, val selected: String?) : DetailMsg
     data object EpisodesLoading : DetailMsg
     data class EpisodesLoaded(val episodes: List<Episode>) : DetailMsg
@@ -142,8 +154,17 @@ class DetailStoreFactory(
                 DetailIntent.ToggleFavorite -> toggleFavorite()
                 DetailIntent.TogglePlayed -> togglePlayed()
                 DetailIntent.AddToWatchLater -> addToWatchLater()
-                is DetailIntent.PlaySource ->
-                    publish(DetailLabel.Play(intent.serverId, intent.itemId, 0L))
+                is DetailIntent.SelectSource -> {
+                    val current = state()
+                    if (
+                        current.selectedSourceServerId == intent.serverId &&
+                        current.selectedSourceItemId == intent.itemId
+                    ) {
+                        publish(DetailLabel.Play(intent.serverId, intent.itemId, 0L))
+                    } else {
+                        dispatch(DetailMsg.SourceSelected(intent.serverId, intent.itemId))
+                    }
+                }
                 is DetailIntent.SelectVersion ->
                     dispatch(DetailMsg.VersionSelected(intent.versionId))
                 is DetailIntent.SelectSeason -> selectSeason(intent.seasonId)
@@ -151,15 +172,39 @@ class DetailStoreFactory(
                     dispatch(DetailMsg.AudioLanguageSelected(intent.language))
                 is DetailIntent.SelectSubtitleLanguage ->
                     dispatch(DetailMsg.SubtitleLanguageSelected(intent.language))
-                is DetailIntent.PlayEpisode -> {
+                is DetailIntent.SelectEpisode -> {
                     val server = state().server ?: return
-                    publish(
-                        DetailLabel.Play(
-                            server.id,
-                            intent.episodeId,
-                            intent.startPositionTicks,
-                        ),
-                    )
+                    if (state().selectedEpisodeId == intent.episodeId) {
+                        publish(
+                            DetailLabel.Play(
+                                server.id,
+                                intent.episodeId,
+                                intent.startPositionTicks,
+                            ),
+                        )
+                    } else {
+                        dispatch(DetailMsg.EpisodeSelected(intent.episodeId))
+                    }
+                }
+                is DetailIntent.SyncPlaybackSelection -> {
+                    val current = state()
+                    val itemId = intent.itemId
+                    if (itemId != null) {
+                        current.sources.firstOrNull {
+                            it.serverId == intent.serverId && it.itemId == itemId
+                        }?.let { dispatch(DetailMsg.SourceSelected(it.serverId, itemId)) }
+                        if (current.episodes.any { it.id == itemId }) {
+                            dispatch(DetailMsg.EpisodeSelected(itemId))
+                        }
+                        val detail = current.detail
+                        if (
+                            detail?.id == itemId &&
+                            current.server?.id == intent.serverId &&
+                            detail.versions.any { it.id == intent.versionId }
+                        ) {
+                            dispatch(DetailMsg.VersionSelected(requireNotNull(intent.versionId)))
+                        }
+                    }
                 }
             }
         }
@@ -424,14 +469,31 @@ class DetailStoreFactory(
     private object ReducerImpl : Reducer<DetailState, DetailMsg> {
         override fun DetailState.reduce(msg: DetailMsg): DetailState = when (msg) {
             DetailMsg.Loading -> copy(loading = true, error = null)
-            is DetailMsg.Loaded -> copy(loading = false, detail = msg.detail, server = msg.server)
+            is DetailMsg.Loaded -> copy(
+                loading = false,
+                detail = msg.detail,
+                server = msg.server,
+                selectedVersionId = msg.detail.versions.firstOrNull()?.id,
+            )
             is DetailMsg.Failed -> copy(loading = false, resolvingPlay = false, error = msg.message)
             is DetailMsg.Resolving -> copy(resolvingPlay = msg.value)
             is DetailMsg.VersionSelected -> copy(selectedVersionId = msg.versionId)
+            is DetailMsg.SourceSelected -> copy(
+                selectedSourceServerId = msg.serverId,
+                selectedSourceItemId = msg.itemId,
+            )
+            is DetailMsg.EpisodeSelected -> copy(selectedEpisodeId = msg.itemId)
             is DetailMsg.SeasonsLoaded -> copy(seasons = msg.seasons, selectedSeasonId = msg.selected)
             DetailMsg.EpisodesLoading -> copy(episodesLoading = true)
             is DetailMsg.EpisodesLoaded -> copy(episodesLoading = false, episodes = msg.episodes)
-            is DetailMsg.SourcesLoaded -> copy(sources = msg.sources)
+            is DetailMsg.SourcesLoaded -> {
+                val selected = msg.sources.firstOrNull { it.isCurrent && it.itemId != null }
+                copy(
+                    sources = msg.sources,
+                    selectedSourceServerId = selectedSourceServerId ?: selected?.serverId,
+                    selectedSourceItemId = selectedSourceItemId ?: selected?.itemId,
+                )
+            }
             is DetailMsg.RelatedLoaded -> copy(related = msg.items)
             is DetailMsg.FavoriteChanged -> copy(
                 detail = detail?.copy(isFavorite = msg.value),
@@ -447,6 +509,7 @@ class DetailStoreFactory(
             is DetailMsg.PlayTargetLoaded -> copy(
                 playTarget = msg.detail,
                 playPositionTicks = msg.positionTicks,
+                selectedEpisodeId = selectedEpisodeId ?: msg.detail?.id,
             )
         }
     }
