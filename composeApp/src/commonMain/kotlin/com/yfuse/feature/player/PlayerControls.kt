@@ -646,6 +646,8 @@ internal fun PlayerControls(
                 connected = watch.connected,
                 roomCode = watch.roomCode,
                 isHost = watch.isHost,
+                canControl = watch.canControl,
+                controlMode = watch.controlMode,
                 participantCount = watch.participantCount,
                 participants = watch.participants,
                 error = watch.error,
@@ -657,6 +659,8 @@ internal fun PlayerControls(
                     watchDialogOpen = false
                 },
                 onRequestControl = watchActions.onRequestControl,
+                onSetControlMode = watchActions.onSetControlMode,
+                onSetModerator = watchActions.onSetModerator,
                 onDismiss = { watchDialogOpen = false },
             )
         }
@@ -669,6 +673,7 @@ internal fun PlayerControls(
                 sendingEnabled = !watch.reconnecting,
                 danmakuEnabled = watch.chatDanmakuEnabled,
                 onSend = watchActions.onSendChat,
+                onRetry = watchActions.onRetryChat,
                 onClearError = watchActions.onClearChatError,
                 onToggleDanmaku = watchActions.onToggleChatDanmaku,
                 onDismiss = {

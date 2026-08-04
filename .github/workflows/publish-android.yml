@@ -54,6 +54,8 @@ jobs:
       DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '443' }}
       DEPLOY_REMOTE_DIR: ${{ vars.DEPLOY_REMOTE_DIR || '/srv/yfuse-update/yfuse' }}
       UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL || 'http://47.112.219.60/yfuse' }}
+      WATCH_BASE_URL: ${{ vars.WATCH_BASE_URL || 'http://47.112.219.60' }}
+      EXPECTED_WATCH_PROTOCOL: "3"
 
     steps:
       - name: Check out source
@@ -136,9 +138,27 @@ jobs:
             echo "::error::UPDATE_BASE_URL must be an HTTP(S) URL"
             exit 1
           fi
+          if [[ ! "$WATCH_BASE_URL" =~ ^https?://[^[:space:]]+$ ]]; then
+            echo "::error::WATCH_BASE_URL must be an HTTP(S) URL"
+            exit 1
+          fi
 
           normalized_update_url="${UPDATE_BASE_URL%/}"
+          normalized_watch_url="${WATCH_BASE_URL%/}"
           echo "UPDATE_BASE_URL=$normalized_update_url" >> "$GITHUB_ENV"
+          echo "WATCH_BASE_URL=$normalized_watch_url" >> "$GITHUB_ENV"
+
+      - name: Verify watch server protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          protocol_payload="$(curl -fsSL --retry 3 "$WATCH_BASE_URL/watch/version")"
+          actual_protocol="$(jq -r '.protocolVersion // empty' <<<"$protocol_payload")"
+          if [[ "$actual_protocol" != "$EXPECTED_WATCH_PROTOCOL" ]]; then
+            echo "::error::Watch server protocol is ${actual_protocol:-missing}; expected $EXPECTED_WATCH_PROTOCOL. Deploy the watch server before publishing the app."
+            exit 1
+          fi
 
       - name: Reject duplicate or older version
         shell: bash

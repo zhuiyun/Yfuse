@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.data.SkipMode
 import com.yfuse.core.sync.WatchChatMessage
+import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchParticipant
 
 /**
@@ -26,6 +27,8 @@ data class WatchRoomState(
     val reconnecting: Boolean = false,
     val roomCode: String? = null,
     val isHost: Boolean = false,
+    val canControl: Boolean = false,
+    val controlMode: WatchControlMode = WatchControlMode.HostOnly,
     val participantCount: Int = 0,
     val participants: List<WatchParticipant> = emptyList(),
     val chatMessages: List<WatchChatMessage> = emptyList(),
@@ -45,7 +48,7 @@ data class WatchRoomState(
      * are all read-only for a connected non-host — so it is stated once here rather than
      * re-derived at each of the four places that need it.
      */
-    val locked: Boolean get() = connected && !isHost
+    val locked: Boolean get() = connected && !canControl
 }
 
 data class WatchRoomActions(
@@ -55,9 +58,12 @@ data class WatchRoomActions(
     val onRequestControl: () -> Unit = {},
     val onGrantControl: () -> Unit = {},
     val onDenyControl: () -> Unit = {},
-    val onSendChat: (String) -> Unit = {},
+    val onSendChat: (String) -> Boolean = { false },
+    val onRetryChat: (String) -> Unit = {},
     val onClearChatError: () -> Unit = {},
     val onToggleChatDanmaku: () -> Unit = {},
+    val onSetControlMode: (WatchControlMode) -> Unit = {},
+    val onSetModerator: (String, Boolean) -> Unit = { _, _ -> },
 )
 
 /**

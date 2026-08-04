@@ -14,6 +14,7 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
+import kotlin.math.abs
 import kotlin.random.Random
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
@@ -37,13 +38,22 @@ import kotlinx.serialization.json.Json
 @Serializable
 private data class WatchWireMessage(
     val type: String,
+    val protocolVersion: Int? = null,
     val clientId: String? = null,
     val name: String? = null,
     val avatarId: Int? = null,
     val roomCode: String? = null,
     val isHost: Boolean? = null,
+    val canControl: Boolean? = null,
+    val controlMode: String? = null,
+    val moderator: Boolean? = null,
     val participantCount: Int? = null,
     val participants: List<WatchWireParticipant>? = null,
+    val ready: Boolean? = null,
+    val buffering: Boolean? = null,
+    val mediaAvailable: Boolean? = null,
+    val latencyMs: Long? = null,
+    val syncDriftMs: Long? = null,
     val mediaKey: String? = null,
     val positionMs: Long? = null,
     val paused: Boolean? = null,
@@ -54,6 +64,7 @@ private data class WatchWireMessage(
     val clientSentAtMs: Long? = null,
     val targetClientId: String? = null,
     val text: String? = null,
+    val clientMessageId: String? = null,
     val chat: WatchWireChatMessage? = null,
     val chatHistory: List<WatchWireChatMessage>? = null,
     val message: String? = null,
@@ -66,6 +77,14 @@ private data class WatchWireParticipant(
     val name: String,
     val avatarId: Int,
     val isHost: Boolean,
+    val statusKnown: Boolean = false,
+    val ready: Boolean = false,
+    val buffering: Boolean = false,
+    val mediaAvailable: Boolean = true,
+    val latencyMs: Long? = null,
+    val syncDriftMs: Long? = null,
+    val canControl: Boolean = false,
+    val isModerator: Boolean = false,
 )
 
 @Serializable
@@ -76,10 +95,36 @@ private data class WatchWireChatMessage(
     val avatarId: Int,
     val text: String,
     val sentAtMs: Long,
+    val clientMessageId: String? = null,
 )
 
 /** A guest asking the host for the timeline. Surfaced to the host so it can answer. */
 data class ControlRequest(val clientId: String, val name: String)
+
+enum class WatchControlMode(val wireValue: String, val label: String) {
+    HostOnly("hostOnly", "仅房主"),
+    Everyone("everyone", "共同控制"),
+    Moderators("moderators", "指定管理员"),
+    ;
+
+    companion object {
+        fun fromWire(value: String?): WatchControlMode =
+            entries.firstOrNull { it.wireValue == value } ?: HostOnly
+    }
+}
+
+enum class ChatDeliveryState {
+    Sent,
+    Pending,
+    Failed,
+}
+
+enum class WatchNetworkQuality(val label: String) {
+    Excellent("网络优"),
+    Fair("网络一般"),
+    Poor("网络较差"),
+    Unknown("检测中"),
+}
 
 data class WatchParticipant(
     val clientId: String,
@@ -87,7 +132,43 @@ data class WatchParticipant(
     val avatarId: Int,
     val isHost: Boolean,
     val isSelf: Boolean,
-)
+    val statusKnown: Boolean = false,
+    val ready: Boolean = false,
+    val buffering: Boolean = false,
+    val mediaAvailable: Boolean = true,
+    val latencyMs: Long? = null,
+    val syncDriftMs: Long? = null,
+    val canControl: Boolean = false,
+    val isModerator: Boolean = false,
+) {
+    val playbackStatusLabel: String
+        get() = when {
+            !statusKnown -> "状态未知"
+            !mediaAvailable -> "缺少影片"
+            buffering -> "缓冲中"
+            ready -> "已就绪"
+            else -> "准备中"
+        }
+
+    val networkQuality: WatchNetworkQuality
+        get() {
+            val latency = latencyMs ?: return WatchNetworkQuality.Unknown
+            val drift = abs(syncDriftMs ?: 0L)
+            return when {
+                buffering -> WatchNetworkQuality.Poor
+                latency <= 120L && drift <= 300L -> WatchNetworkQuality.Excellent
+                latency <= 350L && drift <= 1_000L -> WatchNetworkQuality.Fair
+                else -> WatchNetworkQuality.Poor
+            }
+        }
+
+    val networkStatusLabel: String
+        get() {
+            val latency = latencyMs ?: return WatchNetworkQuality.Unknown.label
+            val drift = syncDriftMs?.let { " · 偏差${abs(it)}ms" }.orEmpty()
+            return "${networkQuality.label} · ${latency}ms$drift"
+        }
+}
 
 data class WatchChatMessage(
     val id: Long,
@@ -97,6 +178,8 @@ data class WatchChatMessage(
     val text: String,
     val sentAtMs: Long,
     val isMine: Boolean,
+    val clientMessageId: String? = null,
+    val deliveryState: ChatDeliveryState = ChatDeliveryState.Sent,
 )
 
 data class WatchTogetherState(
@@ -109,6 +192,8 @@ data class WatchTogetherState(
     val reconnecting: Boolean = false,
     val roomCode: String? = null,
     val isHost: Boolean = false,
+    val canControl: Boolean = false,
+    val controlMode: WatchControlMode = WatchControlMode.HostOnly,
     val participantCount: Int = 0,
     val participants: List<WatchParticipant> = emptyList(),
     val chatMessages: List<WatchChatMessage> = emptyList(),
@@ -122,6 +207,7 @@ data class WatchTogetherState(
      * discovered locally rather than reported by the server.
      */
     val syncWarning: String? = null,
+    val localMediaAvailable: Boolean = true,
     /** A guest has asked for control. Only ever non-null for the host, until it answers. */
     val controlRequest: ControlRequest? = null,
     /** This device asked for control and is still waiting to hear back. */
@@ -169,6 +255,7 @@ private class ClockSync {
 
     private val lock = Any()
     private val samples = ArrayDeque<ServerSample>()
+    private val rttSamples = ArrayDeque<Long>()
     private val inFlight = HashMap<Long, TimeSource.Monotonic.ValueTimeMark>()
     private var nextPingId = 0L
 
@@ -183,10 +270,10 @@ private class ClockSync {
         pingId
     }
 
-    fun recordPong(pingId: Long, serverAtMs: Long) {
-        val mark = synchronized(lock) { inFlight.remove(pingId) } ?: return
+    fun recordPong(pingId: Long, serverAtMs: Long): Long? {
+        val mark = synchronized(lock) { inFlight.remove(pingId) } ?: return null
         val rtt = mark.elapsedNow().inWholeMilliseconds
-        if (rtt < 0 || rtt > MAX_ACCEPTABLE_RTT_MS) return
+        if (rtt < 0 || rtt > MAX_ACCEPTABLE_RTT_MS) return null
         val sample = ServerSample(
             // The server stamps the pong around the round-trip midpoint. Project it to the
             // receive instant, then advance only with monotonic elapsed time from here on.
@@ -196,14 +283,22 @@ private class ClockSync {
         synchronized(lock) {
             samples.addLast(sample)
             if (samples.size > MAX_SAMPLES) samples.removeFirst()
+            rttSamples.addLast(rtt)
+            if (rttSamples.size > MAX_SAMPLES) rttSamples.removeFirst()
         }
+        return latencyMs()
     }
 
     fun reset() {
         synchronized(lock) {
             samples.clear()
+            rttSamples.clear()
             inFlight.clear()
         }
+    }
+
+    fun latencyMs(): Long? = synchronized(lock) {
+        if (rttSamples.isEmpty()) null else rttSamples.sorted()[rttSamples.size / 2]
     }
 
     fun serverNow(): Long = synchronized(lock) {
@@ -219,6 +314,13 @@ private class ClockSync {
         const val MAX_IN_FLIGHT = 16
     }
 }
+
+private data class LocalPlaybackStatus(
+    val ready: Boolean = false,
+    val buffering: Boolean = true,
+    val mediaAvailable: Boolean = true,
+    val syncDriftMs: Long? = null,
+)
 
 class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
@@ -236,6 +338,9 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
     private var pendingMediaKey: String? = null
     private var pendingName: String = ""
     private var pendingAvatarId: Int = 0
+    private var localPlaybackStatus = LocalPlaybackStatus()
+    private var lastSentPlaybackStatus: WatchWireMessage? = null
+    private var nextLocalChatId = -1L
 
     /** True once any attempt for the current room has been welcomed. Failures before this
      *  point are the user's initial attempt going wrong (bad address, room doesn't exist) —
@@ -279,9 +384,25 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
     /** Asks the host to hand over control. No-op for a host, or outside a room. */
     fun requestControl() {
         val state = _state.value
-        if (!state.connected || state.isHost) return
+        if (!state.connected || state.canControl) return
         _state.update { it.copy(controlRequested = true) }
         send(WatchWireMessage(type = "requestControl"))
+    }
+
+    fun setControlMode(mode: WatchControlMode) {
+        if (!_state.value.isHost) return
+        send(WatchWireMessage(type = "setControlMode", controlMode = mode.wireValue))
+    }
+
+    fun setModerator(clientId: String, enabled: Boolean) {
+        if (!_state.value.isHost) return
+        send(
+            WatchWireMessage(
+                type = "setModerator",
+                targetClientId = clientId,
+                moderator = enabled,
+            ),
+        )
     }
 
     /** Host-only: hand the timeline to the participant that asked for it. */
@@ -307,12 +428,12 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         }
     }
 
-    fun sendChat(raw: String) {
+    fun sendChat(raw: String): Boolean {
         val state = _state.value
-        if (!state.connected) return
+        if (!state.connected) return false
         if (state.reconnecting) {
             _state.update { it.copy(chatError = "正在重连，连接恢复后再发送") }
-            return
+            return false
         }
         val text = raw.replace('\r', ' ')
             .replace('\n', ' ')
@@ -326,10 +447,47 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         }
         if (error != null) {
             _state.update { it.copy(chatError = error) }
-            return
+            return false
         }
-        _state.update { it.copy(chatError = null) }
-        send(WatchWireMessage(type = "chat", text = text))
+        val clientMessageId = newClientMessageId()
+        val pending = WatchChatMessage(
+            id = nextLocalChatId--,
+            clientId = preferences.clientId,
+            name = pendingName,
+            avatarId = pendingAvatarId,
+            text = text,
+            sentAtMs = System.currentTimeMillis(),
+            isMine = true,
+            clientMessageId = clientMessageId,
+            deliveryState = ChatDeliveryState.Pending,
+        )
+        _state.update {
+            it.copy(
+                chatMessages = (it.chatMessages + pending).takeLast(MAX_CHAT_HISTORY),
+                chatError = null,
+            )
+        }
+        sendPendingChat(clientMessageId, text)
+        return true
+    }
+
+    fun retryChat(clientMessageId: String) {
+        val message = _state.value.chatMessages.firstOrNull {
+            it.clientMessageId == clientMessageId && it.deliveryState == ChatDeliveryState.Failed
+        } ?: return
+        _state.update { state ->
+            state.copy(
+                chatMessages = state.chatMessages.map {
+                    if (it.clientMessageId == clientMessageId) {
+                        it.copy(deliveryState = ChatDeliveryState.Pending)
+                    } else {
+                        it
+                    }
+                },
+                chatError = null,
+            )
+        }
+        sendPendingChat(clientMessageId, message.text)
     }
 
     fun clearChatError() {
@@ -341,13 +499,50 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
      * [WatchTogetherState.error] so an arriving room snapshot doesn't wipe it.
      */
     fun setSyncWarning(message: String?) {
-        _state.update { if (it.syncWarning == message) it else it.copy(syncWarning = message) }
+        _state.update {
+            if (it.syncWarning == message && it.localMediaAvailable == (message == null)) {
+                it
+            } else {
+                it.copy(syncWarning = message, localMediaAvailable = message == null)
+            }
+        }
     }
 
-    /** Host-only: publish a new anchor. Call this on every play/pause/seek/rate/media change
+    fun updatePlaybackStatus(
+        ready: Boolean,
+        buffering: Boolean,
+        mediaAvailable: Boolean,
+        syncDriftMs: Long? = localPlaybackStatus.syncDriftMs,
+    ) {
+        localPlaybackStatus = LocalPlaybackStatus(
+            ready = ready && mediaAvailable && !buffering,
+            buffering = buffering && mediaAvailable,
+            mediaAvailable = mediaAvailable,
+            syncDriftMs = syncDriftMs?.coerceIn(-30_000L, 30_000L),
+        )
+        sendPlaybackStatus()
+    }
+
+    fun updateSyncDrift(syncDriftMs: Long?) {
+        val rounded = syncDriftMs?.let { (it / DRIFT_REPORT_BUCKET_MS) * DRIFT_REPORT_BUCKET_MS }
+        if (localPlaybackStatus.syncDriftMs == rounded) return
+        localPlaybackStatus = localPlaybackStatus.copy(syncDriftMs = rounded)
+        sendPlaybackStatus()
+    }
+
+    /** Controller-only: publish a new anchor. Call this on every play/pause/seek/rate/media change
      *  — not on a timer — the room's position between calls is entirely extrapolated. */
     fun publishTimeline(mediaKey: String, positionMs: Long, paused: Boolean, rate: Float = 1f) {
-        if (!_state.value.isHost) return
+        if (!_state.value.canControl) return
+        val current = _timeline.value
+        _timeline.value = WatchTimeline(
+            mediaKey = mediaKey,
+            anchorPositionMs = positionMs,
+            anchorAtServerMs = estimatedServerNow(),
+            rate = rate,
+            paused = paused,
+            seq = current?.seq ?: 0L,
+        )
         send(
             WatchWireMessage(
                 type = "sync",
@@ -410,6 +605,9 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         clock.reset()
         everWelcomed = false
         reconnectAttempt = 0
+        localPlaybackStatus = LocalPlaybackStatus()
+        lastSentPlaybackStatus = null
+        nextLocalChatId = -1L
         pendingUrl = url
         pendingRoomCode = roomCode
         pendingMediaKey = mediaKey
@@ -480,6 +678,7 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                         WatchWireMessage.serializer(),
                         WatchWireMessage(
                             type = "hello",
+                            protocolVersion = WATCH_PROTOCOL_VERSION,
                             clientId = preferences.clientId,
                             name = pendingName,
                             avatarId = pendingAvatarId,
@@ -528,7 +727,9 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                             // latency — anything else can't be turned into an offset sample.
                             if (wire.type == "pong") {
                                 wire.clientSentAtMs?.let { sentAt ->
-                                    clock.recordPong(sentAt, serverAtMs)
+                                    if (clock.recordPong(sentAt, serverAtMs) != null) {
+                                        sendPlaybackStatus()
+                                    }
                                 }
                             }
                         }
@@ -536,6 +737,17 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                         when (wire.type) {
                             "welcome", "roomUpdate", "sync" -> {
                                 if (wire.type == "welcome") {
+                                    val serverProtocol = wire.protocolVersion
+                                    if (serverProtocol != WATCH_PROTOCOL_VERSION) {
+                                        val detail = if (serverProtocol == null ||
+                                            serverProtocol < WATCH_PROTOCOL_VERSION
+                                        ) {
+                                            "一起看服务器版本过旧，请先更新服务器"
+                                        } else {
+                                            "当前 App 版本过旧，请先更新 App"
+                                        }
+                                        throw RoomUnavailableException(detail)
+                                    }
                                     welcomedThisAttempt = true
                                     everWelcomed = true
                                     reconnectAttempt = 0
@@ -551,6 +763,10 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                                     )
                                 }
                                 applyRoomSnapshot(wire)
+                                if (wire.type == "welcome") {
+                                    lastSentPlaybackStatus = null
+                                    sendPlaybackStatus()
+                                }
                             }
                             "controlRequested" -> {
                                 val requesterId = wire.clientId ?: continue
@@ -576,11 +792,15 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                             "chat" -> {
                                 val chat = wire.chat?.toDomain() ?: continue
                                 _state.update { current ->
-                                    if (current.chatMessages.any { it.id == chat.id }) {
-                                        current
-                                    } else {
+                                    val withoutPending = chat.clientMessageId?.let { messageId ->
+                                        current.chatMessages.filterNot {
+                                            it.clientMessageId == messageId &&
+                                                it.deliveryState != ChatDeliveryState.Sent
+                                        }
+                                    } ?: current.chatMessages
+                                    if (withoutPending.any { it.id == chat.id }) current else {
                                         current.copy(
-                                            chatMessages = (current.chatMessages + chat)
+                                            chatMessages = (withoutPending + chat)
                                                 .takeLast(MAX_CHAT_HISTORY),
                                             chatError = null,
                                         )
@@ -600,6 +820,12 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                                     throw RoomUnavailableException(wire.message ?: "房间不存在或已关闭")
                                 }
                                 if (wire.errorCode?.startsWith("chat_") == true) {
+                                    wire.clientMessageId?.let { messageId ->
+                                        markChatFailed(
+                                            messageId,
+                                            wire.message ?: "消息发送失败，请点击重试",
+                                        )
+                                    }
                                     _state.update {
                                         it.copy(chatError = wire.message ?: "消息发送失败")
                                     }
@@ -623,6 +849,16 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
     private fun applyRoomSnapshot(wire: WatchWireMessage) {
         _state.update { current ->
             val isHost = wire.isHost ?: current.isHost
+            val canControl = wire.canControl ?: current.canControl
+            val history = wire.chatHistory?.map { it.toDomain() }
+            val unconfirmed = if (history == null) {
+                emptyList()
+            } else {
+                current.chatMessages.filter { local ->
+                    local.deliveryState != ChatDeliveryState.Sent &&
+                        history.none { it.clientMessageId == local.clientMessageId }
+                }
+            }
             // Any change of hands settles every outstanding negotiation: a granted request
             // has been answered by definition, and a request inherited from a previous host
             // was never this device's to answer.
@@ -633,18 +869,20 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                 reconnecting = false,
                 roomCode = wire.roomCode ?: current.roomCode,
                 isHost = isHost,
+                canControl = canControl,
+                controlMode = wire.controlMode?.let(WatchControlMode::fromWire)
+                    ?: current.controlMode,
                 participantCount = wire.participantCount ?: current.participantCount,
                 participants = wire.participants?.map { it.toDomain() } ?: current.participants,
-                chatMessages = wire.chatHistory
-                    ?.map { it.toDomain() }
-                    ?.takeLast(MAX_CHAT_HISTORY)
+                chatMessages = history
+                    ?.let { (it + unconfirmed).takeLast(MAX_CHAT_HISTORY) }
                     ?: current.chatMessages,
                 chatError = if (wire.type == "welcome") null else current.chatError,
                 mediaKey = wire.mediaKey ?: current.mediaKey,
                 error = null,
                 syncWarning = if (handedOver) null else current.syncWarning,
                 controlRequest = if (handedOver) null else current.controlRequest,
-                controlRequested = if (handedOver) false else current.controlRequested,
+                controlRequested = if (handedOver || canControl) false else current.controlRequested,
             )
         }
         val mediaKey = wire.mediaKey ?: return
@@ -661,6 +899,70 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         val current = _timeline.value
         if (current != null && seq <= current.seq) return
         _timeline.value = WatchTimeline(mediaKey, positionMs, anchorAtMs, rate, paused, seq)
+    }
+
+    private fun newClientMessageId(): String =
+        "${preferences.clientId}-${Random.nextLong()}"
+
+    private fun sendPendingChat(clientMessageId: String, text: String) {
+        scope.launch {
+            val sent = sendMutex.withLock {
+                val active = currentSession ?: return@withLock false
+                runCatching {
+                    active.send(
+                        json.encodeToString(
+                            WatchWireMessage.serializer(),
+                            WatchWireMessage(
+                                type = "chat",
+                                text = text,
+                                clientMessageId = clientMessageId,
+                            ),
+                        ),
+                    )
+                }.isSuccess
+            }
+            if (!sent) {
+                markChatFailed(clientMessageId, "消息发送失败，请点击重试")
+                return@launch
+            }
+            delay(CHAT_ACK_TIMEOUT_MS)
+            markChatFailed(clientMessageId, "消息发送超时，请点击重试")
+        }
+    }
+
+    private fun markChatFailed(clientMessageId: String, error: String) {
+        var changed = false
+        _state.update { state ->
+            val messages = state.chatMessages.map { message ->
+                if (
+                    message.clientMessageId == clientMessageId &&
+                    message.deliveryState == ChatDeliveryState.Pending
+                ) {
+                    changed = true
+                    message.copy(deliveryState = ChatDeliveryState.Failed)
+                } else {
+                    message
+                }
+            }
+            if (changed) state.copy(chatMessages = messages, chatError = error) else state
+        }
+    }
+
+    private fun sendPlaybackStatus() {
+        val state = _state.value
+        if (!state.connected || state.reconnecting) return
+        val status = localPlaybackStatus
+        val message = WatchWireMessage(
+            type = "playbackStatus",
+            ready = status.ready,
+            buffering = status.buffering,
+            mediaAvailable = status.mediaAvailable,
+            latencyMs = clock.latencyMs()?.let { (it / LATENCY_REPORT_BUCKET_MS) * LATENCY_REPORT_BUCKET_MS },
+            syncDriftMs = status.syncDriftMs,
+        )
+        if (message == lastSentPlaybackStatus) return
+        lastSentPlaybackStatus = message
+        send(message)
     }
 
     private fun send(message: WatchWireMessage) {
@@ -690,6 +992,14 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         avatarId = avatarId.coerceIn(0, WatchTogetherPreferences.AVATAR_COUNT - 1),
         isHost = isHost,
         isSelf = clientId == preferences.clientId,
+        statusKnown = statusKnown,
+        ready = ready,
+        buffering = buffering,
+        mediaAvailable = mediaAvailable,
+        latencyMs = latencyMs,
+        syncDriftMs = syncDriftMs,
+        canControl = canControl,
+        isModerator = isModerator,
     )
 
     private fun WatchWireChatMessage.toDomain(): WatchChatMessage = WatchChatMessage(
@@ -700,6 +1010,8 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         text = text,
         sentAtMs = sentAtMs,
         isMine = clientId == preferences.clientId,
+        clientMessageId = clientMessageId,
+        deliveryState = ChatDeliveryState.Sent,
     )
 
     private companion object {
@@ -709,6 +1021,10 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         const val MAX_CHAT_GRAPHEMES = 30
         const val MAX_CHAT_BYTES = 768
         const val MAX_CHAT_HISTORY = 50
+        const val WATCH_PROTOCOL_VERSION = 3
+        const val CHAT_ACK_TIMEOUT_MS = 8_000L
+        const val LATENCY_REPORT_BUCKET_MS = 10L
+        const val DRIFT_REPORT_BUCKET_MS = 50L
 
         /** Exponential backoff capped at [MAX_BACKOFF_MS], with up to 20% jitter so a whole
          *  room full of guests dropped by the same outage doesn't all hammer the server on
