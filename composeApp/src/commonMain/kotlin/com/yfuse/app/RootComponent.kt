@@ -150,24 +150,29 @@ class RootComponent(
      * follow — both already display that field.
      */
     fun enterWatchRoom() {
+        scope.launch { followWatchRoom() }
+    }
+
+    /** Resolves and opens the room's current media; used by the automatic guest follower. */
+    suspend fun followWatchRoom(): Boolean {
         val state = watchTogether.state.value
-        if (state.roomCode == null) return
+        if (state.roomCode == null) return false
         val mediaKey = state.mediaKey?.takeIf { it.isNotBlank() }
         if (mediaKey == null) {
-            // A room that has never had a timeline: created, but the host has not started
-            // anything for this device to follow yet.
-            watchTogether.setSyncWarning("房间还没开始播放，等房主开始后再进入")
-            return
-        }
-        scope.launch {
-            val target = inviteResolver.resolveTarget(mediaKey)
-            if (target == null) {
-                watchTogether.setSyncWarning("房间在播放你的媒体库里没有的内容，无法一起看")
-                return@launch
-            }
+            // A connected room with no timeline is a healthy waiting room. The join dialog
+            // already shows its participant count; a warning here made success look like an
+            // error. When the host starts, mediaKey changes and App's follower runs again.
             watchTogether.setSyncWarning(null)
-            openWatchTarget(target.server.id, target.item.id)
+            return false
         }
+        val target = inviteResolver.resolveTarget(mediaKey)
+        if (target == null) {
+            watchTogether.setSyncWarning("房间在播放你的媒体库里没有的内容，无法一起看")
+            return false
+        }
+        watchTogether.setSyncWarning(null)
+        openWatchTarget(target.server.id, target.item.id)
+        return true
     }
 
     /**

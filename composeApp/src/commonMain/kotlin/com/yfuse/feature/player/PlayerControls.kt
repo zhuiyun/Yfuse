@@ -118,10 +118,14 @@ internal fun PlayerControls(
     episodes: List<EpisodeCard>,
     filled: Boolean,
     onBack: () -> Unit,
+    onEnterPictureInPicture: () -> Unit,
     onPlayPause: () -> Unit,
     onRetry: () -> Unit,
     onSeek: (Long) -> Unit,
     onSelectItem: (Int) -> Unit,
+    onPreviousItem: () -> Boolean,
+    onNextItem: () -> Boolean,
+    onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
     onSelectSubtitle: (String) -> Unit,
     onSpeed: (Float) -> Unit,
@@ -194,6 +198,7 @@ internal fun PlayerControls(
     val latestVolume by rememberUpdatedState(volume)
     val latestBrightness by rememberUpdatedState(brightness)
     val latestOnSeek by rememberUpdatedState(onSeek)
+    val latestOnPlayPause by rememberUpdatedState(onPlayPause)
     val latestOnVolume by rememberUpdatedState(onVolume)
     val latestOnBrightness by rememberUpdatedState(onBrightness)
     // Timeline controls (play/pause, seek, episode, speed) are read-only for a connected
@@ -279,7 +284,7 @@ internal fun PlayerControls(
             chatPreviewVisible = false
             return@LaunchedEffect
         }
-        if (latestId != null && latestId != lastPreviewedChatId) {
+        if (watch.chatPreviewEnabled && latestId != null && latestId != lastPreviewedChatId) {
             lastPreviewedChatId = latestId
             chatPreviewVisible = true
             delay(CHAT_PREVIEW_MS)
@@ -368,9 +373,26 @@ internal fun PlayerControls(
                             if (latestWatchLocked) {
                                 gestureHud = "房主控制播放"
                             } else {
-                                val delta = if (offset.x < size.width / 2f) -10_000L else 10_000L
-                                latestOnSeek((latestPosition + delta).coerceIn(0L, latestDuration))
-                                gestureHud = if (delta < 0) "快退 10 秒" else "快进 10 秒"
+                                when {
+                                    offset.x < size.width / 3f -> {
+                                        latestOnSeek(
+                                            (latestPosition - 10_000L)
+                                                .coerceIn(0L, latestDuration),
+                                        )
+                                        gestureHud = "快退 10 秒"
+                                    }
+                                    offset.x > size.width * 2f / 3f -> {
+                                        latestOnSeek(
+                                            (latestPosition + 10_000L)
+                                                .coerceIn(0L, latestDuration),
+                                        )
+                                        gestureHud = "快进 10 秒"
+                                    }
+                                    else -> {
+                                        latestOnPlayPause()
+                                        gestureHud = if (state.playing) "暂停" else "播放"
+                                    }
+                                }
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             }
                             poke()
@@ -479,7 +501,12 @@ internal fun PlayerControls(
                 dolbyVision = dolbyVision,
                 dolbyAtmos = dolbyAtmos,
                 onBack = onBack,
-                onOpenDrawer = { poke(); drawerOpen = true },
+                onEnterPictureInPicture = onEnterPictureInPicture,
+                onOpenDrawer = {
+                    poke()
+                    onRefreshEpisodes()
+                    drawerOpen = true
+                },
                 onToggleFill = { poke(); onToggleFill() },
                 watchConnected = watch.connected,
                 unreadChat = watch.chatMessages.lastOrNull()?.id?.let { latest ->
@@ -494,6 +521,8 @@ internal fun PlayerControls(
                 volume = volume,
                 seekLocked = watchLocked,
                 onPlayPause = { poke(); onPlayPause() },
+                onPrevious = { poke(); onPreviousItem() },
+                onNext = { poke(); onNextItem() },
                 onRewind = { poke(); onSeek((state.positionMs - 10_000L).coerceAtLeast(0L)) },
                 onForward = { poke(); onSeek(state.positionMs + 10_000L) },
                 skipCountdownLabel = skip.countdownSeconds?.let {
@@ -516,6 +545,22 @@ internal fun PlayerControls(
                     if (castDevices.isEmpty()) onDiscoverCast()
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+
+        // A stable paused-state marker stays in the middle even after chrome auto-hides.
+        // The icon names the state; tapping it resumes, and a centre double-tap does the same.
+        if (!state.playing && !state.buffering && state.error == null && !locked) {
+            CircleControl(
+                icon = AppIcons.Pause,
+                description = "已暂停，点击继续",
+                size = 42.dp,
+                iconSize = 17.dp,
+                enabled = !watchLocked,
+                filled = true,
+                interactive = false,
+                onClick = {},
+                modifier = Modifier.align(Alignment.Center),
             )
         }
 
@@ -616,9 +661,6 @@ internal fun PlayerControls(
             )
         }
 
-        // Outside `watchDialogOpen` on purpose: a request arrives when the asker taps, not
-        // when the host happens to have the room dialog open, and an unanswered one leaves
-        // that person waiting on a prompt nobody ever sees.
         if (watchChatOpen && watch.connected) {
             WatchChatPanel(
                 participants = watch.participants,
@@ -645,6 +687,9 @@ internal fun PlayerControls(
             )
         }
 
+        // Outside `watchDialogOpen` on purpose: a request arrives when the asker taps, not
+        // when the host happens to have the room dialog open, and an unanswered one leaves
+        // that person waiting on a prompt nobody ever sees.
         watch.controlRequesterName?.let { requester ->
             ControlRequestDialog(
                 requesterName = requester,
@@ -861,6 +906,7 @@ private fun TopBar(
     dolbyVision: Boolean,
     dolbyAtmos: Boolean,
     onBack: () -> Unit,
+    onEnterPictureInPicture: () -> Unit,
     onOpenDrawer: () -> Unit,
     onToggleFill: () -> Unit,
     watchConnected: Boolean,
@@ -886,7 +932,7 @@ private fun TopBar(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircleControl(AppIcons.ChevronLeft, "返回", 30.dp, 13.dp, onClick = onBack)
+            CircleControl(AppIcons.Close, "关闭播放器", 28.dp, 12.dp, onClick = onBack)
             Column(Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -926,20 +972,27 @@ private fun TopBar(
                 CircleControl(
                     AppIcons.Chat,
                     if (unreadChat) "房间聊天，有新消息" else "房间聊天",
-                    30.dp,
-                    13.dp,
+                    28.dp,
+                    12.dp,
                     filled = unreadChat,
                     onClick = onOpenChat,
                 )
             }
             if (hasEpisodes) {
-                CircleControl(AppIcons.Menu, "剧集列表", 30.dp, 13.dp, onClick = onOpenDrawer)
+                CircleControl(AppIcons.Menu, "剧集列表", 28.dp, 12.dp, onClick = onOpenDrawer)
             }
+            CircleControl(
+                AppIcons.PictureInPicture,
+                "小窗播放",
+                28.dp,
+                12.dp,
+                onClick = onEnterPictureInPicture,
+            )
             CircleControl(
                 icon = if (filled) AppIcons.Collapse else AppIcons.Expand,
                 description = "切换画面比例",
-                size = 30.dp,
-                iconSize = 13.dp,
+                size = 28.dp,
+                iconSize = 12.dp,
                 onClick = onToggleFill,
             )
         }
@@ -967,6 +1020,8 @@ private fun TransportRow(
     state: PlaybackState,
     locked: Boolean,
     onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
     onRewind: () -> Unit,
     onForward: () -> Unit,
     modifier: Modifier = Modifier,
@@ -976,6 +1031,14 @@ private fun TransportRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        CircleControl(
+            AppIcons.Previous,
+            "上一集",
+            26.dp,
+            12.dp,
+            enabled = !locked && state.hasPrevious,
+            onClick = onPrevious,
+        )
         CircleControl(
             AppIcons.Rewind,
             "快退 10 秒",
@@ -1012,6 +1075,14 @@ private fun TransportRow(
             13.dp,
             enabled = !locked,
             onClick = onForward,
+        )
+        CircleControl(
+            AppIcons.Next,
+            "下一集",
+            26.dp,
+            12.dp,
+            enabled = !locked && state.hasNext,
+            onClick = onNext,
         )
     }
 }
@@ -1130,6 +1201,8 @@ private fun BottomBar(
     /** Guest in a room: the scrubber becomes a read-only progress indicator. */
     seekLocked: Boolean,
     onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
     onRewind: () -> Unit,
     onForward: () -> Unit,
     /** Non-null while an automatic skip is counting down; shown under the progress row. */
@@ -1212,38 +1285,62 @@ private fun BottomBar(
                     state = state,
                     locked = seekLocked,
                     onPlayPause = onPlayPause,
+                    onPrevious = onPrevious,
+                    onNext = onNext,
                     onRewind = onRewind,
                     onForward = onForward,
                 )
-                VolumeChip(volume, onVolume)
+                CircleControl(
+                    AppIcons.Volume,
+                    if (volume > 0f) "静音" else "恢复音量",
+                    26.dp,
+                    12.dp,
+                    onClick = { onVolume(if (volume > 0f) 0f else 0.5f) },
+                )
             }
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Chip("弹幕", active = danmakuEnabled, onClick = onOpenDanmaku)
+                CircleControl(
+                    AppIcons.Danmaku,
+                    "弹幕",
+                    26.dp,
+                    12.dp,
+                    filled = danmakuEnabled,
+                    onClick = onOpenDanmaku,
+                )
                 // 字幕与音轨在同一个面板 tab 里（[Tab.Subtitle] 两组都列），所以这里
                 // 只出一个 chip；先前的两个 chip 打开的是同一块面板，纯粹重复。
                 val hasSubtitles = state.subtitleTracks.isNotEmpty()
                 val hasAudioChoice = state.audioTracks.size > 1
                 if (hasSubtitles || hasAudioChoice) {
-                    val label = when {
-                        hasSubtitles && hasAudioChoice -> "字幕 / 音轨"
-                        hasSubtitles -> "字幕"
-                        else -> "音轨"
-                    }
-                    Chip(label) { onOpenTab(Tab.Subtitle) }
+                    CircleControl(
+                        AppIcons.Subtitle,
+                        if (hasSubtitles && hasAudioChoice) "字幕与音轨" else if (hasSubtitles) {
+                            "字幕"
+                        } else {
+                            "音轨"
+                        },
+                        26.dp,
+                        12.dp,
+                        onClick = { onOpenTab(Tab.Subtitle) },
+                    )
                 }
-                IconChip(
-                    icon = AppIcons.Cast,
-                    description = if (casting) "停止投送" else "投屏",
-                    active = casting,
+                CircleControl(
+                    AppIcons.Cast,
+                    if (casting) "停止投送" else "投屏",
+                    26.dp,
+                    12.dp,
+                    filled = casting,
                     onClick = onToggleCast,
                 )
-                IconChip(
-                    icon = AppIcons.More,
-                    description = "更多",
+                CircleControl(
+                    AppIcons.More,
+                    "更多",
+                    26.dp,
+                    12.dp,
                     onClick = { onOpenTab(Tab.More) },
                 )
             }
@@ -1454,17 +1551,20 @@ private fun CircleControl(
     size: Dp,
     iconSize: Dp,
     enabled: Boolean = true,
+    interactive: Boolean = true,
     /** Filled rather than outlined. The one control that earns it is 播放/暂停. */
     filled: Boolean = false,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     // The ring is what you see; the touch target is bigger than the ring. Sizing them
     // together is what made these controls big enough to cover a face — a 48dp disc over
     // the middle of the picture is 48dp of picture you cannot see.
     Box(
-        Modifier
+        modifier
             .size(size + ControlTouchPadding * 2)
-            .let { if (enabled) it.noRippleClickable(onClick) else it },
+            .graphicsLayer { alpha = if (enabled) 1f else 0.35f }
+            .let { if (enabled && interactive) it.noRippleClickable(onClick) else it },
         contentAlignment = Alignment.Center,
     ) {
         Box(

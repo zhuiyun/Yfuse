@@ -34,6 +34,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.lifecycleScope
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -75,6 +76,7 @@ import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DanmakuSpeed
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipMode
@@ -95,7 +97,11 @@ import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyStream
+import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.sync.episodeWatchKey
+import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.sync.WatchTogetherClient
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.builtins.ListSerializer
@@ -137,12 +143,17 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_VERSIONS = "yfuse.versions"
         private const val EXTRA_SERIES_KEYS = "yfuse.seriesIds"
         private const val EXTRA_SERIES_NAMES = "yfuse.seriesNames"
+        private const val EXTRA_STILL_URLS = "yfuse.stillUrls"
+        private const val EXTRA_PROGRESS = "yfuse.progress"
+        private const val EXTRA_CAPTIONS = "yfuse.captions"
+        private const val EXTRA_VERSION_IDS = "yfuse.versionIds"
         private const val EXTRA_INDEX = "yfuse.index"
         private const val EXTRA_POSITION = "yfuse.positionMs"
         private const val EXTRA_ENGINE = "yfuse.engine"
         private const val EXTRA_DECODER = "yfuse.decoder"
         private const val EXTRA_AUTO_NEXT = "yfuse.autoNext"
         private const val EXTRA_QUALITY = "yfuse.quality"
+        private const val EPISODE_REFRESH_INTERVAL_MS = 120_000L
 
         fun intent(
             context: Context,
@@ -172,6 +183,10 @@ class PlayerActivity : ComponentActivity() {
             putExtra(EXTRA_VERSIONS, items.map(::encodeVersions).toTypedArray())
             putExtra(EXTRA_SERIES_KEYS, items.map { it.seriesId.orEmpty() }.toTypedArray())
             putExtra(EXTRA_SERIES_NAMES, items.map { it.seriesName.orEmpty() }.toTypedArray())
+            putExtra(EXTRA_STILL_URLS, items.map { it.stillUrl.orEmpty() }.toTypedArray())
+            putExtra(EXTRA_PROGRESS, items.map { it.progress ?: Float.NaN }.toFloatArray())
+            putExtra(EXTRA_CAPTIONS, items.map { it.caption.orEmpty() }.toTypedArray())
+            putExtra(EXTRA_VERSION_IDS, items.map { it.versionId.orEmpty() }.toTypedArray())
             putExtra(EXTRA_INDEX, startIndex)
             putExtra(EXTRA_POSITION, startPositionMs)
             putExtra(EXTRA_ENGINE, engine.name)
@@ -196,13 +211,26 @@ class PlayerActivity : ComponentActivity() {
     private var videoBounds: Rect? = null
     private var pipWasVisible = false
     private var stopRequested = false
+    private var activityStarted = false
+    private var playbackKeepAliveRequested = false
+    private var playbackKeepAliveStartDeferred = false
+    private val playbackItems = MutableStateFlow<List<PlayerMediaItem>>(emptyList())
+    private val queueResume = MutableStateFlow(0 to 0L)
+    private val queueRevision = MutableStateFlow(0L)
+    private lateinit var embyRepository: EmbyRepository
+    private lateinit var serverRegistry: ServerRegistry
+    private var episodeRefreshJob: Job? = null
+    private var episodePollingJob: Job? = null
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
             AudioManager.AUDIOFOCUS_GAIN -> {
                 hasAudioFocus = true
                 if (resumeAfterTransientFocusLoss) {
                     resumeAfterTransientFocusLoss = false
-                    playbackGate?.play()
+                    // Audio focus is local to this device, not a room timeline action.
+                    // Going through the guest gate would refuse the resume and leave this
+                    // participant with picture but no sound after a transient interruption.
+                    activeEngine?.play()
                 }
                 AppLog.info(
                     category = "player.audio",
@@ -213,7 +241,7 @@ class PlayerActivity : ComponentActivity() {
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 resumeAfterTransientFocusLoss = activeState.playing
                 hasAudioFocus = false
-                playbackGate?.pause()
+                activeEngine?.pause()
                 AppLog.info(
                     category = "player.audio",
                     event = "focus_lost_transient",
@@ -223,7 +251,7 @@ class PlayerActivity : ComponentActivity() {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 resumeAfterTransientFocusLoss = false
                 hasAudioFocus = false
-                playbackGate?.pause()
+                activeEngine?.pause()
                 AppLog.info(
                     category = "player.audio",
                     event = "focus_lost",
@@ -330,6 +358,10 @@ class PlayerActivity : ComponentActivity() {
         val versionRows = intent.getStringArrayExtra(EXTRA_VERSIONS).orEmpty()
         val seriesIds = intent.getStringArrayExtra(EXTRA_SERIES_KEYS).orEmpty()
         val seriesNames = intent.getStringArrayExtra(EXTRA_SERIES_NAMES).orEmpty()
+        val stillUrls = intent.getStringArrayExtra(EXTRA_STILL_URLS).orEmpty()
+        val progresses = intent.getFloatArrayExtra(EXTRA_PROGRESS) ?: floatArrayOf()
+        val captions = intent.getStringArrayExtra(EXTRA_CAPTIONS).orEmpty()
+        val versionIds = intent.getStringArrayExtra(EXTRA_VERSION_IDS).orEmpty()
         val items = urls.mapIndexed { index, url ->
             val watchKey = watchKeys.getOrElse(index) {
                 "emby:${ids.getOrElse(index) { index.toString() }}"
@@ -359,8 +391,13 @@ class PlayerActivity : ComponentActivity() {
                     ?.takeIf { it.isNotEmpty() }
                     ?: listOf(watchKey),
                 versions = decodeVersions(versionRows.getOrElse(index) { "" }),
+                versionId = versionIds.getOrNull(index)?.ifBlank { null },
+                stillUrl = stillUrls.getOrNull(index)?.ifBlank { null },
+                progress = progresses.getOrNull(index)?.takeUnless { it.isNaN() },
+                caption = captions.getOrNull(index)?.ifBlank { null },
             )
         }
+        playbackItems.value = items
         pictureInPicture.value = isInPictureInPictureMode
         pipWasVisible = isInPictureInPictureMode
         sessionTitles = items.map { it.title }
@@ -370,6 +407,8 @@ class PlayerActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
 
         val koin = GlobalContext.get()
+        embyRepository = koin.get()
+        serverRegistry = koin.get()
         val preferences = runCatching { koin.get<ThemePreferences>() }
             .onFailure {
                 AppLog.warning(
@@ -384,12 +423,13 @@ class PlayerActivity : ComponentActivity() {
         val skipSegmentPreferences = koin.get<SkipSegmentPreferences>()
         val danmakuRepository = koin.get<DanmakuRepository>()
         val playbackRecovery = koin.get<PlaybackRecoveryStore>()
+        val videoCacheBytes = koin.get<PlaybackPreferences>().videoCacheSize.value.bytes
         val customUserAgent = koin.get<UserAgentPreferences>().userAgent.value
         val watchTogether = koin.get<WatchTogetherClient>()
         val watchTogetherPreferences = koin.get<WatchTogetherPreferences>()
         val playbackController = WatchGatedPlayback(
             watchTogether = watchTogether,
-            items = { items },
+            items = { playbackItems.value },
             engine = { activeEngine },
             onLocked = {
                 runOnUiThread {
@@ -429,12 +469,17 @@ class PlayerActivity : ComponentActivity() {
 
         setContent {
             val inPictureInPicture by pictureInPicture.collectAsState()
+            val liveItems by playbackItems.collectAsState()
+            val refreshedResume by queueResume.collectAsState()
+            val refreshedRevision by queueRevision.collectAsState()
             // Always the dark palette: the controls float over the picture.
             YfuseTheme(dark = true, accent = accent) {
                 PlayerRoot(
-                    items = items,
+                    items = liveItems,
                     startIndex = intent.getIntExtra(EXTRA_INDEX, 0),
                     startPositionMs = intent.getLongExtra(EXTRA_POSITION, 0L),
+                    refreshedResume = refreshedResume,
+                    queueRevision = refreshedRevision,
                     initialEngine = initialEngine,
                     decoderMode = decoderMode,
                     autoNext = autoNext,
@@ -447,6 +492,7 @@ class PlayerActivity : ComponentActivity() {
                     danmakuRepository = danmakuRepository,
                     playbackRecovery = playbackRecovery,
                     customUserAgent = customUserAgent,
+                    videoCacheBytes = videoCacheBytes,
                     watchTogether = watchTogether,
                     watchTogetherPreferences = watchTogetherPreferences,
                     playbackGate = playbackController,
@@ -454,29 +500,47 @@ class PlayerActivity : ComponentActivity() {
                     onEngineDetached = { engine ->
                         if (activeEngine === engine) activeEngine = null
                     },
-                    onPlaybackState = { state ->
+                    onPlaybackState = { state, item ->
                         activeState = state
                         ActivePlayback.update(
-                            sessionTitles.getOrNull(state.currentIndex).orEmpty(),
+                            item?.title.orEmpty(),
                             state,
                         )
+                        PlaybackSelection.update(item)
+                        if (item != null && state.currentIndex in sessionTitles.indices) {
+                            sessionTitles = playbackItems.value.map { it.title }
+                        }
                         updateMediaSession(state)
                         updatePictureInPictureParams()
                         if (state.playing) {
-                            ContextCompat.startForegroundService(
-                                this,
-                                Intent(this, PlaybackKeepAliveService::class.java),
-                            )
+                            startPlaybackKeepAliveService()
                         } else {
-                            stopService(Intent(this, PlaybackKeepAliveService::class.java))
+                            stopPlaybackKeepAliveService()
                         }
                     },
                     onVideoBounds = { bounds ->
                         videoBounds = bounds
                         updatePictureInPictureParams()
                     },
-                    onBack = ::returnToMain,
+                    onBack = ::closePlayerAndReturn,
+                    onEnterPictureInPicture = ::enterPlayerPictureInPicture,
+                    onRefreshEpisodes = ::refreshEpisodes,
+                    onRemotePlayRequested = ::ensureAudioFocus,
                 )
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        activityStarted = true
+        if (activeState.playing) startPlaybackKeepAliveService()
+        refreshEpisodes()
+        episodePollingJob?.cancel()
+        episodePollingJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(EPISODE_REFRESH_INTERVAL_MS)
+                refreshEpisodes()
             }
         }
     }
@@ -486,7 +550,8 @@ class PlayerActivity : ComponentActivity() {
         if (
             Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
             activeState.playing &&
-            !isFinishing
+            !isFinishing &&
+            !stopRequested
         ) {
             enterPictureInPictureMode(
                 PictureInPictureParams.Builder()
@@ -514,6 +579,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        activityStarted = false
+        episodePollingJob?.cancel()
+        episodePollingJob = null
         super.onStop()
         // Android can keep a closed PiP activity stopped but alive. Explicitly
         // tear down its engine so audio cannot continue invisibly.
@@ -523,8 +591,10 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        episodeRefreshJob?.cancel()
+        episodePollingJob?.cancel()
         ActivePlayback.clear()
-        stopService(Intent(this, PlaybackKeepAliveService::class.java))
+        stopPlaybackKeepAliveService()
         abandonAudioFocus()
         notificationManager.cancel(NOTIFICATION_ID)
         if (mediaReceiverRegistered) {
@@ -537,7 +607,16 @@ class PlayerActivity : ComponentActivity() {
         playbackGate = null
     }
 
-    private fun returnToMain() {
+    private fun closePlayerAndReturn() {
+        if (stopRequested) return
+        // Mark the activity as closing before bringing the main task forward. Otherwise
+        // onUserLeaveHint can race this path and turn a deliberate close into PiP.
+        stopRequested = true
+        activeEngine?.release()
+        activeEngine = null
+        abandonAudioFocus()
+        ActivePlayback.clear()
+        stopPlaybackKeepAliveService()
         packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
             startActivity(
                 launch.addFlags(
@@ -546,6 +625,17 @@ class PlayerActivity : ComponentActivity() {
                 ),
             )
         }
+        finishAndRemoveTask()
+    }
+
+    private fun enterPlayerPictureInPicture() {
+        if (isFinishing || stopRequested || isInPictureInPictureMode) return
+        enterPictureInPictureMode(
+            PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9))
+                .apply { videoBounds?.let(::setSourceRectHint) }
+                .build(),
+        )
     }
 
     private fun stopPlaybackAndFinish() {
@@ -555,8 +645,121 @@ class PlayerActivity : ComponentActivity() {
         activeEngine = null
         abandonAudioFocus()
         ActivePlayback.clear()
-        stopService(Intent(this, PlaybackKeepAliveService::class.java))
+        stopPlaybackKeepAliveService()
         finishAndRemoveTask()
+    }
+
+    /**
+     * Refreshes a series queue from the server instead of freezing it at detail-page time.
+     *
+     * Existing entries win when they carry richer detail/version data; list metadata such as
+     * artwork, progress and newly added episodes is refreshed. PlayerRoot restarts its engine at
+     * the current item and position only when the resulting queue actually changes.
+     */
+    private fun refreshEpisodes() {
+        if (episodeRefreshJob?.isActive == true) return
+        val snapshot = playbackItems.value
+        val seed = snapshot.firstOrNull { it.seriesId != null && it.serverId != null } ?: return
+        val seriesId = seed.seriesId ?: return
+        val server = seed.serverId?.let(serverRegistry::serverById) ?: return
+
+        episodeRefreshJob = lifecycleScope.launch {
+            val seriesProviderIds = embyRepository.itemDetail(server, seriesId)
+                .getOrNull()
+                ?.providerIds
+                .orEmpty()
+            val episodes = embyRepository.episodes(server, seriesId, null)
+                .onFailure { error ->
+                    AppLog.warning(
+                        category = "player.queue",
+                        event = "episode_refresh_failed",
+                        message = "Player episode queue refresh failed",
+                        throwable = error,
+                        attributes = mapOf("serverId" to server.id),
+                    )
+                }
+                .getOrNull()
+                .orEmpty()
+            if (episodes.isEmpty()) return@launch
+
+            val existing = playbackItems.value.associateBy(PlayerMediaItem::id)
+            val refreshed = episodes.map { episode ->
+                val title = listOfNotNull(
+                    episode.indexNumber?.let { "第 $it 集" },
+                    episode.name.takeIf { it.isNotBlank() },
+                ).joinToString("  ")
+                val stillUrl = EmbyImages.primary(
+                    server.baseUrl,
+                    episode.id,
+                    episode.primaryTag,
+                    maxHeight = 240,
+                    accessToken = server.accessToken,
+                )
+                val progress = when {
+                    episode.played -> 1f
+                    else -> episode.playedPercentage?.let { (it / 100.0).toFloat() }
+                }
+                existing[episode.id]?.copy(
+                    title = title,
+                    playbackSegments = episode.playbackSegments,
+                    seasonNumber = episode.seasonNumber,
+                    episodeNumber = episode.indexNumber,
+                    stillUrl = stillUrl,
+                    progress = progress,
+                    caption = episode.indexNumber?.let { "第 $it 集" },
+                ) ?: PlayerMediaItem(
+                    id = episode.id,
+                    url = EmbyStream.directPlay(server.baseUrl, episode.id, server.accessToken),
+                    transcodeUrl = EmbyStream.transcode(server.baseUrl, episode.id, server.accessToken),
+                    fallbackTranscodeUrl = EmbyStream.progressiveTranscode(
+                        server.baseUrl,
+                        episode.id,
+                        server.accessToken,
+                    ),
+                    title = title,
+                    serverId = server.id,
+                    playbackSegments = episode.playbackSegments,
+                    seasonNumber = episode.seasonNumber,
+                    episodeNumber = episode.indexNumber,
+                    seriesId = seriesId,
+                    seriesName = seed.seriesName,
+                    watchKey = episodeWatchKey(
+                        ownProviderIds = episode.providerIds,
+                        seriesProviderIds = seriesProviderIds,
+                        seasonNumber = episode.seasonNumber,
+                        episodeNumber = episode.indexNumber,
+                        fallbackId = episode.id,
+                    ),
+                    matchKeys = watchMatchKeys(
+                        ownProviderIds = episode.providerIds,
+                        seriesProviderIds = seriesProviderIds,
+                        seasonNumber = episode.seasonNumber,
+                        episodeNumber = episode.indexNumber,
+                        fallbackId = episode.id,
+                    ),
+                    stillUrl = stillUrl,
+                    progress = progress,
+                    caption = episode.indexNumber?.let { "第 $it 集" },
+                )
+            }
+            if (refreshed != playbackItems.value) {
+                val playingId = playbackItems.value.getOrNull(activeState.currentIndex)?.id
+                val refreshedIndex = refreshed.indexOfFirst { it.id == playingId }
+                    .takeIf { it >= 0 }
+                    ?: activeState.currentIndex.coerceIn(0, refreshed.lastIndex)
+                queueResume.value = refreshedIndex to
+                    (activeEngine?.currentPositionMs() ?: activeState.positionMs)
+                playbackItems.value = refreshed
+                queueRevision.value++
+                sessionTitles = refreshed.map { it.title }
+                AppLog.info(
+                    category = "player.queue",
+                    event = "episodes_refreshed",
+                    message = "Player episode queue refreshed",
+                    attributes = mapOf("itemCount" to refreshed.size.toString()),
+                )
+            }
+        }
     }
 
     private fun createMediaSession() {
@@ -564,7 +767,10 @@ class PlayerActivity : ComponentActivity() {
             setCallback(
                 object : MediaSession.Callback() {
                     override fun onPlay() {
-                        if (ensureAudioFocus()) playbackGate?.play()
+                        if (ensureAudioFocus()) {
+                            startPlaybackKeepAliveService(fromUserAction = true)
+                            playbackGate?.play()
+                        }
                     }
 
                     override fun onPause() {
@@ -644,7 +850,7 @@ class PlayerActivity : ComponentActivity() {
 
     private fun updateMediaSession(state: PlaybackState) {
         if (state.playing && !ensureAudioFocus()) {
-            playbackGate?.pause()
+            activeEngine?.pause()
         } else if (state.ended || state.error != null) {
             abandonAudioFocus()
         }
@@ -679,8 +885,55 @@ class PlayerActivity : ComponentActivity() {
         if (activeState.playing) {
             playbackGate?.pause()
         } else if (ensureAudioFocus()) {
+            startPlaybackKeepAliveService(fromUserAction = true)
             playbackGate?.play()
         }
+    }
+
+    /**
+     * Requests the playback foreground service once per playing interval.
+     *
+     * Engine state is emitted continuously, including while this activity is in PiP or stopped.
+     * Calling `startForegroundService` for every emission eventually makes Android treat one as a
+     * background start and throw `ForegroundServiceStartNotAllowedException`. A rejected request
+     * is deferred until the activity becomes visible again; notification/media-session actions
+     * get one immediate retry because they are explicit user actions.
+     */
+    private fun startPlaybackKeepAliveService(fromUserAction: Boolean = false) {
+        if (playbackKeepAliveRequested) return
+        if (playbackKeepAliveStartDeferred && !activityStarted && !fromUserAction) return
+
+        try {
+            ContextCompat.startForegroundService(
+                this,
+                Intent(this, PlaybackKeepAliveService::class.java),
+            )
+            playbackKeepAliveRequested = true
+            playbackKeepAliveStartDeferred = false
+        } catch (exception: IllegalStateException) {
+            // Android 8+ reports prohibited background service starts as IllegalStateException;
+            // Android 12+'s ForegroundServiceStartNotAllowedException is a subclass of it.
+            playbackKeepAliveStartDeferred = true
+            AppLog.warning(
+                category = "player.service",
+                event = "foreground_start_deferred",
+                message =
+                    "Playback foreground service start was deferred until the player is visible",
+                throwable = exception,
+                attributes =
+                    mapOf(
+                        "activityStarted" to activityStarted.toString(),
+                        "fromUserAction" to fromUserAction.toString(),
+                    ),
+            )
+        }
+    }
+
+    private fun stopPlaybackKeepAliveService() {
+        if (!playbackKeepAliveRequested && !playbackKeepAliveStartDeferred) return
+        stopService(Intent(this, PlaybackKeepAliveService::class.java))
+        playbackKeepAliveRequested = false
+        playbackKeepAliveStartDeferred = false
     }
 
     private fun ensureAudioFocus(): Boolean {
@@ -888,6 +1141,12 @@ private const val HARD_SEEK_THRESHOLD_MS = 2_000L
  */
 private const val CORRECTION_SETTLE_TIMEOUT_MS = 8_000L
 
+/** A guest that remains buffering this long gets one active recovery attempt. */
+private const val GUEST_BUFFER_RECOVERY_MS = 15_000L
+
+/** Loading completion realigns more aggressively than ordinary in-play drift. */
+private const val POST_BUFFER_SEEK_THRESHOLD_MS = 300L
+
 /** Speed offset used to close a nudge-range gap without an audible/visible jump. */
 private const val NUDGE_FRACTION = 0.02f
 
@@ -913,6 +1172,8 @@ private fun PlayerRoot(
     items: List<PlayerMediaItem>,
     startIndex: Int,
     startPositionMs: Long,
+    refreshedResume: Pair<Int, Long>,
+    queueRevision: Long,
     initialEngine: PlayerEngine,
     decoderMode: DecoderMode,
     autoNext: Boolean,
@@ -926,14 +1187,18 @@ private fun PlayerRoot(
     volumeKeyPresses: StateFlow<Long>,
     playbackRecovery: PlaybackRecoveryStore,
     customUserAgent: String,
+    videoCacheBytes: Long,
     watchTogether: WatchTogetherClient,
     watchTogetherPreferences: WatchTogetherPreferences,
     playbackGate: WatchGatedPlayback,
     onEngineAttached: (VideoEngine) -> Unit,
     onEngineDetached: (VideoEngine) -> Unit,
-    onPlaybackState: (PlaybackState) -> Unit,
+    onPlaybackState: (PlaybackState, PlayerMediaItem?) -> Unit,
     onVideoBounds: (Rect) -> Unit,
     onBack: () -> Unit,
+    onEnterPictureInPicture: () -> Unit,
+    onRefreshEpisodes: () -> Unit,
+    onRemotePlayRequested: () -> Boolean,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
@@ -960,6 +1225,7 @@ private fun PlayerRoot(
     // Where a newly built engine should start: index + position, updated on
     // every handover so the switch is seamless.
     var resume by remember { mutableStateOf(startIndex to startPositionMs) }
+    var engineGeneration by remember { mutableIntStateOf(0) }
     var filled by remember { mutableStateOf(false) }
 
     // Entry id -> chosen file, for titles the server holds more than one copy of. Switching
@@ -974,7 +1240,15 @@ private fun PlayerRoot(
         }
     }
 
-    val engine: VideoEngine = remember(kind, resume, activeItems) {
+    // A refreshed queue is applied as one deliberate engine handover. Keeping activeItems out
+    // of the remember key prevents a transient recomposition from rebuilding at a stale point.
+    LaunchedEffect(queueRevision) {
+        if (queueRevision <= 0L) return@LaunchedEffect
+        resume = refreshedResume
+        engineGeneration++
+    }
+
+    val engine: VideoEngine = remember(kind, engineGeneration) {
         when (kind) {
             PlayerEngine.Mdk -> MdkVideoEngine(
                 items = activeItems,
@@ -1006,6 +1280,7 @@ private fun PlayerRoot(
                 autoNext = autoNext,
                 quality = quality,
                 customUserAgent = customUserAgent,
+                videoCacheBytes = videoCacheBytes,
             )
         }
     }
@@ -1453,6 +1728,8 @@ private fun PlayerRoot(
         var awaitedPositionMs: Long? = null
         var awaitedIndex: Int? = null
         var awaitingSince = TimeSource.Monotonic.markNow()
+        var bufferingSince = TimeSource.Monotonic.markNow()
+        var wasBuffering = true
         fun awaitCorrection(positionMs: Long?, index: Int?) {
             awaitedPositionMs = positionMs
             awaitedIndex = index
@@ -1478,11 +1755,27 @@ private fun PlayerRoot(
                         // Buffering means the engine is still working — on the last
                         // correction, or on the stream itself. Either way it has not yet
                         // shown where it really is, so there is nothing to correct against.
-                        if (settling || latestPlaybackState.buffering) {
+                        if (settling) {
                             if (timeline.paused && latestPlaybackState.playing) latestEngine.pause()
                             delay(GUEST_RECONCILE_TICK_MS)
                             continue
                         }
+                        if (latestPlaybackState.buffering) {
+                            if (!wasBuffering) bufferingSince = TimeSource.Monotonic.markNow()
+                            wasBuffering = true
+                            if (
+                                bufferingSince.elapsedNow().inWholeMilliseconds >=
+                                GUEST_BUFFER_RECOVERY_MS
+                            ) {
+                                latestEngine.retry()
+                                bufferingSince = TimeSource.Monotonic.markNow()
+                            }
+                            if (timeline.paused && latestPlaybackState.playing) latestEngine.pause()
+                            delay(GUEST_RECONCILE_TICK_MS)
+                            continue
+                        }
+                        val recoveredFromBuffer = wasBuffering
+                        wasBuffering = false
 
                         if (targetIndex != latestPlaybackState.currentIndex) {
                             latestEngine.selectItem(targetIndex)
@@ -1493,7 +1786,9 @@ private fun PlayerRoot(
                         val expected = timeline.expectedPositionMs(watchTogether.estimatedServerNow())
                         val diff = expected - position
                         val desiredRate = when {
-                            kotlin.math.abs(diff) >= HARD_SEEK_THRESHOLD_MS -> {
+                            kotlin.math.abs(diff) >= HARD_SEEK_THRESHOLD_MS ||
+                                (recoveredFromBuffer &&
+                                    kotlin.math.abs(diff) >= POST_BUFFER_SEEK_THRESHOLD_MS) -> {
                                 latestEngine.seekTo(expected)
                                 awaitCorrection(positionMs = expected, index = null)
                                 timeline.rate
@@ -1510,7 +1805,9 @@ private fun PlayerRoot(
                             lastAppliedRate = desiredRate
                         }
                         if (timeline.paused && latestPlaybackState.playing) latestEngine.pause()
-                        if (!timeline.paused && !latestPlaybackState.playing) latestEngine.play()
+                        if (!timeline.paused && !latestPlaybackState.playing) {
+                            if (onRemotePlayRequested()) latestEngine.play()
+                        }
                     }
                 }
                 delay(GUEST_RECONCILE_TICK_MS)
@@ -1536,7 +1833,7 @@ private fun PlayerRoot(
     }
     LaunchedEffect(state, reporter) {
         reporter?.update(state)
-        onPlaybackState(state)
+        onPlaybackState(state, activeItems.getOrNull(state.currentIndex))
         playbackGate.onPlaybackIndexChanged(state.currentIndex)
         val item = activeItems.getOrNull(state.currentIndex)
         when {
@@ -1591,6 +1888,7 @@ private fun PlayerRoot(
         )
         resume = state.currentIndex to engine.currentPositionMs()
         versionChoices = versionChoices + (item.id to versionId)
+        engineGeneration++
     }
 
     fun switchEngine(target: PlayerEngine) {
@@ -1681,10 +1979,14 @@ private fun PlayerRoot(
                 episodes = activeItems.toEpisodeCards(),
                 filled = filled,
                 onBack = onBack,
+                onEnterPictureInPicture = onEnterPictureInPicture,
                 onPlayPause = { playbackGate.togglePlayPause() },
                 onRetry = { playbackGate.retry() },
                 onSeek = playbackGate::seekTo,
                 onSelectItem = playbackGate::selectItem,
+                onPreviousItem = playbackGate::selectPrevious,
+                onNextItem = playbackGate::selectNext,
+                onRefreshEpisodes = onRefreshEpisodes,
                 onSelectAudio = engine::selectAudioTrack,
                 onSelectSubtitle = engine::selectSubtitleTrack,
                 onSpeed = { newSpeed -> playbackGate.setSpeed(newSpeed) },

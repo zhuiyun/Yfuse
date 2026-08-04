@@ -31,6 +31,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -83,7 +84,6 @@ import com.yfuse.core.designsystem.rememberDominantColor
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaElement
-import com.yfuse.core.designsystem.sharedMediaForeground
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
@@ -93,6 +93,7 @@ import com.yfuse.core.model.Person
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.watch.WatchInviteShareSheet
@@ -120,6 +121,7 @@ private val TypicalCaptionHeight = 116.dp
 @Composable
 fun DetailScreen(component: DetailComponent) {
     val state by component.store.states.collectAsState(component.store.state)
+    val playbackSelection by PlaybackSelection.state.collectAsState()
     val palette = LocalPalette.current
     val detail = state.detail
     val baseUrl = state.server?.baseUrl.orEmpty()
@@ -175,6 +177,21 @@ fun DetailScreen(component: DetailComponent) {
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
 
+    LaunchedEffect(
+        playbackSelection,
+        state.sources,
+        state.episodes,
+        detail?.versions,
+    ) {
+        component.store.accept(
+            DetailIntent.SyncPlaybackSelection(
+                serverId = playbackSelection.serverId,
+                itemId = playbackSelection.itemId,
+                versionId = playbackSelection.versionId,
+            ),
+        )
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val heroHeight = maxHeight * 0.60f
@@ -206,10 +223,7 @@ fun DetailScreen(component: DetailComponent) {
         Box(Modifier.fillMaxSize().background(detailSurface))
 
         when {
-            detail == null && state.error == null -> DetailSkeleton(
-                heroHeight = heroHeight,
-                sharedKey = "media-backdrop-${component.itemId}",
-            )
+            detail == null && state.error == null -> DetailSkeleton(heroHeight)
 
             detail == null -> ErrorState(
                 message = state.error ?: "加载失败",
@@ -236,7 +250,6 @@ fun DetailScreen(component: DetailComponent) {
                 item(key = "sheet") {
                     Column(
                         Modifier
-                            .sharedMediaForeground()
                             .fillMaxWidth()
                             .liftOverHero(captionLift)
                             .background(panelBrush)
@@ -349,9 +362,11 @@ fun DetailScreen(component: DetailComponent) {
                     item(key = "sources") {
                         SourceSection(
                             sources = state.sources,
+                            selectedServerId = state.selectedSourceServerId,
+                            selectedItemId = state.selectedSourceItemId,
                             accent = Brand.Primary,
                             onSelect = { serverId, itemId ->
-                                component.store.accept(DetailIntent.PlaySource(serverId, itemId))
+                                component.store.accept(DetailIntent.SelectSource(serverId, itemId))
                             },
                             onSeeAll = { sourceListOpen = true },
                             modifier = Modifier.padding(top = Dimens.sectionGap),
@@ -392,6 +407,7 @@ fun DetailScreen(component: DetailComponent) {
                             baseUrl = baseUrl,
                             accessToken = accessToken,
                             episodes = state.episodes,
+                            selectedEpisodeId = state.selectedEpisodeId,
                             accent = Brand.Primary,
                             seasonLabel = state.seasons
                                 .firstOrNull { it.id == state.selectedSeasonId }
@@ -408,7 +424,7 @@ fun DetailScreen(component: DetailComponent) {
                             },
                             onPlayEpisode = { episode ->
                                 component.store.accept(
-                                    DetailIntent.PlayEpisode(
+                                    DetailIntent.SelectEpisode(
                                         episode.id,
                                         episode.resumePositionTicks ?: 0L,
                                     ),
@@ -523,10 +539,14 @@ fun DetailScreen(component: DetailComponent) {
         if (sourceListOpen) {
             SourceListDialog(
                 sources = state.sources,
+                selectedServerId = state.selectedSourceServerId,
+                selectedItemId = state.selectedSourceItemId,
                 accent = Brand.Primary,
                 onSelect = { serverId, itemId ->
-                    sourceListOpen = false
-                    component.store.accept(DetailIntent.PlaySource(serverId, itemId))
+                    val willPlay = state.selectedSourceServerId == serverId &&
+                        state.selectedSourceItemId == itemId
+                    if (willPlay) sourceListOpen = false
+                    component.store.accept(DetailIntent.SelectSource(serverId, itemId))
                 },
                 onDismiss = { sourceListOpen = false },
             )
@@ -545,11 +565,14 @@ fun DetailScreen(component: DetailComponent) {
                 baseUrl = baseUrl,
                 accessToken = accessToken,
                 accent = Brand.Primary,
-                currentEpisodeId = detail.id.takeIf { detail.type == "Episode" },
+                currentEpisodeId = state.selectedEpisodeId,
                 onPlayEpisode = { episode ->
-                    allEpisodesOpen = false
+                    if (state.selectedEpisodeId == episode.id) allEpisodesOpen = false
                     component.store.accept(
-                        DetailIntent.PlayEpisode(episode.id, episode.resumePositionTicks ?: 0L),
+                        DetailIntent.SelectEpisode(
+                            episode.id,
+                            episode.resumePositionTicks ?: 0L,
+                        ),
                     )
                 },
                 onDismiss = { allEpisodesOpen = false },
@@ -716,7 +739,6 @@ private fun Hero(
         )
         Box(
             Modifier
-                .sharedMediaForeground(zIndex = 0.5f)
                 .fillMaxSize()
                 .background(heroScrim(surfaceColor)),
         )
@@ -743,7 +765,7 @@ private fun DetailTopBar(
 ) {
     val palette = LocalPalette.current
     val plateFill = surfaceColor.copy(alpha = 0.94f)
-    Box(Modifier.sharedMediaForeground(zIndex = 2f).fillMaxWidth()) {
+    Box(Modifier.fillMaxWidth()) {
         Box(
             Modifier
                 .matchParentSize()
@@ -969,8 +991,8 @@ private fun runtimeLabel(minutes: Int): String {
  * light-theme ink and goes muddy on a photograph.
  */
 private val ArtworkInk = Color.White
-private val ArtworkInkSub = Color.White.copy(alpha = 0.80f)
-private val ArtworkInkFaint = Color.White.copy(alpha = 0.66f)
+private val ArtworkInkSub = Color.White.copy(alpha = 0.94f)
+private val ArtworkInkFaint = Color.White.copy(alpha = 0.84f)
 
 /** `TMDB` in the secondary ink, the figure itself large and in the accent. */
 @Composable
@@ -1462,6 +1484,7 @@ private fun EpisodeSection(
     baseUrl: String,
     accessToken: String,
     episodes: List<Episode>,
+    selectedEpisodeId: String?,
     accent: Color,
     seasonLabel: String,
     episodeCount: Int,
@@ -1494,7 +1517,14 @@ private fun EpisodeSection(
                 episodes,
                 key = { index, episode -> "ep-${episode.id}-$index" },
             ) { _, episode ->
-                EpisodeCard(baseUrl, accessToken, episode, accent) { onPlayEpisode(episode) }
+                EpisodeCard(
+                    baseUrl = baseUrl,
+                    accessToken = accessToken,
+                    episode = episode,
+                    accent = accent,
+                    selected = episode.id == selectedEpisodeId,
+                    onPlay = { onPlayEpisode(episode) },
+                )
             }
         }
     }
@@ -1506,6 +1536,7 @@ private fun EpisodeCard(
     accessToken: String,
     episode: Episode,
     accent: Color,
+    selected: Boolean,
     onPlay: () -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -1517,12 +1548,13 @@ private fun EpisodeCard(
             .solidGlass(
                 shape = GlassShapes.card,
                 fill = when {
-                    watching -> accent.copy(alpha = 0.10f)
+                    selected -> accent.copy(alpha = 0.14f)
+                    watching -> accent.copy(alpha = 0.08f)
                     palette.isDark -> palette.card
                     else -> Color.White.copy(alpha = 0.56f)
                 },
-                border = if (watching) {
-                    accent.copy(alpha = 0.28f)
+                border = if (selected) {
+                    accent.copy(alpha = 0.52f)
                 } else {
                     Color.White.copy(alpha = if (palette.isDark) 0.20f else 0.86f)
                 },
@@ -1564,13 +1596,14 @@ private fun EpisodeCard(
             Spacer(Modifier.height(4.dp))
             Text(
                 buildString {
-                    if (watching) append("正在观看")
+                    if (selected) append("已选中 · 再次点击播放")
+                    else if (watching) append("正在观看")
                     val runtime = episode.runtimeMinutes?.let { "$it 分钟" }
-                    if (watching && runtime != null) append(" · ")
+                    if ((selected || watching) && runtime != null) append(" · ")
                     if (runtime != null) append(runtime)
                 },
                 style = mr(10.5f, 500),
-                color = if (watching) accent else palette.sub2,
+                color = if (selected || watching) accent else palette.sub2,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1632,19 +1665,21 @@ private fun CastRow(
 }
 
 /**
- * Loading placeholder shaped like the page it becomes, so the shared-element push from
- * the grid lands on a layout instead of an empty screen.
+ * Loading placeholder shaped like the page it becomes.
  */
 @Composable
-private fun DetailSkeleton(heroHeight: Dp, sharedKey: String) {
+private fun DetailSkeleton(heroHeight: Dp) {
     val palette = LocalPalette.current
     val fill = if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color(0x2996A0B4)
     Column(Modifier.fillMaxSize()) {
+        // A loading placeholder can disappear before Compose's shared-transition overlay has
+        // received its first bounds. Making that short-lived node a shared element leaves the
+        // overlay trying to draw a detached node and crashes with "current bounds not set yet".
+        // The real hero below remains shared once the detail has loaded.
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(heroHeight)
-                .sharedMediaElement(sharedKey)
                 .background(fill),
         )
         Column(

@@ -159,12 +159,11 @@ fun App(root: RootComponent) {
             if (watchState.isHost || miniPlayback.active) return@LaunchedEffect
             val mediaKey = watchState.mediaKey?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
             if (followed == roomCode to mediaKey) return@LaunchedEffect
-            followed = roomCode to mediaKey
             // Resolving and opening is the same work as entering a room by hand, and lives
             // with it — this effect owns only the decision to do it unasked, which is what
             // the guard above is. 「我的」→ 一起看 → 进入房间 is the way back once this has
             // fired and the user has since left the player.
-            root.enterWatchRoom()
+            if (root.followWatchRoom()) followed = roomCode to mediaKey
         }
 
         // What the bottom stack says about the room — the mini player's second line while a
@@ -239,22 +238,10 @@ fun App(root: RootComponent) {
                         .navigationBarsPadding()
                         .padding(horizontal = Dimens.tabBarInset)
                         .padding(bottom = Dimens.tabBarHeight + 22.dp)
-                    if (miniPlayback.active) {
-                        MiniPlayer(
-                            title = miniPlayback.title,
-                            playing = miniPlayback.playing,
-                            roomNote = watchRoomNote,
-                            progress = if (miniPlayback.durationMs > 0L) {
-                                miniPlayback.positionMs.toFloat() / miniPlayback.durationMs
-                            } else {
-                                0f
-                            },
-                            onOpen = ActivePlayback::open,
-                            onToggle = ActivePlayback::toggle,
-                            onClose = ActivePlayback::close,
-                            modifier = bottomStackSlot,
-                        )
-                    } else if (watchRoomNote != null) {
+                    // Video backgrounding is represented by Android PiP. The old long,
+                    // music-like mini controller duplicated transport controls and only
+                    // appeared at tab roots, so it is intentionally not rendered here.
+                    if (!miniPlayback.active && watchRoomNote != null) {
                         WatchRoomBar(
                             note = watchRoomNote,
                             attention = watchState.reconnecting ||
@@ -298,80 +285,6 @@ fun App(root: RootComponent) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun MiniPlayer(
-    title: String,
-    playing: Boolean,
-    progress: Float,
-    onOpen: () -> Unit,
-    onToggle: () -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
-    /** Non-null while a watch-together room is live — this is the only place an active
-     *  room is visible once the player has been dismissed. */
-    roomNote: String? = null,
-) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .height(58.dp)
-            .shadow(Shadows.tabBar, GlassShapes.card)
-            .overlayGlass(
-                GlassShapes.card,
-                MiniPlayerTokens.fill,
-                MiniPlayerTokens.border,
-            )
-            .clickable(onClick = onOpen)
-            .padding(start = 12.dp, end = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Box(
-            Modifier
-                .size(38.dp)
-                .clip(GlassShapes.thumb)
-                .background(MiniPlayerTokens.artwork),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(AppIcons.Play, null, tint = Color.White, modifier = Modifier.size(16.dp))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title.ifBlank { "正在播放" }, style = mr(11.5f, 650), color = Color.White, maxLines = 1)
-            if (roomNote != null) {
-                Spacer(Modifier.height(2.dp))
-                Text(roomNote, style = mr(9.5f, 500), color = Brand.Primary, maxLines = 1)
-            }
-            Spacer(Modifier.height(6.dp))
-            Box(Modifier.fillMaxWidth().height(2.dp).background(Color.White.copy(alpha = 0.18f))) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(progress.coerceIn(0f, 1f))
-                        .fillMaxHeight()
-                        .background(Brand.Primary),
-                )
-            }
-        }
-        Icon(
-            if (playing) AppIcons.Pause else AppIcons.Play,
-            contentDescription = if (playing) "暂停" else "播放",
-            tint = Color.White,
-            modifier = Modifier
-                .size(34.dp)
-                .clickable(onClick = onToggle)
-                .padding(8.dp),
-        )
-        Icon(
-            AppIcons.Close,
-            contentDescription = "关闭播放器",
-            tint = Color.White.copy(alpha = 0.8f),
-            modifier = Modifier
-                .size(32.dp)
-                .clickable(onClick = onClose)
-                .padding(8.dp),
-        )
     }
 }
 

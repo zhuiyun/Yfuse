@@ -10,6 +10,7 @@ import com.yfuse.core.data.AiringScheduleCache
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
@@ -37,6 +38,7 @@ fun appModule(settings: Settings) = module {
     single { settings }
     single { ServerRegistry(get()) }
     single { ThemePreferences(get()) }
+    single { PlaybackPreferences(get()) }
     single { PlaybackRecoveryStore(get()) }
     single { UserAgentPreferences(get()) }
     single { WatchTogetherPreferences(get()) }

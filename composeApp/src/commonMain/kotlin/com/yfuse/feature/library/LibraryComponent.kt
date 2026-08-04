@@ -6,7 +6,7 @@ import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
 import com.arkivanov.decompose.router.stack.pop
-import com.arkivanov.decompose.router.stack.push
+import com.arkivanov.decompose.router.stack.pushToFront
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
@@ -74,7 +74,7 @@ class LibraryComponent(
      * invite lands on the film rather than on whatever tab happened to be open.
      */
     fun openDetail(serverId: String?, itemId: String, autoPlay: Boolean = false) {
-        navigation.push(Config.Detail(serverId, itemId, autoPlay))
+        navigation.pushToFront(Config.Detail(serverId, itemId, autoPlay))
     }
 
     private fun child(config: Config, context: ComponentContext): Child = when (config) {
@@ -84,9 +84,11 @@ class LibraryComponent(
                 storeFactory = storeFactory,
                 repo = repo,
                 registry = registry,
-                onSeeAll = { libraryId, title -> navigation.push(Config.Grid(libraryId, title)) },
+                onSeeAll = { libraryId, title ->
+                    navigation.pushToFront(Config.Grid(libraryId, title))
+                },
                 onOpenItem = {
-                    navigation.push(Config.Detail(registry.defaultServer?.id, it))
+                    navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it))
                 },
             ),
         )
@@ -99,7 +101,7 @@ class LibraryComponent(
                 libraryId = config.libraryId,
                 title = config.title,
                 onOpenItem = {
-                    navigation.push(Config.Detail(registry.defaultServer?.id, it))
+                    navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it))
                 },
                 onBack = { navigation.pop() },
             ),
@@ -115,10 +117,10 @@ class LibraryComponent(
                 autoPlay = config.autoPlay,
                 onBack = { navigation.pop() },
                 onOpenRelated = { serverId, itemId ->
-                    navigation.push(Config.Detail(serverId, itemId))
+                    navigation.pushToFront(Config.Detail(serverId, itemId))
                 },
                 onPlay = { serverId, itemId, ticks, mediaSourceId ->
-                    navigation.push(Config.Player(serverId, itemId, ticks, mediaSourceId))
+                    navigation.pushToFront(Config.Player(serverId, itemId, ticks, mediaSourceId))
                 },
             ),
         )

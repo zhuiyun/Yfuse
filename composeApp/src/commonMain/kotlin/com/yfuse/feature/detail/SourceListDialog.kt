@@ -51,6 +51,8 @@ import com.yfuse.core.model.ServerSource
 @Composable
 internal fun SourceListDialog(
     sources: List<ServerSource>,
+    selectedServerId: String?,
+    selectedItemId: String?,
     accent: Color,
     onSelect: (serverId: String, itemId: String) -> Unit,
     onDismiss: () -> Unit,
@@ -70,7 +72,7 @@ internal fun SourceListDialog(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "资源",
-            subtitle = "${available.size} 个媒体库有这个片子 · 点按切换",
+            subtitle = "${available.size} 个媒体库有这个片子 · 选中后再次点击播放",
             onClose = onDismiss,
         )
         Column(
@@ -82,6 +84,7 @@ internal fun SourceListDialog(
             available.forEach { entry ->
                 SourceRow(
                     entry = entry,
+                    selected = entry.serverId == selectedServerId && entry.itemId == selectedItemId,
                     accent = accent,
                     best = entry.serverId == bestServerId,
                     onSelect = { entry.itemId?.let { onSelect(entry.serverId, it) } },
@@ -102,13 +105,13 @@ internal fun SourceListDialog(
 @Composable
 private fun SourceRow(
     entry: ServerSource,
+    selected: Boolean,
     accent: Color,
     best: Boolean,
     onSelect: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val source = entry.source
-    val selected = entry.isCurrent
     val edge = when {
         selected -> accent
         palette.isDark -> Color.White.copy(alpha = 0.16f)
@@ -131,7 +134,7 @@ private fun SourceRow(
                 edge,
                 GlassShapes.card,
             )
-            .pressable(enabled = !selected, onClick = onSelect)
+            .pressable(onClick = onSelect)
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {

@@ -432,10 +432,11 @@ private fun MigrationLink(
 
 @Composable
 private fun MigrationDivider() {
+    val palette = LocalPalette.current
     Box(
         Modifier
             .size(width = 1.dp, height = 18.dp)
-            .background(LocalPalette.current.border.copy(alpha = 0.75f)),
+            .background(palette.border.copy(alpha = if (palette.isDark) 0.24f else 0.48f)),
     )
 }
 

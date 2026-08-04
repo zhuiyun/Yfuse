@@ -101,6 +101,16 @@ object AppIcons {
         moveTo(2f, 5f); verticalLineToRelative(14f); lineToRelative(9f, -7f); close()
     }
 
+    val Previous = fillVector("previous") {
+        roundRect(4f, 5f, 2.5f, 14f, 1f)
+        moveTo(19f, 5f); verticalLineToRelative(14f); lineTo(8f, 12f); close()
+    }
+
+    val Next = fillVector("next") {
+        roundRect(17.5f, 5f, 2.5f, 14f, 1f)
+        moveTo(5f, 5f); verticalLineToRelative(14f); lineTo(16f, 12f); close()
+    }
+
     val Lock = strokeVector("lock") {
         roundRect(5f, 11f, 14f, 9f, 2f)
     }.andPath {
@@ -149,6 +159,13 @@ object AppIcons {
         moveTo(13.5f, 14f); horizontalLineToRelative(3.5f)
     }.build()
 
+    val Danmaku = strokeVector("danmaku", cap = StrokeCap.Round, join = StrokeJoin.Round) {
+        roundRect(3f, 5f, 18f, 13f, 3f)
+        moveTo(8f, 18f); lineTo(6f, 21f); lineTo(12f, 18f)
+        moveTo(7f, 10f); horizontalLineTo(17f)
+        moveTo(7f, 14f); horizontalLineTo(14f)
+    }.build()
+
     /** Room chat — distinct from the lined 弹幕 bubble. */
     val Chat = strokeVector("chat", cap = StrokeCap.Round, join = StrokeJoin.Round) {
         roundRect(3f, 4f, 18f, 14f, 3f)
@@ -186,6 +203,15 @@ object AppIcons {
         arcToRelative(1.5f, 1.5f, 0f, false, true, -1.5f, 1.5f)
         horizontalLineTo(17.5f)
         moveTo(12f, 13.5f); lineTo(16.6f, 20f); horizontalLineTo(7.4f); close()
+    }.build()
+
+    val PictureInPicture = strokeVector(
+        name = "picture-in-picture",
+        cap = StrokeCap.Round,
+        join = StrokeJoin.Round,
+    ) {
+        roundRect(3f, 5f, 18f, 14f, 2f)
+        roundRect(12f, 11f, 7f, 5f, 1f)
     }.build()
 
     /** Three-dot "more" glyph from the supplied interaction prototype. */

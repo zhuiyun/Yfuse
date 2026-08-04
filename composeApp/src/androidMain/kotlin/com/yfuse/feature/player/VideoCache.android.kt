@@ -1,0 +1,56 @@
+package com.yfuse.feature.player
+
+import android.content.Context
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import java.io.Closeable
+
+/**
+ * Shares one Media3 cache between player rebuilds.
+ *
+ * SimpleCache exclusively locks its directory, so constructing one per Exo engine fails during
+ * version/decoder handovers. Reference counting also lets a changed size take effect on the next
+ * player once the previous engine has released the directory.
+ */
+@UnstableApi
+internal object VideoCachePool {
+    private var cache: SimpleCache? = null
+    private var configuredBytes: Long = -1L
+    private var references = 0
+
+    @Synchronized
+    fun acquire(context: Context, maxBytes: Long): Handle? {
+        if (maxBytes <= 0L) return null
+        if (cache == null || (configuredBytes != maxBytes && references == 0)) {
+            cache?.release()
+            cache = SimpleCache(
+                context.cacheDir.resolve("video_cache"),
+                LeastRecentlyUsedCacheEvictor(maxBytes),
+                StandaloneDatabaseProvider(context.applicationContext),
+            )
+            configuredBytes = maxBytes
+        }
+        references++
+        return Handle(requireNotNull(cache), ::releaseReference)
+    }
+
+    @Synchronized
+    private fun releaseReference() {
+        references = (references - 1).coerceAtLeast(0)
+    }
+
+    class Handle internal constructor(
+        val cache: SimpleCache,
+        private val onClose: () -> Unit,
+    ) : Closeable {
+        private var closed = false
+
+        override fun close() {
+            if (closed) return
+            closed = true
+            onClose()
+        }
+    }
+}

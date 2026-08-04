@@ -197,11 +197,12 @@ private fun DiagnosticActionRow(
 
 @Composable
 private fun DiagnosticDivider() {
+    val palette = LocalPalette.current
     androidx.compose.foundation.layout.Box(
         Modifier
             .fillMaxWidth()
             .height(1.dp)
-            .background(LocalPalette.current.border.copy(alpha = 0.72f)),
+            .background(palette.border.copy(alpha = if (palette.isDark) 0.24f else 0.48f)),
     )
 }
 

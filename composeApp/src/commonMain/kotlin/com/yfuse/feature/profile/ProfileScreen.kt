@@ -45,6 +45,7 @@ import com.yfuse.app.TabBarInset
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
 import com.yfuse.core.designsystem.AppIcons
@@ -86,6 +87,7 @@ private enum class Sheet {
     WatchTogether,
     WatchProfile,
     WatchEndpoint,
+    VideoCache,
 }
 
 private enum class ProfilePage { Downloads, Recovery }
@@ -99,6 +101,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val engine by prefs.engine.collectAsState()
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
+    val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
@@ -251,6 +254,13 @@ fun ProfileScreen(component: ProfileComponent) {
                                 autoNext,
                                 embedded = true,
                             ) { prefs.setAutoNext(it) }
+                            SettingsDivider()
+                            SettingRow(
+                                "视频缓存大小",
+                                "${videoCacheSize.label} ›",
+                                embedded = true,
+                                onClick = { sheet = Sheet.VideoCache },
+                            )
                             SettingsDivider()
                             SettingRow(
                                 "弹幕链接",
@@ -465,6 +475,17 @@ fun ProfileScreen(component: ProfileComponent) {
                 options = DecoderMode.entries.map { it.label to (it == decoder) },
                 onSelect = { index ->
                     prefs.setDecoder(DecoderMode.entries[index])
+                    sheet = null
+                },
+                onDismiss = { sheet = null },
+            )
+
+            Sheet.VideoCache -> OptionSheet(
+                title = "视频缓存大小",
+                subtitle = "缓存已播放的数据，减少回看与网络抖动造成的卡顿",
+                options = VideoCacheSize.entries.map { it.label to (it == videoCacheSize) },
+                onSelect = { index ->
+                    component.playbackPreferences.setVideoCacheSize(VideoCacheSize.entries[index])
                     sheet = null
                 },
                 onDismiss = { sheet = null },
@@ -894,12 +915,15 @@ private fun SwitchRow(
 
 @Composable
 private fun SettingsDivider() {
+    val palette = LocalPalette.current
     Box(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .height(1.dp)
-            .background(LocalPalette.current.border.copy(alpha = 0.55f)),
+            .background(
+                palette.border.copy(alpha = if (palette.isDark) 0.24f else 0.48f),
+            ),
     )
 }
 

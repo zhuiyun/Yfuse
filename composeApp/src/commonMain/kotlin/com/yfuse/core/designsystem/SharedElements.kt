@@ -55,13 +55,18 @@ fun <T : Any> SharedElementTransitionContainer(
         AnimatedContent(
             targetState = targetState,
             transitionSpec = {
-                (
+                ((
                     fadeIn(tween(duration)) +
                         scaleIn(tween(duration), initialScale = 0.985f)
                     ) togetherWith (
                     fadeOut(tween(duration)) +
                         scaleOut(tween(duration), targetScale = 1.01f)
-                    )
+                    )).apply {
+                    // The destination owns all non-shared chrome. On a pop this keeps the
+                    // outgoing detail buttons behind the library page instead of letting
+                    // them float over it for the remainder of the exit animation.
+                    targetContentZIndex = 1f
+                }
             },
             contentKey = routeKey,
             label = "shared-media-route",
@@ -90,22 +95,10 @@ fun Modifier.sharedMediaElement(key: String?): Modifier {
         this@sharedMediaElement.sharedElement(
             state = rememberSharedContentState(key = key),
             animatedVisibilityScope = animatedVisibilityScope,
-        )
-    }
-}
-
-/**
- * Keeps detail-page chrome above artwork that is temporarily rendered in the shared
- * transition overlay. Without this, the travelling image is drawn after the whole page
- * and briefly covers titles and actions until the route animation finishes.
- */
-@OptIn(ExperimentalSharedTransitionApi::class)
-@Composable
-fun Modifier.sharedMediaForeground(zIndex: Float = 1f): Modifier {
-    val sharedTransitionScope = LocalSharedTransitionScope.current ?: return this
-    return with(sharedTransitionScope) {
-        this@sharedMediaForeground.renderInSharedTransitionScopeOverlay(
-            zIndexInOverlay = zIndex,
+            // Compose 1.7 can draw a just-detached shared element in the transition overlay
+            // before it has current bounds, throwing "current bounds not set yet". Keeping media
+            // in its normal layer still animates its bounds and makes that draw path unreachable.
+            renderInOverlayDuringTransition = false,
         )
     }
 }
