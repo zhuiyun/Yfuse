@@ -138,7 +138,10 @@ class WatchGatedPlayback(
     private fun publish(
         index: Int = state?.currentIndex ?: 0,
         positionMs: Long? = null,
-        paused: Boolean = state?.playing != true,
+        paused: Boolean = watchTimelinePaused(
+            playbackRequested = engine()?.playbackRequested == true,
+            ended = state?.ended == true,
+        ),
         rate: Float = nominalRate(),
     ) {
         val item = items().getOrNull(index) ?: return
@@ -170,6 +173,10 @@ internal fun nominalWatchRate(measured: Float, room: Float): Float {
     val band = room * NUDGE_FRACTION + RATE_EPSILON
     return if (abs(measured - room) <= band) room else measured
 }
+
+/** The room follows playback intent; loading and rebuffering are not pause actions. */
+internal fun watchTimelinePaused(playbackRequested: Boolean, ended: Boolean): Boolean =
+    !playbackRequested || ended
 
 /**
  * Tracks whether a guest can actually follow the room, so "connected but silently not

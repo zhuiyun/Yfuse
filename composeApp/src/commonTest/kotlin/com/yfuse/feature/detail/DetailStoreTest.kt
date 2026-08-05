@@ -103,42 +103,16 @@ class DetailStoreTest {
     @Test
     fun episode_selects_first_and_selected_episode_plays_its_version() {
         runTest {
-            val registry = testRegistry().apply {
-                addOrUpdate(SavedServer("one", "http://one", "主库", "u", "user", "tok1"))
+            val store = seriesStore()
+            if (store.state.playTarget?.id != "e1" || store.state.episodes.size != 2) {
+                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
             }
-            val repo = testRepo { request ->
-                val path = request.url.encodedPath
-                when {
-                    path.endsWith("/Items/s1") -> json(SERIES)
-                    path.endsWith("/Items/e1") -> json(EPISODE_ONE)
-                    path.endsWith("/Items/e2") -> json(EPISODE_TWO)
-                    path.endsWith("/Shows/NextUp") -> json(
-                        """{"Items":[{"Id":"e1","Name":"第一集","Type":"Episode",""" +
-                            """"UserData":{"PlaybackPositionTicks":10000000}}]}""",
-                    )
-                    path.endsWith("/Shows/s1/Seasons") -> json(
-                        """{"Items":[{"Id":"season1","Name":"第 1 季","IndexNumber":1}]}""",
-                    )
-                    path.endsWith("/Shows/s1/Episodes") -> json(
-                        """{"Items":[$EPISODE_ONE,$EPISODE_TWO]}""",
-                    )
-                    path.endsWith("/Similar") -> json("""{"Items":[]}""")
-                    path.endsWith("/Items") -> json("""{"Items":[$SERIES]}""")
-                    else -> json("{}")
-                }
-            }
-            val store = DetailStoreFactory(
-                DefaultStoreFactory(),
-                repo,
-                registry,
-                itemId = "s1",
-                serverId = "one",
-            ).create()
-            store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
 
             store.labels.test {
                 store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
-                store.states.first { !it.selectionLoading && it.playTarget?.id == "e2" }
+                if (store.state.selectionLoading || store.state.playTarget?.id != "e2") {
+                    store.states.first { !it.selectionLoading && it.playTarget?.id == "e2" }
+                }
 
                 assertEquals("ev2", store.state.selectedVersionId)
                 assertEquals(20_000_000L, store.state.playPositionTicks)
@@ -151,6 +125,39 @@ class DetailStoreTest {
                 )
                 cancelAndConsumeRemainingEvents()
             }
+            store.dispose()
+        }
+    }
+
+    @Test
+    fun player_selection_syncs_episode_and_version_together() {
+        runTest {
+            val store = seriesStore()
+            if (store.state.playTarget?.id != "e1" || store.state.episodes.size != 2) {
+                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+            }
+
+            store.accept(
+                DetailIntent.SyncPlaybackSelection(
+                    serverId = "one",
+                    itemId = "e2",
+                    versionId = "ev2b",
+                ),
+            )
+            if (
+                store.state.selectionLoading ||
+                store.state.playTarget?.id != "e2" ||
+                store.state.selectedVersionId != "ev2b"
+            ) {
+                store.states.first {
+                    !it.selectionLoading &&
+                        it.playTarget?.id == "e2" &&
+                        it.selectedVersionId == "ev2b"
+                }
+            }
+
+            assertEquals("e2", store.state.selectedEpisodeId)
+            assertEquals("ev2b", store.state.selectedVersionId)
             store.dispose()
         }
     }
@@ -190,6 +197,44 @@ class DetailStoreTest {
         ).create()
     }
 
+    private fun seriesStore(): com.arkivanov.mvikotlin.core.store.Store<
+        DetailIntent,
+        DetailState,
+        DetailLabel,
+    > {
+        val registry = testRegistry().apply {
+            addOrUpdate(SavedServer("one", "http://one", "主库", "u", "user", "tok1"))
+        }
+        val repo = testRepo { request ->
+            val path = request.url.encodedPath
+            when {
+                path.endsWith("/Items/s1") -> json(SERIES)
+                path.endsWith("/Items/e1") -> json(EPISODE_ONE)
+                path.endsWith("/Items/e2") -> json(EPISODE_TWO)
+                path.endsWith("/Shows/NextUp") -> json(
+                    """{"Items":[{"Id":"e1","Name":"第一集","Type":"Episode",""" +
+                        """"UserData":{"PlaybackPositionTicks":10000000}}]}""",
+                )
+                path.endsWith("/Shows/s1/Seasons") -> json(
+                    """{"Items":[{"Id":"season1","Name":"第 1 季","IndexNumber":1}]}""",
+                )
+                path.endsWith("/Shows/s1/Episodes") -> json(
+                    """{"Items":[$EPISODE_ONE,$EPISODE_TWO]}""",
+                )
+                path.endsWith("/Similar") -> json("""{"Items":[]}""")
+                path.endsWith("/Items") -> json("""{"Items":[$SERIES]}""")
+                else -> json("{}")
+            }
+        }
+        return DetailStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry,
+            itemId = "s1",
+            serverId = "one",
+        ).create()
+    }
+
     private companion object {
         const val MOVIE_ONE = """{"Id":"m1","Name":"电影","Type":"Movie",""" +
             """"UserData":{"PlaybackPositionTicks":40000000},"MediaSources":[""" +
@@ -218,6 +263,7 @@ class DetailStoreTest {
             """"IndexNumber":2,"SeasonId":"season1",""" +
             """"UserData":{"PlaybackPositionTicks":20000000},"MediaSources":[""" +
             """{"Id":"ev2","Name":"第二集版本","MediaStreams":[""" +
-            """{"Type":"Video","Height":2160}]}]}"""
+            """{"Type":"Video","Height":2160}]},{"Id":"ev2b","Name":"第二集压制版",""" +
+            """"MediaStreams":[{"Type":"Video","Height":1080}]}]}"""
     }
 }

@@ -60,6 +60,12 @@ class MdkVideoEngine(
     @Volatile
     private var released = false
 
+    @Volatile
+    private var playRequested = true
+
+    override val playbackRequested: Boolean
+        get() = playRequested && !_state.value.ended
+
     private var attachedView: SurfaceView? = null
     private var pendingSeekMs = startPositionMs.coerceAtLeast(0L)
     private var tracksLoadedForIndex = -1
@@ -91,11 +97,13 @@ class MdkVideoEngine(
     }
 
     override fun play() {
+        playRequested = true
         _state.update { it.copy(playing = true, ended = false) }
         runMdk { it.setState(MDKPlayer.STATE_PLAYING) }
     }
 
     override fun pause() {
+        playRequested = false
         _state.update { it.copy(playing = false) }
         runMdk { it.setState(MDKPlayer.STATE_PAUSED) }
     }
@@ -223,6 +231,7 @@ class MdkVideoEngine(
     private fun loadCurrent(instance: MDKPlayer) {
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return
+        playRequested = true
         runCatching {
             instance.setMedia(playbackUrl(item, index))
             instance.setState(MDKPlayer.STATE_PLAYING)

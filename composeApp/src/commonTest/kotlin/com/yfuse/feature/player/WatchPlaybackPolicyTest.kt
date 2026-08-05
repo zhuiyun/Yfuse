@@ -2,9 +2,18 @@ package com.yfuse.feature.player
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class WatchPlaybackPolicyTest {
+
+    @Test
+    fun initial_autoplay_buffering_is_not_published_as_a_room_pause() {
+        assertFalse(watchTimelinePaused(playbackRequested = true, ended = false))
+        assertTrue(watchTimelinePaused(playbackRequested = false, ended = false))
+        assertTrue(watchTimelinePaused(playbackRequested = true, ended = true))
+    }
 
     @Test
     fun nudge_rate_is_not_promoted_to_the_room_nominal_rate() {

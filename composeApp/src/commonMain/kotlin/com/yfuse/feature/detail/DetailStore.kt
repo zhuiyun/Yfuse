@@ -235,6 +235,7 @@ class DetailStoreFactory(
                             selectEpisode(
                                 episodeId = syncedItemId,
                                 startPositionTicks = episode.resumePositionTicks ?: 0L,
+                                preferredVersionId = intent.versionId,
                             )
                             return
                         }
@@ -244,7 +245,11 @@ class DetailStoreFactory(
                         current.playTarget?.id != syncedItemId &&
                         current.playSourceDetail?.let(::seriesIdOf) != null
                     ) {
-                        selectEpisode(syncedItemId, startPositionTicks = 0L)
+                        selectEpisode(
+                            episodeId = syncedItemId,
+                            startPositionTicks = 0L,
+                            preferredVersionId = intent.versionId,
+                        )
                         return
                     }
                     val versionId = intent.versionId
@@ -484,7 +489,11 @@ class DetailStoreFactory(
             }
         }
 
-        private fun selectEpisode(episodeId: String, startPositionTicks: Long) {
+        private fun selectEpisode(
+            episodeId: String,
+            startPositionTicks: Long,
+            preferredVersionId: String? = null,
+        ) {
             val current = state()
             val server = current.playServer ?: return
             val sourceDetail = current.playSourceDetail ?: return
@@ -529,6 +538,9 @@ class DetailStoreFactory(
                                 episodes = catalog?.episodes,
                             ),
                         )
+                        preferredVersionId
+                            ?.takeIf { selected -> target.versions.any { it.id == selected } }
+                            ?.let { dispatch(DetailMsg.VersionSelected(it)) }
                     }
                     .onFailure {
                         previousEpisodeId?.let { dispatch(DetailMsg.EpisodeSelected(it)) }

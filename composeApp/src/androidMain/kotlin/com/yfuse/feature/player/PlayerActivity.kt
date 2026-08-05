@@ -507,7 +507,6 @@ class PlayerActivity : ComponentActivity() {
                             item?.title.orEmpty(),
                             state,
                         )
-                        PlaybackSelection.update(item)
                         if (item != null && state.currentIndex in sessionTitles.indices) {
                             sessionTitles = playbackItems.value.map { it.title }
                         }
@@ -1379,6 +1378,17 @@ private fun PlayerRoot(
     var danmakuEpisodeId by remember { mutableStateOf<String?>(null) }
     val danmakuSource = danmakuSources.activeOr(danmakuActiveSourceId)
     val currentItem = activeItems.getOrNull(state.currentIndex)
+    // Selection is its own state, separate from position/buffering updates. Keying this on
+    // the identifiers guarantees that a version-only change is handed back to the detail
+    // page even when the replacement engine starts with a PlaybackState equal to the old one.
+    LaunchedEffect(
+        currentItem?.serverId,
+        currentItem?.id,
+        currentItem?.seriesId,
+        currentItem?.versionId,
+    ) {
+        PlaybackSelection.update(currentItem)
+    }
     // Read as state so editing this series' times mid-episode takes effect on the open
     // player rather than only on the next launch.
     val skipTimesBySeries by skipSegmentPreferences.bySeries.collectAsState()

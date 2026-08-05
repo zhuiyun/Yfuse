@@ -69,6 +69,16 @@ data class PlaybackState(
 interface VideoEngine {
     val state: StateFlow<PlaybackState>
 
+    /**
+     * Whether this engine has been asked to play, even if it is not rendering yet.
+     *
+     * [PlaybackState.playing] deliberately describes actual playback and therefore becomes
+     * false while an engine is preparing or buffering. A watch-together room needs the
+     * requested state instead: buffering on the host must not be broadcast as a pause.
+     * Engines that can expose that distinction override this property.
+     */
+    val playbackRequested: Boolean get() = state.value.playing
+
     fun play()
     fun pause()
     fun seekTo(positionMs: Long)
