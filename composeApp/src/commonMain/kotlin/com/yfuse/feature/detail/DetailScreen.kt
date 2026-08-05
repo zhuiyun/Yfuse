@@ -46,7 +46,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -72,7 +71,6 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
@@ -93,9 +91,9 @@ import com.yfuse.core.model.Person
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherClient
-import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.util.rememberShareHandler
+import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.feature.watch.WatchInviteShareSheet
 import org.koin.core.context.GlobalContext
 
@@ -128,6 +126,8 @@ fun DetailScreen(component: DetailComponent) {
     // Emby answers 401 for artwork without it when the server requires authentication, so
     // every image on this page — hero, 艺术图, 剧集, 主演, 相关推荐 — is built with it.
     val accessToken = state.server?.accessToken.orEmpty()
+    val playBaseUrl = state.playServer?.baseUrl ?: baseUrl
+    val playAccessToken = state.playServer?.accessToken ?: accessToken
     // Episode details carry the episode title in `title` and the show's name separately.
     // The artwork is the show's visual identity, so its caption and collapsed bar use the
     // show name; episode coordinates remain on the play action below.
@@ -152,10 +152,17 @@ fun DetailScreen(component: DetailComponent) {
     var overviewExpanded by remember { mutableStateOf(false) }
     // Hoisted out of the list: the hero badges what this copy is, and 媒体信息 at the foot
     // of the page spells the same file out — one answer to "which file", read twice.
-    val selectedVersion = detail?.versions?.firstOrNull { it.id == state.selectedVersionId }
-        ?: detail?.versions?.firstOrNull()
-    // `S1 E4 · 20:01`, under the key. Rebuilt only when the target or the progress moves.
-    val playDetailLine = remember(state.playTarget, state.playPositionTicks) {
+    val playableVersions = state.playTarget?.versions.orEmpty()
+    val selectedVersion = playableVersions.firstOrNull { it.id == state.selectedVersionId }
+        ?: playableVersions.firstOrNull()
+    // Resource, episode, version and resume are one pending playback selection. Keeping
+    // them together here makes the main key an exact preview of either way playback starts.
+    val playDetailLine = remember(
+        state.playServer,
+        state.playTarget,
+        selectedVersion,
+        state.playPositionTicks,
+    ) {
         val target = state.playTarget
         val coordinate = listOfNotNull(
             target?.seasonNumber?.let { "S$it" },
@@ -164,7 +171,12 @@ fun DetailScreen(component: DetailComponent) {
         val resume = state.playPositionTicks
             .takeIf { it > 0L }
             ?.let { clockLabel(it / 10_000L) }
-        listOfNotNull(coordinate, resume).joinToString(" · ").takeIf { it.isNotBlank() }
+        listOfNotNull(
+            state.playServer?.serverName,
+            coordinate,
+            selectedVersion?.let { "${it.name} ${it.qualityLabel}" },
+            resume,
+        ).joinToString(" · ").takeIf { it.isNotBlank() }
     }
 
     val watchTogether = remember { GlobalContext.get().get<WatchTogetherClient>() }
@@ -181,7 +193,7 @@ fun DetailScreen(component: DetailComponent) {
         playbackSelection,
         state.sources,
         state.episodes,
-        detail?.versions,
+        state.playTarget?.versions,
     ) {
         component.store.accept(
             DetailIntent.SyncPlaybackSelection(
@@ -271,9 +283,9 @@ fun DetailScreen(component: DetailComponent) {
                         )
                         DetailActionDock(
                             accent = Brand.Primary,
-                            label = if (detail.type == "Series") "继续观看" else "播放",
+                            label = if (state.playPositionTicks > 0L) "继续观看" else "播放",
                             detailLine = playDetailLine,
-                            resolving = state.resolvingPlay,
+                            resolving = state.resolvingPlay || state.selectionLoading,
                             favorite = detail.isFavorite,
                             canPlayFromStart = state.playPositionTicks > 0L,
                             onPlay = { component.store.accept(DetailIntent.Play) },
@@ -319,10 +331,10 @@ fun DetailScreen(component: DetailComponent) {
                     }
                 }
 
-                if (detail.versions.isNotEmpty()) {
+                if (playableVersions.isNotEmpty()) {
                     item(key = "versions") {
                         VersionSection(
-                            versions = detail.versions,
+                            versions = playableVersions,
                             selectedId = state.selectedVersionId,
                             accent = Brand.Primary,
                             onSelect = {
@@ -336,7 +348,7 @@ fun DetailScreen(component: DetailComponent) {
                 // The tracks of whatever file will actually open. A film's own, or, for a
                 // series, the episode 继续观看 resolves to — the same copy the 杜比 badge
                 // above describes.
-                val playableVersion = selectedVersion ?: state.playTarget?.versions?.firstOrNull()
+                val playableVersion = selectedVersion
                 if (playableVersion != null &&
                     (playableVersion.audioTracks.size > 1 ||
                         playableVersion.subtitleTracks.isNotEmpty())
@@ -404,8 +416,8 @@ fun DetailScreen(component: DetailComponent) {
                 if (state.episodes.isNotEmpty()) {
                     item(key = "episodes") {
                         EpisodeSection(
-                            baseUrl = baseUrl,
-                            accessToken = accessToken,
+                            baseUrl = playBaseUrl,
+                            accessToken = playAccessToken,
                             episodes = state.episodes,
                             selectedEpisodeId = state.selectedEpisodeId,
                             accent = Brand.Primary,
@@ -466,7 +478,7 @@ fun DetailScreen(component: DetailComponent) {
                     item(key = "mediaInfo") {
                         MediaInfoSection(
                             version = selectedVersion,
-                            dateCreated = detail.dateCreated,
+                            dateCreated = state.playTarget?.dateCreated,
                             modifier = Modifier.padding(top = Dimens.sectionGap),
                         )
                     }
@@ -562,8 +574,8 @@ fun DetailScreen(component: DetailComponent) {
                 seriesName = detail.seriesName?.ifBlank { null } ?: detail.title,
                 episodes = state.episodes,
                 heroUrls = heroUrls,
-                baseUrl = baseUrl,
-                accessToken = accessToken,
+                baseUrl = playBaseUrl,
+                accessToken = playAccessToken,
                 accent = Brand.Primary,
                 currentEpisodeId = state.selectedEpisodeId,
                 onPlayEpisode = { episode ->

@@ -57,6 +57,8 @@ data class PlayerMediaVersion(
      */
     val sourceWidth: Int? = null,
     val sourceBitrateBps: Int? = null,
+    /** Lets an engine distinguish a genuinely silent file from a missing audio track. */
+    val audioTrackCount: Int = 0,
 )
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
@@ -126,6 +128,26 @@ data class PlayerMediaItem(
             fallbackTranscodeUrl = version.fallbackTranscodeUrl,
             versionId = version.id,
         )
+    }
+}
+
+/**
+ * Whether two queue snapshots describe the same media sources in the same order.
+ *
+ * Episode polling also refreshes display-only metadata such as title, artwork, skip segments and
+ * watched progress. Those fields are deliberately excluded: changing them can recompose the
+ * controls without tearing down a healthy playback engine. The engine only needs rebuilding when
+ * an entry is added, removed, reordered, or one of the URLs it may load changes.
+ */
+internal fun List<PlayerMediaItem>.hasSamePlaybackSourcesAs(other: List<PlayerMediaItem>): Boolean {
+    if (size != other.size) return false
+    return indices.all { index ->
+        val current = this[index]
+        val refreshed = other[index]
+        current.id == refreshed.id &&
+            current.url == refreshed.url &&
+            current.transcodeUrl == refreshed.transcodeUrl &&
+            current.fallbackTranscodeUrl == refreshed.fallbackTranscodeUrl
     }
 }
 
@@ -226,6 +248,7 @@ class PlayerStoreFactory(
                         needsDolbyDecoder = it.needsDolbyCapableDecoder,
                         sourceWidth = it.video?.width,
                         sourceBitrateBps = it.bitrateBps ?: it.video?.bitrateBps,
+                        audioTrackCount = it.audioTracks.size,
                     )
                 }
 

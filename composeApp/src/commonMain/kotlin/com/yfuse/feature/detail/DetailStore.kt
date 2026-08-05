@@ -25,12 +25,14 @@ data class DetailState(
     val detail: MediaDetail? = null,
     val server: SavedServer? = null,
     val resolvingPlay: Boolean = false,
+    /** A newly selected resource/episode is being resolved into a concrete playable file. */
+    val selectionLoading: Boolean = false,
     /**
-     * Which of [MediaDetail.versions] plays. Null means "whatever the server lists first",
+     * Which of [playTarget]'s files plays. Null means "whatever the server lists first",
      * which is also what a library with a single file always resolves to.
      */
     val selectedVersionId: String? = null,
-    /** Resource and episode cards select on first tap and play only when tapped again. */
+    /** Cards select on first tap; tapping the selected card again uses the main play target. */
     val selectedSourceServerId: String? = null,
     val selectedSourceItemId: String? = null,
     val selectedEpisodeId: String? = null,
@@ -53,6 +55,9 @@ data class DetailState(
      * describes a file, which a series does not have one of.
      */
     val playTarget: MediaDetail? = null,
+    /** Server and root library item which own [playTarget]. */
+    val playServer: SavedServer? = null,
+    val playSourceDetail: MediaDetail? = null,
     /** Where [playTarget] would resume from, in Emby ticks. Zero for something unstarted. */
     val playPositionTicks: Long = 0L,
     val seasons: List<Season> = emptyList(),
@@ -104,13 +109,35 @@ sealed interface DetailLabel {
 
 private sealed interface DetailAction { data object Load : DetailAction }
 
+private data class ResolvedPlaybackSelection(
+    val server: SavedServer,
+    val sourceDetail: MediaDetail,
+    val target: MediaDetail,
+    val positionTicks: Long,
+    val seasons: List<Season>? = null,
+    val selectedSeasonId: String? = null,
+    val episodes: List<Episode>? = null,
+)
+
+private data class EpisodeCoordinate(
+    val seasonNumber: Int?,
+    val episodeNumber: Int?,
+)
+
+private data class SeriesCatalog(
+    val seasons: List<Season>,
+    val selectedSeasonId: String?,
+    val episodes: List<Episode>,
+)
+
 private sealed interface DetailMsg {
     data object Loading : DetailMsg
     data class Loaded(val detail: MediaDetail, val server: SavedServer) : DetailMsg
     data class Failed(val message: String) : DetailMsg
     data class Resolving(val value: Boolean) : DetailMsg
+    data class SelectionLoading(val value: Boolean) : DetailMsg
     data class VersionSelected(val versionId: String) : DetailMsg
-    data class SourceSelected(val serverId: String, val itemId: String) : DetailMsg
+    data class SourceSelected(val serverId: String?, val itemId: String?) : DetailMsg
     data class EpisodeSelected(val itemId: String) : DetailMsg
     data class SeasonsLoaded(val seasons: List<Season>, val selected: String?) : DetailMsg
     data object EpisodesLoading : DetailMsg
@@ -120,7 +147,15 @@ private sealed interface DetailMsg {
     data class FavoriteChanged(val value: Boolean) : DetailMsg
     data class PlayedChanged(val value: Boolean) : DetailMsg
     data class ActionMessage(val value: String?) : DetailMsg
-    data class PlayTargetLoaded(val detail: MediaDetail?, val positionTicks: Long) : DetailMsg
+    data class PlaybackSelectionLoaded(
+        val server: SavedServer,
+        val sourceDetail: MediaDetail,
+        val target: MediaDetail,
+        val positionTicks: Long,
+        val seasons: List<Season>? = null,
+        val selectedSeasonId: String? = null,
+        val episodes: List<Episode>? = null,
+    ) : DetailMsg
     data class AudioLanguageSelected(val language: String?) : DetailMsg
     data class SubtitleLanguageSelected(val language: String?) : DetailMsg
 }
@@ -160,50 +195,67 @@ class DetailStoreFactory(
                         current.selectedSourceServerId == intent.serverId &&
                         current.selectedSourceItemId == intent.itemId
                     ) {
-                        publish(DetailLabel.Play(intent.serverId, intent.itemId, 0L))
+                        play(fromStart = false)
                     } else {
-                        dispatch(DetailMsg.SourceSelected(intent.serverId, intent.itemId))
+                        selectSource(intent.serverId, intent.itemId)
                     }
                 }
-                is DetailIntent.SelectVersion ->
-                    dispatch(DetailMsg.VersionSelected(intent.versionId))
+                is DetailIntent.SelectVersion -> {
+                    if (state().selectedVersionId == intent.versionId) {
+                        play(fromStart = false)
+                    } else {
+                        dispatch(DetailMsg.VersionSelected(intent.versionId))
+                    }
+                }
                 is DetailIntent.SelectSeason -> selectSeason(intent.seasonId)
                 is DetailIntent.SelectAudioLanguage ->
                     dispatch(DetailMsg.AudioLanguageSelected(intent.language))
                 is DetailIntent.SelectSubtitleLanguage ->
                     dispatch(DetailMsg.SubtitleLanguageSelected(intent.language))
                 is DetailIntent.SelectEpisode -> {
-                    val server = state().server ?: return
                     if (state().selectedEpisodeId == intent.episodeId) {
-                        publish(
-                            DetailLabel.Play(
-                                server.id,
-                                intent.episodeId,
-                                intent.startPositionTicks,
-                            ),
-                        )
+                        play(fromStart = false)
                     } else {
-                        dispatch(DetailMsg.EpisodeSelected(intent.episodeId))
+                        selectEpisode(intent.episodeId, intent.startPositionTicks)
                     }
                 }
                 is DetailIntent.SyncPlaybackSelection -> {
                     val current = state()
-                    val itemId = intent.itemId
-                    if (itemId != null) {
-                        current.sources.firstOrNull {
-                            it.serverId == intent.serverId && it.itemId == itemId
-                        }?.let { dispatch(DetailMsg.SourceSelected(it.serverId, itemId)) }
-                        if (current.episodes.any { it.id == itemId }) {
-                            dispatch(DetailMsg.EpisodeSelected(itemId))
+                    val syncedItemId = intent.itemId ?: return
+                    val syncedServerId = intent.serverId ?: return
+                    val source = current.sources.firstOrNull {
+                        it.serverId == syncedServerId && it.itemId != null
+                    }
+                    if (current.selectedSourceServerId != syncedServerId && source?.itemId != null) {
+                        selectSource(source.serverId, source.itemId)
+                        return
+                    }
+                    current.episodes.firstOrNull { it.id == syncedItemId }?.let { episode ->
+                        if (current.selectedEpisodeId != syncedItemId) {
+                            selectEpisode(
+                                episodeId = syncedItemId,
+                                startPositionTicks = episode.resumePositionTicks ?: 0L,
+                            )
+                            return
                         }
-                        val detail = current.detail
-                        if (
-                            detail?.id == itemId &&
-                            current.server?.id == intent.serverId &&
-                            detail.versions.any { it.id == intent.versionId }
-                        ) {
-                            dispatch(DetailMsg.VersionSelected(requireNotNull(intent.versionId)))
-                        }
+                    }
+                    if (
+                        current.playServer?.id == syncedServerId &&
+                        current.playTarget?.id != syncedItemId &&
+                        current.playSourceDetail?.let(::seriesIdOf) != null
+                    ) {
+                        selectEpisode(syncedItemId, startPositionTicks = 0L)
+                        return
+                    }
+                    val versionId = intent.versionId
+                    if (
+                        current.playServer?.id == syncedServerId &&
+                        current.playTarget?.id == syncedItemId &&
+                        versionId != null &&
+                        current.playTarget.versions.any { it.id == versionId } &&
+                        current.selectedVersionId != versionId
+                    ) {
+                        dispatch(DetailMsg.VersionSelected(versionId))
                     }
                 }
             }
@@ -232,12 +284,12 @@ class DetailStoreFactory(
                 repo.itemDetail(server, itemId)
                     .onSuccess { detail ->
                         dispatch(DetailMsg.Loaded(detail, server))
-                        seriesIdOf(detail)?.let { loadSeasons(server, it) }
-                        loadPlayTarget(server, detail)
+                        loadPlaybackSelection(server, detail)
                         loadSources(server, detail)
                         loadRelated(server, detail)
                     }
                     .onFailure {
+                        dispatch(DetailMsg.SelectionLoading(false))
                         AppLog.warning(
                             category = "feature.detail",
                             event = "load_failed",
@@ -262,16 +314,19 @@ class DetailStoreFactory(
          * Failure is silent on purpose: everything it feeds is an enrichment, and the page
          * behaves exactly as it did before when it does not arrive.
          */
-        private fun loadPlayTarget(server: SavedServer, detail: MediaDetail) {
-            if (detail.type != "Series") {
-                dispatch(DetailMsg.PlayTargetLoaded(detail, detail.resumePositionTicks ?: 0L))
-                return
-            }
+        private fun loadPlaybackSelection(server: SavedServer, detail: MediaDetail) {
             scope.launch {
-                val target = repo.resolvePlayTarget(server, detail).getOrNull()
-                    ?: return@launch
-                val episode = repo.itemDetail(server, target.itemId).getOrNull()
-                dispatch(DetailMsg.PlayTargetLoaded(episode, target.startPositionTicks))
+                resolvePlaybackSelection(server, detail, preferredEpisode = null)
+                    .onSuccess(::dispatchPlaybackSelection)
+                    .onFailure {
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "play_selection_load_failed",
+                            message = "Detail playback selection could not be enriched",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id, "itemId" to detail.id),
+                        )
+                    }
             }
         }
 
@@ -316,95 +371,254 @@ class DetailStoreFactory(
             }
         }
 
-        private fun loadSeasons(server: SavedServer, seriesId: String) {
+        private suspend fun resolvePlaybackSelection(
+            server: SavedServer,
+            sourceDetail: MediaDetail,
+            preferredEpisode: EpisodeCoordinate?,
+        ): Result<ResolvedPlaybackSelection> = runCatching {
+            if (sourceDetail.type != "Series") {
+                val catalog = seriesIdOf(sourceDetail)?.let { seriesId ->
+                    loadSeriesCatalog(server, seriesId, sourceDetail, allEpisodes = null)
+                }
+                return@runCatching ResolvedPlaybackSelection(
+                    server = server,
+                    sourceDetail = sourceDetail,
+                    target = sourceDetail,
+                    positionTicks = sourceDetail.resumePositionTicks ?: 0L,
+                    seasons = catalog?.seasons.orEmpty(),
+                    selectedSeasonId = catalog?.selectedSeasonId,
+                    episodes = catalog?.episodes.orEmpty(),
+                )
+            }
+
+            val allEpisodes = preferredEpisode?.let {
+                repo.episodes(server, sourceDetail.id, seasonId = null).getOrDefault(emptyList())
+            }
+            val matchedEpisode = allEpisodes?.firstOrNull { episode ->
+                episode.seasonNumber == preferredEpisode?.seasonNumber &&
+                    episode.indexNumber == preferredEpisode.episodeNumber
+            }
+            val resolvedTarget = matchedEpisode?.let {
+                com.yfuse.core.model.PlayTarget(it.id, it.resumePositionTicks ?: 0L)
+            } ?: repo.resolvePlayTarget(server, sourceDetail).getOrThrow()
+            val targetDetail = repo.itemDetail(server, resolvedTarget.itemId).getOrThrow()
+            val catalog = loadSeriesCatalog(
+                server = server,
+                seriesId = sourceDetail.id,
+                target = targetDetail,
+                allEpisodes = allEpisodes,
+            )
+            ResolvedPlaybackSelection(
+                server = server,
+                sourceDetail = sourceDetail,
+                target = targetDetail,
+                positionTicks = resolvedTarget.startPositionTicks,
+                seasons = catalog.seasons,
+                selectedSeasonId = catalog.selectedSeasonId,
+                episodes = catalog.episodes,
+            )
+        }
+
+        private suspend fun loadSeriesCatalog(
+            server: SavedServer,
+            seriesId: String,
+            target: MediaDetail,
+            allEpisodes: List<Episode>?,
+        ): SeriesCatalog {
+            val seasons = repo.seasons(server, seriesId).getOrDefault(emptyList())
+            val targetEpisode = allEpisodes?.firstOrNull { it.id == target.id }
+            val selectedSeasonId = targetEpisode?.seasonId
+                ?: seasons.firstOrNull { it.indexNumber == target.seasonNumber }?.id
+                ?: seasons.firstOrNull()?.id
+            val episodes = allEpisodes
+                ?.filter { selectedSeasonId == null || it.seasonId == selectedSeasonId }
+                ?: repo.episodes(server, seriesId, selectedSeasonId).getOrDefault(emptyList())
+            return SeriesCatalog(seasons, selectedSeasonId, episodes)
+        }
+
+        private fun dispatchPlaybackSelection(selection: ResolvedPlaybackSelection) {
+            dispatch(
+                DetailMsg.PlaybackSelectionLoaded(
+                    server = selection.server,
+                    sourceDetail = selection.sourceDetail,
+                    target = selection.target,
+                    positionTicks = selection.positionTicks,
+                    seasons = selection.seasons,
+                    selectedSeasonId = selection.selectedSeasonId,
+                    episodes = selection.episodes,
+                ),
+            )
+        }
+
+        private fun selectSource(serverId: String, sourceItemId: String) {
+            val server = registry.serverById(serverId) ?: return
+            val current = state()
+            val previousServerId = current.selectedSourceServerId
+            val previousItemId = current.selectedSourceItemId
+            val coordinate = current.playTarget?.let {
+                EpisodeCoordinate(it.seasonNumber, it.episodeNumber)
+            }
+            dispatch(DetailMsg.SourceSelected(serverId, sourceItemId))
+            dispatch(DetailMsg.SelectionLoading(true))
             scope.launch {
-                repo.seasons(server, seriesId)
-                    .onSuccess { seasons ->
-                        val selected = seasons.firstOrNull()?.id
-                        dispatch(DetailMsg.SeasonsLoaded(seasons, selected))
-                        loadEpisodes(server, seriesId, selected)
-                    }
+                val result = repo.itemDetail(server, sourceItemId).mapCatching { sourceDetail ->
+                    resolvePlaybackSelection(server, sourceDetail, coordinate).getOrThrow()
+                }
+                val stillSelected = state().selectedSourceServerId == serverId &&
+                    state().selectedSourceItemId == sourceItemId
+                if (!stillSelected) return@launch
+                dispatch(DetailMsg.SelectionLoading(false))
+                result
+                    .onSuccess(::dispatchPlaybackSelection)
                     .onFailure {
+                        dispatch(DetailMsg.SourceSelected(previousServerId, previousItemId))
                         AppLog.warning(
                             category = "feature.detail",
-                            event = "seasons_load_failed",
-                            message = "Series seasons failed to load",
+                            event = "source_selection_failed",
+                            message = "Selected resource could not be resolved",
                             throwable = it,
-                            attributes = mapOf("serverId" to server.id),
+                            attributes = mapOf("serverId" to serverId, "itemId" to sourceItemId),
                         )
+                        dispatch(DetailMsg.ActionMessage("资源切换失败，请重试"))
                     }
             }
         }
 
-        private fun loadEpisodes(server: SavedServer, seriesId: String, seasonId: String?) {
-            dispatch(DetailMsg.EpisodesLoading)
+        private fun selectEpisode(episodeId: String, startPositionTicks: Long) {
+            val current = state()
+            val server = current.playServer ?: return
+            val sourceDetail = current.playSourceDetail ?: return
+            val previousEpisodeId = current.selectedEpisodeId
+            val sourceServerId = current.selectedSourceServerId
+            val sourceItemId = current.selectedSourceItemId
+            dispatch(DetailMsg.EpisodeSelected(episodeId))
+            dispatch(DetailMsg.SelectionLoading(true))
             scope.launch {
-                repo.episodes(server, seriesId, seasonId)
-                    .onSuccess { dispatch(DetailMsg.EpisodesLoaded(it)) }
-                    .onFailure {
-                        AppLog.warning(
-                            category = "feature.detail",
-                            event = "episodes_load_failed",
-                            message = "Series episodes failed to load",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id),
+                val result = repo.itemDetail(server, episodeId)
+                if (
+                    state().selectedEpisodeId != episodeId ||
+                    state().selectedSourceServerId != sourceServerId ||
+                    state().selectedSourceItemId != sourceItemId
+                ) {
+                    return@launch
+                }
+                dispatch(DetailMsg.SelectionLoading(false))
+                result
+                    .onSuccess { target ->
+                        val currentSeasonNumber = state().seasons
+                            .firstOrNull { it.id == state().selectedSeasonId }
+                            ?.indexNumber
+                        val catalog = if (
+                            target.type == "Episode" &&
+                            target.seasonNumber != currentSeasonNumber
+                        ) {
+                            seriesIdOf(sourceDetail)?.let { seriesId ->
+                                loadSeriesCatalog(server, seriesId, target, allEpisodes = null)
+                            }
+                        } else {
+                            null
+                        }
+                        dispatch(
+                            DetailMsg.PlaybackSelectionLoaded(
+                                server = server,
+                                sourceDetail = sourceDetail,
+                                target = target,
+                                positionTicks = target.resumePositionTicks ?: startPositionTicks,
+                                seasons = catalog?.seasons,
+                                selectedSeasonId = catalog?.selectedSeasonId,
+                                episodes = catalog?.episodes,
+                            ),
                         )
-                        dispatch(DetailMsg.EpisodesLoaded(emptyList()))
+                    }
+                    .onFailure {
+                        previousEpisodeId?.let { dispatch(DetailMsg.EpisodeSelected(it)) }
+                        dispatch(DetailMsg.ActionMessage("剧集切换失败，请重试"))
                     }
             }
         }
 
         private fun selectSeason(seasonId: String) {
             val current = state()
-            val detail = current.detail ?: return
-            val server = current.server ?: return
-            val seriesId = seriesIdOf(detail) ?: return
+            val sourceDetail = current.playSourceDetail ?: return
+            val server = current.playServer ?: return
+            val seriesId = seriesIdOf(sourceDetail) ?: return
+            val sourceServerId = current.selectedSourceServerId
+            val sourceItemId = current.selectedSourceItemId
             dispatch(DetailMsg.SeasonsLoaded(current.seasons, seasonId))
-            loadEpisodes(server, seriesId, seasonId)
+            dispatch(DetailMsg.EpisodesLoading)
+            scope.launch {
+                repo.episodes(server, seriesId, seasonId)
+                    .onSuccess { episodes ->
+                        if (
+                            state().selectedSeasonId != seasonId ||
+                            state().selectedSourceServerId != sourceServerId ||
+                            state().selectedSourceItemId != sourceItemId
+                        ) {
+                            return@onSuccess
+                        }
+                        dispatch(DetailMsg.EpisodesLoaded(episodes))
+                        val selected = episodes.firstOrNull { it.id == state().selectedEpisodeId }
+                            ?: episodes.firstOrNull()
+                            ?: return@onSuccess
+                        selectEpisode(selected.id, selected.resumePositionTicks ?: 0L)
+                    }
+                    .onFailure {
+                        if (
+                            state().selectedSeasonId != seasonId ||
+                            state().selectedSourceServerId != sourceServerId ||
+                            state().selectedSourceItemId != sourceItemId
+                        ) {
+                            return@onFailure
+                        }
+                        dispatch(DetailMsg.EpisodesLoaded(emptyList()))
+                        dispatch(DetailMsg.ActionMessage("剧集加载失败，请重试"))
+                    }
+            }
         }
 
         private fun play(fromStart: Boolean) {
             val current = state()
-            val detail = current.detail ?: return
-            val server = current.server ?: return
-            if (current.resolvingPlay) return
-            dispatch(DetailMsg.Resolving(true))
-            scope.launch {
-                repo.resolvePlayTarget(server, detail)
-                    .onSuccess {
-                        dispatch(DetailMsg.Resolving(false))
-                        // Handed over just before the player opens, against the entry that
-                        // actually resolved — for a series that is the episode, not the show.
-                        GlobalContext.get().get<PlaybackTrackRequest>().set(
-                            itemId = it.itemId,
-                            audioLanguage = current.preferredAudioLanguage,
-                            subtitleLanguage = current.preferredSubtitleLanguage,
-                        )
-                        publish(
-                            DetailLabel.Play(
-                                serverId = server.id,
-                                itemId = it.itemId,
-                                startPositionTicks = if (fromStart) 0L else it.startPositionTicks,
-                                // Only when the target is the item whose versions were on
-                                // screen: a series resolves to an episode, whose files are
-                                // its own and have nothing to do with the picker above.
-                                mediaSourceId = current.selectedVersionId
-                                    ?.takeIf { _ -> it.itemId == detail.id },
-                            ),
-                        )
-                    }
-                    .onFailure {
-                        AppLog.error(
-                            category = "feature.detail",
-                            event = "play_target_failed",
-                            message = "Failed to resolve media playback target",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id),
-                        )
-                        dispatch(DetailMsg.Resolving(false))
-                        dispatch(DetailMsg.Failed(it.toUserMessage("无法播放")))
-                    }
+            val server = current.playServer ?: return
+            if (current.resolvingPlay || current.selectionLoading) return
+            val target = current.playTarget
+            if (target == null) {
+                val sourceDetail = current.playSourceDetail ?: return
+                dispatch(DetailMsg.Resolving(true))
+                scope.launch {
+                    resolvePlaybackSelection(server, sourceDetail, preferredEpisode = null)
+                        .onSuccess { selection ->
+                            dispatchPlaybackSelection(selection)
+                            dispatch(DetailMsg.Resolving(false))
+                            publishPlay(state(), fromStart)
+                        }
+                        .onFailure {
+                            dispatch(DetailMsg.Resolving(false))
+                            dispatch(DetailMsg.ActionMessage(it.toUserMessage("无法播放，请重试")))
+                        }
+                }
+                return
             }
+            publishPlay(current, fromStart)
+        }
+
+        private fun publishPlay(current: DetailState, fromStart: Boolean) {
+            val target = current.playTarget ?: return
+            val server = current.playServer ?: return
+            val versionId = current.selectedVersionId
+                ?.takeIf { selected -> target.versions.any { it.id == selected } }
+            GlobalContext.get().get<PlaybackTrackRequest>().set(
+                itemId = target.id,
+                audioLanguage = current.preferredAudioLanguage,
+                subtitleLanguage = current.preferredSubtitleLanguage,
+            )
+            publish(
+                DetailLabel.Play(
+                    serverId = server.id,
+                    itemId = target.id,
+                    startPositionTicks = if (fromStart) 0L else current.playPositionTicks,
+                    mediaSourceId = versionId,
+                ),
+            )
         }
 
         private fun toggleFavorite() {
@@ -473,16 +687,29 @@ class DetailStoreFactory(
                 loading = false,
                 detail = msg.detail,
                 server = msg.server,
+                playServer = msg.server,
+                playSourceDetail = msg.detail,
+                selectionLoading = true,
                 selectedVersionId = msg.detail.versions.firstOrNull()?.id,
             )
-            is DetailMsg.Failed -> copy(loading = false, resolvingPlay = false, error = msg.message)
+            is DetailMsg.Failed -> copy(
+                loading = false,
+                resolvingPlay = false,
+                selectionLoading = false,
+                error = msg.message,
+            )
             is DetailMsg.Resolving -> copy(resolvingPlay = msg.value)
-            is DetailMsg.VersionSelected -> copy(selectedVersionId = msg.versionId)
+            is DetailMsg.SelectionLoading -> copy(selectionLoading = msg.value)
+            is DetailMsg.VersionSelected -> withSelectedVersion(msg.versionId)
             is DetailMsg.SourceSelected -> copy(
                 selectedSourceServerId = msg.serverId,
                 selectedSourceItemId = msg.itemId,
+                actionMessage = null,
             )
-            is DetailMsg.EpisodeSelected -> copy(selectedEpisodeId = msg.itemId)
+            is DetailMsg.EpisodeSelected -> copy(
+                selectedEpisodeId = msg.itemId,
+                actionMessage = null,
+            )
             is DetailMsg.SeasonsLoaded -> copy(seasons = msg.seasons, selectedSeasonId = msg.selected)
             DetailMsg.EpisodesLoading -> copy(episodesLoading = true)
             is DetailMsg.EpisodesLoaded -> copy(episodesLoading = false, episodes = msg.episodes)
@@ -506,11 +733,39 @@ class DetailStoreFactory(
             is DetailMsg.ActionMessage -> copy(actionMessage = msg.value)
             is DetailMsg.AudioLanguageSelected -> copy(preferredAudioLanguage = msg.language)
             is DetailMsg.SubtitleLanguageSelected -> copy(preferredSubtitleLanguage = msg.language)
-            is DetailMsg.PlayTargetLoaded -> copy(
-                playTarget = msg.detail,
+            is DetailMsg.PlaybackSelectionLoaded -> copy(
+                playServer = msg.server,
+                playSourceDetail = msg.sourceDetail,
+                playTarget = msg.target,
                 playPositionTicks = msg.positionTicks,
-                selectedEpisodeId = selectedEpisodeId ?: msg.detail?.id,
-            )
+                selectedEpisodeId = msg.target.id.takeIf { msg.target.type == "Episode" },
+                seasons = msg.seasons ?: seasons,
+                selectedSeasonId = if (msg.seasons != null) {
+                    msg.selectedSeasonId
+                } else {
+                    selectedSeasonId
+                },
+                episodes = msg.episodes ?: episodes,
+                episodesLoading = false,
+                selectionLoading = false,
+                actionMessage = null,
+            ).withSelectedVersion(msg.target.versions.firstOrNull()?.id)
         }
     }
+}
+
+private fun DetailState.withSelectedVersion(versionId: String?): DetailState {
+    val version = playTarget?.versions?.firstOrNull { it.id == versionId }
+    val audioLanguage = preferredAudioLanguage?.takeIf { selected ->
+        version?.audioTracks?.any { it.language.equals(selected, ignoreCase = true) } == true
+    }
+    val subtitleLanguage = preferredSubtitleLanguage?.takeIf { selected ->
+        selected == PlaybackTrackRequest.SUBTITLES_OFF ||
+            version?.subtitleTracks?.any { it.language.equals(selected, ignoreCase = true) } == true
+    }
+    return copy(
+        selectedVersionId = version?.id,
+        preferredAudioLanguage = audioLanguage,
+        preferredSubtitleLanguage = subtitleLanguage,
+    )
 }

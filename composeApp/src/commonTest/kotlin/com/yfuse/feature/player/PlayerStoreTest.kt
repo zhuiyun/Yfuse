@@ -16,6 +16,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PlayerStoreTest {
 
@@ -56,5 +58,47 @@ class PlayerStoreTest {
         assertEquals(1, state.startIndex)
         assertEquals(2_500L, state.startPositionMs)
         store.dispose()
+    }
+
+    @Test
+    fun display_metadata_does_not_change_playback_sources() {
+        val original =
+            listOf(
+                PlayerMediaItem(
+                    id = "e1",
+                    url = "direct/e1",
+                    transcodeUrl = "hls/e1",
+                    fallbackTranscodeUrl = "progressive/e1",
+                    title = "旧标题",
+                    progress = 0.1f,
+                ),
+            )
+        val refreshed =
+            original.map {
+                it.copy(title = "新标题", stillUrl = "still/e1", progress = 0.7f)
+            }
+
+        assertTrue(original.hasSamePlaybackSourcesAs(refreshed))
+    }
+
+    @Test
+    fun source_or_queue_order_change_requires_engine_refresh() {
+        val first = PlayerMediaItem("e1", "direct/e1", "hls/e1", "第一集")
+        val second = PlayerMediaItem("e2", "direct/e2", "hls/e2", "第二集")
+
+        assertFalse(listOf(first, second).hasSamePlaybackSourcesAs(listOf(second, first)))
+        assertFalse(
+            listOf(first).hasSamePlaybackSourcesAs(
+                listOf(first.copy(url = "direct/e1-new")),
+            ),
+        )
+    }
+
+    @Test
+    fun scrub_position_is_clamped_to_media_duration() {
+        assertEquals(0L, scrubPositionMs(-0.5f, 100_000L))
+        assertEquals(25_000L, scrubPositionMs(0.25f, 100_000L))
+        assertEquals(100_000L, scrubPositionMs(1.5f, 100_000L))
+        assertEquals(0L, scrubPositionMs(0.5f, -1L))
     }
 }
