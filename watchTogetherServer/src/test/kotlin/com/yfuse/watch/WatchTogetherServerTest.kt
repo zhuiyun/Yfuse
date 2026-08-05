@@ -643,6 +643,103 @@ class WatchTogetherServerTest {
         host.cancelAndJoin()
         guest.cancelAndJoin()
     }
+
+    @Test
+    fun only_host_can_remove_guest_and_removed_guest_cannot_rejoin() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+        val roomCode = CompletableDeferred<String>()
+        val guestJoined = CompletableDeferred<Unit>()
+        val unauthorizedDenied = CompletableDeferred<Unit>()
+        val kickedReceived = CompletableDeferred<Unit>()
+        val hostSawRemoval = CompletableDeferred<Unit>()
+        val rejoinBlocked = CompletableDeferred<Unit>()
+        val finished = CompletableDeferred<Unit>()
+        val testScope = CoroutineScope(currentCoroutineContext())
+
+        val host = testScope.launch {
+            socketClient.webSocket("/watch") {
+                send(
+                    """{"type":"hello","protocolVersion":3,"clientId":"host","mediaKey":"tmdb:35"}""",
+                )
+                val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
+                guestJoined.await()
+                unauthorizedDenied.await()
+                send("""{"type":"kickParticipant","targetClientId":"guest"}""")
+
+                while (!hostSawRemoval.isCompleted) {
+                    val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                    if (
+                        payload["type"]?.jsonPrimitive?.content == "roomUpdate" &&
+                        payload["participantCount"]?.jsonPrimitive?.int == 1
+                    ) {
+                        val participants = payload["participants"]!!.jsonArray
+                        assertEquals("host", participants.single().jsonObject["clientId"]?.jsonPrimitive?.content)
+                        hostSawRemoval.complete(Unit)
+                    }
+                }
+                finished.await()
+            }
+        }
+
+        val guest = testScope.launch {
+            val code = roomCode.await()
+            runCatching {
+                socketClient.webSocket("/watch") {
+                    send(
+                        """{"type":"hello","protocolVersion":3,"roomCode":"$code","clientId":"guest"}""",
+                    )
+                    while (!guestJoined.isCompleted) {
+                        val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                        if (payload["type"]?.jsonPrimitive?.content == "welcome") {
+                            guestJoined.complete(Unit)
+                        }
+                    }
+
+                    // A guest cannot use the same message to remove the host.
+                    send("""{"type":"kickParticipant","targetClientId":"host"}""")
+                    while (!unauthorizedDenied.isCompleted) {
+                        val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                        if (
+                            payload["type"]?.jsonPrimitive?.content == "error" &&
+                            payload["errorCode"]?.jsonPrimitive?.content == "host_only"
+                        ) {
+                            unauthorizedDenied.complete(Unit)
+                        }
+                    }
+
+                    while (!kickedReceived.isCompleted) {
+                        val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                        if (payload["type"]?.jsonPrimitive?.content == "kicked") {
+                            assertTrue(payload["message"]?.jsonPrimitive?.content?.contains("移出") == true)
+                            kickedReceived.complete(Unit)
+                        }
+                    }
+                }
+            }
+
+            socketClient.webSocket("/watch") {
+                send(
+                    """{"type":"hello","protocolVersion":3,"roomCode":"$code","clientId":"guest"}""",
+                )
+                val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("error", payload["type"]?.jsonPrimitive?.content)
+                assertEquals("removed_by_host", payload["errorCode"]?.jsonPrimitive?.content)
+                rejoinBlocked.complete(Unit)
+            }
+        }
+
+        withTimeout(5_000L) {
+            unauthorizedDenied.await()
+            kickedReceived.await()
+            hostSawRemoval.await()
+            rejoinBlocked.await()
+        }
+        finished.complete(Unit)
+        host.cancelAndJoin()
+        guest.cancelAndJoin()
+    }
 }
 
 private fun String.asJson(): JsonObject = Json.parseToJsonElement(this).jsonObject

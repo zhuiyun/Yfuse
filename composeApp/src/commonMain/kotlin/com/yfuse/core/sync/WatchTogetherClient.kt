@@ -405,6 +405,18 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         )
     }
 
+    /** Host-only: remove a participant and prevent that client from rejoining this room. */
+    fun kickParticipant(clientId: String) {
+        val state = _state.value
+        if (!state.isHost) return
+        val target = state.participants.firstOrNull { it.clientId == clientId } ?: return
+        if (target.isHost || target.isSelf) return
+        _state.update {
+            if (it.controlRequest?.clientId == clientId) it.copy(controlRequest = null) else it
+        }
+        send(WatchWireMessage(type = "kickParticipant", targetClientId = clientId))
+    }
+
     /** Host-only: hand the timeline to the participant that asked for it. */
     fun grantControl(clientId: String) {
         if (!_state.value.isHost) return
@@ -788,6 +800,11 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                                 _state.update {
                                     it.copy(controlRequested = false, syncWarning = "房主暂时保留控制权")
                                 }
+                            }
+                            "kicked" -> {
+                                throw RoomUnavailableException(
+                                    wire.message ?: "你已被房主移出当前房间",
+                                )
                             }
                             "chat" -> {
                                 val chat = wire.chat?.toDomain() ?: continue

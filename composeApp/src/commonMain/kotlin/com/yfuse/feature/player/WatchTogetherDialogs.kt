@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
@@ -73,9 +74,11 @@ internal fun WatchTogetherDialog(
     onRequestControl: () -> Unit,
     onSetControlMode: (WatchControlMode) -> Unit,
     onSetModerator: (String, Boolean) -> Unit,
+    onKickParticipant: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var roomDraft by remember { mutableStateOf("") }
+    var kickCandidate by remember { mutableStateOf<WatchParticipant?>(null) }
     val normalizedRoom = WatchInvite.normalizeCode(roomDraft)
     val palette = LocalPalette.current
 
@@ -127,7 +130,7 @@ internal fun WatchTogetherDialog(
                 )
                 if (controlMode == WatchControlMode.Moderators) {
                     Text(
-                        "点击下方成员可添加或取消管理员",
+                        "可在下方设置管理员或移出成员",
                         style = mr(9f, 500),
                         color = palette.sub2,
                         modifier = Modifier.padding(top = 6.dp),
@@ -145,18 +148,7 @@ internal fun WatchTogetherDialog(
                     participants.forEach { participant ->
                         Column(
                             Modifier
-                                .width(108.dp)
-                                .pressable(
-                                    enabled = isHost &&
-                                        controlMode == WatchControlMode.Moderators &&
-                                        !participant.isHost,
-                                    onClick = {
-                                        onSetModerator(
-                                            participant.clientId,
-                                            !participant.isModerator,
-                                        )
-                                    },
-                                ),
+                                .width(108.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
@@ -197,6 +189,29 @@ internal fun WatchTogetherDialog(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            if (isHost && !participant.isHost && !participant.isSelf) {
+                                if (controlMode == WatchControlMode.Moderators) {
+                                    Text(
+                                        if (participant.isModerator) "取消管理员" else "设为管理员",
+                                        style = mr(8f, 600),
+                                        color = Brand.Primary,
+                                        modifier = Modifier.pressable {
+                                            onSetModerator(
+                                                participant.clientId,
+                                                !participant.isModerator,
+                                            )
+                                        },
+                                    )
+                                }
+                                Text(
+                                    "移出房间",
+                                    style = mr(8f, 600),
+                                    color = Brand.Danger,
+                                    modifier = Modifier.pressable {
+                                        kickCandidate = participant
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -259,6 +274,20 @@ internal fun WatchTogetherDialog(
                 )
             }
         }
+    }
+
+    kickCandidate?.let { participant ->
+        ConfirmDialog(
+            title = "移出成员",
+            message = "确定将 ${participant.name} 移出房间吗？对方将无法再次加入当前房间。",
+            confirmLabel = "移出",
+            onConfirm = {
+                onKickParticipant(participant.clientId)
+                kickCandidate = null
+            },
+            onDismiss = { kickCandidate = null },
+            destructive = true,
+        )
     }
 }
 
