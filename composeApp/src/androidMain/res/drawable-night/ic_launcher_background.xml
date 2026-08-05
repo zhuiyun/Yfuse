@@ -1,19 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  自适应图标底层 · 深色 —— 取自设计项目的 `logo/yfuse-icon-dark.svg`，#05070C。
-
-  与浅色版（`drawable/ic_launcher_background.xml`，#FFFFFF）成对，只差壳色。
-
-  一个平台限制要知道：自适应图标各层是由 **launcher 进程**按它自己的配置解析的，而且桌面
-  普遍会缓存图标位图。所以切系统深浅色后图标不一定立刻跟着变——多数机型要等桌面重建缓存
-  或重启。One UI 尤其保守。图标本身两版都对，看不到变化先怀疑缓存。
--->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:pathData="M0,0 H108 V108 H0 Z"
-        android:fillColor="#05070C" />
+        android:fillColor="#FCFBFC"
+        android:pathData="M0,0 H108 V108 H0 Z" />
 </vector>

@@ -1,19 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  自适应图标底层 · 浅色 —— 取自设计项目的 `logo/yfuse-icon-light.svg`，纯白 #FFFFFF。
-
-  深色对位在 `drawable-night/ic_launcher_background.xml`（#05070C）。设计导出的浅色版与
-  深色版**只差这一个壳色**：几何、火/水渐变、播放头分色三者完全一致，所以浅色不需要另做
-  一份前景层，`ic_yfuse_mark` 两边共用。
-
-  注意：火弧亮端 #FFB524 落在白壳上本身就偏虚，这是设计导出里就有的取舍，不是实现走样。
--->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:pathData="M0,0 H108 V108 H0 Z"
-        android:fillColor="#FFFFFF" />
+        android:fillColor="#FCFBFC"
+        android:pathData="M0,0 H108 V108 H0 Z" />
 </vector>

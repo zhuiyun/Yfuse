@@ -13,6 +13,16 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
+    <style name="Theme.Yfuse.Launch.Light" parent="Theme.Yfuse.Launch">
+        <item name="android:windowBackground">@drawable/launch_background_light</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <style name="Theme.Yfuse.Launch.Dark" parent="Theme.Yfuse.Launch">
+        <item name="android:windowBackground">@drawable/launch_background_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
     <style name="Theme.Yfuse.Player" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:statusBarColor">@android:color/black</item>

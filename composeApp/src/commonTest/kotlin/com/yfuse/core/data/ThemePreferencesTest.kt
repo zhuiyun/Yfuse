@@ -16,6 +16,7 @@ class ThemePreferencesTest {
             setDecoder(DecoderMode.Software)
             setAutoNext(false)
             setQuality(PlaybackQuality.FullHd)
+            setSplashAnimation(false)
         }
 
         val restored = ThemePreferences(settings)
@@ -23,5 +24,6 @@ class ThemePreferencesTest {
         assertEquals(DecoderMode.Software, restored.decoder.value)
         assertFalse(restored.autoNext.value)
         assertEquals(PlaybackQuality.FullHd, restored.quality.value)
+        assertFalse(restored.splashAnimation.value)
     }
 }

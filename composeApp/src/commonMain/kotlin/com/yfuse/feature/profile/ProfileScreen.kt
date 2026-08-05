@@ -101,6 +101,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val engine by prefs.engine.collectAsState()
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
+    val splashAnimation by prefs.splashAnimation.collectAsState()
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
@@ -409,6 +410,10 @@ fun ProfileScreen(component: ProfileComponent) {
                         Column(Modifier.clip(GlassShapes.card)) {
                             SwitchRow("深色模式", mode == ThemeMode.Dark) { on ->
                                 prefs.setMode(if (on) ThemeMode.Dark else ThemeMode.Light)
+                            }
+                            SettingsDivider()
+                            SwitchRow("开屏动画", splashAnimation) {
+                                prefs.setSplashAnimation(it)
                             }
                         }
                     }

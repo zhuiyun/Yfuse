@@ -2,11 +2,28 @@
 <resources>
     <style name="Theme.Yfuse" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">#F7F8FB</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_yfuse_mark</item>
-        <!-- 设计稿 9c 的浅色画框底，接着交给 Compose 开屏的同色第一帧。 -->
-        <item name="android:windowSplashScreenBackground">#F7F8FB</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_transparent</item>
+        <item name="android:windowSplashScreenBackground">#FFFFFF</item>
+        <item name="android:windowSplashScreenAnimationDuration">300</item>
+    </style>
+
+    <style name="Theme.Yfuse.Launch.Light" parent="Theme.Yfuse.Launch">
+        <item name="android:windowBackground">@drawable/launch_background_light</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_transparent</item>
+        <item name="android:windowSplashScreenBackground">#FFFFFF</item>
+        <item name="android:windowSplashScreenAnimationDuration">300</item>
+    </style>
+
+    <style name="Theme.Yfuse.Launch.Dark" parent="Theme.Yfuse.Launch">
+        <item name="android:windowBackground">@drawable/launch_background_dark</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_transparent</item>
+        <item name="android:windowSplashScreenBackground">#000000</item>
         <item name="android:windowSplashScreenAnimationDuration">300</item>
     </style>
 </resources>

@@ -23,6 +23,7 @@ class ThemePreferences(private val settings: Settings) {
         const val KEY_REDUCE_TRANSPARENCY = "accessibility.reduceTransparency"
         const val KEY_LARGE_TEXT = "accessibility.largeText"
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
+        const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
     }
 
     // The design is the light "轻雾玻璃" direction; dark is the alternative.
@@ -61,6 +62,10 @@ class ThemePreferences(private val settings: Settings) {
 
     private val _reduceMotion = MutableStateFlow(settings.getBoolean(KEY_REDUCE_MOTION, false))
     val reduceMotion: StateFlow<Boolean> = _reduceMotion.asStateFlow()
+
+    private val _splashAnimation =
+        MutableStateFlow(settings.getBoolean(KEY_SPLASH_ANIMATION, true))
+    val splashAnimation: StateFlow<Boolean> = _splashAnimation.asStateFlow()
 
     fun setEngine(engine: PlayerEngine) {
         if (!engine.available) return
@@ -106,6 +111,11 @@ class ThemePreferences(private val settings: Settings) {
     fun setReduceMotion(enabled: Boolean) {
         _reduceMotion.value = enabled
         settings.putBoolean(KEY_REDUCE_MOTION, enabled)
+    }
+
+    fun setSplashAnimation(enabled: Boolean) {
+        _splashAnimation.value = enabled
+        settings.putBoolean(KEY_SPLASH_ANIMATION, enabled)
     }
 
     private fun <T : Enum<T>> load(key: String, values: List<T>, fallback: T): T {
