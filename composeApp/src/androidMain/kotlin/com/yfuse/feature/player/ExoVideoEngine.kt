@@ -166,6 +166,9 @@ class ExoVideoEngine(
             }
     }
 
+    override val playbackRequested: Boolean
+        get() = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+
     private var wasBuffering = true
     private var droppedFrames = 0
 

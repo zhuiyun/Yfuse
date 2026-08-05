@@ -62,6 +62,12 @@ class MpvVideoEngine(
     private var released = false
 
     @Volatile
+    private var playRequested = true
+
+    override val playbackRequested: Boolean
+        get() = playRequested && !_state.value.ended
+
+    @Volatile
     private var attachedSurface: Surface? = null
 
     @Volatile
@@ -155,7 +161,10 @@ class MpvVideoEngine(
 
         override fun eventProperty(property: String, value: Boolean) {
             when (property) {
-                "pause" -> _state.update { it.copy(playing = !value) }
+                "pause" -> {
+                    playRequested = !value
+                    _state.update { it.copy(playing = !value) }
+                }
                 "paused-for-cache" -> {
                     val bufferEvent = value && !wasBuffering
                     wasBuffering = value
@@ -396,11 +405,13 @@ class MpvVideoEngine(
     }
 
     override fun play() {
+        playRequested = true
         _state.update { it.copy(ended = false) }
         withMpv { it.setPropertyBoolean("pause", false) }
     }
 
     override fun pause() {
+        playRequested = false
         withMpv { it.setPropertyBoolean("pause", true) }
     }
 
@@ -420,6 +431,7 @@ class MpvVideoEngine(
 
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
+        playRequested = true
         pendingSeekMs = 0L
         lastPositionMs = -POSITION_STEP_MS
         val transcoding = index in transcodedIndices
@@ -447,6 +459,7 @@ class MpvVideoEngine(
 
     override fun retry() {
         val position = _state.value.positionMs
+        playRequested = true
         pendingSeekMs = position.coerceAtLeast(0L)
         _state.update { it.copy(error = null, buffering = true, ended = false) }
         if (mpv == null) {
