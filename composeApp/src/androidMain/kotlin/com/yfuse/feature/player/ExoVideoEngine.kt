@@ -43,6 +43,19 @@ private const val TAG = "YfusePlayer"
 /** How often the position is sampled; ExoPlayer has no position callback. */
 private const val TICK_MS = 500L
 
+internal enum class UnsupportedMediaTrack { Audio, Video }
+
+internal fun unsupportedMediaTrack(
+    hasVideo: Boolean,
+    videoSupported: Boolean,
+    hasAudio: Boolean,
+    audioSupported: Boolean,
+): UnsupportedMediaTrack? = when {
+    hasAudio && !audioSupported -> UnsupportedMediaTrack.Audio
+    hasVideo && !videoSupported -> UnsupportedMediaTrack.Video
+    else -> null
+}
+
 /**
  * ExoPlayer behind the engine-agnostic [VideoEngine] contract.
  *
@@ -237,6 +250,12 @@ class ExoVideoEngine(
                     ),
                 )
             }
+            if (state == Player.STATE_READY) {
+                fallbackForUnsupportedTracks(
+                    tracks = player.currentTracks,
+                    includeMissingExpectedAudio = true,
+                )
+            }
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -267,21 +286,7 @@ class ExoVideoEngine(
 
         override fun onTracksChanged(tracks: Tracks) {
             syncTracks()
-            val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
-            val anySupported = videoGroups.any { group ->
-                (0 until group.length).any { group.isTrackSupported(it) }
-            }
-            // Video present but undecodable (e.g. Dolby Vision P5) -> transcode.
-            if (videoGroups.isNotEmpty() && !anySupported) {
-                Log.w(TAG, "no supported video track; switching to transcode")
-                AppLog.warning(
-                    category = "player.exo",
-                    event = "unsupported_video_tracks",
-                    message = "No supported video track; attempting server transcode",
-                    attributes = mapOf("itemIndex" to player.currentMediaItemIndex.toString()),
-                )
-                switchToTranscode()
-            }
+            fallbackForUnsupportedTracks(tracks, includeMissingExpectedAudio = false)
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -438,6 +443,27 @@ class ExoVideoEngine(
         val trackIndex = id.substringAfter(':').toIntOrNull() ?: return
         val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return
 
+        // Media3 exposes unsupported tracks in the picker too. Forcing one can leave the
+        // video running with no audio and no PlayerException, so move to the AAC fallback
+        // while the user's requested language is still the active choice.
+        if (type == C.TRACK_TYPE_AUDIO && !group.isTrackSupported(trackIndex)) {
+            AppLog.warning(
+                category = "player.exo",
+                event = "unsupported_audio_track_selected",
+                message = "Selected audio track is unsupported; attempting server transcode",
+                attributes = mapOf(
+                    "itemIndex" to player.currentMediaItemIndex.toString(),
+                    "trackId" to id,
+                ),
+            )
+            if (!switchToTranscode()) {
+                _state.update {
+                    it.copy(error = "当前音轨无法解码，且服务器未提供可用转码流")
+                }
+            }
+            return
+        }
+
         player.trackSelectionParameters = builder
             .setTrackTypeDisabled(type, false)
             .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
@@ -452,6 +478,49 @@ class ExoVideoEngine(
                 subtitleTracks = tracksOf(C.TRACK_TYPE_TEXT, "字幕"),
             )
         }
+    }
+
+    private fun fallbackForUnsupportedTracks(
+        tracks: Tracks,
+        includeMissingExpectedAudio: Boolean,
+    ) {
+        val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+        val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        val videoSupported = videoGroups.any { group ->
+            (0 until group.length).any { group.isTrackSupported(it) }
+        }
+        val audioSupported = audioGroups.any { group ->
+            (0 until group.length).any { group.isTrackSupported(it) }
+        }
+        val index = player.currentMediaItemIndex
+        val expectedAudio = items.getOrNull(index)?.activeVersion?.audioTrackCount
+            ?.let { it > 0 } == true
+        val unsupported = unsupportedMediaTrack(
+            hasVideo = videoGroups.isNotEmpty(),
+            videoSupported = videoSupported,
+            hasAudio = audioGroups.isNotEmpty() ||
+                (includeMissingExpectedAudio && expectedAudio),
+            audioSupported = audioSupported,
+        ) ?: return
+
+        // A rejected audio decoder does not necessarily fail playback: ExoPlayer can keep
+        // rendering the picture with no selected audio track. Treat it exactly like an
+        // unsupported picture and ask Emby for the H.264/AAC fallback. Guard the current
+        // index so a final callback from the old stream cannot spend the next fallback.
+        if (index in transcodedIndices) return
+        val type = unsupported.name.lowercase()
+        Log.w(TAG, "no supported $type track; switching to transcode")
+        AppLog.warning(
+            category = "player.exo",
+            event = "unsupported_${type}_tracks",
+            message = "No supported $type track; attempting server transcode",
+            attributes = mapOf(
+                "itemIndex" to index.toString(),
+                "missingExpectedAudio" to
+                    (expectedAudio && audioGroups.isEmpty()).toString(),
+            ),
+        )
+        switchToTranscode()
     }
 
     private fun tracksOf(type: Int, fallbackPrefix: String): List<EngineTrack> {

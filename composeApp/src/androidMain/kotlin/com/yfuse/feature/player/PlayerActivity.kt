@@ -93,6 +93,7 @@ import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.model.languageDisplayName
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
 import com.yfuse.core.model.PlayerEngine
@@ -652,9 +653,9 @@ class PlayerActivity : ComponentActivity() {
     /**
      * Refreshes a series queue from the server instead of freezing it at detail-page time.
      *
-     * Existing entries win when they carry richer detail/version data; list metadata such as
-     * artwork, progress and newly added episodes is refreshed. PlayerRoot restarts its engine at
-     * the current item and position only when the resulting queue actually changes.
+     * Existing entries win when they carry richer detail/version data. Display metadata such as
+     * artwork and progress is applied without touching the engine; PlayerRoot only restarts at the
+     * current item and position when playable sources are added, removed, reordered or replaced.
      */
     private fun refreshEpisodes() {
         if (episodeRefreshJob?.isActive == true) return
@@ -742,23 +743,33 @@ class PlayerActivity : ComponentActivity() {
                     caption = episode.indexNumber?.let { "第 $it 集" },
                 )
             }
-            if (refreshed != playbackItems.value) {
-                val playingId = playbackItems.value.getOrNull(activeState.currentIndex)?.id
-                val refreshedIndex = refreshed.indexOfFirst { it.id == playingId }
-                    .takeIf { it >= 0 }
-                    ?: activeState.currentIndex.coerceIn(0, refreshed.lastIndex)
+            val current = playbackItems.value
+            if (refreshed == current) return@launch
+
+            val playbackSourcesChanged = !current.hasSamePlaybackSourcesAs(refreshed)
+            if (playbackSourcesChanged) {
+                val playingId = current.getOrNull(activeState.currentIndex)?.id
+                val refreshedIndex =
+                    refreshed
+                        .indexOfFirst { it.id == playingId }
+                        .takeIf { it >= 0 }
+                        ?: activeState.currentIndex.coerceIn(0, refreshed.lastIndex)
                 queueResume.value = refreshedIndex to
                     (activeEngine?.currentPositionMs() ?: activeState.positionMs)
-                playbackItems.value = refreshed
-                queueRevision.value++
-                sessionTitles = refreshed.map { it.title }
-                AppLog.info(
-                    category = "player.queue",
-                    event = "episodes_refreshed",
-                    message = "Player episode queue refreshed",
-                    attributes = mapOf("itemCount" to refreshed.size.toString()),
-                )
             }
+            playbackItems.value = refreshed
+            sessionTitles = refreshed.map { it.title }
+            if (playbackSourcesChanged) queueRevision.value++
+            AppLog.info(
+                category = "player.queue",
+                event = "episodes_refreshed",
+                message = "Player episode queue refreshed",
+                attributes =
+                    mapOf(
+                        "itemCount" to refreshed.size.toString(),
+                        "engineRestarted" to playbackSourcesChanged.toString(),
+                    ),
+            )
         }
     }
 
@@ -1446,12 +1457,13 @@ private fun PlayerRoot(
         if (state.audioTracks.isEmpty() && state.subtitleTracks.isEmpty()) return@LaunchedEffect
         val requested = trackRequest.consume(currentItem?.id) ?: return@LaunchedEffect
         requested.audioLanguage?.let { language ->
-            state.audioTracks.matching(language)?.let(engine::selectAudioTrack)
+            state.audioTracks.matchingLanguage(language)?.let(engine::selectAudioTrack)
         }
         when (val subtitle = requested.subtitleLanguage) {
             null -> Unit
             PlaybackTrackRequest.SUBTITLES_OFF -> engine.selectSubtitleTrack(EngineTrack.OFF)
-            else -> state.subtitleTracks.matching(subtitle)?.let(engine::selectSubtitleTrack)
+            else -> state.subtitleTracks.matchingLanguage(subtitle)
+                ?.let(engine::selectSubtitleTrack)
         }
     }
 
@@ -1848,9 +1860,13 @@ private fun PlayerRoot(
         }
     }
     val latestState by rememberUpdatedState(state)
-    val reporter = remember(items, playbackSink) {
-        playbackSink?.let { PlaybackProgressReporter(items, it) }
-    }
+    // Progress/artwork polling replaces [items] with an equal playback queue. Keep the same Emby
+    // session in that case instead of reporting a false stop/start every time metadata changes.
+    val reportingItemIds = remember(items) { items.map(PlayerMediaItem::id) }
+    val reporter =
+        remember(reportingItemIds, playbackSink) {
+            playbackSink?.let { PlaybackProgressReporter(items, it) }
+        }
     LaunchedEffect(state, reporter) {
         reporter?.update(state)
         onPlaybackState(state, activeItems.getOrNull(state.currentIndex))
@@ -2193,10 +2209,14 @@ private fun PlayerRoot(
  * does nothing because two three-letter codes disagree is worse than one that reads the
  * label. No match returns null and the file's own default stands — which is where it began.
  */
-private fun List<EngineTrack>.matching(language: String): String? {
+internal fun List<EngineTrack>.matchingLanguage(language: String): String? {
     val wanted = language.trim().lowercase()
     if (wanted.isEmpty()) return null
+    val wantedDisplay = languageDisplayName(wanted)
     return firstOrNull { it.language?.lowercase() == wanted }?.id
+        ?: firstOrNull {
+            languageDisplayName(it.language).equals(wantedDisplay, ignoreCase = true)
+        }?.id
         ?: firstOrNull { it.language?.lowercase()?.startsWith(wanted.take(2)) == true }?.id
         ?: firstOrNull { it.label.contains(language, ignoreCase = true) }?.id
 }

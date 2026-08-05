@@ -45,8 +45,8 @@ class DetailComponent(
 
     fun download() {
         val state = store.state
-        val detail = state.detail ?: return
-        val server = state.server ?: return
+        val detail = state.playTarget ?: return
+        val server = state.playServer ?: return
         GlobalContext.get().get<OfflineMediaManager>().enqueue(
             OfflineDownloadRequest(
                 serverId = server.id,
@@ -56,6 +56,7 @@ class DetailComponent(
                     server.baseUrl,
                     detail.id,
                     server.accessToken,
+                    mediaSourceId = state.selectedVersionId,
                 ),
                 posterUrl = EmbyImages.poster(
                     server.baseUrl,
@@ -76,13 +77,14 @@ class DetailComponent(
             }
             .launchIn(scope)
         if (autoPlay) {
-            // Fired once, on the first state that has something to play. Play is a no-op
-            // before the item has loaded, and the page is only on screen for the moment it
-            // takes the request to come back.
+            // Fired once, only after the same concrete selection used by the visible play
+            // key has resolved. A series' top-level detail is not itself playable.
             var started = false
             store.states
                 .onEach { state ->
-                    if (started || state.detail == null) return@onEach
+                    if (started || state.playTarget == null || state.selectionLoading) {
+                        return@onEach
+                    }
                     started = true
                     store.accept(DetailIntent.Play)
                 }

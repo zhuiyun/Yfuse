@@ -74,6 +74,9 @@ private const val CHAT_PREVIEW_MS = 4_000L
  */
 private const val VOLUME_SLIDER_HIDE_MS = 1_600L
 
+/** A forgiving touch target around the visually slim playback track. */
+private val SeekBarTouchHeight = 28.dp
+
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 
 /**
@@ -1228,7 +1231,7 @@ private fun BottomBar(
     var scrubbed by remember { mutableStateOf<Float?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
     val fraction = scrubbed ?: (state.positionMs.toFloat() / duration).coerceIn(0f, 1f)
-    val shownPosition = scrubbed?.let { (it * duration).toLong() } ?: state.positionMs
+    val shownPosition = scrubbed?.let { scrubPositionMs(it, state.durationMs) } ?: state.positionMs
 
     Column(
         modifier
@@ -1250,12 +1253,16 @@ private fun BottomBar(
             Text(formatTime(shownPosition), style = mr(11f, 400), color = PlayerTokens.timeTextLandscape)
             SeekBar(
                 fraction = fraction,
-                enabled = !seekLocked,
-                onScrubTo = { scrubbed = it; onScrub() },
+                enabled = !seekLocked && state.durationMs > 0L,
+                onScrubTo = {
+                    scrubbed = it
+                    onScrub()
+                },
                 onCommit = {
-                    onSeek((it * duration).toLong())
+                    onSeek(scrubPositionMs(it, state.durationMs))
                     scrubbed = null
                 },
+                onCancel = { scrubbed = null },
                 modifier = Modifier.weight(1f),
             )
             Text(formatTime(state.durationMs), style = mr(11f, 400), color = PlayerTokens.timeTextLandscape)
@@ -1362,51 +1369,79 @@ private fun SeekBar(
     fraction: Float,
     onScrubTo: (Float) -> Unit,
     onCommit: (Float) -> Unit,
+    onCancel: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    var width by remember { mutableStateOf(1f) }
     var dragFraction by remember { mutableStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
+    val latestOnScrubTo by rememberUpdatedState(onScrubTo)
+    val latestOnCommit by rememberUpdatedState(onCommit)
+    val latestOnCancel by rememberUpdatedState(onCancel)
 
     Box(
         modifier
-            // A 4px bar is unhittable; pad the touch target without moving the bar.
-            .padding(vertical = 10.dp)
-            .height(4.dp)
+            // Keep the painted track at 4dp while the whole 28dp row accepts the gesture.
+            .height(SeekBarTouchHeight)
             .let { base ->
                 if (!enabled) return@let base
                 base
-                    .pointerInput(Unit) {
-                        width = size.width.toFloat().coerceAtLeast(1f)
-                        detectTapGestures { offset -> onCommit((offset.x / width).coerceIn(0f, 1f)) }
-                    }
-                    .pointerInput(Unit) {
-                        width = size.width.toFloat().coerceAtLeast(1f)
+                    .pointerInput(enabled) {
+                        detectTapGestures { offset ->
+                            val width = size.width.toFloat().coerceAtLeast(1f)
+                            latestOnCommit((offset.x / width).coerceIn(0f, 1f))
+                        }
+                    }.pointerInput(enabled) {
                         detectHorizontalDragGestures(
                             onDragStart = { offset ->
+                                val width = size.width.toFloat().coerceAtLeast(1f)
+                                dragging = true
                                 dragFraction = (offset.x / width).coerceIn(0f, 1f)
-                                onScrubTo(dragFraction)
+                                latestOnScrubTo(dragFraction)
                             },
-                            onDragEnd = { onCommit(dragFraction) },
-                            onDragCancel = { onCommit(dragFraction) },
-                        ) { change, dragAmount ->
+                            onDragEnd = {
+                                dragging = false
+                                latestOnCommit(dragFraction)
+                            },
+                            onDragCancel = {
+                                dragging = false
+                                latestOnCancel()
+                            },
+                        ) { change, _ ->
                             change.consume()
-                            dragFraction = (dragFraction + dragAmount / width).coerceIn(0f, 1f)
-                            onScrubTo(dragFraction)
+                            val width = size.width.toFloat().coerceAtLeast(1f)
+                            dragFraction = (change.position.x / width).coerceIn(0f, 1f)
+                            latestOnScrubTo(dragFraction)
                         }
                     }
-            }
-            .clip(RoundedCornerShape(2.dp))
-            .background(PlayerTokens.trackFillLandscape),
+            }.padding(vertical = if (dragging) 11.dp else 12.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
                 .fillMaxHeight()
-                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .fillMaxWidth()
                 .clip(RoundedCornerShape(2.dp))
-                .background(PlayerTokens.progress),
-        )
+                .background(PlayerTokens.trackFillLandscape),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(PlayerTokens.progress),
+            )
+        }
     }
+}
+
+/** Converts a scrubber fraction to a clamped media position. */
+internal fun scrubPositionMs(
+    fraction: Float,
+    durationMs: Long,
+): Long {
+    val duration = durationMs.coerceAtLeast(0L)
+    return (fraction.coerceIn(0f, 1f).toDouble() * duration).toLong().coerceIn(0L, duration)
 }
 
 /**

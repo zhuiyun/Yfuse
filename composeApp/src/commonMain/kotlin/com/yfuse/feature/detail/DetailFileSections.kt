@@ -37,7 +37,6 @@ import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
@@ -386,15 +385,25 @@ private fun VersionCard(
     onSelect: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val edge = when {
+        selected -> accent
+        palette.isDark -> Color.White.copy(alpha = 0.16f)
+        else -> Color(0xFF141A26).copy(alpha = 0.10f)
+    }
     Column(
         Modifier
             .width(150.dp)
-            .glass(
+            .solidGlass(
                 shape = GlassShapes.card,
-                fill = if (selected) accent.copy(alpha = 0.10f) else palette.card2,
-                border = if (selected) accent.copy(alpha = 0.42f) else palette.border,
+                fill = if (palette.isDark) {
+                    Color.White.copy(alpha = 0.06f)
+                } else {
+                    Color.White.copy(alpha = 0.82f)
+                },
+                border = null,
             )
-            .pressable(enabled = !selected, onClick = onSelect)
+            .border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
+            .pressable(onClick = onSelect)
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
