@@ -664,6 +664,7 @@ internal fun PlayerControls(
                 onRequestControl = watchActions.onRequestControl,
                 onSetControlMode = watchActions.onSetControlMode,
                 onSetModerator = watchActions.onSetModerator,
+                onKickParticipant = watchActions.onKickParticipant,
                 onDismiss = { watchDialogOpen = false },
             )
         }

@@ -2201,6 +2201,7 @@ private fun PlayerRoot(
                     onClearChatError = watchTogether::clearChatError,
                     onSetControlMode = watchTogether::setControlMode,
                     onSetModerator = watchTogether::setModerator,
+                    onKickParticipant = watchTogether::kickParticipant,
                     onToggleChatDanmaku = {
                         watchTogetherPreferences.setChatDanmakuEnabled(!watchChatDanmaku)
                     },

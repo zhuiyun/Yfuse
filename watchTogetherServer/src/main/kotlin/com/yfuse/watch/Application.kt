@@ -173,6 +173,8 @@ private class Room(
     var timeline: Timeline,
     var controlMode: ControlMode = ControlMode.HostOnly,
     val moderatorIds: MutableSet<String> = linkedSetOf(),
+    /** Client ids removed by the host cannot reconnect until this room expires. */
+    val removedClientIds: MutableSet<String> = linkedSetOf(),
     val participants: LinkedHashMap<String, Participant> = linkedMapOf(),
     /** Recent text only; discarded with the room and bounded independently of frame size. */
     val chatHistory: ArrayDeque<WireChatMessage> = ArrayDeque(),
@@ -343,7 +345,12 @@ fun Application.watchTogetherModule(
                             // person resume as host after a network blip instead of losing
                             // control to whoever happened to still be connected.
                             var roomFull = false
+                            var removedByHost = false
                             val staleSession = synchronized(room) {
+                                if (clientId in room.removedClientIds) {
+                                    removedByHost = true
+                                    return@synchronized null
+                                }
                                 val rejoining = room.participants.containsKey(clientId)
                                 if (!rejoining &&
                                     room.participants.size >= MAX_PARTICIPANTS_PER_ROOM
@@ -375,6 +382,16 @@ fun Application.watchTogetherModule(
                                     room.hostAbsentSinceMs = null
                                 }
                                 stale
+                            }
+                            if (removedByHost) {
+                                sendError("你已被房主移出当前房间", "removed_by_host")
+                                close(
+                                    CloseReason(
+                                        CloseReason.Codes.VIOLATED_POLICY,
+                                        "removed by host",
+                                    ),
+                                )
+                                return@consumeEach
                             }
                             if (roomFull) return@consumeEach sendError("房间人数已满")
                             staleSession?.let {
@@ -506,6 +523,47 @@ fun Application.watchTogetherModule(
                                 else room.moderatorIds.remove(target)
                             }
                             if (changed) broadcastRoomUpdate(room)
+                        }
+
+                        "kickParticipant" -> {
+                            val room = joinedRoom ?: return@consumeEach
+                            val clientId = joinedClientId ?: return@consumeEach
+                            val target = message.targetClientId?.takeIf { it.isNotBlank() }
+                                ?: return@consumeEach
+                            var denied = false
+                            val targetSession = synchronized(room) {
+                                if (room.hostId != clientId) {
+                                    denied = true
+                                    return@synchronized null
+                                }
+                                if (target == room.hostId) return@synchronized null
+                                val participant = room.participants.remove(target)
+                                    ?: return@synchronized null
+                                room.moderatorIds.remove(target)
+                                room.removedClientIds.add(target)
+                                participant.session
+                            }
+                            if (denied) {
+                                sendError("仅房主可以移出成员", "host_only")
+                                return@consumeEach
+                            }
+                            targetSession?.let { session ->
+                                runCatching {
+                                    session.sendMessage(
+                                        WireMessage(
+                                            type = "kicked",
+                                            message = "你已被房主移出当前房间",
+                                        ),
+                                    )
+                                    session.close(
+                                        CloseReason(
+                                            CloseReason.Codes.VIOLATED_POLICY,
+                                            "removed by host",
+                                        ),
+                                    )
+                                }
+                                broadcastRoomUpdate(room)
+                            }
                         }
 
                         "updateProfile" -> {

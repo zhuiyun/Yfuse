@@ -64,6 +64,7 @@ data class WatchRoomActions(
     val onToggleChatDanmaku: () -> Unit = {},
     val onSetControlMode: (WatchControlMode) -> Unit = {},
     val onSetModerator: (String, Boolean) -> Unit = { _, _ -> },
+    val onKickParticipant: (String) -> Unit = {},
 )
 
 /**

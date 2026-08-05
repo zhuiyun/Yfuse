@@ -27,12 +27,14 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 | C→S | `requestControl` | 访客请求接管控制权 |
 | C→S | `grantControl` / `denyControl` | 房主同意或拒绝控制请求 |
 | C→S | `setControlMode` / `setModerator` | 房主选择仅房主、共同控制或指定管理员 |
+| C→S | `kickParticipant` | 房主将指定成员移出当前房间 |
 | S→C | `welcome` | 入房成功，附时间线、控制模式与成员快照 |
 | S→C | `roomUpdate` | 成员或房主变化，附当前时间线 |
 | S→C | `sync` | 房主提交的新锚点 |
 | S→C | `pong` | 回显 `clientSentAtMs` |
 | S→C | `chat` | 服务端认定发送者身份、生成序号和时间后广播 |
 | S→C | `controlRequested` / `controlDenied` | 控制权协商结果 |
+| S→C | `kicked` | 通知被房主移出的成员并结束其当前连接 |
 | S→C | `error` | 文案在 `message` |
 
 行为要点：
@@ -49,6 +51,7 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
   成员资料，不保存账号或图片。
 - 房主可以选择仅房主控制、全员共同控制或指定管理员；房主身份仍保持唯一，管理员
   不会影响断线后的房主迁移。
+- 房主可以移出其他成员；被移出的客户端在当前房间存续期间无法再次加入。
 - 新服务端继续接受未携带 `protocolVersion` 的 v2 客户端；v3 客户端会检查服务端返回的
   版本并明确提示 App 或服务器哪一端过旧。
 
