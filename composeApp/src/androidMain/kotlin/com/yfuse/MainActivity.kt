@@ -15,6 +15,7 @@ import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.update.AppUpdateManager
@@ -29,7 +30,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // Cold starts keep the dedicated fullscreen launch theme until the
         // Compose splash completes. Configuration recreation skips replay.
-        if (savedInstanceState != null) setTheme(R.style.Theme_Yfuse)
+        if (savedInstanceState != null) {
+            setTheme(R.style.Theme_Yfuse)
+        } else {
+            val launchTheme = if (
+                GlobalContext.get().get<ThemePreferences>().mode.value == ThemeMode.Dark
+            ) {
+                R.style.Theme_Yfuse_Launch_Dark
+            } else {
+                R.style.Theme_Yfuse_Launch_Light
+            }
+            setTheme(launchTheme)
+        }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 

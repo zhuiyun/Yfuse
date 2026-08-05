@@ -60,7 +60,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.YfuseMark
+import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
@@ -719,5 +719,5 @@ private fun RecentAdded(
 /** The app mark, sized to the prototype's 30px header slot. */
 @Composable
 private fun AppMark(modifier: Modifier = Modifier) {
-    YfuseMark(modifier)
+    CloudPlayerLogo(modifier)
 }
