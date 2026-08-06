@@ -16,6 +16,7 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -68,7 +69,7 @@ internal fun unsupportedMediaTrack(
 @UnstableApi
 class ExoVideoEngine(
     context: Context,
-    private val items: List<PlayerMediaItem>,
+    items: List<PlayerMediaItem>,
     startIndex: Int,
     startPositionMs: Long,
     private val scope: CoroutineScope,
@@ -90,6 +91,10 @@ class ExoVideoEngine(
         ),
     )
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
+
+    /** Grows via [appendItems]; index-keyed state below stays valid because entries only
+     *  ever arrive at the end. */
+    private val items = items.toMutableList()
 
     private val transcodedIndices = mutableSetOf<Int>()
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
@@ -294,16 +299,27 @@ class ExoVideoEngine(
 
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "playback failed: ${error.errorCodeName}", error)
+            val index = player.currentMediaItemIndex
+            val httpCause = generateSequence(error as Throwable) { it.cause }
+                .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                .firstOrNull()
             AppLog.error(
                 category = "player.exo",
                 event = "playback_failed",
                 message = "ExoPlayer playback failed",
                 throwable = error,
-                attributes = mapOf(
-                    "errorCode" to error.errorCodeName,
-                    "itemIndex" to player.currentMediaItemIndex.toString(),
-                    "transcoding" to _state.value.transcoding.toString(),
-                ),
+                attributes = buildMap {
+                    put("errorCode", error.errorCodeName)
+                    put("itemIndex", index.toString())
+                    put("transcoding", _state.value.transcoding.toString())
+                    // Which of the three addresses failed, and — the question the previous
+                    // diagnostic bundles could not answer — what the server actually said.
+                    put("streamVariant", streamVariantOf(index))
+                    httpCause?.let {
+                        put("httpStatus", it.responseCode.toString())
+                        put("httpMessage", it.responseMessage.orEmpty().take(120))
+                    }
+                },
             )
             when (error.errorCode) {
                 PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
@@ -324,6 +340,23 @@ class ExoVideoEngine(
                     _state.update {
                         it.copy(
                             error = "当前视频无法解码，且服务器未提供可用转码流",
+                            buffering = false,
+                            fallbacksExhausted = true,
+                        )
+                    }
+                }
+
+                // The server answered, and refused. This used to fall through to the generic
+                // branch: no fallback attempted, and `fallbacksExhausted` left false, so the
+                // controls still offered a retry that could only fail the same way. Walking
+                // the chain matters most here — a rejected HLS manifest request should still
+                // get the progressive attempt rather than stopping at the first refusal.
+                PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+                PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+                -> if (!advanceFallback()) {
+                    _state.update {
+                        it.copy(
+                            error = httpFailureMessage(httpCause?.responseCode),
                             buffering = false,
                             fallbacksExhausted = true,
                         )
@@ -581,6 +614,28 @@ class ExoVideoEngine(
         return true
     }
 
+    /**
+     * ExoPlayer can extend a live playlist, so a newly published episode costs nothing.
+     * Appending only at the tail is what keeps [transcodedIndices] and the rest of the
+     * index-keyed state meaningful.
+     */
+    override fun appendItems(items: List<PlayerMediaItem>): Boolean {
+        if (items.isEmpty()) return true
+        this.items += items
+        player.addMediaItems(items.map { mediaItem(it.url, it.title) })
+        _state.update { it.copy(itemCount = this.items.size.coerceAtLeast(1)) }
+        AppLog.info(
+            category = "player.exo",
+            event = "queue_extended",
+            message = "Queue extended without restarting playback",
+            attributes = mapOf(
+                "addedCount" to items.size.toString(),
+                "itemCount" to this.items.size.toString(),
+            ),
+        )
+        return true
+    }
+
     /** Some Emby proxies cannot serve master.m3u8; retry the same item as MP4. */
     private fun switchToProgressiveTranscode(): Boolean {
         val index = player.currentMediaItemIndex
@@ -603,6 +658,33 @@ class ExoVideoEngine(
         player.seekTo(index, position)
         player.playWhenReady = true
         return true
+    }
+
+    /**
+     * The next rung down the ladder: direct play → HLS transcode → progressive transcode.
+     *
+     * Both switch functions already refuse to repeat a rung they have spent on this entry,
+     * so calling them in order is enough to find the next untried one — or to report that
+     * there is none, which is what the caller needs to stop offering a pointless retry.
+     */
+    private fun advanceFallback(): Boolean =
+        switchToTranscode() || switchToProgressiveTranscode()
+
+    /** Which address the entry is currently being played from, for the diagnostic log. */
+    private fun streamVariantOf(index: Int): String = when {
+        index in progressiveTranscodeIndices -> "progressive"
+        index in transcodedIndices -> "hls"
+        else -> "direct"
+    }
+
+    private fun httpFailureMessage(status: Int?): String = when (status) {
+        401, 403 -> "服务器拒绝了播放请求（$status），请重新登录该服务器"
+        404 -> "服务器上找不到这个文件（404）"
+        // What an Emby server returns once its transcoding slots are all taken, which is the
+        // state a leaked encoding leaves it in.
+        429, 503 -> "服务器暂时无法提供转码（$status），请稍后再试"
+        null -> "服务器拒绝了播放请求"
+        else -> "服务器拒绝了播放请求（$status）"
     }
 
     private fun knownDuration(): Long =

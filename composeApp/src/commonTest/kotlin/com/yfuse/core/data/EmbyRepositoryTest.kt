@@ -431,4 +431,81 @@ class EmbyRepositoryTest {
             paths,
         )
     }
+
+    /**
+     * The snapshot was one `Limit=10000` request. Every library larger than that synced
+     * silently truncated and still reported success — across a week of real logs the reported
+     * item count was 10000 or 1000 and never once a genuine total.
+     */
+    @Test
+    fun user_library_snapshot_pages_until_the_server_total_is_reached() = runTest {
+        val requested = mutableListOf<String>()
+        val total = 4_500
+        val repo = testRepo { request ->
+            requested += request.url.parameters["StartIndex"].orEmpty()
+            val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+            val limit = request.url.parameters["Limit"]?.toInt() ?: 0
+            val page = (start until minOf(start + limit, total)).map { index ->
+                """{"Id":"i$index","Name":"标题$index","UserData":{"Played":true}}"""
+            }
+            json("""{"Items":[${page.joinToString(",")}],"TotalRecordCount":$total}""")
+        }
+
+        val res = repo.userLibrarySnapshot(server)
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals(total, res.getOrThrow().size)
+        assertEquals("i0", res.getOrThrow().first().id)
+        assertEquals("i4499", res.getOrThrow().last().id)
+        assertEquals(listOf("0", "2000", "4000"), requested)
+    }
+
+    @Test
+    fun a_server_that_ignores_start_index_does_not_loop_forever() = runTest {
+        // An empty page is the only signal that a server which reports a large total but
+        // will not paginate has actually run out of rows.
+        var calls = 0
+        val repo = testRepo {
+            calls++
+            json("""{"Items":[],"TotalRecordCount":999999}""")
+        }
+
+        val res = repo.userLibrarySnapshot(server)
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals(0, res.getOrThrow().size)
+        assertEquals(1, calls)
+    }
+
+    /**
+     * Emby answers 403 — not 401 — for a revoked token or a disabled account. Mapping it to
+     * `Unknown` meant the user saw a bare "同步失败" and the client kept retrying.
+     */
+    @Test
+    fun forbidden_is_an_authentication_failure_not_an_unknown_one() = runTest {
+        val repo = testRepo { respond(content = "", status = HttpStatusCode.Forbidden) }
+
+        val res = repo.userLibrarySnapshot(server)
+
+        assertTrue(res.isFailure)
+        assertEquals(EmbyError.Unauthorized, (res.exceptionOrNull() as EmbyErrorException).error)
+    }
+
+    @Test
+    fun stopping_a_transcode_names_the_device_and_play_session() = runTest {
+        var path: String? = null
+        var query: String? = null
+        val repo = testRepo { request ->
+            path = request.url.encodedPath
+            query = request.url.encodedQuery
+            assertEquals(HttpMethod.Delete, request.method)
+            json("{}")
+        }
+
+        assertTrue(repo.stopTranscoding(server, "yfuse-abc").isSuccess)
+
+        assertEquals("/Videos/ActiveEncodings", path)
+        assertTrue(query!!.contains("PlaySessionId=yfuse-abc"), query!!)
+        assertTrue(query!!.contains("DeviceId="), query!!)
+    }
 }

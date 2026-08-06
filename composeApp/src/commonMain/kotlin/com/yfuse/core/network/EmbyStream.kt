@@ -1,9 +1,82 @@
 package com.yfuse.core.network
 
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.deviceId
+import kotlin.random.Random
+
+/**
+ * Every address one file can be played from, plus the session id all of them carry.
+ *
+ * They travel together because they have to agree: the transcode target is derived from the
+ * same source figures, and the session id has to be identical across all three or a fallback
+ * from one to another would look like a different playback to the server.
+ */
+data class StreamUrls(
+    val direct: String,
+    val transcode: String,
+    val progressiveTranscode: String,
+    val playSessionId: String,
+)
 
 /** Builds Emby playback URLs. */
 object EmbyStream {
+
+    /**
+     * The addresses for one file, with the transcode ladder aimed at the source.
+     *
+     * The single entry point for building a playable entry. Callers used to assemble the
+     * triple themselves, and the episode-polling path in the player assembled it with the
+     * bare defaults — a fixed 1080p/6 Mbps ceiling and no `MediaSourceId` — so an episode
+     * that arrived by polling was addressed differently from the identical episode the
+     * detail page had opened.
+     */
+    fun streamUrls(
+        baseUrl: String,
+        itemId: String,
+        token: String,
+        mediaSourceId: String? = null,
+        sourceWidth: Int? = null,
+        sourceBitrateBps: Int? = null,
+    ): StreamUrls {
+        val (maxWidth, videoBitrate) = transcodeTarget(sourceWidth, sourceBitrateBps)
+        val session = newPlaySessionId()
+        return StreamUrls(
+            direct = directPlay(baseUrl, itemId, token, mediaSourceId, session),
+            transcode = transcode(
+                baseUrl = baseUrl,
+                itemId = itemId,
+                token = token,
+                maxWidth = maxWidth,
+                videoBitrate = videoBitrate,
+                mediaSourceId = mediaSourceId,
+                playSessionId = session,
+            ),
+            progressiveTranscode = progressiveTranscode(
+                baseUrl = baseUrl,
+                itemId = itemId,
+                token = token,
+                maxWidth = maxWidth,
+                videoBitrate = videoBitrate,
+                mediaSourceId = mediaSourceId,
+                playSessionId = session,
+            ),
+            playSessionId = session,
+        )
+    }
+
+    /**
+     * A fresh play-session id, to be shared by a stream URL and the
+     * `/Sessions/Playing` reports that describe the same playback.
+     *
+     * Emby identifies an in-flight transcode by the pair (`DeviceId`, `PlaySessionId`).
+     * Both therefore have to appear on the stream URL *and* on the reports, or
+     * `Playing/Stopped` has no way to name the ffmpeg job it is supposed to end — which is
+     * how orphaned encodings pile up until the server starts refusing new ones with a 4xx.
+     */
+    fun newPlaySessionId(): String = buildString {
+        append("yfuse-")
+        repeat(24) { append("0123456789abcdef"[Random.nextInt(16)]) }
+    }
 
     /**
      * Direct-play URL for a video item (serves the original file, no transcode).
@@ -15,9 +88,11 @@ object EmbyStream {
         itemId: String,
         token: String,
         mediaSourceId: String? = null,
+        playSessionId: String? = null,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream?static=true&api_key=$token" +
-            mediaSourceParam(mediaSourceId, itemId)
+            mediaSourceParam(mediaSourceId, itemId) +
+            sessionParams(playSessionId)
 
     /**
      * The width and bitrate a transcode of this source should aim at.
@@ -56,6 +131,7 @@ object EmbyStream {
         maxWidth: Int = 1920,
         videoBitrate: Int = 6_000_000,
         mediaSourceId: String? = null,
+        playSessionId: String? = null,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/master.m3u8" +
             "?api_key=$token" +
@@ -71,7 +147,7 @@ object EmbyStream {
             "&SegmentContainer=ts" +
             "&MinSegments=2" +
             "&BreakOnNonKeyFrames=true" +
-            "&DeviceId=yfuse"
+            sessionParams(playSessionId)
 
     /** Progressive H.264/AAC fallback when a server cannot produce a valid HLS manifest. */
     fun progressiveTranscode(
@@ -81,6 +157,7 @@ object EmbyStream {
         maxWidth: Int = 1920,
         videoBitrate: Int = 6_000_000,
         mediaSourceId: String? = null,
+        playSessionId: String? = null,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream.mp4" +
             "?static=false" +
@@ -94,7 +171,21 @@ object EmbyStream {
             "&VideoBitrate=$videoBitrate" +
             "&AudioBitrate=192000" +
             "&TranscodingMaxAudioChannels=2" +
-            "&DeviceId=yfuse"
+            sessionParams(playSessionId)
+
+    /**
+     * Identifies who is asking and which playback this is.
+     *
+     * `DeviceId` was the literal string `yfuse` for every install of the app, so a server
+     * could not tell two of the user's own devices apart — never mind two users. It is now
+     * this install's persisted id, the same one the `X-Emby-Authorization` header carries.
+     *
+     * `PlaySessionId` is omitted rather than invented when absent: a wrong id is worse than
+     * none, because `Playing/Stopped` would then end somebody else's encoding.
+     */
+    private fun sessionParams(playSessionId: String?): String =
+        "&DeviceId=${deviceId()}" +
+            playSessionId?.takeIf { it.isNotBlank() }?.let { "&PlaySessionId=$it" }.orEmpty()
 
     /**
      * Names a specific file when the item has more than one.

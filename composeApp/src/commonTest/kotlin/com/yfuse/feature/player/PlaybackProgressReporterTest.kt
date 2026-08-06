@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class PlaybackProgressReporterTest {
 
@@ -77,6 +78,56 @@ class PlaybackProgressReporterTest {
             ),
             events.map(Event::summary),
         )
+    }
+
+    /**
+     * The reports have to name the session the stream URLs were built with. When they did not,
+     * `Playing/Stopped` described a session the server had no encoding for, so the transcode
+     * it was reporting the end of kept running.
+     */
+    @Test
+    fun reports_carry_the_session_id_the_stream_urls_were_built_with() = runTest {
+        val events = mutableListOf<Event>()
+        val reporter = PlaybackProgressReporter(
+            items = listOf(
+                PlayerMediaItem(
+                    id = "e1",
+                    url = "direct-1?PlaySessionId=yfuse-abc",
+                    transcodeUrl = "transcode-1?PlaySessionId=yfuse-abc",
+                    title = "第一集",
+                    playSessionId = "yfuse-abc",
+                ),
+            ),
+            sink = RecordingSink(events),
+            scope = this,
+        )
+
+        reporter.update(PlaybackState(playing = true, positionMs = 1_000L))
+        runCurrent()
+        reporter.close(PlaybackState(positionMs = 5_000L))
+        runCurrent()
+
+        assertEquals(listOf("started", "progress", "stopped"), events.map(Event::kind))
+        assertEquals(List(3) { "yfuse-abc" }, events.map(Event::sessionId))
+    }
+
+    @Test
+    fun an_entry_without_a_session_id_still_gets_one() = runTest {
+        // Offline files, and queues marshalled by a build that predates the field.
+        val events = mutableListOf<Event>()
+        val reporter = PlaybackProgressReporter(
+            items = listOf(PlayerMediaItem("e1", "file:///movie.mkv", "", "本地文件")),
+            sink = RecordingSink(events),
+            scope = this,
+        )
+
+        reporter.update(PlaybackState(playing = true, positionMs = 1_000L))
+        runCurrent()
+        reporter.close(PlaybackState(positionMs = 1_000L))
+        runCurrent()
+
+        assertTrue(events.isNotEmpty())
+        assertTrue(events.all { it.sessionId.isNotBlank() }, events.toString())
     }
 
     private data class Event(

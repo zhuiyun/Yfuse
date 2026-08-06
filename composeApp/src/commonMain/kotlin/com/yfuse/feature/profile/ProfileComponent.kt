@@ -76,15 +76,13 @@ class ProfileComponent(
     fun recoveryItem(snapshot: PlaybackRecoverySnapshot): PlayerMediaItem? {
         val server = snapshot.serverId?.let(registry::serverById) ?: registry.defaultServer
         server ?: return null
+        val urls = EmbyStream.streamUrls(server.baseUrl, snapshot.itemId, server.accessToken)
         return PlayerMediaItem(
             id = snapshot.itemId,
-            url = EmbyStream.directPlay(server.baseUrl, snapshot.itemId, server.accessToken),
-            transcodeUrl = EmbyStream.transcode(server.baseUrl, snapshot.itemId, server.accessToken),
-            fallbackTranscodeUrl = EmbyStream.progressiveTranscode(
-                server.baseUrl,
-                snapshot.itemId,
-                server.accessToken,
-            ),
+            url = urls.direct,
+            transcodeUrl = urls.transcode,
+            fallbackTranscodeUrl = urls.progressiveTranscode,
+            playSessionId = urls.playSessionId,
             title = snapshot.title,
             serverId = server.id,
         )

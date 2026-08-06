@@ -26,6 +26,9 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
         imageCacheContext = this
         offlineApplicationContext = this
         val prefs = getSharedPreferences("yfuse", MODE_PRIVATE)
+        // Before anything can reach the network: every Emby request carries the device id,
+        // and it has to be the same one across launches for sessions to be reapable.
+        initializeDeviceId(prefs)
         val settings = SharedPreferencesSettings(prefs)
         startKoin {
             modules(appModule(settings))

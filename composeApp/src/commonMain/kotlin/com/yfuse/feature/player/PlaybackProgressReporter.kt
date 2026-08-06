@@ -34,6 +34,10 @@ internal class EmbyPlaybackEventSink(
 
     override suspend fun stopped(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean) {
         repo.reportPlaybackStopped(server, itemId, sessionId, positionTicks, isPaused)
+        // Belt and braces. `Playing/Stopped` is the polite request; some server versions
+        // leave the ffmpeg process running anyway, and an orphaned encoding is what makes
+        // the *next* attempt at the same file fail with a 4xx instead of playing.
+        repo.stopTranscoding(server, sessionId)
     }
 }
 
@@ -115,7 +119,7 @@ internal class PlaybackProgressReporter(
             stopActive()
             activeIndex = index
             terminalIndex = -1
-            activeSessionId = newSessionId()
+            activeSessionId = sessionIdFor(index)
             activePositionMs = state.positionMs
             activePaused = !state.playing
             reportedPositionMs = state.positionMs
@@ -159,8 +163,18 @@ internal class PlaybackProgressReporter(
         reportedPositionMs = Long.MIN_VALUE
     }
 
-    private fun newSessionId(): String =
-        "yfuse-${Random.nextLong().toULong().toString(16)}"
+    /**
+     * The id the entry's stream URLs already carry, so the server can tie these reports to
+     * the encoding it started.
+     *
+     * This used to mint a fresh id here. It was never wrong on its own terms — Emby accepted
+     * it — but it named a session the stream URLs knew nothing about, so `Playing/Stopped`
+     * could not end the transcode it was reporting the end of. Offline entries and queues
+     * marshalled by an older build carry no id, and still get a generated one.
+     */
+    private fun sessionIdFor(index: Int): String =
+        items.getOrNull(index)?.playSessionId?.takeIf { it.isNotBlank() }
+            ?: "yfuse-${Random.nextLong().toULong().toString(16)}"
 
     private fun Long.toTicks(): Long =
         coerceAtLeast(0L).coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND

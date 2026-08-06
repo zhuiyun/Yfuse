@@ -19,7 +19,9 @@ private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
 /** Builds a repository whose HTTP calls are served by [handler]. */
 fun testRepo(
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
-): EmbyRepository = EmbyRepository(createEmbyClient(MockEngine(handler)))
+): EmbyRepository = EmbyRepository(
+    createEmbyClient(MockEngine(handler), timeouts = null),
+)
 
 /** A fresh in-memory server registry for tests. */
 fun testRegistry(): ServerRegistry = ServerRegistry(MapSettings())

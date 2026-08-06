@@ -59,6 +59,14 @@ data class PlayerMediaVersion(
     val sourceBitrateBps: Int? = null,
     /** Lets an engine distinguish a genuinely silent file from a missing audio track. */
     val audioTrackCount: Int = 0,
+    /**
+     * The id already baked into the three URLs above, so the playback reports can name the
+     * same session the server started an encoding for. See [EmbyStream.newPlaySessionId].
+     *
+     * Blank for entries built before this field existed (an older build's marshalled queue)
+     * and for offline files, which have no server session at all.
+     */
+    val playSessionId: String = "",
 )
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
@@ -107,6 +115,8 @@ data class PlayerMediaItem(
     val progress: Float? = null,
     /** `第 4 集` — the coordinate alone, under the episode's own name. */
     val caption: String? = null,
+    /** See [PlayerMediaVersion.playSessionId]; this is the active version's. */
+    val playSessionId: String = "",
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.
@@ -127,6 +137,9 @@ data class PlayerMediaItem(
             transcodeUrl = version.transcodeUrl,
             fallbackTranscodeUrl = version.fallbackTranscodeUrl,
             versionId = version.id,
+            // Moves with the URLs: each version's addresses were built with their own id,
+            // and reporting one session's id against another's stream ends the wrong job.
+            playSessionId = version.playSessionId,
         )
     }
 }
@@ -145,11 +158,39 @@ internal fun List<PlayerMediaItem>.hasSamePlaybackSourcesAs(other: List<PlayerMe
         val current = this[index]
         val refreshed = other[index]
         current.id == refreshed.id &&
-            current.url == refreshed.url &&
-            current.transcodeUrl == refreshed.transcodeUrl &&
-            current.fallbackTranscodeUrl == refreshed.fallbackTranscodeUrl
+            current.url.playbackSourceKey() == refreshed.url.playbackSourceKey() &&
+            current.transcodeUrl.playbackSourceKey() ==
+                refreshed.transcodeUrl.playbackSourceKey() &&
+            current.fallbackTranscodeUrl.playbackSourceKey() ==
+                refreshed.fallbackTranscodeUrl.playbackSourceKey()
     }
 }
+
+/**
+ * The entries [other] adds after this queue, or null when it is not a pure extension of it.
+ *
+ * Appending is the one shape of change an engine can absorb while playing. Anything else — a
+ * reorder, a removal, a file swapped underneath an entry — needs the engine rebuilt, because
+ * its playlist is addressed by position.
+ */
+internal fun List<PlayerMediaItem>.appendedBy(
+    other: List<PlayerMediaItem>,
+): List<PlayerMediaItem>? {
+    if (other.size <= size) return null
+    if (!hasSamePlaybackSourcesAs(other.subList(0, size))) return null
+    return other.subList(size, other.size).toList()
+}
+
+/**
+ * The address with the id that identifies *this* playback of it removed.
+ *
+ * A play session is minted per queue build, so two entries can name the same file through
+ * different session ids. Comparing the raw URLs would then read "the sources changed" and
+ * tear down a healthy engine — which is the question this key exists to answer correctly.
+ * For comparison only; the result is not a fetchable URL.
+ */
+private fun String.playbackSourceKey(): String =
+    replace(Regex("[?&]PlaySessionId=[^&]*"), "")
 
 data class PlayerState(
     val loading: Boolean = true,
@@ -209,9 +250,13 @@ class PlayerStoreFactory(
                 }
 
                 fun versionsOf(id: String, versions: List<MediaVersion>) = versions.map {
-                    // Aim the fallback at the file it is replacing rather than at a fixed
-                    // 1080p — see EmbyStream.transcodeTarget.
-                    val (targetWidth, targetBitrate) = EmbyStream.transcodeTarget(
+                    // Aimed at the file it is replacing rather than at a fixed 1080p, and
+                    // carrying one session id across all three — see EmbyStream.streamUrls.
+                    val urls = EmbyStream.streamUrls(
+                        baseUrl = server.baseUrl,
+                        itemId = id,
+                        token = server.accessToken,
+                        mediaSourceId = it.id,
                         sourceWidth = it.video?.width,
                         sourceBitrateBps = it.bitrateBps ?: it.video?.bitrateBps,
                     )
@@ -219,28 +264,10 @@ class PlayerStoreFactory(
                         id = it.id,
                         label = it.name,
                         detail = it.summary,
-                        url = EmbyStream.directPlay(
-                            server.baseUrl,
-                            id,
-                            server.accessToken,
-                            mediaSourceId = it.id,
-                        ),
-                        transcodeUrl = EmbyStream.transcode(
-                            server.baseUrl,
-                            id,
-                            server.accessToken,
-                            maxWidth = targetWidth,
-                            videoBitrate = targetBitrate,
-                            mediaSourceId = it.id,
-                        ),
-                        fallbackTranscodeUrl = EmbyStream.progressiveTranscode(
-                            server.baseUrl,
-                            id,
-                            server.accessToken,
-                            maxWidth = targetWidth,
-                            videoBitrate = targetBitrate,
-                            mediaSourceId = it.id,
-                        ),
+                        url = urls.direct,
+                        transcodeUrl = urls.transcode,
+                        fallbackTranscodeUrl = urls.progressiveTranscode,
+                        playSessionId = urls.playSessionId,
                         container = it.container?.uppercase(),
                         dolbyVision = it.isDolbyVision,
                         dolbyAtmos = it.hasDolbyAtmos,
@@ -272,19 +299,28 @@ class PlayerStoreFactory(
                   // also what an unqualified stream request would have returned anyway.
                   val chosen = playerVersions.firstOrNull { it.id == mediaSourceId }
                       ?: playerVersions.firstOrNull()
+                  // Entries whose sources were never fetched still need addresses; they get
+                  // the unqualified ones, which is the file the server would have picked.
+                  val unqualified = chosen ?: EmbyStream
+                      .streamUrls(server.baseUrl, id, server.accessToken)
+                      .let {
+                          PlayerMediaVersion(
+                              id = id,
+                              label = "",
+                              detail = "",
+                              url = it.direct,
+                              transcodeUrl = it.transcode,
+                              fallbackTranscodeUrl = it.progressiveTranscode,
+                              playSessionId = it.playSessionId,
+                          )
+                      }
                   return PlayerMediaItem(
                     id = id,
-                    url = chosen?.url
-                        ?: EmbyStream.directPlay(server.baseUrl, id, server.accessToken),
-                    transcodeUrl = chosen?.transcodeUrl
-                        ?: EmbyStream.transcode(server.baseUrl, id, server.accessToken),
+                    url = unqualified.url,
+                    transcodeUrl = unqualified.transcodeUrl,
                     title = title,
-                    fallbackTranscodeUrl = chosen?.fallbackTranscodeUrl
-                        ?: EmbyStream.progressiveTranscode(
-                            server.baseUrl,
-                            id,
-                            server.accessToken,
-                        ),
+                    fallbackTranscodeUrl = unqualified.fallbackTranscodeUrl,
+                    playSessionId = unqualified.playSessionId,
                     serverId = server.id,
                     playbackSegments = playbackSegments,
                     seasonNumber = seasonNumber,

@@ -108,5 +108,15 @@ interface VideoEngine {
      */
     fun switchToTranscode(): Boolean = false
 
+    /**
+     * Adds entries to the end of the queue without disturbing what is playing.
+     *
+     * Returns false when this engine cannot, leaving the caller to rebuild it — which
+     * restarts the current entry at its current position. A series queue is re-listed from
+     * the server every couple of minutes while it plays, so a show that publishes an episode
+     * mid-episode used to interrupt the episode being watched to make room for it.
+     */
+    fun appendItems(items: List<PlayerMediaItem>): Boolean = false
+
     fun release()
 }

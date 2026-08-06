@@ -17,6 +17,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlayerStoreTest {
@@ -90,6 +91,64 @@ class PlayerStoreTest {
         assertFalse(
             listOf(first).hasSamePlaybackSourcesAs(
                 listOf(first.copy(url = "direct/e1-new")),
+            ),
+        )
+    }
+
+    /**
+     * A play session is minted per queue build, so the same file can be addressed through two
+     * different session ids. That is not a source change and must not restart the engine.
+     */
+    @Test
+    fun a_different_play_session_for_the_same_file_is_not_a_source_change() {
+        val original = listOf(
+            PlayerMediaItem(
+                id = "e1",
+                url = "direct/e1?PlaySessionId=yfuse-aaa&DeviceId=d",
+                transcodeUrl = "hls/e1?PlaySessionId=yfuse-aaa",
+                fallbackTranscodeUrl = "progressive/e1?PlaySessionId=yfuse-aaa",
+                title = "第一集",
+                playSessionId = "yfuse-aaa",
+            ),
+        )
+        val rebuilt = listOf(
+            original.single().copy(
+                url = "direct/e1?PlaySessionId=yfuse-bbb&DeviceId=d",
+                transcodeUrl = "hls/e1?PlaySessionId=yfuse-bbb",
+                fallbackTranscodeUrl = "progressive/e1?PlaySessionId=yfuse-bbb",
+                playSessionId = "yfuse-bbb",
+            ),
+        )
+
+        assertTrue(original.hasSamePlaybackSourcesAs(rebuilt))
+    }
+
+    @Test
+    fun a_newly_published_episode_is_reported_as_an_append() {
+        val first = PlayerMediaItem("e1", "direct/e1", "hls/e1", "第一集")
+        val second = PlayerMediaItem("e2", "direct/e2", "hls/e2", "第二集")
+        val third = PlayerMediaItem("e3", "direct/e3", "hls/e3", "第三集")
+
+        assertEquals(
+            listOf(third),
+            listOf(first, second).appendedBy(listOf(first, second, third)),
+        )
+    }
+
+    @Test
+    fun anything_other_than_an_append_is_not_absorbable() {
+        val first = PlayerMediaItem("e1", "direct/e1", "hls/e1", "第一集")
+        val second = PlayerMediaItem("e2", "direct/e2", "hls/e2", "第二集")
+        val third = PlayerMediaItem("e3", "direct/e3", "hls/e3", "第三集")
+
+        // Unchanged, shorter, reordered, and an entry replaced under the same position all
+        // leave the engine's positional playlist wrong; only a tail extension does not.
+        assertNull(listOf(first, second).appendedBy(listOf(first, second)))
+        assertNull(listOf(first, second).appendedBy(listOf(first)))
+        assertNull(listOf(first, second).appendedBy(listOf(second, first, third)))
+        assertNull(
+            listOf(first, second).appendedBy(
+                listOf(first, second.copy(url = "direct/e2-new"), third),
             ),
         )
     }

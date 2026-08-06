@@ -32,6 +32,7 @@ import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.normalizeBaseUrl
 import com.yfuse.core.sync.SyncedUserItem
 import com.yfuse.core.sync.parseEpisodeWatchKey
+import com.yfuse.deviceId
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
@@ -79,6 +80,12 @@ internal const val WATCH_LATER_COLLECTION_ID = "__yfuse_watch_later__"
 
 private const val PERSONAL_COLLECTION_PREVIEW_LIMIT = 16
 private const val PERSONAL_COLLECTION_GRID_LIMIT = 120
+
+/** One page of [EmbyRepository.userLibrarySnapshot]; small enough to arrive inside a timeout. */
+private const val SNAPSHOT_PAGE_SIZE = 2_000
+
+/** Backstop against a server whose `TotalRecordCount` is wrong, or a paging loop. */
+private const val SNAPSHOT_MAX_ITEMS = 100_000
 
 private data class PersonalCollection(
     val items: List<MediaItem>,
@@ -455,28 +462,77 @@ class EmbyRepository(private val client: HttpClient) {
             .toList()
     }
 
-    /** Complete user-state snapshot used by the real multi-server sync coordinator. */
+    /**
+     * Complete user-state snapshot used by the real multi-server sync coordinator.
+     *
+     * Paged. This was a single `Limit=10000` request, which meant two things at once: the
+     * snapshot silently stopped at ten thousand items on any library bigger than that (and
+     * still reported success), and the one response was large enough that it was the request
+     * most likely to time out on a slow server. Pages are requested in `SNAPSHOT_PAGE_SIZE`
+     * chunks and bounded by the server's own `TotalRecordCount`.
+     */
     suspend fun userLibrarySnapshot(server: SavedServer): Result<List<SyncedUserItem>> =
         call("user_library_snapshot") {
-        val dto: ItemsResponseDto =
-            client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("Recursive", true)
-                parameter("IncludeItemTypes", "Movie,Series,Episode")
-                parameter("Fields", "UserData,DateModified")
-                parameter("EnableImages", false)
-                parameter("Limit", 10_000)
-            }.body()
-        dto.Items.map { item ->
-            SyncedUserItem(
-                id = item.Id,
-                title = item.Name.orEmpty(),
-                favorite = item.UserData?.IsFavorite == true,
-                played = item.UserData?.Played == true,
-                positionTicks = item.UserData?.PlaybackPositionTicks ?: 0L,
-                dateModified = item.DateModified,
+        val collected = mutableListOf<SyncedUserItem>()
+        var startIndex = 0
+        var total = Int.MAX_VALUE
+        while (startIndex < total && collected.size < SNAPSHOT_MAX_ITEMS) {
+            val dto: ItemsResponseDto =
+                client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Recursive", true)
+                    parameter("IncludeItemTypes", "Movie,Series,Episode")
+                    parameter("Fields", "UserData,DateModified")
+                    parameter("EnableImages", false)
+                    parameter("SortBy", "Id")
+                    parameter("StartIndex", startIndex)
+                    parameter("Limit", SNAPSHOT_PAGE_SIZE)
+                }.body()
+            // A server that ignores StartIndex would otherwise loop on page one forever.
+            if (dto.Items.isEmpty()) break
+            collected += dto.Items.map { item ->
+                SyncedUserItem(
+                    id = item.Id,
+                    title = item.Name.orEmpty(),
+                    favorite = item.UserData?.IsFavorite == true,
+                    played = item.UserData?.Played == true,
+                    positionTicks = item.UserData?.PlaybackPositionTicks ?: 0L,
+                    dateModified = item.DateModified,
+                )
+            }
+            if (dto.TotalRecordCount > 0) total = dto.TotalRecordCount
+            startIndex += dto.Items.size
+        }
+        if (collected.size >= SNAPSHOT_MAX_ITEMS && total > SNAPSHOT_MAX_ITEMS) {
+            AppLog.warning(
+                category = "emby",
+                event = "library_snapshot_truncated",
+                message = "User library snapshot hit the client ceiling and is incomplete",
+                attributes = mapOf(
+                    "serverId" to server.id,
+                    "collected" to collected.size.toString(),
+                    "total" to total.toString(),
+                ),
             )
         }
+        collected
+    }
+
+    /**
+     * Asks the server to end the encoding started for [playSessionId] on this device.
+     *
+     * `Playing/Stopped` alone does not always reap the ffmpeg process — and never did while
+     * the stream URL carried no session id to match against. Failure is not worth surfacing:
+     * the job may already be gone, or the server may be the one that is unreachable.
+     */
+    suspend fun stopTranscoding(server: SavedServer, playSessionId: String): Result<Unit> =
+        call("stop_transcoding") {
+        client.delete("${server.baseUrl}/Videos/ActiveEncodings") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("DeviceId", deviceId())
+            parameter("PlaySessionId", playSessionId)
+        }
+        Unit
     }
 
     /** Precise TMDB-to-Emby match, avoiding localized-title mismatches. */
@@ -952,7 +1008,10 @@ class EmbyRepository(private val client: HttpClient) {
 
     private fun Throwable.toEmbyError(): EmbyError = when (this) {
         is ResponseException -> when (response.status.value) {
-            401 -> EmbyError.Unauthorized
+            // Emby answers 403 — not 401 — when a token has been revoked or the account was
+            // disabled. Treating it as merely "unknown" left the user with a bare "同步失败"
+            // and a client that kept retrying something no retry can fix.
+            401, 403 -> EmbyError.Unauthorized
             in 500..599 -> EmbyError.Server(response.status.value)
             else -> EmbyError.Unknown("HTTP ${response.status.value}")
         }

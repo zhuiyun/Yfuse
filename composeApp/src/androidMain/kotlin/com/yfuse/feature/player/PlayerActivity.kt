@@ -148,6 +148,7 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_PROGRESS = "yfuse.progress"
         private const val EXTRA_CAPTIONS = "yfuse.captions"
         private const val EXTRA_VERSION_IDS = "yfuse.versionIds"
+        private const val EXTRA_PLAY_SESSION_IDS = "yfuse.playSessionIds"
         private const val EXTRA_INDEX = "yfuse.index"
         private const val EXTRA_POSITION = "yfuse.positionMs"
         private const val EXTRA_ENGINE = "yfuse.engine"
@@ -188,6 +189,7 @@ class PlayerActivity : ComponentActivity() {
             putExtra(EXTRA_PROGRESS, items.map { it.progress ?: Float.NaN }.toFloatArray())
             putExtra(EXTRA_CAPTIONS, items.map { it.caption.orEmpty() }.toTypedArray())
             putExtra(EXTRA_VERSION_IDS, items.map { it.versionId.orEmpty() }.toTypedArray())
+            putExtra(EXTRA_PLAY_SESSION_IDS, items.map { it.playSessionId }.toTypedArray())
             putExtra(EXTRA_INDEX, startIndex)
             putExtra(EXTRA_POSITION, startPositionMs)
             putExtra(EXTRA_ENGINE, engine.name)
@@ -363,6 +365,7 @@ class PlayerActivity : ComponentActivity() {
         val progresses = intent.getFloatArrayExtra(EXTRA_PROGRESS) ?: floatArrayOf()
         val captions = intent.getStringArrayExtra(EXTRA_CAPTIONS).orEmpty()
         val versionIds = intent.getStringArrayExtra(EXTRA_VERSION_IDS).orEmpty()
+        val playSessionIds = intent.getStringArrayExtra(EXTRA_PLAY_SESSION_IDS).orEmpty()
         val items = urls.mapIndexed { index, url ->
             val watchKey = watchKeys.getOrElse(index) {
                 "emby:${ids.getOrElse(index) { index.toString() }}"
@@ -393,6 +396,7 @@ class PlayerActivity : ComponentActivity() {
                     ?: listOf(watchKey),
                 versions = decodeVersions(versionRows.getOrElse(index) { "" }),
                 versionId = versionIds.getOrNull(index)?.ifBlank { null },
+                playSessionId = playSessionIds.getOrElse(index) { "" },
                 stillUrl = stillUrls.getOrNull(index)?.ifBlank { null },
                 progress = progresses.getOrNull(index)?.takeUnless { it.isNaN() },
                 caption = captions.getOrNull(index)?.ifBlank { null },
@@ -707,15 +711,16 @@ class PlayerActivity : ComponentActivity() {
                     stillUrl = stillUrl,
                     progress = progress,
                     caption = episode.indexNumber?.let { "第 $it 集" },
-                ) ?: PlayerMediaItem(
+                ) ?: EmbyStream.streamUrls(
+                    baseUrl = server.baseUrl,
+                    itemId = episode.id,
+                    token = server.accessToken,
+                ).let { urls -> PlayerMediaItem(
                     id = episode.id,
-                    url = EmbyStream.directPlay(server.baseUrl, episode.id, server.accessToken),
-                    transcodeUrl = EmbyStream.transcode(server.baseUrl, episode.id, server.accessToken),
-                    fallbackTranscodeUrl = EmbyStream.progressiveTranscode(
-                        server.baseUrl,
-                        episode.id,
-                        server.accessToken,
-                    ),
+                    url = urls.direct,
+                    transcodeUrl = urls.transcode,
+                    fallbackTranscodeUrl = urls.progressiveTranscode,
+                    playSessionId = urls.playSessionId,
                     title = title,
                     serverId = server.id,
                     playbackSegments = episode.playbackSegments,
@@ -740,12 +745,18 @@ class PlayerActivity : ComponentActivity() {
                     stillUrl = stillUrl,
                     progress = progress,
                     caption = episode.indexNumber?.let { "第 $it 集" },
-                )
+                ) }
             }
             val current = playbackItems.value
             if (refreshed == current) return@launch
 
-            val playbackSourcesChanged = !current.hasSamePlaybackSourcesAs(refreshed)
+            // A show that published an episode while this one plays is the common case, and
+            // the engine can take it as an extension of its playlist. Only a change it
+            // cannot absorb that way is worth interrupting the viewer for.
+            val appended = current.appendedBy(refreshed)
+            val absorbed = appended != null && activeEngine?.appendItems(appended) == true
+            val playbackSourcesChanged =
+                !absorbed && !current.hasSamePlaybackSourcesAs(refreshed)
             if (playbackSourcesChanged) {
                 val playingId = current.getOrNull(activeState.currentIndex)?.id
                 val refreshedIndex =
@@ -766,6 +777,8 @@ class PlayerActivity : ComponentActivity() {
                 attributes =
                     mapOf(
                         "itemCount" to refreshed.size.toString(),
+                        "appendedCount" to (appended?.size ?: 0).toString(),
+                        "queueExtended" to absorbed.toString(),
                         "engineRestarted" to playbackSourcesChanged.toString(),
                     ),
             )
