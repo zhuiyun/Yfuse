@@ -6,12 +6,14 @@ import com.mediadevkit.sdk.MDKPlayer
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +26,24 @@ private const val MDK_POLL_MS = 250L
 private const val FALLBACK_SETTLE_POLLS = 12
 private const val TRACK_SEPARATOR = '\u001F'
 
+/** Thread-safe because MDK polling runs on Default while encoder cleanup resumes on Main. */
+internal class FallbackSettleWindow(private val requiredPolls: Int) {
+    private val polls = AtomicInteger(Int.MAX_VALUE)
+
+    val ready: Boolean
+        get() = polls.get() >= requiredPolls
+
+    fun tick() {
+        polls.getAndUpdate { current ->
+            if (current == Int.MAX_VALUE) current else current + 1
+        }
+    }
+
+    fun restart() {
+        polls.set(0)
+    }
+}
+
 /** Official libmdk Android facade adapted to Yfuse's engine-neutral player contract. */
 class MdkVideoEngine(
     private val items: List<PlayerMediaItem>,
@@ -33,7 +53,8 @@ class MdkVideoEngine(
     private val autoNext: Boolean,
     quality: PlaybackQuality,
     private val customUserAgent: String,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
+    private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
 
     /** Entries pushed off their original file onto the server's transcode, and past that
@@ -41,6 +62,8 @@ class MdkVideoEngine(
      *  rest of the season. */
     private val transcodedIndices = mutableSetOf<Int>()
     private val progressiveIndices = mutableSetOf<Int>()
+    private val progressiveTransitionIndices = mutableSetOf<Int>()
+    private var fallbackJob: Job? = null
     private val _state = MutableStateFlow(
         PlaybackState(
             currentIndex = startIndex,
@@ -72,7 +95,7 @@ class MdkVideoEngine(
     private var endHandled = false
     private var fill = false
     private var wasBuffering = true
-    private var pollsSinceFallback = Int.MAX_VALUE
+    private val fallbackSettleWindow = FallbackSettleWindow(FALLBACK_SETTLE_POLLS)
 
     private val pollJob: Job = scope.launch(Dispatchers.Default) {
         while (isActive && !released) {
@@ -185,6 +208,8 @@ class MdkVideoEngine(
     override fun release() {
         if (released) return
         released = true
+        fallbackJob?.cancel()
+        fallbackJob = null
         pollJob.cancel()
         val instance = player
         player = null
@@ -287,11 +312,11 @@ class MdkVideoEngine(
             // reporting the failed status for a while after a new URL is handed to it, and
             // an unguarded check would spend the whole chain in three ticks — before the
             // first fallback had any chance to load.
-            if (pollsSinceFallback < Int.MAX_VALUE) pollsSinceFallback++
+            fallbackSettleWindow.tick()
             if (
                 invalid &&
                 !_state.value.fallbacksExhausted &&
-                pollsSinceFallback >= FALLBACK_SETTLE_POLLS &&
+                fallbackSettleWindow.ready &&
                 switchToTranscode()
             ) {
                 return
@@ -390,14 +415,14 @@ class MdkVideoEngine(
         val item = items.getOrNull(index) ?: return false
         val progressive = when {
             index in progressiveIndices -> return false
+            index in progressiveTransitionIndices -> return true
             index in transcodedIndices -> true
             item.transcodeUrl.isEmpty() -> true
             else -> false
         }
         if (progressive && item.fallbackTranscodeUrl.isEmpty()) return false
         transcodedIndices += index
-        if (progressive) progressiveIndices += index
-        pollsSinceFallback = 0
+        fallbackSettleWindow.restart()
         // Resume where the failure happened rather than from the top; a codec the device
         // can't handle usually fails on the first frame, but a mid-file failure shouldn't
         // cost the user their place.
@@ -422,7 +447,36 @@ class MdkVideoEngine(
                 diagnostics = it.diagnostics.copy(playMethod = "服务器转码"),
             )
         }
-        ensurePlayer()?.let(::loadCurrent)
+        if (!progressive) {
+            ensurePlayer()?.let(::loadCurrent)
+            return true
+        }
+
+        progressiveTransitionIndices += index
+        runMdk { it.setState(MDKPlayer.STATE_STOPPED) }
+        fallbackJob?.cancel()
+        fallbackJob = scope.launch {
+            val cleaned = item.playSessionId.isBlank() ||
+                withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
+            if (released || _state.value.currentIndex != index) return@launch
+            progressiveTransitionIndices -= index
+            if (!cleaned) {
+                _state.update {
+                    it.copy(
+                        error = "无法清理旧的服务器转码，正在尝试其他播放器",
+                        buffering = false,
+                        fallbacksExhausted = true,
+                    )
+                }
+                return@launch
+            }
+            progressiveIndices += index
+            // The DELETE wait is not part of the new stream's settle window. A slow cleanup can
+            // consume all twelve polls while no progressive URL is loaded, making the very next
+            // stale STATUS_INVALID tick reject the fresh stream before it gets a chance to open.
+            fallbackSettleWindow.restart()
+            ensurePlayer()?.let(::loadCurrent)
+        }
         return true
     }
 

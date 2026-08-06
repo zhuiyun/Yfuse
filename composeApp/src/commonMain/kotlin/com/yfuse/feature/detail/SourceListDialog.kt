@@ -58,14 +58,16 @@ internal fun SourceListDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    // Order is the caller's, which ranks on what each server holds before the selected entry
+    // is restated in terms of the chosen version. Filtering preserves it.
     val available = remember(sources) {
         sources.filter { it.reachable && it.source != null && it.itemId != null }
-            .sortedByDescending { it.source?.sizeBytes ?: 0L }
     }
-    // The biggest file, called out once. With the list sorted by size it is the first row,
-    // but saying so beats making the reader infer it from the ordering.
+    // The best copy, called out once. It is the first row by construction, but saying so
+    // beats making the reader infer it from the ordering.
     val bestServerId = remember(available) {
-        available.firstOrNull()?.takeIf { available.size > 1 && it.source?.sizeBytes != null }
+        available.firstOrNull()
+            ?.takeIf { available.size > 1 && it.source?.hasQualityEvidence() == true }
             ?.serverId
     }
 

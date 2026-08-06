@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -45,6 +46,7 @@ import com.yfuse.app.TabBarInset
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
@@ -54,10 +56,13 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalAccent
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.SplashAnimation
+import com.yfuse.core.designsystem.SplashPreview
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.flatGlass as glass
@@ -90,7 +95,7 @@ private enum class Sheet {
     VideoCache,
 }
 
-private enum class ProfilePage { Downloads, Recovery }
+private enum class ProfilePage { Downloads, Recovery, Splash }
 
 /** 个人中心 — `padding:52px 18px 100px; gap:18px`. */
 @Composable
@@ -102,6 +107,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
     val splashAnimation by prefs.splashAnimation.collectAsState()
+    val splashVariant by prefs.splashVariant.collectAsState()
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
@@ -162,6 +168,7 @@ fun ProfileScreen(component: ProfileComponent) {
                 onPlayOffline = { offlineToPlay = it },
                 syncManager = component.syncManager,
                 playbackRecovery = component.playbackRecovery,
+                themePreferences = prefs,
                 onResumePlayback = { snapshot ->
                     component.recoveryItem(snapshot)?.let { recoveryToPlay = it to snapshot }
                 },
@@ -292,10 +299,13 @@ fun ProfileScreen(component: ProfileComponent) {
                             SettingsDivider()
                             SettingRow(
                                 "片头片尾",
+                                // The mode, and nothing about which shows have their own
+                                // times. "3 部剧" is a count of something this row cannot
+                                // show and does not act on; the sheet behind it lists them.
                                 if (skipTimesBySeries.isEmpty()) {
                                     "跟随服务器 ›"
                                 } else {
-                                    "${skipTimesBySeries.size} 部剧 · ${skipMode.label} ›"
+                                    "${skipMode.label} ›"
                                 },
                                 embedded = true,
                                 onClick = { sheet = Sheet.SkipSegments },
@@ -407,14 +417,30 @@ fun ProfileScreen(component: ProfileComponent) {
 
                 item {
                     Section(title = "外观") {
-                        Column(Modifier.clip(GlassShapes.card)) {
-                            SwitchRow("深色模式", mode == ThemeMode.Dark) { on ->
+                        // One card, as every other section on this page draws it. 深色模式 was
+                        // asking for its own glass body (`SwitchRow` draws one unless embedded)
+                        // while 开屏动画 sat in a clipped column that had none, so the two rows
+                        // read as two cards with a seam between them.
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .glass(GlassShapes.card, palette.card2, palette.border)
+                                .clip(GlassShapes.card),
+                        ) {
+                            SwitchRow(
+                                "深色模式",
+                                mode == ThemeMode.Dark,
+                                embedded = true,
+                            ) { on ->
                                 prefs.setMode(if (on) ThemeMode.Dark else ThemeMode.Light)
                             }
                             SettingsDivider()
-                            SwitchRow("开屏动画", splashAnimation) {
-                                prefs.setSplashAnimation(it)
-                            }
+                            SettingRow(
+                                "开屏动画",
+                                if (splashAnimation) "${splashVariant.label} ›" else "已关闭 ›",
+                                embedded = true,
+                                onClick = { page = ProfilePage.Splash },
+                            )
                         }
                     }
                 }
@@ -514,13 +540,8 @@ fun ProfileScreen(component: ProfileComponent) {
             )
 
             Sheet.SkipSegments -> SkipSegmentDialog(
-                bySeries = skipTimesBySeries,
                 skipMode = skipMode,
                 onSelectSkipMode = component.skipSegmentPreferences::setSkipMode,
-                onSave = { seriesId, times ->
-                    component.skipSegmentPreferences.set(seriesId, times)
-                },
-                onClear = component.skipSegmentPreferences::clear,
                 onDismiss = { sheet = null },
             )
 
@@ -891,6 +912,114 @@ private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () ->
     }
 }
 
+/**
+ * Second-level page for the launch animation.
+ *
+ * Every card runs the real choreography on a loop rather than showing a still: the whole
+ * difference between the variants is in the motion, so a static thumbnail would say nothing.
+ * They are stacked full width rather than sat side by side because the squash is what you are
+ * here to judge, and it does not read at thumbnail size.
+ */
+@Composable
+private fun SplashSettingsScreen(
+    onBack: () -> Unit,
+    prefs: ThemePreferences,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccent.current
+    val enabled by prefs.splashAnimation.collectAsState()
+    val selected by prefs.splashVariant.collectAsState()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        contentPadding = PaddingValues(
+            top = Dimens.contentTop,
+            bottom = TabBarInset,
+            start = Dimens.pageHorizontal,
+            end = Dimens.pageHorizontal,
+        ),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border)
+                        .clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        AppIcons.ChevronLeft,
+                        "返回",
+                        tint = palette.text,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+                Text(
+                    "开屏动画",
+                    style = sc(20f, 700),
+                    color = palette.text,
+                    modifier = Modifier.padding(start = 12.dp),
+                )
+            }
+        }
+
+        item {
+            SwitchRow("启动时播放", enabled) { prefs.setSplashAnimation(it) }
+        }
+
+        if (enabled) {
+            items(SplashAnimation.entries) { variant ->
+                val active = variant == selected
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(palette.card2)
+                        .border(
+                            width = if (active) 2.dp else 1.dp,
+                            color = if (active) accent.color else palette.border,
+                            shape = RoundedCornerShape(18.dp),
+                        )
+                        .clickable { prefs.setSplashVariant(variant) }
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    SplashPreview(
+                        variant = variant,
+                        playing = true,
+                        modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(1f),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            variant.label,
+                            style = sc(15f, if (active) 700 else 500),
+                            color = if (active) accent.color else palette.text,
+                        )
+                        if (active) {
+                            Icon(
+                                AppIcons.Check,
+                                null,
+                                tint = accent.color,
+                                modifier = Modifier.padding(start = 6.dp).size(15.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        variant.description,
+                        style = mr(12f, 400),
+                        color = palette.sub2,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** Same row with the prototype's 38×22 pill switch. */
 @Composable
 private fun SwitchRow(
@@ -971,8 +1100,13 @@ private fun ProfileUtilityScreen(
     onPlayOffline: (OfflineMedia) -> Unit,
     syncManager: ServerSyncManager,
     playbackRecovery: PlaybackRecoveryStore,
+    themePreferences: ThemePreferences,
     onResumePlayback: (PlaybackRecoverySnapshot) -> Unit,
 ) {
+    if (page == ProfilePage.Splash) {
+        SplashSettingsScreen(onBack = onBack, prefs = themePreferences)
+        return
+    }
     if (page == ProfilePage.Recovery) {
         RecoveryCenterScreen(
             onBack = onBack,

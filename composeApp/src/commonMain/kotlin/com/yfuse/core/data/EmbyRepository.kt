@@ -4,6 +4,7 @@ import com.yfuse.core.data.dto.AuthRequestDto
 import com.yfuse.core.data.dto.AuthResultDto
 import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.ItemsResponseDto
+import com.yfuse.core.data.dto.MediaSourceDto
 import com.yfuse.core.data.dto.PublicInfoDto
 import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.data.dto.PlaybackReportDto
@@ -27,6 +28,7 @@ import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.SourceInfo
+import com.yfuse.core.model.compareSourceInfoBestFirst
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.normalizeBaseUrl
@@ -42,12 +44,16 @@ import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.io.IOException
 
 /** Result of a successful authentication, ready to persist as a [SavedServer]. */
 data class AuthedServer(
@@ -80,6 +86,58 @@ internal const val WATCH_LATER_COLLECTION_ID = "__yfuse_watch_later__"
 
 private const val PERSONAL_COLLECTION_PREVIEW_LIMIT = 16
 private const val PERSONAL_COLLECTION_GRID_LIMIT = 120
+private const val SOURCE_DISCOVERY_MAX_ATTEMPTS = 3
+private const val SOURCE_DISCOVERY_RETRY_DELAY_MS = 250L
+
+/** Every server can list several files; resource comparison represents its best one. */
+private fun List<MediaSourceDto>?.bestSourceInfo(): SourceInfo? =
+    orEmpty()
+        .mapNotNull { it.toSourceInfo() }
+        .minWithOrNull(Comparator(::compareSourceInfoBestFirst))
+
+private sealed interface ComparableSourceResult {
+    /** The title/episode exists; null only means its stream metadata was omitted. */
+    data class Found(val source: SourceInfo?) : ComparableSourceResult
+
+    /** The title exists on this server, but the requested series coordinate does not. */
+    data object MissingEpisode : ComparableSourceResult
+}
+
+/** Retry only failures that a second connection can plausibly repair. */
+private suspend fun <T> discoverSourceWithRetry(block: suspend () -> T): Result<T> {
+    var attempt = 1
+    while (true) {
+        val result = runCatching { block() }
+        result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+        val error = result.exceptionOrNull()
+        if (
+            error == null ||
+            attempt >= SOURCE_DISCOVERY_MAX_ATTEMPTS ||
+            !error.isTransientSourceDiscoveryFailure()
+        ) {
+            return result
+        }
+        delay(SOURCE_DISCOVERY_RETRY_DELAY_MS * attempt)
+        attempt++
+    }
+}
+
+private fun Throwable.isTransientSourceDiscoveryFailure(): Boolean {
+    var current: Throwable? = this
+    while (current != null) {
+        when (current) {
+            is EmbyErrorException -> when (val error = current.error) {
+                EmbyError.Network -> return true
+                is EmbyError.Server -> return error.code in 500..599
+                else -> return false
+            }
+            is ResponseException -> return current.response.status.value in 500..599
+            is IOException -> return true
+        }
+        current = current.cause
+    }
+    return false
+}
 
 /** One page of [EmbyRepository.userLibrarySnapshot]; small enough to arrive inside a timeout. */
 private const val SNAPSHOT_PAGE_SIZE = 2_000
@@ -527,10 +585,16 @@ class EmbyRepository(private val client: HttpClient) {
      */
     suspend fun stopTranscoding(server: SavedServer, playSessionId: String): Result<Unit> =
         call("stop_transcoding") {
-        client.delete("${server.baseUrl}/Videos/ActiveEncodings") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("DeviceId", deviceId())
-            parameter("PlaySessionId", playSessionId)
+        try {
+            client.delete("${server.baseUrl}/Videos/ActiveEncodings") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("DeviceId", deviceId())
+                parameter("PlaySessionId", playSessionId)
+            }
+        } catch (error: ResponseException) {
+            // DELETE is idempotent: both mean the encoder no longer exists, which is the
+            // exact postcondition callers need before starting another transcode.
+            if (error.response.status.value !in setOf(404, 410)) throw error
         }
         Unit
     }
@@ -659,7 +723,7 @@ class EmbyRepository(private val client: HttpClient) {
 
     /**
      * 跨服务器片源对比: looks the title up on every saved server and reports which
-     * ones carry it, with the primary source's specs. Per-server failures degrade to
+     * ones carry it, with the best source's specs. Per-server failures degrade to
      * "unreachable" rather than failing the whole comparison.
      */
     suspend fun compareSources(
@@ -669,10 +733,12 @@ class EmbyRepository(private val client: HttpClient) {
         tmdbId: Int? = null,
         mediaType: String? = null,
         year: Int? = null,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null,
     ): List<ServerSource> = coroutineScope {
         servers.map { server ->
             async {
-                val lookup = runCatching {
+                val lookup = discoverSourceWithRetry {
                     suspend fun query(providerMatch: Boolean): ItemsResponseDto =
                         client.get("${server.baseUrl}/Users/${server.userId}/Items") {
                             header("X-Emby-Token", server.accessToken)
@@ -719,8 +785,15 @@ class EmbyRepository(private val client: HttpClient) {
                     )
                 }
                 val item = lookup.getOrNull()
-                val source = item?.let {
-                    runCatching { fetchComparableSource(server, it) }
+                val comparable = item?.let {
+                    discoverSourceWithRetry {
+                        fetchComparableSource(
+                            server = server,
+                            item = it,
+                            seasonNumber = seasonNumber,
+                            episodeNumber = episodeNumber,
+                        )
+                    }
                         .onFailure { error ->
                             AppLog.warning(
                                 category = "emby",
@@ -730,10 +803,20 @@ class EmbyRepository(private val client: HttpClient) {
                                 attributes = mapOf("serverId" to server.id),
                             )
                         }
-                        .getOrNull()
-                        // A matching library entry is still a resource even if
-                        // this server withholds its stream metadata.
+                }
+                val source = when (val result = comparable?.getOrNull()) {
+                    ComparableSourceResult.MissingEpisode -> null
+                    is ComparableSourceResult.Found -> result.source
+                        // A matching item is still a resource when this server withholds
+                        // only its stream metadata.
                         ?: SourceInfo("已有资源", null, null)
+                    null -> if (item != null) {
+                        // A failed metadata request says nothing about availability. Keep
+                        // the item selectable so a later user-initiated resolve can retry.
+                        SourceInfo("已有资源", null, null)
+                    } else {
+                        null
+                    }
                 }
                 ServerSource(
                     serverId = server.id,
@@ -755,21 +838,56 @@ class EmbyRepository(private val client: HttpClient) {
     private suspend fun fetchComparableSource(
         server: SavedServer,
         item: BaseItemDto,
-    ): SourceInfo? {
-        item.MediaSources?.firstOrNull()?.toSourceInfo()?.let { return it }
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+    ): ComparableSourceResult {
+        if (item.Type != "Series") {
+            item.MediaSources.bestSourceInfo()?.let {
+                return ComparableSourceResult.Found(it)
+            }
+        }
 
         val playable = if (item.Type == "Series") {
-            fetchNextUp(server, item.Id) ?: fetchFirstEpisode(server, item.Id)
+            if (seasonNumber != null && episodeNumber != null) {
+                fetchEpisodeAtCoordinate(server, item.Id, seasonNumber, episodeNumber)
+                    ?: return ComparableSourceResult.MissingEpisode
+            } else {
+                fetchNextUp(server, item.Id) ?: fetchFirstEpisode(server, item.Id)
+            }
         } else {
             item
-        } ?: return null
+        } ?: return ComparableSourceResult.Found(null)
+
+        playable.MediaSources.bestSourceInfo()?.let {
+            return ComparableSourceResult.Found(it)
+        }
 
         val full: BaseItemDto =
             client.get("${server.baseUrl}/Users/${server.userId}/Items/${playable.Id}") {
                 header("X-Emby-Token", server.accessToken)
                 parameter("Fields", "MediaSources")
             }.body()
-        return full.MediaSources?.firstOrNull()?.toSourceInfo()
+        return ComparableSourceResult.Found(full.MediaSources.bestSourceInfo())
+    }
+
+    /** Find the same episode on another server; never substitute that account's NextUp. */
+    private suspend fun fetchEpisodeAtCoordinate(
+        server: SavedServer,
+        seriesId: String,
+        seasonNumber: Int,
+        episodeNumber: Int,
+    ): BaseItemDto? {
+        val dto: ItemsResponseDto =
+            client.get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("UserId", server.userId)
+                parameter("Season", seasonNumber)
+                parameter("Fields", "MediaSources,MediaStreams")
+                parameter("Limit", 10_000)
+            }.body()
+        return dto.Items.firstOrNull { episode ->
+            episode.ParentIndexNumber == seasonNumber && episode.IndexNumber == episodeNumber
+        }
     }
 
     /** Seasons of a series. */
@@ -835,6 +953,7 @@ class EmbyRepository(private val client: HttpClient) {
         server: SavedServer,
         seriesId: String,
         seasonId: String?,
+        includeMediaSources: Boolean = false,
     ): Result<List<Episode>> = call("episodes") {
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/$seriesId/Episodes") {
             header("X-Emby-Token", server.accessToken)
@@ -842,7 +961,8 @@ class EmbyRepository(private val client: HttpClient) {
             if (seasonId != null) parameter("SeasonId", seasonId)
             parameter(
                 "Fields",
-                "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate",
+                "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate" +
+                    if (includeMediaSources) ",MediaSources,MediaStreams" else "",
             )
         }.body()
         dto.Items.map { it.toEpisode() }
@@ -986,7 +1106,10 @@ class EmbyRepository(private val client: HttpClient) {
         Unit
     }
 
-    private inline fun <T> call(operation: String, block: () -> T): Result<T> =
+    private suspend inline fun <T> call(
+        operation: String,
+        crossinline block: suspend () -> T,
+    ): Result<T> =
         try {
             Result.success(block())
         } catch (e: CancellationException) {
@@ -1006,15 +1129,46 @@ class EmbyRepository(private val client: HttpClient) {
             Result.failure(EmbyErrorException(mapped))
         }
 
-    private fun Throwable.toEmbyError(): EmbyError = when (this) {
+    private suspend fun Throwable.toEmbyError(): EmbyError = when (this) {
         is ResponseException -> when (response.status.value) {
-            // Emby answers 403 — not 401 — when a token has been revoked or the account was
-            // disabled. Treating it as merely "unknown" left the user with a bare "同步失败"
-            // and a client that kept retrying something no retry can fix.
-            401, 403 -> EmbyError.Unauthorized
+            401 -> EmbyError.Unauthorized
+            // Emby itself can answer 403 for a revoked token or disabled account, but a
+            // Cloudflare/WAF block uses the same status. Re-login cannot repair the latter,
+            // so inspect the saved error response before deciding what the user should do.
+            403 -> forbiddenError()
             in 500..599 -> EmbyError.Server(response.status.value)
             else -> EmbyError.Unknown("HTTP ${response.status.value}")
         }
-        else -> EmbyError.Network
+        is IOException -> EmbyError.Network
+        else -> EmbyError.Unknown(message ?: "无法解析服务器响应")
+    }
+
+    private suspend fun ResponseException.forbiddenError(): EmbyError {
+        val serverHeader = response.headers[HttpHeaders.Server].orEmpty()
+        val responseText = runCatching { response.bodyAsText() }
+            .getOrDefault(message.orEmpty())
+            .take(8_192)
+            .lowercase()
+        val cloudflare = serverHeader.contains("cloudflare", ignoreCase = true) ||
+            response.headers["CF-Ray"] != null ||
+            "cloudflare" in responseText
+        val htmlResponse = response.headers[HttpHeaders.ContentType]
+            ?.contains("text/html", ignoreCase = true) == true ||
+            "<!doctype html" in responseText ||
+            "<html" in responseText
+        val accessBlock = cloudflare || htmlResponse || listOf(
+            "sorry, you have been blocked",
+            "access denied",
+            "request blocked",
+            "security policy",
+        ).any(responseText::contains)
+
+        return if (accessBlock) {
+            EmbyError.AccessDenied(provider = "Cloudflare".takeIf { cloudflare })
+        } else {
+            // A non-proxy API response is the Emby behavior seen for revoked tokens and
+            // disabled accounts. Keep it actionable as an authentication failure.
+            EmbyError.Unauthorized
+        }
     }
 }

@@ -27,6 +27,17 @@ data class SourceInfo(
     val dolbyAtmos: Boolean = false,
     /** `60fps`, absent when the server did not report a frame rate. */
     val frameRate: String? = null,
+    /** Raw picture dimensions; unlike [quality], these are safe to sort numerically. */
+    val videoWidth: Int? = null,
+    val videoHeight: Int? = null,
+    /** Raw overall bitrate, falling back to the video-stream bitrate when needed. */
+    val bitrateBps: Int? = null,
+    val videoRange: String? = null,
+    val videoBitDepth: Int? = null,
+    /** Strongest audio stream carried by this source, for quality comparison. */
+    val maxAudioChannels: Int? = null,
+    val maxAudioBitrateBps: Int? = null,
+    val losslessAudio: Boolean = false,
 ) {
     /** `4K HDR · 42.3 GB · 68 Mbps` */
     val summary: String get() = listOfNotNull(quality, size, bitrate).joinToString(" · ")

@@ -102,6 +102,7 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.sync.WatchTogetherClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -111,6 +112,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
 import kotlin.time.TimeSource
@@ -672,7 +674,12 @@ class PlayerActivity : ComponentActivity() {
                 .getOrNull()
                 ?.providerIds
                 .orEmpty()
-            val episodes = embyRepository.episodes(server, seriesId, null)
+            val episodes = embyRepository.episodes(
+                server,
+                seriesId,
+                null,
+                includeMediaSources = true,
+            )
                 .onFailure { error ->
                     AppLog.warning(
                         category = "player.queue",
@@ -711,41 +718,58 @@ class PlayerActivity : ComponentActivity() {
                     stillUrl = stillUrl,
                     progress = progress,
                     caption = episode.indexNumber?.let { "第 $it 集" },
-                ) ?: EmbyStream.streamUrls(
-                    baseUrl = server.baseUrl,
-                    itemId = episode.id,
-                    token = server.accessToken,
-                ).let { urls -> PlayerMediaItem(
-                    id = episode.id,
-                    url = urls.direct,
-                    transcodeUrl = urls.transcode,
-                    fallbackTranscodeUrl = urls.progressiveTranscode,
-                    playSessionId = urls.playSessionId,
-                    title = title,
-                    serverId = server.id,
-                    playbackSegments = episode.playbackSegments,
-                    seasonNumber = episode.seasonNumber,
-                    episodeNumber = episode.indexNumber,
-                    seriesId = seriesId,
-                    seriesName = seed.seriesName,
-                    watchKey = episodeWatchKey(
-                        ownProviderIds = episode.providerIds,
-                        seriesProviderIds = seriesProviderIds,
+                ) ?: run {
+                    val versions = episode.versions.toPlayerMediaVersions(
+                        baseUrl = server.baseUrl,
+                        itemId = episode.id,
+                        token = server.accessToken,
+                    )
+                    val selected = versions.firstOrNull()
+                    val unqualified = if (selected == null) {
+                        EmbyStream.streamUrls(
+                            baseUrl = server.baseUrl,
+                            itemId = episode.id,
+                            token = server.accessToken,
+                        )
+                    } else {
+                        null
+                    }
+                    PlayerMediaItem(
+                        id = episode.id,
+                        url = selected?.url ?: requireNotNull(unqualified).direct,
+                        transcodeUrl = selected?.transcodeUrl ?: requireNotNull(unqualified).transcode,
+                        fallbackTranscodeUrl = selected?.fallbackTranscodeUrl
+                            ?: requireNotNull(unqualified).progressiveTranscode,
+                        playSessionId = selected?.playSessionId
+                            ?: requireNotNull(unqualified).playSessionId,
+                        versions = versions,
+                        versionId = selected?.id,
+                        title = title,
+                        serverId = server.id,
+                        playbackSegments = episode.playbackSegments,
                         seasonNumber = episode.seasonNumber,
                         episodeNumber = episode.indexNumber,
-                        fallbackId = episode.id,
-                    ),
-                    matchKeys = watchMatchKeys(
-                        ownProviderIds = episode.providerIds,
-                        seriesProviderIds = seriesProviderIds,
-                        seasonNumber = episode.seasonNumber,
-                        episodeNumber = episode.indexNumber,
-                        fallbackId = episode.id,
-                    ),
-                    stillUrl = stillUrl,
-                    progress = progress,
-                    caption = episode.indexNumber?.let { "第 $it 集" },
-                ) }
+                        seriesId = seriesId,
+                        seriesName = seed.seriesName,
+                        watchKey = episodeWatchKey(
+                            ownProviderIds = episode.providerIds,
+                            seriesProviderIds = seriesProviderIds,
+                            seasonNumber = episode.seasonNumber,
+                            episodeNumber = episode.indexNumber,
+                            fallbackId = episode.id,
+                        ),
+                        matchKeys = watchMatchKeys(
+                            ownProviderIds = episode.providerIds,
+                            seriesProviderIds = seriesProviderIds,
+                            seasonNumber = episode.seasonNumber,
+                            episodeNumber = episode.indexNumber,
+                            fallbackId = episode.id,
+                        ),
+                        stillUrl = stillUrl,
+                        progress = progress,
+                        caption = episode.indexNumber?.let { "第 $it 集" },
+                    )
+                }
             }
             val current = playbackItems.value
             if (refreshed == current) return@launch
@@ -1254,12 +1278,16 @@ private fun PlayerRoot(
     // Entry id -> chosen file, for titles the server holds more than one copy of. Switching
     // rebuilds the queue and restarts the engine at the same position, which is the same
     // handover an engine switch already performs — no engine needs to know about versions.
-    var versionChoices by remember { mutableStateOf(emptyMap<String, String>()) }
+    var versionChoices by remember {
+        mutableStateOf(emptyMap<String, PlayerMediaVersion>())
+    }
     val activeItems = remember(items, versionChoices) {
         if (versionChoices.isEmpty()) {
             items
         } else {
-            items.map { item -> item.withVersion(versionChoices[item.id]) }
+            items.map { item ->
+                versionChoices[item.id]?.let(item::withVersion) ?: item
+            }
         }
     }
 
@@ -1282,6 +1310,9 @@ private fun PlayerRoot(
                 quality = quality,
                 customUserAgent = customUserAgent,
                 scope = scope,
+                stopEncoding = { sessionId ->
+                    playbackSink?.stopEncoding(sessionId) ?: true
+                },
             )
             PlayerEngine.Mpv -> MpvVideoEngine(
                 context = context,
@@ -1292,6 +1323,10 @@ private fun PlayerRoot(
                 autoNext = autoNext,
                 quality = quality,
                 customUserAgent = customUserAgent,
+                scope = scope,
+                stopEncoding = { sessionId ->
+                    playbackSink?.stopEncoding(sessionId) ?: true
+                },
             )
             else -> ExoVideoEngine(
                 context = context,
@@ -1304,6 +1339,9 @@ private fun PlayerRoot(
                 quality = quality,
                 customUserAgent = customUserAgent,
                 videoCacheBytes = videoCacheBytes,
+                stopEncoding = { sessionId ->
+                    playbackSink?.stopEncoding(sessionId) ?: true
+                },
             )
         }
     }
@@ -1883,14 +1921,16 @@ private fun PlayerRoot(
         }
     }
     val latestState by rememberUpdatedState(state)
-    // Progress/artwork polling replaces [items] with an equal playback queue. Keep the same Emby
-    // session in that case instead of reporting a false stop/start every time metadata changes.
-    val reportingItemIds = remember(items) { items.map(PlayerMediaItem::id) }
+    val latestActiveItems by rememberUpdatedState(activeItems)
+    // One actor owns the entire reporting lifetime. Rebinding it serializes a version switch as
+    // stop-old → start-new, while a tail append only extends its queue and leaves the current
+    // encoding alone. Recreating two independent reporters cannot guarantee either property.
     val reporter =
-        remember(reportingItemIds, playbackSink) {
-            playbackSink?.let { PlaybackProgressReporter(items, it) }
+        remember(playbackSink) {
+            playbackSink?.let { PlaybackProgressReporter(activeItems, it) }
         }
-    LaunchedEffect(state, reporter) {
+    LaunchedEffect(state, activeItems, reporter) {
+        reporter?.rebind(activeItems, state)
         reporter?.update(state)
         onPlaybackState(state, activeItems.getOrNull(state.currentIndex))
         playbackGate.onPlaybackIndexChanged(state.currentIndex)
@@ -1911,7 +1951,7 @@ private fun PlayerRoot(
         onDispose {
             reporter?.close(latestState)
             val finalState = latestState
-            val item = items.getOrNull(finalState.currentIndex)
+            val item = latestActiveItems.getOrNull(finalState.currentIndex)
             if (item != null && !finalState.ended && finalState.positionMs >= 2_000L) {
                 playbackRecovery.record(
                     itemId = item.id,
@@ -1926,28 +1966,126 @@ private fun PlayerRoot(
         }
     }
 
+    // Last resort of the fallback chain: exhaust decoder stacks for this file, then move to
+    // the best untried file the same item owns. Both sets are bounded, so a title nothing can
+    // play settles on an error instead of cycling through engines and versions forever.
+    var versionsTried by remember(state.currentIndex) {
+        mutableStateOf(setOfNotNull(currentItem?.versionId))
+    }
+    LaunchedEffect(state.currentIndex, currentItem?.versionId) {
+        currentItem?.versionId?.let { versionsTried = versionsTried + it }
+    }
+    var enginesTried by remember(state.currentIndex, currentItem?.versionId) {
+        mutableStateOf(setOf(kind))
+    }
+    var versionSwitchJob by remember { mutableStateOf<Job?>(null) }
+    var versionSwitchNonce by remember { mutableIntStateOf(0) }
+    var pendingVersionId by remember { mutableStateOf<String?>(null) }
+
     /**
-     * Plays the current entry from a different file. Position is read before the swap and
-     * handed to the rebuilt engine, so switching a 4K remux for a 1080p encode keeps the
-     * user's place instead of restarting the film.
+     * Plays the current entry from a different file. The old server-side encoder is ended
+     * before another engine is created, and every binding gets a fresh playback-session id.
+     * That ordering prevents a late DELETE for A from killing a rapid A -> B -> A switch.
      */
-    fun selectVersion(versionId: String) {
-        val item = activeItems.getOrNull(state.currentIndex) ?: return
-        if (item.versionId == versionId) return
-        if (item.versions.none { it.id == versionId }) return
-        engine.pause()
+    fun selectVersion(versionId: String, automaticRecovery: Boolean = false) {
+        val switchState = latestState
+        val item = latestActiveItems.getOrNull(switchState.currentIndex) ?: return
+        val committedVersionId = versionChoices[item.id]?.id ?: item.versionId
+        if (committedVersionId == versionId && pendingVersionId == null) return
+        if (pendingVersionId == versionId) return
+        val version = item.versions.firstOrNull { it.id == versionId } ?: return
+        val freshVersion = version.withFreshPlaySession()
+        val itemIndex = switchState.currentIndex
+        val itemId = item.id
+        val oldSessionId = item.playSessionId
+
+        versionSwitchNonce++
+        val operation = versionSwitchNonce
+        versionSwitchJob?.cancel()
+        pendingVersionId = versionId
         AppLog.info(
             category = "player",
             event = "version_switch_requested",
             message = "Playback media version switch requested",
             attributes = mapOf(
-                "itemIndex" to state.currentIndex.toString(),
+                "itemIndex" to itemIndex.toString(),
                 "engine" to kind.name,
+                "fromVersionId" to committedVersionId.orEmpty(),
+                "toVersionId" to versionId,
             ),
         )
-        resume = state.currentIndex to engine.currentPositionMs()
-        versionChoices = versionChoices + (item.id to versionId)
-        engineGeneration++
+
+        versionSwitchJob = scope.launch {
+            try {
+                val cleanupSucceeded = if (oldSessionId.isBlank() || playbackSink == null) {
+                    true
+                } else {
+                    try {
+                        withTimeoutOrNull(5_000L) {
+                            playbackSink.stopEncoding(oldSessionId)
+                        } == true
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Throwable) {
+                        AppLog.warning(
+                            category = "player",
+                            event = "version_switch_cleanup_failed",
+                            message = "Old transcode cleanup threw before a version switch",
+                            throwable = failure,
+                            attributes = mapOf(
+                                "itemIndex" to itemIndex.toString(),
+                                "fromVersionId" to committedVersionId.orEmpty(),
+                                "toVersionId" to versionId,
+                                "playSessionId" to oldSessionId,
+                            ),
+                        )
+                        false
+                    }
+                }
+
+                if (operation != versionSwitchNonce) return@launch
+                val latestItem = latestActiveItems.getOrNull(latestState.currentIndex)
+                if (latestState.currentIndex != itemIndex || latestItem?.id != itemId) {
+                    return@launch
+                }
+                if (!cleanupSucceeded) {
+                    AppLog.warning(
+                        category = "player",
+                        event = "version_switch_cleanup_rejected",
+                        message = "Old transcode could not be cleaned up; keeping current version",
+                        attributes = mapOf(
+                            "itemIndex" to itemIndex.toString(),
+                            "fromVersionId" to committedVersionId.orEmpty(),
+                            "toVersionId" to versionId,
+                            "playSessionId" to oldSessionId,
+                        ),
+                    )
+                    Toast.makeText(
+                        context,
+                        "切换版本失败：无法清理旧的服务器转码，请稍后重试",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@launch
+                }
+
+                // Read the position only after cleanup succeeds. Until this point the old
+                // engine remains attached, so a rejected/timeout cleanup is non-destructive.
+                engine.pause()
+                resume = itemIndex to engine.currentPositionMs()
+                versionsTried = updatedVersionAttempts(
+                    tried = versionsTried,
+                    selected = versionId,
+                    automaticRecovery = automaticRecovery,
+                )
+                versionChoices = versionChoices + (itemId to freshVersion)
+                engineGeneration++
+            } finally {
+                if (operation == versionSwitchNonce) {
+                    pendingVersionId = null
+                    versionSwitchJob = null
+                }
+            }
+        }
     }
 
     fun switchEngine(target: PlayerEngine) {
@@ -1970,27 +2108,48 @@ private fun PlayerRoot(
         kind = target
     }
 
-    // Last resort of the fallback chain: the entry has run out of streams on this engine,
-    // so try a different decoder stack before giving up. Bounded by the set of engines
-    // already tried for this entry, so a title nothing can play settles on an error
-    // instead of cycling through the list forever.
-    var enginesTried by remember(state.currentIndex) { mutableStateOf(setOf(kind)) }
-    LaunchedEffect(state.fallbacksExhausted, state.currentIndex, kind) {
-        if (!state.fallbacksExhausted) return@LaunchedEffect
-        val next = PlayerEngine.selectable.firstOrNull { it !in enginesTried }
+    LaunchedEffect(
+        state.fallbacksExhausted,
+        state.automaticFallbackBlocked,
+        state.currentIndex,
+        kind,
+        currentItem?.versionId,
+    ) {
+        if (!state.fallbacksExhausted || state.automaticFallbackBlocked) {
+            return@LaunchedEffect
+        }
+        val triedEngines = enginesTried + kind
+        enginesTried = triedEngines
+        val nextEngine = PlayerEngine.selectable.firstOrNull { it !in triedEngines }
+        if (nextEngine != null) {
+            AppLog.info(
+                category = "player",
+                event = "engine_fallback",
+                message = "Playback exhausted its streams; trying another engine",
+                attributes = mapOf(
+                    "from" to kind.name,
+                    "to" to nextEngine.name,
+                    "itemIndex" to state.currentIndex.toString(),
+                ),
+            )
+            enginesTried = triedEngines + nextEngine
+            switchEngine(nextEngine)
+            return@LaunchedEffect
+        }
+
+        val nextVersion = currentItem?.nextFallbackVersionId(versionsTried)
             ?: return@LaunchedEffect
         AppLog.info(
             category = "player",
-            event = "engine_fallback",
-            message = "Playback exhausted its streams; trying another engine",
+            event = "version_fallback",
+            message = "Playback exhausted every engine; trying another media version",
             attributes = mapOf(
-                "from" to kind.name,
-                "to" to next.name,
                 "itemIndex" to state.currentIndex.toString(),
+                "failedVersionId" to currentItem.versionId.orEmpty(),
+                "nextVersionId" to nextVersion,
             ),
         )
-        enginesTried = enginesTried + next
-        switchEngine(next)
+        selectVersion(nextVersion, automaticRecovery = true)
     }
     val (volume, setVolume) = rememberSystemVolume()
     val (brightness, setBrightness) = rememberWindowBrightness()
@@ -2133,7 +2292,7 @@ private fun PlayerRoot(
                     ).joinToString(" · ")
                 },
                 selectedVersionId = currentItem?.versionId,
-                onSelectVersion = ::selectVersion,
+                onSelectVersion = { versionId -> selectVersion(versionId) },
                 skip = SkipSegmentState(
                     // 关闭 keeps the stored boundaries and stops offering them. Gating
                     // here rather than on the segment itself leaves 片头片尾 in the
@@ -2244,6 +2403,30 @@ internal fun List<EngineTrack>.matchingLanguage(language: String): String? {
         ?: firstOrNull { it.language?.lowercase()?.startsWith(wanted.take(2)) == true }?.id
         ?: firstOrNull { it.label.contains(language, ignoreCase = true) }?.id
 }
+
+/**
+ * Best remaining physical file for automatic recovery after every engine rejected the
+ * selected one. Width and bitrate are the structured figures available in the player queue;
+ * server order breaks a complete tie. The caller owns [tried] so this can never loop.
+ */
+internal fun PlayerMediaItem.nextFallbackVersionId(tried: Set<String>): String? =
+    versions
+        .sortedWith(
+            compareByDescending<PlayerMediaVersion> { it.sourceWidth ?: 0 }
+                .thenByDescending { it.sourceBitrateBps ?: 0 },
+        )
+        .firstOrNull { it.id !in tried }
+        ?.id
+
+/**
+ * A deliberate version choice starts a new recovery budget. An automatic choice is part of
+ * the existing chain and must retain every attempted file, otherwise A -> B could loop to A.
+ */
+internal fun updatedVersionAttempts(
+    tried: Set<String>,
+    selected: String,
+    automaticRecovery: Boolean,
+): Set<String> = if (automaticRecovery) tried + selected else setOf(selected)
 
 @Composable
 private fun rememberWindowBrightness(): Pair<Float, (Float) -> Unit> {

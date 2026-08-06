@@ -62,6 +62,49 @@ class PlayerStoreTest {
     }
 
     @Test
+    fun sibling_episode_transcodes_use_its_real_media_source_id() = runTest {
+        val registry = testRegistry().apply {
+            addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+        }
+        val repo = testRepo { request ->
+            when {
+                request.url.encodedPath.contains("/Shows/s1/Episodes") -> json(
+                    """{"Items":[
+                        {"Id":"e1","Name":"一","Type":"Episode","IndexNumber":1,"ParentIndexNumber":1,
+                         "MediaSources":[{"Id":"source-e1","Container":"mkv","MediaStreams":[{"Type":"Video","Width":1920,"Height":1080}]}]},
+                        {"Id":"e2","Name":"二","Type":"Episode","IndexNumber":2,"ParentIndexNumber":1,
+                         "MediaSources":[{"Id":"source-e2","Container":"mkv","MediaStreams":[{"Type":"Video","Width":3840,"Height":2160}]}]}
+                    ]}""".trimIndent(),
+                )
+                request.url.encodedPath.endsWith("/Items/e1") -> json(
+                    """{"Id":"e1","Name":"一","Type":"Episode","SeriesId":"s1","SeriesName":"剧",
+                       "MediaSources":[{"Id":"source-e1","Container":"mkv","MediaStreams":[{"Type":"Video","Width":1920,"Height":1080}]}]}""",
+                )
+                else -> json("""{"Id":"s1","Name":"剧","Type":"Series"}""")
+            }
+        }
+        val store = PlayerStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry,
+            itemId = "e1",
+            startPositionTicks = 0L,
+        ).create()
+
+        val state = store.states.first { !it.loading }
+        val sibling = state.items.single { it.id == "e2" }
+
+        assertTrue("MediaSourceId=source-e2" in sibling.transcodeUrl, sibling.transcodeUrl)
+        assertTrue(
+            "MediaSourceId=source-e2" in sibling.fallbackTranscodeUrl,
+            sibling.fallbackTranscodeUrl,
+        )
+        assertFalse("MediaSourceId=e2&" in sibling.transcodeUrl, sibling.transcodeUrl)
+        assertEquals("source-e2", sibling.versionId)
+        store.dispose()
+    }
+
+    @Test
     fun display_metadata_does_not_change_playback_sources() {
         val original =
             listOf(
@@ -121,6 +164,61 @@ class PlayerStoreTest {
         )
 
         assertTrue(original.hasSamePlaybackSourcesAs(rebuilt))
+    }
+
+    @Test
+    fun switching_version_moves_urls_and_the_reporting_session_together() {
+        val alternate = PlayerMediaVersion(
+            id = "alternate",
+            label = "1080p",
+            detail = "",
+            url = "direct/alternate",
+            transcodeUrl = "hls/alternate",
+            fallbackTranscodeUrl = "progressive/alternate",
+            playSessionId = "session-alternate",
+        )
+        val item = PlayerMediaItem(
+            id = "movie",
+            url = "direct/original",
+            transcodeUrl = "hls/original",
+            fallbackTranscodeUrl = "progressive/original",
+            title = "电影",
+            versions = listOf(alternate),
+            playSessionId = "session-original",
+        )
+
+        val switched = item.withVersion("alternate")
+
+        assertEquals("direct/alternate", switched.url)
+        assertEquals("hls/alternate", switched.transcodeUrl)
+        assertEquals("progressive/alternate", switched.fallbackTranscodeUrl)
+        assertEquals("session-alternate", switched.playSessionId)
+    }
+
+    @Test
+    fun reopening_a_version_rotates_the_session_in_every_url() {
+        val original = PlayerMediaVersion(
+            id = "source-a",
+            label = "4K",
+            detail = "",
+            url = "http://host/Videos/movie/stream?MediaSourceId=source-a&PlaySessionId=old-a",
+            transcodeUrl =
+                "http://host/Videos/movie/master.m3u8?PlaySessionId=old-a&MediaSourceId=source-a",
+            fallbackTranscodeUrl =
+                "http://host/Videos/movie/stream.mp4?MediaSourceId=source-a&PlaySessionId=old-a",
+            playSessionId = "old-a",
+        )
+
+        val refreshed = original.withFreshPlaySession()
+
+        assertTrue(refreshed.playSessionId.isNotBlank())
+        assertFalse(refreshed.playSessionId == original.playSessionId)
+        listOf(refreshed.url, refreshed.transcodeUrl, refreshed.fallbackTranscodeUrl)
+            .forEach { url ->
+                assertTrue("PlaySessionId=${refreshed.playSessionId}" in url, url)
+                assertFalse("PlaySessionId=old-a" in url, url)
+                assertTrue("MediaSourceId=source-a" in url, url)
+            }
     }
 
     @Test

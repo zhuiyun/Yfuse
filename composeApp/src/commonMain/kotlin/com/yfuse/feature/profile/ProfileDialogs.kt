@@ -29,7 +29,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.SkipMode
-import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
 import com.yfuse.core.designsystem.AppIcons
@@ -456,234 +455,41 @@ private fun DanmakuField(
     }
 }
 
-/**
- * 片头片尾 — what happens at a boundary, and the numeric editor for times already captured.
- *
- * Entries are *created* in the player, where a boundary can be set from wherever playback
- * already is; a series that has never been played has nothing here to name it. What this
- * screen adds is the precise pass afterwards — nudging a captured 89 to 90 — plus one place
- * to see and drop everything that has accumulated.
- */
+/** Global 片头片尾 behavior; per-title boundaries stay in the player that owns them. */
 @Composable
 internal fun SkipSegmentDialog(
-    bySeries: Map<String, SkipTimes>,
     skipMode: SkipMode,
     onSelectSkipMode: (SkipMode) -> Unit,
-    onSave: (String, SkipTimes) -> Unit,
-    onClear: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var editing by remember { mutableStateOf<String?>(null) }
     val palette = LocalPalette.current
 
     GlassDialog(onDismiss = onDismiss) {
-        val target = editing?.let { id -> bySeries[id]?.let { id to it } }
-        if (target == null) {
-            OverlayHeader(
-                title = "片头片尾",
-                subtitle = "按剧保存。在播放器的「更多」里点按设为当前进度，再点「取消」撤销。",
-                onClose = onDismiss,
-            )
-            // 关闭 keeps the times and stops offering them, which is a different request
-            // from deleting a show's boundaries — and the only one that used to be
-            // impossible without throwing the work away.
-            SkipMode.entries.forEach { mode ->
-                OverlayOptionRow(
-                    mode.label,
-                    mode == skipMode,
-                    onClick = { onSelectSkipMode(mode) },
-                )
-            }
-            if (bySeries.isEmpty()) {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "还没有设置过。播放某一集时打开「更多」→「片头片尾」，点按即可把当前进度设为边界；" +
-                        "片尾记的是距离结束还有多少秒，所以同一部剧每集时长不同也适用。",
-                    style = mr(10.5f, 400),
-                    color = palette.sub2,
-                )
-            } else {
-                Spacer(Modifier.height(10.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    bySeries.forEach { (seriesId, times) ->
-                        SeriesSkipRow(
-                            times = times,
-                            palette = palette,
-                            onEdit = { editing = seriesId },
-                            onClear = { onClear(seriesId) },
-                        )
-                    }
-                }
-            }
-            OverlayButton(
-                label = "完成",
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                tone = OverlayButtonTone.Primary,
-            )
-        } else {
-            val (seriesId, times) = target
-            SeriesSkipEditor(
-                times = times,
-                palette = palette,
-                onSave = { updated ->
-                    onSave(seriesId, updated)
-                    editing = null
-                },
-                onBack = { editing = null },
+        OverlayHeader(
+            title = "片头片尾",
+            subtitle = "设置所有影视的跳过方式",
+            onClose = onDismiss,
+        )
+        // 关闭 keeps every title's saved boundaries while globally disabling the prompt.
+        SkipMode.entries.forEach { mode ->
+            OverlayOptionRow(
+                mode.label,
+                mode == skipMode,
+                onClick = { onSelectSkipMode(mode) },
             )
         }
-    }
-}
-
-@Composable
-private fun SeriesSkipRow(
-    times: SkipTimes,
-    palette: Palette,
-    onEdit: () -> Unit,
-    onClear: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
-            .pressable(onClick = onEdit)
-            .padding(horizontal = 12.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                times.seriesName.ifBlank { "未命名剧集" },
-                style = sc(12.5f, 700),
-                color = palette.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            val summary = buildList {
-                if (times.hasIntro) {
-                    add("片头 ${times.introStartSeconds}–${times.introEndSeconds} 秒")
-                }
-                if (times.hasCredits) {
-                    add("片尾 最后 ${times.creditsLeadSeconds} 秒")
-                }
-            }
-            Text(
-                // A half-entered intro is kept but skips nothing, so say so rather than
-                // leaving a blank line that reads as "configured, working".
-                summary.ifEmpty { listOf("片头只填了一半，尚未生效") }.joinToString(" · "),
-                style = mr(10f, 400),
-                color = if (summary.isEmpty()) Brand.Danger else palette.sub2,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Spacer(Modifier.height(10.dp))
         Text(
-            "清除",
-            style = mr(11f, 600),
-            color = Brand.Danger,
-            modifier = Modifier.pressable(onClick = onClear).padding(4.dp),
+            "具体片头片尾边界只在播放对应影视时设置；个人中心不展示剧名、集数或时间。",
+            style = mr(10.5f, 400),
+            color = palette.sub2,
         )
-    }
-}
-
-@Composable
-private fun SeriesSkipEditor(
-    times: SkipTimes,
-    palette: Palette,
-    onSave: (SkipTimes) -> Unit,
-    onBack: () -> Unit,
-) {
-    fun initial(seconds: Long) = if (seconds > 0L) seconds.toString() else ""
-    var introStart by remember(times) { mutableStateOf(initial(times.introStartSeconds)) }
-    var introEnd by remember(times) { mutableStateOf(initial(times.introEndSeconds)) }
-    var creditsLead by remember(times) { mutableStateOf(initial(times.creditsLeadSeconds)) }
-
-    val parsedIntroStart = introStart.toLongOrNull() ?: 0L
-    val parsedIntroEnd = introEnd.toLongOrNull() ?: 0L
-    val parsedCreditsLead = creditsLead.toLongOrNull() ?: 0L
-    // A start without an end describes no interval, so it can't be saved on its own; the
-    // reverse (an end alone) is treated as "opening runs from 0", which is the common case.
-    val problem = when {
-        parsedIntroEnd > 0L && parsedIntroEnd <= parsedIntroStart -> "片头结束时间要晚于开始时间"
-        introEnd.isBlank() && introStart.isNotBlank() -> "填了片头开始，也要填片头结束"
-        else -> null
-    }
-
-    OverlayHeader(
-        title = times.seriesName.ifBlank { "未命名剧集" },
-        subtitle = "填秒数，留空或填 0 表示取消这一项，改回跟随服务器。",
-        onClose = onBack,
-    )
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SecondsField("片头开始", "0", introStart, palette) { introStart = it }
-        SecondsField("片头结束", "90", introEnd, palette) { introEnd = it }
-        // Counted back from the end, not forward from the start: episodes of one show
-        // differ in runtime by a minute or two, and it is the tail that stays put.
-        SecondsField("片尾 · 距结束", "120", creditsLead, palette) { creditsLead = it }
-    }
-    if (problem != null) {
-        Spacer(Modifier.height(6.dp))
-        Text(problem, style = sc(10.5f, 500), color = Brand.Danger)
-    }
-    Row(
-        Modifier.fillMaxWidth().padding(top = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        OverlayButton("返回", onBack, Modifier.weight(1f))
         OverlayButton(
-            label = "保存",
-            onClick = {
-                onSave(
-                    times.copy(
-                        introStartSeconds = parsedIntroStart,
-                        introEndSeconds = parsedIntroEnd,
-                        creditsLeadSeconds = parsedCreditsLead,
-                    ),
-                )
-            },
-            modifier = Modifier.weight(1f),
+            label = "完成",
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,
-            enabled = problem == null,
         )
-    }
-}
-
-@Composable
-private fun SecondsField(
-    label: String,
-    hint: String,
-    value: String,
-    palette: Palette,
-    onValueChange: (String) -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = mr(12f, 500), color = palette.sub, modifier = Modifier.weight(1f))
-        Box(contentAlignment = Alignment.CenterEnd) {
-            if (value.isBlank()) {
-                Text(hint, style = mr(12f, 500), color = palette.hint, maxLines = 1)
-            }
-            BasicTextField(
-                value = value,
-                // Digits only: rejecting anything else as it is typed is clearer than
-                // failing at 保存, and it keeps the field parseable by definition.
-                onValueChange = { raw -> onValueChange(raw.filter(Char::isDigit).take(5)) },
-                singleLine = true,
-                textStyle = mr(12f, 500).copy(color = palette.text, textAlign = TextAlign.End),
-                cursorBrush = SolidColor(Brand.Primary),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.width(72.dp),
-            )
-        }
-        Spacer(Modifier.width(6.dp))
-        Text("秒", style = mr(11f, 500), color = palette.sub2)
     }
 }
 

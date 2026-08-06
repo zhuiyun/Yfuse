@@ -2,6 +2,7 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.designsystem.AccentColor
+import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
@@ -24,6 +25,7 @@ class ThemePreferences(private val settings: Settings) {
         const val KEY_LARGE_TEXT = "accessibility.largeText"
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
+        const val KEY_SPLASH_VARIANT = "appearance.splashVariant"
     }
 
     // The design is the light "轻雾玻璃" direction; dark is the alternative.
@@ -66,6 +68,12 @@ class ThemePreferences(private val settings: Settings) {
     private val _splashAnimation =
         MutableStateFlow(settings.getBoolean(KEY_SPLASH_ANIMATION, true))
     val splashAnimation: StateFlow<Boolean> = _splashAnimation.asStateFlow()
+
+    private val _splashVariant =
+        MutableStateFlow(load(KEY_SPLASH_VARIANT, SplashAnimation.entries, SplashAnimation.One))
+
+    /** Which launch choreography plays when [splashAnimation] is on. */
+    val splashVariant: StateFlow<SplashAnimation> = _splashVariant.asStateFlow()
 
     fun setEngine(engine: PlayerEngine) {
         if (!engine.available) return
@@ -116,6 +124,11 @@ class ThemePreferences(private val settings: Settings) {
     fun setSplashAnimation(enabled: Boolean) {
         _splashAnimation.value = enabled
         settings.putBoolean(KEY_SPLASH_ANIMATION, enabled)
+    }
+
+    fun setSplashVariant(variant: SplashAnimation) {
+        _splashVariant.value = variant
+        settings.putString(KEY_SPLASH_VARIANT, variant.name)
     }
 
     private fun <T : Enum<T>> load(key: String, values: List<T>, fallback: T): T {

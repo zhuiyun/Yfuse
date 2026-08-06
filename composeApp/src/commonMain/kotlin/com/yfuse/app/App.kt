@@ -27,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,10 +51,10 @@ import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Shadows
-import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.overlayGlass
+import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
@@ -68,6 +69,7 @@ import com.yfuse.feature.player.ActivePlayback
 import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteResolver
 import com.yfuse.feature.watch.WatchInviteSheet
+import com.yfuse.feature.watch.WatchRoomInfoDialog
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 
@@ -93,11 +95,7 @@ fun App(root: RootComponent) {
     val reduceTransparency by root.themePreferences.reduceTransparency.collectAsState()
     val largeText by root.themePreferences.largeText.collectAsState()
     val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
-    val dark = when (mode) {
-        ThemeMode.System -> isSystemInDarkTheme()
-        ThemeMode.Dark -> true
-        ThemeMode.Light -> false
-    }
+    val dark = mode.resolveDark(isSystemInDarkTheme())
 
     YfuseTheme(
         dark = dark,
@@ -212,13 +210,30 @@ fun App(root: RootComponent) {
         // furniture, so the bar has to be told to get out of its way — see [OverlayVisibility].
         val overlays = remember { OverlayVisibility() }
 
+        var roomInfoOpen by remember { mutableStateOf(false) }
+        // Dismissing the bar is per-room, not permanent: a different room — or the same code
+        // rejoined — is news again, and hiding one notice must not silence the next.
+        var hiddenRoomCode by remember { mutableStateOf<String?>(null) }
+        val roomBarHidden = hiddenRoomCode != null && hiddenRoomCode == watchState.roomCode
+
+        // Each tab keeps its own saved state — above all, where it was scrolled to.
+        //
+        // Only the active tab is composed, so switching away used to discard the outgoing
+        // tab's state outright: `rememberLazyListState` is saveable, but nothing was holding
+        // its saved value once the branch left the tree, and every switch landed the user
+        // back at the top of the page they had already scrolled through.
+        val tabStates = rememberSaveableStateHolder()
         CompositionLocalProvider(LocalOverlayVisibility provides overlays) {
             AppBackdrop {
-                when (active) {
-                    Tab.Home -> HomeTabScreen(root.home)
-                    Tab.Browse -> LibraryScreen(root.browse)
-                    Tab.Search -> SearchScreen(root.search)
-                    Tab.Profile -> ProfileTabScreen(root.profile)
+                // The name rather than the enum: the key has to survive a Bundle round trip,
+                // and a String is the one thing guaranteed to.
+                tabStates.SaveableStateProvider(active.name) {
+                    when (active) {
+                        Tab.Home -> HomeTabScreen(root.home)
+                        Tab.Browse -> LibraryScreen(root.browse)
+                        Tab.Search -> SearchScreen(root.search)
+                        Tab.Profile -> ProfileTabScreen(root.profile)
+                    }
                 }
 
                 if (showBottomBar && !overlays.any) {
@@ -241,15 +256,26 @@ fun App(root: RootComponent) {
                     // Video backgrounding is represented by Android PiP. The old long,
                     // music-like mini controller duplicated transport controls and only
                     // appeared at tab roots, so it is intentionally not rendered here.
-                    if (!miniPlayback.active && watchRoomNote != null) {
+                    if (!miniPlayback.active && watchRoomNote != null && !roomBarHidden) {
                         WatchRoomBar(
                             note = watchRoomNote,
                             attention = watchState.reconnecting ||
                                 watchState.syncWarning != null,
                             onEnter = root::enterWatchRoom,
+                            onView = { roomInfoOpen = true },
+                            onClose = { hiddenRoomCode = watchState.roomCode },
                             modifier = bottomStackSlot,
                         )
                     }
+                }
+
+                if (roomInfoOpen) {
+                    WatchRoomInfoDialog(
+                        state = watchState,
+                        resolver = inviteResolver,
+                        onEnter = root::enterWatchRoom,
+                        onDismiss = { roomInfoOpen = false },
+                    )
                 }
 
                 pendingInvite?.let { invite ->
@@ -294,12 +320,12 @@ fun App(root: RootComponent) {
  * A room outlives playback, and until this bar the only thing that said so was a line on
  * the mini player, which `PlayerActivity.onDestroy` takes away with it: backing out of a
  * film left the user in a room with nothing on screen to show for it. This is the room's
- * own place in the bottom stack, in the mini player's slot and its material — one tap back
- * into whatever the room is watching.
+ * own place in the bottom stack, in the mini player's slot and its material — tap the body
+ * to go back into whatever the room is watching.
  *
- * Deliberately not dismissible. It is not a notification about something that happened; it
- * is the current state, and the way to be rid of it is 「我的」→ 一起看 → 退出房间, which is
- * also the only thing that actually ends the room's hold on this device.
+ * [onClose] hides the bar; it does not leave the room, because a bar is not the room and a
+ * stray tap must not end everyone else's evening. Leaving is still 「我的」→ 一起看 →
+ * 退出房间, which is the only thing that releases this device's hold on it.
  */
 @Composable
 private fun WatchRoomBar(
@@ -311,6 +337,8 @@ private fun WatchRoomBar(
      */
     attention: Boolean,
     onEnter: () -> Unit,
+    onView: () -> Unit,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -323,31 +351,51 @@ private fun WatchRoomBar(
                 MiniPlayerTokens.fill,
                 MiniPlayerTokens.border,
             )
-            .clickable(onClick = onEnter)
-            .padding(start = 14.dp, end = 12.dp),
+            .padding(start = 14.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Box(
-            Modifier
-                .size(7.dp)
-                .clip(CircleShape)
-                .background(if (attention) Brand.Offline else Brand.Online),
-        )
+        // The body carries 进入; only the two trailing buttons are cut out of it, so the
+        // large easy target is still the one that does the common thing.
+        Row(
+            Modifier.weight(1f).fillMaxHeight().clickable(onClick = onEnter),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(if (attention) Brand.Offline else Brand.Online),
+            )
+            Text(
+                note,
+                style = mr(11f, 600),
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
         Text(
-            note,
-            style = mr(11f, 600),
-            color = Color.White,
+            "查看",
+            style = mr(11f, 700),
+            color = Brand.Primary,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .clip(GlassShapes.chip)
+                .clickable(onClick = onView)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
         )
-        Text("进入", style = mr(11f, 700), color = Brand.Primary, maxLines = 1)
         Icon(
-            AppIcons.ChevronRight,
-            contentDescription = null,
-            tint = Brand.Primary,
-            modifier = Modifier.size(11.dp),
+            AppIcons.Close,
+            contentDescription = "隐藏一起看提示",
+            tint = Color.White.copy(alpha = 0.72f),
+            modifier = Modifier
+                .clip(CircleShape)
+                .clickable(onClick = onClose)
+                .padding(6.dp)
+                .size(12.dp),
         )
     }
 }

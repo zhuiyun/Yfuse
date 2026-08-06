@@ -33,12 +33,18 @@ data class MediaVersion(
 ) {
     /** `4K` / `1080P`, or null when the server reported no video stream. */
     val resolutionLabel: String?
-        get() = videoHeight?.let { height ->
-            when {
-                height >= 2000 -> "4K"
-                height >= 1000 -> "1080P"
-                height >= 700 -> "720P"
-                else -> "${height}P"
+        get() {
+            val height = videoHeight ?: video?.height
+            val width = video?.width
+            val longEdge = listOfNotNull(width, height).maxOrNull() ?: return null
+            val shortEdge = listOfNotNull(width, height).minOrNull() ?: longEdge
+            return when {
+                // Cinematic encodes are commonly cropped to 3840x1600; height alone labels
+                // those as 1080p even though they retain the full UHD horizontal detail.
+                longEdge >= 3000 || shortEdge >= 1600 -> "4K"
+                longEdge >= 1800 || shortEdge >= 1000 -> "1080P"
+                longEdge >= 1200 || shortEdge >= 700 -> "720P"
+                else -> "${shortEdge}P"
             }
         }
 
@@ -210,6 +216,25 @@ data class AudioTrackInfo(
 
     val sampleRateLabel: String?
         get() = sampleRateHz?.takeIf { it > 0 }?.let { "$it Hz" }
+
+    /** Lossless codecs/profile names as Emby commonly spells them. */
+    val isLossless: Boolean
+        get() {
+            val normalizedCodec = codec?.trim()?.lowercase().orEmpty()
+            val descriptor = listOfNotNull(codec, profile, displayTitle)
+                .joinToString(" ")
+                .lowercase()
+            return normalizedCodec in setOf("truehd", "flac", "alac", "wavpack", "mlp", "pcm") ||
+                normalizedCodec.startsWith("pcm_") ||
+                listOf(
+                    "truehd",
+                    "true hd",
+                    "dts-hd ma",
+                    "dts hd ma",
+                    "dts-ma",
+                    "dts master audio",
+                ).any(descriptor::contains)
+        }
 }
 
 /** One subtitle stream of a [MediaVersion]. */

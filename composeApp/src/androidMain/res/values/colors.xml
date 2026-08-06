@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      开屏底色。必须等于 LightPalette.background(#F3F5F8),这样系统开屏 → 窗口背景 →
+      Compose 开屏 → 首页这四层之间没有任何色阶。深色见 values-night。
+    -->
+    <color name="launch_surface">#F3F5F8</color>
+</resources>

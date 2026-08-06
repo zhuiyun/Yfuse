@@ -52,6 +52,15 @@ data class PlaybackState(
     val transcoding: Boolean = false,
     /** True once nothing further is left to fall back to for the current entry. */
     val fallbacksExhausted: Boolean = false,
+    /**
+     * True when retrying another URL, decoder, or physical file cannot repair the failure.
+     *
+     * Authentication and access-policy responses apply to every playback URL on the same
+     * server. Cycling through three engines and every version only repeats the rejected
+     * request and can replace the useful "重新登录/检查访问策略" message with a generic
+     * decoder error. Manual retry is still available and clears this flag.
+     */
+    val automaticFallbackBlocked: Boolean = false,
     val diagnostics: PlaybackDiagnostics = PlaybackDiagnostics(),
 ) {
     val hasNext: Boolean get() = currentIndex + 1 < itemCount

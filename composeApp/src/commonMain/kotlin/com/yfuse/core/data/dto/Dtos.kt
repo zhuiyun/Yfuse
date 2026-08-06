@@ -288,29 +288,33 @@ internal fun dolbyProfileFromCodecTag(codec: String?, profile: String?): Int? =
 /** `4K HDR · 42.3 GB · 68 Mbps`, from the first video stream and the container. */
 fun MediaSourceDto.toSourceInfo(): SourceInfo? {
     val video = MediaStreams?.firstOrNull { it.Type == "Video" }
+    val audio = MediaStreams.orEmpty().filter { it.Type == "Audio" }
     val height = video?.Height
-    val quality = when {
-        height == null -> "未知清晰度"
-        height >= 2000 -> "4K"
-        height >= 1000 -> "1080P"
-        height >= 700 -> "720P"
-        else -> "${height}P"
-    }
-    val hdr = video?.VideoRange?.takeIf { !it.equals("SDR", ignoreCase = true) }
     // Built through MediaVersion rather than read off the streams a second time: it already
     // knows where Emby hides Dolby Vision, and one definition of that is enough.
     val version = toMediaVersion(fallbackId = Id.orEmpty(), ordinal = 0)
+    val effectiveBitrate = Bitrate?.takeIf { it > 0 } ?: video?.BitRate?.takeIf { it > 0 }
     return SourceInfo(
-        quality = if (hdr != null) "$quality $hdr" else quality,
+        quality = version.qualityLabel,
         size = Size?.takeIf { it > 0 }?.let { formatBytes(it) },
-        bitrate = Bitrate?.takeIf { it > 0 }?.let { "${it / 1_000_000} Mbps" },
-        audioTrackCount = MediaStreams.orEmpty().count { it.Type == "Audio" },
+        bitrate = effectiveBitrate?.let { "${it / 1_000_000} Mbps" },
+        audioTrackCount = audio.size,
         subtitleTrackCount = MediaStreams.orEmpty().count { it.Type == "Subtitle" },
         sizeBytes = Size?.takeIf { it > 0 },
         rangeLabel = version.rangeLabel,
         dolbyVision = version.isDolbyVision,
         dolbyAtmos = version.hasDolbyAtmos,
         frameRate = version.frameRateLabel,
+        videoWidth = video?.Width?.takeIf { it > 0 },
+        videoHeight = height?.takeIf { it > 0 },
+        bitrateBps = effectiveBitrate,
+        videoRange = video?.VideoRange?.takeIf { it.isNotBlank() },
+        videoBitDepth = video?.BitDepth?.takeIf { it > 0 },
+        maxAudioChannels = audio.mapNotNull { it.Channels?.takeIf { channels -> channels > 0 } }
+            .maxOrNull(),
+        maxAudioBitrateBps = audio.mapNotNull { it.BitRate?.takeIf { bitrate -> bitrate > 0 } }
+            .maxOrNull(),
+        losslessAudio = version.audioTracks.any { it.isLossless },
     )
 }
 
@@ -341,7 +345,7 @@ fun MediaSourceDto.toMediaVersion(fallbackId: String, ordinal: Int): MediaVersio
             ?: "版本 ${ordinal + 1}",
         container = container,
         sizeBytes = Size,
-        bitrateBps = Bitrate,
+        bitrateBps = Bitrate?.takeIf { it > 0 } ?: video?.BitRate?.takeIf { it > 0 },
         videoCodec = video?.Codec?.takeIf { it.isNotBlank() },
         videoHeight = video?.Height,
         videoRange = video?.VideoRange?.takeIf { !it.equals("SDR", ignoreCase = true) },
@@ -428,6 +432,9 @@ fun BaseItemDto.toEpisode() = Episode(
     premiereDate = PremiereDate?.take(10)?.takeIf { it.length == 10 },
     playbackSegments = playbackSegments(),
     providerIds = ProviderIds.orEmpty(),
+    versions = MediaSources.orEmpty().mapIndexed { index, source ->
+        source.toMediaVersion(fallbackId = Id, ordinal = index)
+    },
 )
 
 /** Pairs Emby's IntroStart/IntroEnd markers and treats CreditsStart as open-ended. */

@@ -18,6 +18,9 @@ internal interface PlaybackEventSink {
     suspend fun started(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean)
     suspend fun progress(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean)
     suspend fun stopped(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean)
+
+    /** Ends only the server's encoder job; the logical playback session remains active. */
+    suspend fun stopEncoding(sessionId: String): Boolean = true
 }
 
 internal class EmbyPlaybackEventSink(
@@ -37,8 +40,11 @@ internal class EmbyPlaybackEventSink(
         // Belt and braces. `Playing/Stopped` is the polite request; some server versions
         // leave the ffmpeg process running anyway, and an orphaned encoding is what makes
         // the *next* attempt at the same file fail with a 4xx instead of playing.
-        repo.stopTranscoding(server, sessionId)
+        stopEncoding(sessionId)
     }
+
+    override suspend fun stopEncoding(sessionId: String): Boolean =
+        repo.stopTranscoding(server, sessionId).isSuccess
 }
 
 /**
@@ -47,15 +53,18 @@ internal class EmbyPlaybackEventSink(
  * seconds, but pause/resume and seeks are reported immediately.
  */
 internal class PlaybackProgressReporter(
-    private val items: List<PlayerMediaItem>,
+    items: List<PlayerMediaItem>,
     private val sink: PlaybackEventSink,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
     private sealed interface Command {
         data class Update(val state: PlaybackState) : Command
+        data class Rebind(val items: List<PlayerMediaItem>, val state: PlaybackState) : Command
         data class Close(val state: PlaybackState) : Command
     }
 
+    private var items = items
+    private var observedBinding = items.reportingBinding()
     private val commands = Channel<Command>(Channel.UNLIMITED)
     private var closed = false
     private var observedIndex = -1
@@ -64,6 +73,10 @@ internal class PlaybackProgressReporter(
     private var enqueuedPositionMs = Long.MIN_VALUE
 
     private var activeIndex = -1
+    /** Stable identity of the reported entry; unlike [activeIndex], it survives queue reorders. */
+    private var activeItemId = ""
+    /** Session id stored on the item; may be blank even though [activeSessionId] is generated. */
+    private var activeBindingSessionId = ""
     private var activeSessionId = ""
     private var activePositionMs = 0L
     private var activePaused = true
@@ -75,8 +88,9 @@ internal class PlaybackProgressReporter(
             for (command in commands) {
                 when (command) {
                     is Command.Update -> handleUpdate(command.state)
+                    is Command.Rebind -> handleRebind(command.items, command.state)
                     is Command.Close -> {
-                        if (activeIndex >= 0 || (!command.state.ended && command.state.error == null)) {
+                        if (activeIndex >= 0 || !command.state.ended) {
                             handleUpdate(command.state)
                         }
                         stopActive()
@@ -104,6 +118,21 @@ internal class PlaybackProgressReporter(
         }
     }
 
+    /**
+     * Replaces queue/session metadata on the same actor that reports playback.
+     *
+     * A version handover is ordered stop-old → bind-new → start-new. A tail append merely
+     * grows [items], because the active `(item, session)` pair did not change and stopping
+     * it would kill the healthy transcode ExoPlayer is still consuming.
+     */
+    fun rebind(items: List<PlayerMediaItem>, state: PlaybackState) {
+        if (closed || items.isEmpty()) return
+        val binding = items.reportingBinding()
+        if (binding == observedBinding) return
+        observedBinding = binding
+        commands.trySend(Command.Rebind(items, state))
+    }
+
     fun close(state: PlaybackState) {
         if (closed) return
         closed = true
@@ -113,7 +142,12 @@ internal class PlaybackProgressReporter(
 
     private suspend fun handleUpdate(state: PlaybackState) {
         val index = state.currentIndex.coerceIn(0, items.lastIndex)
-        val terminal = state.ended || state.error != null
+        // Engine errors are recoverable inside PlayerRoot: another URL, decoder stack or
+        // physical version may start immediately with this same PlaySessionId. Treating the
+        // intermediate error as terminal schedules a delayed DELETE that can kill the new
+        // engine's ffmpeg after it has started. Natural end is terminal; final screen exit,
+        // item/version rebind and explicit close stop everything else in actor order.
+        val terminal = state.ended
         if (terminal && index == terminalIndex && activeIndex < 0) return
         if (index != activeIndex) {
             stopActive()
@@ -124,6 +158,8 @@ internal class PlaybackProgressReporter(
             activePaused = !state.playing
             reportedPositionMs = state.positionMs
             val item = items[index]
+            activeItemId = item.id
+            activeBindingSessionId = item.playSessionId
             sink.started(item.id, activeSessionId, state.positionMs.toTicks(), activePaused)
             if (!terminal) return
         }
@@ -150,17 +186,68 @@ internal class PlaybackProgressReporter(
         }
     }
 
+    private suspend fun handleRebind(newItems: List<PlayerMediaItem>, state: PlaybackState) {
+        val oldItems = items
+        val oldActive = oldItems.getOrNull(activeIndex)
+        val oldActiveId = activeItemId.ifBlank { oldActive?.id.orEmpty() }
+        val oldStateItem = if (oldItems.isEmpty()) {
+            null
+        } else {
+            oldItems[state.currentIndex.coerceIn(0, oldItems.lastIndex)]
+        }
+        val stateStillNamesOldActive = oldStateItem?.let { item ->
+            item.id == oldActiveId && item.playSessionId == activeBindingSessionId
+        } == true
+        val retainedIndex = newItems.indexOfFirst { item ->
+            item.id == oldActiveId && item.playSessionId == activeBindingSessionId
+        }
+
+        // Queue refresh reports the old engine's numeric index until its deliberate rebuild.
+        // Follow the active (item, session) pair to its new index instead of interpreting that
+        // stale number against the reordered/shorter queue and briefly reporting the wrong item.
+        if (activeIndex >= 0 && stateStillNamesOldActive && retainedIndex >= 0) {
+            items = newItems
+            activeIndex = retainedIndex
+            return
+        }
+
+        val newIndex = state.currentIndex.coerceIn(0, newItems.lastIndex)
+        val newActive = newItems.getOrNull(newIndex)
+        val activeChanged = oldActiveId != newActive?.id ||
+            activeBindingSessionId != newActive?.playSessionId
+        if (activeChanged) stopActive()
+        items = newItems
+        if (activeChanged) {
+            terminalIndex = -1
+            handleUpdate(state)
+        } else {
+            // The same session survived a shrink that clamped its index. Keep the actor's
+            // numeric cursor valid so the next update/close does not start it a second time.
+            activeIndex = newIndex
+        }
+    }
+
     private suspend fun stopActive() {
-        val item = items.getOrNull(activeIndex) ?: return
-        sink.stopped(
-            itemId = item.id,
-            sessionId = activeSessionId,
-            positionTicks = activePositionMs.toTicks(),
-            isPaused = activePaused,
-        )
-        activeIndex = -1
-        activeSessionId = ""
-        reportedPositionMs = Long.MIN_VALUE
+        val itemId = activeItemId.ifBlank { items.getOrNull(activeIndex)?.id.orEmpty() }
+        try {
+            if (activeIndex >= 0 && itemId.isNotBlank()) {
+                sink.stopped(
+                    itemId = itemId,
+                    sessionId = activeSessionId,
+                    positionTicks = activePositionMs.toTicks(),
+                    isPaused = activePaused,
+                )
+            }
+        } finally {
+            // Always clear actor state, even when the queue was shortened underneath the old
+            // numeric index (or a sink implementation throws). Otherwise the next update starts
+            // the same session again and the eventual close may stop the wrong entry.
+            activeIndex = -1
+            activeItemId = ""
+            activeBindingSessionId = ""
+            activeSessionId = ""
+            reportedPositionMs = Long.MIN_VALUE
+        }
     }
 
     /**
@@ -174,8 +261,11 @@ internal class PlaybackProgressReporter(
      */
     private fun sessionIdFor(index: Int): String =
         items.getOrNull(index)?.playSessionId?.takeIf { it.isNotBlank() }
-            ?: "yfuse-${Random.nextLong().toULong().toString(16)}"
+            ?: "yfuse${Random.nextLong().toULong().toString(16)}"
 
     private fun Long.toTicks(): Long =
         coerceAtLeast(0L).coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND
 }
+
+private fun List<PlayerMediaItem>.reportingBinding(): List<Pair<String, String>> =
+    map { it.id to it.playSessionId }

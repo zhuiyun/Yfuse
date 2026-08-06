@@ -133,7 +133,10 @@ internal fun PlayerControls(
     onSelectSubtitle: (String) -> Unit,
     onSpeed: (Float) -> Unit,
     onToggleFill: () -> Unit,
-    /** System volume, 0f..1f, and its setter — drives the bottom-left level chip. */
+    /**
+     * System volume, 0f..1f, and its setter — read by the right-edge drag gesture and by the
+     * slider the volume rocker raises. There is no on-screen volume control any more.
+     */
     volume: Float = 0f,
     onVolume: (Float) -> Unit = {},
     /**
@@ -521,7 +524,6 @@ internal fun PlayerControls(
 
             BottomBar(
                 state = state,
-                volume = volume,
                 seekLocked = watchLocked,
                 onPlayPause = { poke(); onPlayPause() },
                 onPrevious = { poke(); onPreviousItem() },
@@ -532,7 +534,6 @@ internal fun PlayerControls(
                     skipCountdownLabel(skip.segmentLabel, it)
                 },
                 onCancelAutoSkip = { poke(); skipActions.onCancelAuto() },
-                onVolume = { poke(); onVolume(it) },
                 onSeek = { poke(); onSeek(it) },
                 onScrub = { interactions++ },
                 onOpenTab = { poke(); settingsTab = it },
@@ -783,7 +784,51 @@ internal fun PlayerControls(
             )
         }
 
-        gestureHud?.let { value ->
+        /**
+         * Paused, with one tap back into playback.
+         *
+         * A double tap in the middle of the frame pauses, and the controls it raised fade a
+         * few seconds later — leaving a still frame with nothing on it to say the film is
+         * paused rather than stalled, and no way back that does not start with a tap to bring
+         * the controls round again. This outlives the control overlay for that reason.
+         *
+         * Not while buffering: `playing` is false throughout startup and every seek, and a
+         * resume button over a frame that is already coming back is a lie. Not for a guest
+         * whose room is driven by its host either — the tap would only be refused.
+         */
+        val showResume = !state.playing &&
+            !state.buffering &&
+            !state.ended &&
+            state.error == null &&
+            !watchLocked
+        if (showResume) {
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .size(64.dp)
+                    .glass(
+                        shape = CircleShape,
+                        fill = Color.Black.copy(alpha = 0.46f),
+                        border = Color.White.copy(alpha = 0.28f),
+                    )
+                    .noRippleClickable {
+                        onPlayPause()
+                        poke()
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AppIcons.Play,
+                    contentDescription = "继续播放",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        }
+
+        // Suppressed while the resume button occupies the same spot: the double tap that
+        // pauses would otherwise stack "暂停" directly on top of it.
+        gestureHud?.takeIf { !showResume }?.let { value ->
             Text(
                 value,
                 style = sc(15f, 700),
@@ -1206,7 +1251,6 @@ private fun skipCountdownLabel(skipSegmentLabel: String?, seconds: Int): String 
 @Composable
 private fun BottomBar(
     state: PlaybackState,
-    volume: Float,
     /** Guest in a room: the scrubber becomes a read-only progress indicator. */
     seekLocked: Boolean,
     onPlayPause: () -> Unit,
@@ -1217,7 +1261,6 @@ private fun BottomBar(
     /** Non-null while an automatic skip is counting down; shown under the progress row. */
     skipCountdownLabel: String?,
     onCancelAutoSkip: () -> Unit,
-    onVolume: (Float) -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
     onOpenTab: (Tab) -> Unit,
@@ -1302,13 +1345,6 @@ private fun BottomBar(
                     onNext = onNext,
                     onRewind = onRewind,
                     onForward = onForward,
-                )
-                CircleControl(
-                    AppIcons.Volume,
-                    if (volume > 0f) "静音" else "恢复音量",
-                    26.dp,
-                    12.dp,
-                    onClick = { onVolume(if (volume > 0f) 0f else 0.5f) },
                 )
             }
 
@@ -1443,69 +1479,6 @@ internal fun scrubPositionMs(
 ): Long {
     val duration = durationMs.coerceAtLeast(0L)
     return (fraction.coerceIn(0f, 1f).toDouble() * duration).toLong().coerceIn(0L, duration)
-}
-
-/**
- * `gap:10px`, `rgba(255,255,255,.14)` over `rgba(255,255,255,.22)`, `radius:16px`,
- * `padding:6px 12px`, with a 70×3 level track. Shares [ChipHeight] with the chip row
- * opposite it, so the whole bottom row sits on one baseline.
- */
-@Composable
-private fun VolumeChip(volume: Float, onVolume: (Float) -> Unit) {
-    Row(
-        Modifier
-            .height(ChipHeight)
-            .glass(
-                shape = ChipShape,
-                fill = PlayerTokens.chipFill,
-                border = Color.White.copy(alpha = 0.24f),
-            )
-            .padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(AppIcons.Volume, null, tint = Color.White, modifier = Modifier.size(13.dp))
-        Box(
-            Modifier
-                .width(70.dp)
-                .height(ChipHeight)
-                .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        onVolume((offset.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f))
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { offset ->
-                            onVolume((offset.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f))
-                        },
-                        onHorizontalDrag = { change, _ ->
-                            change.consume()
-                            onVolume(
-                                (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f),
-                            )
-                        },
-                    )
-                },
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .align(Alignment.Center)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(Color.White.copy(alpha = 0.28f)),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(volume.coerceIn(0f, 1f))
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White),
-                )
-            }
-        }
-    }
 }
 
 /**

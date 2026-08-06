@@ -2,6 +2,7 @@ package com.yfuse.core.network
 
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.deviceId
+import io.ktor.http.encodeURLParameter
 import kotlin.random.Random
 
 /**
@@ -74,7 +75,10 @@ object EmbyStream {
      * how orphaned encodings pile up until the server starts refusing new ones with a 4xx.
      */
     fun newPlaySessionId(): String = buildString {
-        append("yfuse-")
+        // The video-streaming contract calls this an alpha-numeric value. Some older or
+        // proxied Emby installations validate that literally and reject punctuation with
+        // HTTP 400, so keep the useful client prefix without the old hyphen.
+        append("yfuse")
         repeat(24) { append("0123456789abcdef"[Random.nextInt(16)]) }
     }
 
@@ -90,7 +94,7 @@ object EmbyStream {
         mediaSourceId: String? = null,
         playSessionId: String? = null,
     ): String =
-        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream?static=true&api_key=$token" +
+        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream?static=true&api_key=${token.queryValue()}" +
             mediaSourceParam(mediaSourceId, itemId) +
             sessionParams(playSessionId)
 
@@ -134,15 +138,22 @@ object EmbyStream {
         playSessionId: String? = null,
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/master.m3u8" +
-            "?api_key=$token" +
-            "&MediaSourceId=${mediaSourceId ?: itemId}" +
+            "?api_key=${token.queryValue()}" +
+            "&MediaSourceId=${(mediaSourceId ?: itemId).queryValue()}" +
             "&Context=Streaming" +
+            // Emby's HLS endpoint documents Container as required. SegmentContainer alone
+            // works on newer servers but older builds answer with an HTML/JSON error body;
+            // ExoPlayer then reports that body as a malformed m3u8.
+            "&Container=ts" +
             "&TranscodingProtocol=hls" +
             "&VideoCodec=h264" +
             "&AudioCodec=aac" +
             "&MaxWidth=$maxWidth" +
             "&VideoBitrate=$videoBitrate" +
             "&AudioBitrate=192000" +
+            "&MaxAudioChannels=2" +
+            // Older Emby/Jellyfin derivatives generated this legacy name themselves.
+            // Supplying both is harmless on current servers and keeps those proxies working.
             "&TranscodingMaxAudioChannels=2" +
             "&SegmentContainer=ts" +
             "&MinSegments=2" +
@@ -161,8 +172,8 @@ object EmbyStream {
     ): String =
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/stream.mp4" +
             "?static=false" +
-            "&api_key=$token" +
-            "&MediaSourceId=${mediaSourceId ?: itemId}" +
+            "&api_key=${token.queryValue()}" +
+            "&MediaSourceId=${(mediaSourceId ?: itemId).queryValue()}" +
             "&Context=Streaming" +
             "&Container=mp4" +
             "&VideoCodec=h264" +
@@ -170,6 +181,7 @@ object EmbyStream {
             "&MaxWidth=$maxWidth" +
             "&VideoBitrate=$videoBitrate" +
             "&AudioBitrate=192000" +
+            "&MaxAudioChannels=2" +
             "&TranscodingMaxAudioChannels=2" +
             sessionParams(playSessionId)
 
@@ -184,8 +196,11 @@ object EmbyStream {
      * none, because `Playing/Stopped` would then end somebody else's encoding.
      */
     private fun sessionParams(playSessionId: String?): String =
-        "&DeviceId=${deviceId()}" +
-            playSessionId?.takeIf { it.isNotBlank() }?.let { "&PlaySessionId=$it" }.orEmpty()
+        "&DeviceId=${deviceId().queryValue()}" +
+            playSessionId
+                ?.takeIf { it.isNotBlank() }
+                ?.let { "&PlaySessionId=${it.queryValue()}" }
+                .orEmpty()
 
     /**
      * Names a specific file when the item has more than one.
@@ -197,8 +212,10 @@ object EmbyStream {
         if (mediaSourceId == null || mediaSourceId == itemId) {
             ""
         } else {
-            "&MediaSourceId=$mediaSourceId"
+            "&MediaSourceId=${mediaSourceId.queryValue()}"
         }
+
+    private fun String.queryValue(): String = encodeURLParameter()
 
     /** Rewrites the generated HLS cap without rebuilding the authenticated URL. */
     fun withQuality(url: String, quality: PlaybackQuality): String {

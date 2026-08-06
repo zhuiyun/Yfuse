@@ -7,6 +7,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
+import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -375,7 +376,9 @@ class ServerSyncManager(
                             // A revoked token is not a network hiccup, and the old wording
                             // sent the user looking at their connection instead of re-signing in.
                             unauthorized -> "登录已失效，请重新登录该服务器"
-                            else -> error.message ?: "同步失败"
+                            // Never expose the exception's data-class representation (for
+                            // example `AccessDenied(provider=Cloudflare)`) in the profile UI.
+                            else -> error.toUserMessage("同步失败")
                         },
                     )
                 }

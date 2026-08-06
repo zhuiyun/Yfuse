@@ -18,6 +18,9 @@ class EmbyStreamTest {
         assertTrue("api_key=token" in fullHd)
         assertTrue("MediaSourceId=movie" in fullHd)
         assertTrue("TranscodingProtocol=hls" in fullHd)
+        assertTrue("Container=ts" in fullHd)
+        assertTrue("MaxAudioChannels=2" in fullHd)
+        assertTrue("TranscodingMaxAudioChannels=2" in fullHd)
     }
 
     @Test
@@ -35,6 +38,20 @@ class EmbyStreamTest {
         assertTrue("static=false" in url)
         assertTrue("MediaSourceId=movie" in url)
         assertTrue("Container=mp4" in url)
+        assertTrue("MaxAudioChannels=2" in url)
+    }
+
+    @Test
+    fun credentials_and_media_source_are_query_encoded() {
+        val url = EmbyStream.transcode(
+            baseUrl = "http://emby",
+            itemId = "movie",
+            token = "token+/= value",
+            mediaSourceId = "source one+two",
+        )
+
+        assertTrue("api_key=token%2B%2F%3D%20value" in url, url)
+        assertTrue("MediaSourceId=source%20one%2Btwo" in url, url)
     }
 
     @Test
@@ -84,6 +101,7 @@ class EmbyStreamTest {
         val second = EmbyStream.streamUrls("http://emby", "movie", "token")
 
         assertTrue(first.playSessionId != second.playSessionId)
+        assertTrue(first.playSessionId.all(Char::isLetterOrDigit))
     }
 
     /**

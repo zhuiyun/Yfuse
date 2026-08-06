@@ -1,26 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--
+      样式在资源限定符之间是「整体替换」而不是「逐条合并」:values-v31 以前重新声明
+      Theme.Yfuse,就把 windowBackground 整条丢掉了。所以这里只保留 values 和
+      values-night 两份,两份除 parent 外必须逐字相同,所有会随深浅变的值一律走
+      @color / @bool 限定符。新增条目请同时改两份。
+
+      windowSplashScreen*(API 31)和 windowLayoutInDisplayCutoutMode(API 27)写在基础
+      目录里:旧系统会忽略不认识的主题条目,这样就不用再开 -v27 / -v31 目录。
+    -->
     <style name="Theme.Yfuse" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowBackground">@color/launch_surface</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <!-- 与开屏底 #F7F8FB 同色，否则导航栏会在开屏那几帧亮出一条纯白边。 -->
-        <item name="android:navigationBarColor">#F7F8FB</item>
-        <item name="android:windowLightStatusBar">true</item>
-    </style>
-
-    <style name="Theme.Yfuse.Launch" parent="Theme.Yfuse">
-        <item name="android:windowFullscreen">true</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-    </style>
-
-    <style name="Theme.Yfuse.Launch.Light" parent="Theme.Yfuse.Launch">
-        <item name="android:windowBackground">@drawable/launch_background_light</item>
-        <item name="android:windowLightStatusBar">true</item>
-    </style>
-
-    <style name="Theme.Yfuse.Launch.Dark" parent="Theme.Yfuse.Launch">
-        <item name="android:windowBackground">@drawable/launch_background_dark</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightStatusBar">@bool/launch_light_status_bar</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <!--
+          图标是全透明的:开屏图形由 Compose 画,系统开屏只负责底色。时长设 0,系统就在
+          首帧画出来的瞬间交棒,而不是先白等 300ms。
+        -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_transparent</item>
+        <item name="android:windowSplashScreenBackground">@color/launch_surface</item>
+        <item name="android:windowSplashScreenAnimationDuration">0</item>
     </style>
 
     <style name="Theme.Yfuse.Player" parent="android:Theme.Material.NoActionBar">

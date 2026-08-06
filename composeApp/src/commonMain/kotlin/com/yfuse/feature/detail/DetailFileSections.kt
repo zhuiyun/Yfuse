@@ -45,6 +45,9 @@ import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.model.SourceInfo
+import com.yfuse.core.model.compareMediaVersionsBestFirst
+import com.yfuse.core.model.compareSourceInfoBestFirst
 
 /**
  * The sections of 详情页 that describe a *file* rather than a title.
@@ -54,6 +57,107 @@ import com.yfuse.core.model.ServerSource
  * [MediaVersion]. Everything left in `DetailScreen.kt` is about the work itself: its
  * artwork, its synopsis, its cast, its episodes.
  */
+
+/**
+ * Best first: picture detail, bitrate, dynamic range, then audio quality.
+ *
+ * File size is deliberately last. It remains a useful fallback when a server omits bitrate
+ * or stream metadata, but a bloated 1080p encode must not outrank a smaller genuine 4K file.
+ * Display order only: which version is selected stays the server's own choice.
+ */
+internal fun List<MediaVersion>.bestVersionsFirst(): List<MediaVersion> = sortedWith { left, right ->
+    compareMediaVersionsBestFirst(left, right).nonZero()
+        ?: left.name.lowercase().compareTo(right.name.lowercase()).nonZero()
+        ?: left.id.compareTo(right.id)
+}
+
+/**
+ * Rank every server using raw media facts rather than parsing its preformatted quality label.
+ * Unreachable/empty entries stay at the bottom; exact quality ties use the server identity so
+ * the row cannot jump around when cross-server responses arrive in a different order.
+ */
+internal fun List<ServerSource>.bestSourcesFirst(): List<ServerSource> = sortedWith { left, right ->
+    val leftAvailable = left.reachable && left.source != null && left.itemId != null
+    val rightAvailable = right.reachable && right.source != null && right.itemId != null
+    compareDescending(leftAvailable, rightAvailable).nonZero()
+        ?: compareSourceInfoBestFirst(left.source, right.source).nonZero()
+        ?: left.serverName.lowercase().compareTo(right.serverName.lowercase()).nonZero()
+        ?: left.serverId.compareTo(right.serverId)
+}
+
+private fun <T : Comparable<T>> compareDescending(left: T?, right: T?): Int = when {
+    left == right -> 0
+    left == null -> 1
+    right == null -> -1
+    else -> right.compareTo(left)
+}
+
+private fun Int.nonZero(): Int? = takeIf { it != 0 }
+
+/** Whether there is enough evidence to honestly mark the first of several sources as Best. */
+internal fun SourceInfo.hasQualityEvidence(): Boolean =
+    videoWidth != null ||
+        videoHeight != null ||
+        bitrateBps != null ||
+        videoRange != null ||
+        videoBitDepth != null ||
+        dolbyVision ||
+        dolbyAtmos ||
+        losslessAudio ||
+        maxAudioChannels != null ||
+        maxAudioBitrateBps != null ||
+        sizeBytes != null
+
+/**
+ * The selected server's card, restated in terms of the version that will actually play.
+ *
+ * `sources` is fetched per *item* and describes that server's best file, so choosing a
+ * different 版本 left the selected 资源 card asserting the old file's size, bitrate and
+ * track counts — contradicting the 版本 card directly above it. Only the selected entry is
+ * rewritten: the other servers are still being compared on the file they would open.
+ */
+internal fun List<ServerSource>.describing(
+    version: MediaVersion?,
+    selectedServerId: String?,
+    selectedItemId: String?,
+): List<ServerSource> {
+    if (version == null) return this
+    return map { entry ->
+        val base = entry.source
+        if (
+            base == null ||
+            entry.serverId != selectedServerId ||
+            entry.itemId != selectedItemId
+        ) {
+            entry
+        } else {
+            entry.copy(source = version.restating(base))
+        }
+    }
+}
+
+private fun MediaVersion.restating(base: SourceInfo): SourceInfo = base.copy(
+    quality = qualityLabel,
+    size = sizeLabel,
+    bitrate = bitrateLabel,
+    audioTrackCount = audioTracks.size,
+    subtitleTrackCount = subtitleTracks.size,
+    sizeBytes = sizeBytes,
+    rangeLabel = videoRange ?: "SDR",
+    dolbyVision = isDolbyVision,
+    dolbyAtmos = hasDolbyAtmos,
+    frameRate = video?.frameRateLabel ?: base.frameRate,
+    videoWidth = video?.width,
+    videoHeight = videoHeight ?: video?.height,
+    bitrateBps = bitrateBps,
+    videoRange = videoRange,
+    videoBitDepth = video?.bitDepth,
+    maxAudioChannels = audioTracks.mapNotNull { it.channelCount?.takeIf { count -> count > 0 } }
+        .maxOrNull(),
+    maxAudioBitrateBps = audioTracks.mapNotNull { it.bitrateBps?.takeIf { rate -> rate > 0 } }
+        .maxOrNull(),
+    losslessAudio = audioTracks.any { it.isLossless },
+)
 
 /**
  * 媒体信息 — everything the server knows about the file that is actually playing.
@@ -452,6 +556,8 @@ internal fun SourceSection(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    // Order is the caller's: it ranks on what each server holds, before the selected entry is
+    // restated in terms of the chosen version. Filtering preserves it.
     val availableSources = remember(sources) {
         sources.filter { it.reachable && it.source != null && it.itemId != null }
     }
@@ -480,13 +586,13 @@ internal fun SourceSection(
                 )
             }
         }
-        // The biggest file is called out, because that is the question the row exists to
-        // answer: given the same title on two servers, which copy is the better one.
+        // The best copy is called out, because that is the question the row exists to answer:
+        // given the same title on two servers, which one is the better one. It is the first
+        // entry by construction — the caller ranked them — and saying so beats making the
+        // reader infer it from the order.
         val bestServerId = remember(availableSources) {
-            availableSources
-                .filter { it.source?.sizeBytes != null }
-                .maxByOrNull { it.source?.sizeBytes ?: 0L }
-                ?.takeIf { availableSources.size > 1 }
+            availableSources.firstOrNull()
+                ?.takeIf { availableSources.size > 1 && it.source?.hasQualityEvidence() == true }
                 ?.serverId
         }
         BoxWithConstraints {

@@ -67,7 +67,56 @@ data class PlayerMediaVersion(
      * and for offline files, which have no server session at all.
      */
     val playSessionId: String = "",
-)
+) {
+    /**
+     * The same physical file addressed as a brand-new playback session.
+     *
+     * Version choices can return to a file used earlier in the same player. Reusing its old
+     * id lets a delayed `Stopped`/DELETE from the previous binding kill the new encoder.
+     */
+    fun withFreshPlaySession(): PlayerMediaVersion {
+        val sessionId = EmbyStream.newPlaySessionId()
+        return copy(
+            url = url.withPlaySessionId(sessionId),
+            transcodeUrl = transcodeUrl.withPlaySessionId(sessionId),
+            fallbackTranscodeUrl = fallbackTranscodeUrl.withPlaySessionId(sessionId),
+            playSessionId = sessionId,
+        )
+    }
+}
+
+/** Builds version-specific addresses once, with the physical MediaSource id in every URL. */
+internal fun List<MediaVersion>.toPlayerMediaVersions(
+    baseUrl: String,
+    itemId: String,
+    token: String,
+): List<PlayerMediaVersion> = map { version ->
+    val urls = EmbyStream.streamUrls(
+        baseUrl = baseUrl,
+        itemId = itemId,
+        token = token,
+        mediaSourceId = version.id,
+        sourceWidth = version.video?.width,
+        sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
+    )
+    PlayerMediaVersion(
+        id = version.id,
+        label = version.name,
+        detail = version.summary,
+        url = urls.direct,
+        transcodeUrl = urls.transcode,
+        fallbackTranscodeUrl = urls.progressiveTranscode,
+        playSessionId = urls.playSessionId,
+        container = version.container?.uppercase(),
+        dolbyVision = version.isDolbyVision,
+        dolbyAtmos = version.hasDolbyAtmos,
+        dolbyProfile = version.dolbyProfile,
+        needsDolbyDecoder = version.needsDolbyCapableDecoder,
+        sourceWidth = version.video?.width,
+        sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
+        audioTrackCount = version.audioTracks.size,
+    )
+}
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
 data class PlayerMediaItem(
@@ -132,6 +181,12 @@ data class PlayerMediaItem(
     /** The same entry playing a different file, or unchanged when there is no such file. */
     fun withVersion(id: String?): PlayerMediaItem {
         val version = versions.firstOrNull { it.id == id } ?: return this
+        return withVersion(version)
+    }
+
+    /** Applies a resolved version instance, including a freshly rotated playback session. */
+    fun withVersion(version: PlayerMediaVersion): PlayerMediaItem {
+        if (versions.none { it.id == version.id }) return this
         return copy(
             url = version.url,
             transcodeUrl = version.transcodeUrl,
@@ -141,6 +196,16 @@ data class PlayerMediaItem(
             // and reporting one session's id against another's stream ends the wrong job.
             playSessionId = version.playSessionId,
         )
+    }
+}
+
+private fun String.withPlaySessionId(sessionId: String): String {
+    if (isBlank()) return this
+    val parameter = Regex("([?&])PlaySessionId=[^&]*")
+    return if (parameter.containsMatchIn(this)) {
+        replace(parameter, "$1PlaySessionId=$sessionId")
+    } else {
+        "$this${if ('?' in this) '&' else '?'}PlaySessionId=$sessionId"
     }
 }
 
@@ -249,36 +314,6 @@ class PlayerStoreFactory(
                     return@launch
                 }
 
-                fun versionsOf(id: String, versions: List<MediaVersion>) = versions.map {
-                    // Aimed at the file it is replacing rather than at a fixed 1080p, and
-                    // carrying one session id across all three — see EmbyStream.streamUrls.
-                    val urls = EmbyStream.streamUrls(
-                        baseUrl = server.baseUrl,
-                        itemId = id,
-                        token = server.accessToken,
-                        mediaSourceId = it.id,
-                        sourceWidth = it.video?.width,
-                        sourceBitrateBps = it.bitrateBps ?: it.video?.bitrateBps,
-                    )
-                    PlayerMediaVersion(
-                        id = it.id,
-                        label = it.name,
-                        detail = it.summary,
-                        url = urls.direct,
-                        transcodeUrl = urls.transcode,
-                        fallbackTranscodeUrl = urls.progressiveTranscode,
-                        playSessionId = urls.playSessionId,
-                        container = it.container?.uppercase(),
-                        dolbyVision = it.isDolbyVision,
-                        dolbyAtmos = it.hasDolbyAtmos,
-                        dolbyProfile = it.dolbyProfile,
-                        needsDolbyDecoder = it.needsDolbyCapableDecoder,
-                        sourceWidth = it.video?.width,
-                        sourceBitrateBps = it.bitrateBps ?: it.video?.bitrateBps,
-                        audioTrackCount = it.audioTracks.size,
-                    )
-                }
-
                 fun itemOf(
                     id: String,
                     title: String,
@@ -294,7 +329,11 @@ class PlayerStoreFactory(
                     progress: Float? = null,
                     caption: String? = null,
                 ): PlayerMediaItem {
-                  val playerVersions = versionsOf(id, versions)
+                  val playerVersions = versions.toPlayerMediaVersions(
+                      baseUrl = server.baseUrl,
+                      itemId = id,
+                      token = server.accessToken,
+                  )
                   // The file the detail page picked, else the server's first — which is
                   // also what an unqualified stream request would have returned anyway.
                   val chosen = playerVersions.firstOrNull { it.id == mediaSourceId }
@@ -383,7 +422,12 @@ class PlayerStoreFactory(
                         .getOrNull()
                         ?.providerIds
                         .orEmpty()
-                    val episodesResult = repo.episodes(server, seriesId, null)
+                    val episodesResult = repo.episodes(
+                        server,
+                        seriesId,
+                        null,
+                        includeMediaSources = true,
+                    )
                     episodesResult.onFailure {
                         AppLog.warning(
                             category = "feature.player",
@@ -406,12 +450,11 @@ class PlayerStoreFactory(
                                 seriesId,
                                 detail.seriesName,
                                 seriesProviderIds,
-                                // Only the episode actually opened has had its sources
-                                // fetched; the rest of the season came from a list query
-                                // that doesn't carry them, and detailing every episode to
-                                // populate a picker almost nobody opens isn't worth the
-                                // round trips.
-                                versions = if (ep.id == itemId) detail.versions else emptyList(),
+                                // The opened detail is the freshest copy; every sibling now
+                                // carries MediaSources from the single episode-list request.
+                                // Without this, their transcode URL used item id as
+                                // MediaSourceId and Emby rejected it with HTTP 400.
+                                versions = if (ep.id == itemId) detail.versions else ep.versions,
                                 stillTag = ep.primaryTag,
                                 // A finished episode reads as full rather than as untouched:
                                 // Emby clears the resume percentage on completion, so the

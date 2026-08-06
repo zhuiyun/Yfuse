@@ -7,6 +7,10 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import dev.jdtech.mpv.MPVLib
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +20,69 @@ private const val TAG = "YfusePlayer"
 
 /** mpv pushes `time-pos` per frame; only forward moves of at least this much. */
 private const val POSITION_STEP_MS = 200L
+
+/**
+ * Distinguishes mpv's expected END_FILE for `loadfile replace`/`stop` from a failed stream.
+ *
+ * The Java facade exposes only the event id, not `mpv_event_end_file.reason`. Commands and
+ * events are ordered, so one expected end per logical replacement is enough. The state is
+ * synchronized because commands originate on UI/coroutine threads while events come from
+ * mpv's native callback thread.
+ */
+internal class MpvEndFileTracker {
+    private var hasFileOrPending = false
+    private var expectedEnds = 0
+
+    /** Returns whether this load replaces an earlier current/pending load. */
+    @Synchronized
+    fun beforeLoad(): Boolean {
+        val replacing = hasFileOrPending
+        hasFileOrPending = true
+        if (replacing) expectedEnds++
+        return replacing
+    }
+
+    @Synchronized
+    fun rollbackLoad(replacing: Boolean) {
+        if (replacing) {
+            if (expectedEnds > 0) expectedEnds--
+            hasFileOrPending = true
+        } else {
+            hasFileOrPending = false
+        }
+    }
+
+    /** Returns whether stopping should produce an END_FILE to consume. */
+    @Synchronized
+    fun beforeStop(): Boolean {
+        val stopping = hasFileOrPending
+        hasFileOrPending = false
+        if (stopping) expectedEnds++
+        return stopping
+    }
+
+    @Synchronized
+    fun rollbackStop(stopping: Boolean) {
+        if (!stopping) return
+        if (expectedEnds > 0) expectedEnds--
+        hasFileOrPending = true
+    }
+
+    /** True means this END_FILE belongs to an intentional replacement and must be ignored. */
+    @Synchronized
+    fun consumeExpectedEnd(): Boolean {
+        if (expectedEnds <= 0) {
+            hasFileOrPending = false
+            return false
+        }
+        expectedEnds--
+        return true
+    }
+
+    @get:Synchronized
+    internal val pendingExpectedEnds: Int
+        get() = expectedEnds
+}
 
 /**
  * libmpv behind the engine-agnostic [VideoEngine] contract.
@@ -34,6 +101,8 @@ class MpvVideoEngine(
     private val autoNext: Boolean,
     quality: PlaybackQuality,
     private val customUserAgent: String,
+    private val scope: CoroutineScope,
+    private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
 
     /** Entries pushed off their original file onto the server's transcode, and past that
@@ -41,6 +110,9 @@ class MpvVideoEngine(
      *  rest of the season. */
     private val transcodedIndices = mutableSetOf<Int>()
     private val progressiveIndices = mutableSetOf<Int>()
+    private val progressiveTransitionIndices = mutableSetOf<Int>()
+    private var fallbackJob: Job? = null
+    private val endFileTracker = MpvEndFileTracker()
 
     private val _state = MutableStateFlow(
         PlaybackState(
@@ -242,7 +314,9 @@ class MpvVideoEngine(
                         "itemIndex" to _state.value.currentIndex.toString(),
                     ),
                 )
-                MPVLib.MpvEvent.MPV_EVENT_END_FILE -> handleEndFile()
+                MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
+                    if (!endFileTracker.consumeExpectedEnd()) handleEndFile()
+                }
             }
         }
     }
@@ -350,7 +424,7 @@ class MpvVideoEngine(
 
             instance.attachSurface(surface)
             instance.setPropertyString("force-window", "yes")
-            instance.command(arrayOf("loadfile", currentUrl()))
+            replaceFile(currentUrl())
             Log.i(TAG, "mpv loadfile issued")
             AppLog.info(
                 category = "player.mpv",
@@ -452,7 +526,7 @@ class MpvVideoEngine(
                 ),
             )
         }
-        withMpv { it.command(arrayOf("loadfile", playbackUrl(items[index], index))) }
+        replaceFile(playbackUrl(items[index], index))
     }
 
     override fun currentPositionMs(): Long = _state.value.positionMs
@@ -466,12 +540,14 @@ class MpvVideoEngine(
             attachedSurface?.let(::attach)
             return
         }
-        withMpv { it.command(arrayOf("loadfile", currentUrl())) }
+        replaceFile(currentUrl())
     }
 
     override fun release() {
         if (released) return
         released = true
+        fallbackJob?.cancel()
+        fallbackJob = null
         val instance = mpv ?: return
         mpv = null
         runCatching {
@@ -512,6 +588,7 @@ class MpvVideoEngine(
         val item = items.getOrNull(index) ?: return false
         val next = when {
             index in progressiveIndices -> return false
+            index in progressiveTransitionIndices -> return true
             index in transcodedIndices ->
                 if (item.fallbackTranscodeUrl.isEmpty()) return false else Step.Progressive
             item.transcodeUrl.isEmpty() ->
@@ -522,7 +599,7 @@ class MpvVideoEngine(
             Step.Transcode -> transcodedIndices += index
             Step.Progressive -> {
                 transcodedIndices += index
-                progressiveIndices += index
+                progressiveTransitionIndices += index
             }
         }
         // Resume where the failure happened rather than from the top; a codec the device
@@ -544,7 +621,33 @@ class MpvVideoEngine(
                 diagnostics = it.diagnostics.copy(playMethod = "服务器转码"),
             )
         }
-        withMpv { it.command(arrayOf("loadfile", currentUrl())) }
+        if (next == Step.Transcode) {
+            replaceFile(currentUrl())
+            return true
+        }
+
+        // Ensure the HLS request is closed and its ffmpeg has actually exited before a
+        // progressive request with the same PlaySessionId is allowed to start.
+        stopFileForReplacement()
+        fallbackJob?.cancel()
+        fallbackJob = scope.launch {
+            val cleaned = item.playSessionId.isBlank() ||
+                withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
+            if (released || _state.value.currentIndex != index) return@launch
+            progressiveTransitionIndices -= index
+            if (!cleaned) {
+                _state.update {
+                    it.copy(
+                        error = "无法清理旧的服务器转码，正在尝试其他播放器",
+                        buffering = false,
+                        fallbacksExhausted = true,
+                    )
+                }
+                return@launch
+            }
+            progressiveIndices += index
+            replaceFile(currentUrl())
+        }
         return true
     }
 
@@ -682,17 +785,43 @@ class MpvVideoEngine(
         }
     }
 
+    /** Issues `loadfile replace` and reserves the END_FILE that closes its predecessor. */
+    private fun replaceFile(url: String) {
+        val replacing = endFileTracker.beforeLoad()
+        if (!withMpvResult { it.command(arrayOf("loadfile", url)) }) {
+            endFileTracker.rollbackLoad(replacing)
+        }
+    }
+
+    /** Stops the current HLS reader without turning that intentional END_FILE into an error. */
+    private fun stopFileForReplacement() {
+        val stopping = endFileTracker.beforeStop()
+        if (!withMpvResult { it.command(arrayOf("stop")) }) {
+            endFileTracker.rollbackStop(stopping)
+        }
+    }
+
     /** mpv calls throw once the handle is gone; every call site tolerates a miss. */
     private inline fun withMpv(block: (MPVLib) -> Unit) {
-        val instance = mpv ?: return
-        runCatching { block(instance) }.onFailure {
-            Log.w(TAG, "mpv call failed", it)
-            AppLog.warning(
-                category = "player.mpv",
-                event = "engine_call_failed",
-                message = "mpv engine call failed",
-                throwable = it,
+        withMpvResult(block)
+    }
+
+    /** Same tolerant call path, with success exposed for END_FILE tracker rollback. */
+    private inline fun withMpvResult(block: (MPVLib) -> Unit): Boolean {
+        val instance = mpv ?: return false
+        return runCatching { block(instance) }
+            .fold(
+                onSuccess = { true },
+                onFailure = {
+                    Log.w(TAG, "mpv call failed", it)
+                    AppLog.warning(
+                        category = "player.mpv",
+                        event = "engine_call_failed",
+                        message = "mpv engine call failed",
+                        throwable = it,
+                    )
+                    false
+                },
             )
-        }
     }
 }
