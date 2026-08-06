@@ -386,7 +386,20 @@ class TmdbRepository(private val client: HttpClient) {
                 TmdbRow("即将上映", upcoming),
             ).filter { it.items.isNotEmpty() }
 
-            Result.success(TmdbHome(featured = featured, rows = rows))
+            // Sixteen queries and not one row between them is not a thin catalogue — it is
+            // TMDB being unreachable, which on a mainland connection without a proxy is the
+            // normal case. Reported as a failure so the screen can say so: it used to return
+            // an empty success, and the home tab rendered silent blank shelves instead.
+            if (rows.isEmpty() && featured.isEmpty()) {
+                AppLog.warning(
+                    category = "tmdb",
+                    event = "home_unavailable",
+                    message = "Every TMDB feed came back empty; treating as unreachable",
+                )
+                Result.failure(EmbyErrorException(EmbyError.Network))
+            } else {
+                Result.success(TmdbHome(featured = featured, rows = rows))
+            }
         }
     } catch (e: CancellationException) {
         throw e
@@ -733,7 +746,16 @@ class TmdbRepository(private val client: HttpClient) {
                 event = "feed_request_failed",
                 message = "TMDB feed request failed: $path",
                 throwable = e,
+                attributes = mapOf(
+                    "answered" to (e is ResponseException).toString(),
+                    "status" to ((e as? ResponseException)?.response?.status?.value?.toString()
+                        ?: "none"),
+                ),
             )
+            // Stays local to this shelf on purpose. These run as siblings under one
+            // `coroutineScope`, so rethrowing here cancels every feed that *did* answer —
+            // one unreachable shelf would take the whole screen down with it. Whether TMDB
+            // is reachable at all is a question about the set, and `home` answers it.
             emptyList()
         }
 

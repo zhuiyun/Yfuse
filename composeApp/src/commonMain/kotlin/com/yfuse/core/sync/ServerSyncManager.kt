@@ -5,6 +5,8 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.network.EmbyError
+import com.yfuse.core.network.EmbyErrorException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -75,12 +77,29 @@ class ServerSyncManager(
         const val ARTWORK_KEY = "sync.artwork"
         const val FAVORITES_KEY = "sync.favorites"
         const val PERIOD_MS = 15 * 60 * 1000L
+
+        /** Ceiling on the exponential hold-off for a server that keeps failing. */
+        const val MAX_BACKOFF_MS = 60 * 60 * 1000L
+
+        /** A rejected credential waits for the user, not for the clock. */
+        const val UNAUTHORIZED_BACKOFF_MS = 6 * 60 * 60 * 1000L
     }
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val pendingSerializer = ListSerializer(PendingSyncMutation.serializer())
     private val pending = MutableStateFlow(loadPending())
     private val snapshots = mutableMapOf<String, List<SyncedUserItem>>()
+
+    /**
+     * Per-server consecutive failures, and the earliest time each may be tried again.
+     *
+     * Every server in the list used to be retried on every cycle regardless of history. In
+     * practice one server timed out on all fourteen of its attempts across a week of logs and
+     * another answered 403 six times running, and each of those cost the sweep a full request
+     * budget before the servers that do work were reached.
+     */
+    private val failureStreaks = mutableMapOf<String, Int>()
+    private val retryNotBeforeEpochMs = mutableMapOf<String, Long>()
     private val _state = MutableStateFlow(
         ServerSyncState(
             pendingCount = pending.value.size,
@@ -146,8 +165,13 @@ class ServerSyncManager(
         registry.defaultServer?.let { sync(it) }
     }
 
-    suspend fun syncAll() {
-        registry.data.value.servers.forEach { sync(it) }
+    /**
+     * [force] bypasses the per-server hold-off, for a sync the user asked for by name.
+     * Without it 立即同步 would silently do nothing for exactly the servers the user is
+     * pressing it because of.
+     */
+    suspend fun syncAll(force: Boolean = false) {
+        registry.data.value.servers.forEach { sync(it, force) }
     }
 
     suspend fun setFavorite(
@@ -260,10 +284,27 @@ class ServerSyncManager(
         return result
     }
 
-    private suspend fun sync(server: SavedServer) {
+    private suspend fun sync(server: SavedServer, force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val notBefore = retryNotBeforeEpochMs[server.id]?.takeUnless { force }
+        if (notBefore != null && now < notBefore) {
+            AppLog.info(
+                category = "sync",
+                event = "server_sync_skipped",
+                message = "Server synchronization skipped while backing off",
+                attributes = mapOf(
+                    "serverId" to server.id,
+                    "failureStreak" to (failureStreaks[server.id] ?: 0).toString(),
+                    "retryInMs" to (notBefore - now).toString(),
+                ),
+            )
+            return
+        }
         setStatus(server) { it.copy(syncing = true, error = null) }
         repo.userLibrarySnapshot(server).fold(
             onSuccess = { remote ->
+                failureStreaks.remove(server.id)
+                retryNotBeforeEpochMs.remove(server.id)
                 val conflicts = detectConflicts(server.id, remote)
                 snapshots[server.id] = remote
                 setStatus(server) {
@@ -309,23 +350,54 @@ class ServerSyncManager(
                 replayNonConflicting(server, conflicts)
             },
             onFailure = { error ->
+                val unauthorized = error.isUnauthorized()
+                val streak = (failureStreaks[server.id] ?: 0) + 1
+                failureStreaks[server.id] = streak
+                val backoffMs = backoffFor(streak, unauthorized)
+                retryNotBeforeEpochMs[server.id] = System.currentTimeMillis() + backoffMs
                 AppLog.warning(
                     category = "sync",
                     event = "server_sync_failed",
                     message = "Server synchronization failed",
                     throwable = error,
-                    attributes = mapOf("serverId" to server.id),
+                    attributes = mapOf(
+                        "serverId" to server.id,
+                        "failureStreak" to streak.toString(),
+                        "backoffMs" to backoffMs.toString(),
+                        "unauthorized" to unauthorized.toString(),
+                    ),
                 )
                 setStatus(server) {
                     it.copy(
                         syncing = false,
                         online = false,
-                        error = error.message ?: "同步失败",
+                        error = when {
+                            // A revoked token is not a network hiccup, and the old wording
+                            // sent the user looking at their connection instead of re-signing in.
+                            unauthorized -> "登录已失效，请重新登录该服务器"
+                            else -> error.message ?: "同步失败"
+                        },
                     )
                 }
             },
         )
     }
+
+    /**
+     * How long to leave a failing server alone.
+     *
+     * An expired credential is held off far longer than a timeout: no number of retries fixes
+     * it, and the user has been told what to do about it. Both are capped so that a server
+     * which comes back is picked up again within an hour without the app being restarted.
+     */
+    private fun backoffFor(streak: Int, unauthorized: Boolean): Long {
+        if (unauthorized) return UNAUTHORIZED_BACKOFF_MS
+        val exponent = (streak - 1).coerceIn(0, 5)
+        return (PERIOD_MS * (1L shl exponent)).coerceAtMost(MAX_BACKOFF_MS)
+    }
+
+    private fun Throwable.isUnauthorized(): Boolean =
+        (this as? EmbyErrorException)?.error == EmbyError.Unauthorized
 
     private suspend fun replayNonConflicting(
         server: SavedServer,

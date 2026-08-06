@@ -1202,7 +1202,7 @@ private fun RecoveryCenterScreen(
                         color = palette.sub2,
                     )
                     RecoveryAction("立即同步") {
-                        scope.launch { syncManager.syncAll() }
+                        scope.launch { syncManager.syncAll(force = true) }
                     }
                 }
                 if (sync.statuses.isEmpty()) {
