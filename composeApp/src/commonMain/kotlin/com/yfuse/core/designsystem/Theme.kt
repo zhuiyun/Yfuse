@@ -34,6 +34,26 @@ enum class ThemeMode(val label: String) {
     Light("浅色"),
 }
 
+/**
+ * Which launch choreography plays. Each one is a self-contained implementation; adding a
+ * variant here is enough to make it selectable.
+ */
+enum class SplashAnimation(val label: String, val description: String) {
+    One("动画1", "水滴落入云端，碎成播放键"),
+    Two("动画2", "水滴积成一汪，炸开满屏水花"),
+}
+
+/**
+ * The single definition of "is the UI dark right now". The splash, the window background and
+ * the app itself all have to agree — when they each rolled their own `== ThemeMode.Dark` the
+ * launch traded a black frame for a white one before the first screen appeared.
+ */
+fun ThemeMode.resolveDark(systemDark: Boolean): Boolean = when (this) {
+    ThemeMode.System -> systemDark
+    ThemeMode.Dark -> true
+    ThemeMode.Light -> false
+}
+
 val LocalPalette = staticCompositionLocalOf { LightPalette }
 val LocalAccent = staticCompositionLocalOf { AccentColor.Blue }
 

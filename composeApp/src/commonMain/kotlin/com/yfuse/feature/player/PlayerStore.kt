@@ -59,7 +59,64 @@ data class PlayerMediaVersion(
     val sourceBitrateBps: Int? = null,
     /** Lets an engine distinguish a genuinely silent file from a missing audio track. */
     val audioTrackCount: Int = 0,
-)
+    /**
+     * The id already baked into the three URLs above, so the playback reports can name the
+     * same session the server started an encoding for. See [EmbyStream.newPlaySessionId].
+     *
+     * Blank for entries built before this field existed (an older build's marshalled queue)
+     * and for offline files, which have no server session at all.
+     */
+    val playSessionId: String = "",
+) {
+    /**
+     * The same physical file addressed as a brand-new playback session.
+     *
+     * Version choices can return to a file used earlier in the same player. Reusing its old
+     * id lets a delayed `Stopped`/DELETE from the previous binding kill the new encoder.
+     */
+    fun withFreshPlaySession(): PlayerMediaVersion {
+        val sessionId = EmbyStream.newPlaySessionId()
+        return copy(
+            url = url.withPlaySessionId(sessionId),
+            transcodeUrl = transcodeUrl.withPlaySessionId(sessionId),
+            fallbackTranscodeUrl = fallbackTranscodeUrl.withPlaySessionId(sessionId),
+            playSessionId = sessionId,
+        )
+    }
+}
+
+/** Builds version-specific addresses once, with the physical MediaSource id in every URL. */
+internal fun List<MediaVersion>.toPlayerMediaVersions(
+    baseUrl: String,
+    itemId: String,
+    token: String,
+): List<PlayerMediaVersion> = map { version ->
+    val urls = EmbyStream.streamUrls(
+        baseUrl = baseUrl,
+        itemId = itemId,
+        token = token,
+        mediaSourceId = version.id,
+        sourceWidth = version.video?.width,
+        sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
+    )
+    PlayerMediaVersion(
+        id = version.id,
+        label = version.name,
+        detail = version.summary,
+        url = urls.direct,
+        transcodeUrl = urls.transcode,
+        fallbackTranscodeUrl = urls.progressiveTranscode,
+        playSessionId = urls.playSessionId,
+        container = version.container?.uppercase(),
+        dolbyVision = version.isDolbyVision,
+        dolbyAtmos = version.hasDolbyAtmos,
+        dolbyProfile = version.dolbyProfile,
+        needsDolbyDecoder = version.needsDolbyCapableDecoder,
+        sourceWidth = version.video?.width,
+        sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
+        audioTrackCount = version.audioTracks.size,
+    )
+}
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
 data class PlayerMediaItem(
@@ -107,6 +164,8 @@ data class PlayerMediaItem(
     val progress: Float? = null,
     /** `第 4 集` — the coordinate alone, under the episode's own name. */
     val caption: String? = null,
+    /** See [PlayerMediaVersion.playSessionId]; this is the active version's. */
+    val playSessionId: String = "",
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.
@@ -122,12 +181,31 @@ data class PlayerMediaItem(
     /** The same entry playing a different file, or unchanged when there is no such file. */
     fun withVersion(id: String?): PlayerMediaItem {
         val version = versions.firstOrNull { it.id == id } ?: return this
+        return withVersion(version)
+    }
+
+    /** Applies a resolved version instance, including a freshly rotated playback session. */
+    fun withVersion(version: PlayerMediaVersion): PlayerMediaItem {
+        if (versions.none { it.id == version.id }) return this
         return copy(
             url = version.url,
             transcodeUrl = version.transcodeUrl,
             fallbackTranscodeUrl = version.fallbackTranscodeUrl,
             versionId = version.id,
+            // Moves with the URLs: each version's addresses were built with their own id,
+            // and reporting one session's id against another's stream ends the wrong job.
+            playSessionId = version.playSessionId,
         )
+    }
+}
+
+private fun String.withPlaySessionId(sessionId: String): String {
+    if (isBlank()) return this
+    val parameter = Regex("([?&])PlaySessionId=[^&]*")
+    return if (parameter.containsMatchIn(this)) {
+        replace(parameter, "$1PlaySessionId=$sessionId")
+    } else {
+        "$this${if ('?' in this) '&' else '?'}PlaySessionId=$sessionId"
     }
 }
 
@@ -145,11 +223,39 @@ internal fun List<PlayerMediaItem>.hasSamePlaybackSourcesAs(other: List<PlayerMe
         val current = this[index]
         val refreshed = other[index]
         current.id == refreshed.id &&
-            current.url == refreshed.url &&
-            current.transcodeUrl == refreshed.transcodeUrl &&
-            current.fallbackTranscodeUrl == refreshed.fallbackTranscodeUrl
+            current.url.playbackSourceKey() == refreshed.url.playbackSourceKey() &&
+            current.transcodeUrl.playbackSourceKey() ==
+                refreshed.transcodeUrl.playbackSourceKey() &&
+            current.fallbackTranscodeUrl.playbackSourceKey() ==
+                refreshed.fallbackTranscodeUrl.playbackSourceKey()
     }
 }
+
+/**
+ * The entries [other] adds after this queue, or null when it is not a pure extension of it.
+ *
+ * Appending is the one shape of change an engine can absorb while playing. Anything else — a
+ * reorder, a removal, a file swapped underneath an entry — needs the engine rebuilt, because
+ * its playlist is addressed by position.
+ */
+internal fun List<PlayerMediaItem>.appendedBy(
+    other: List<PlayerMediaItem>,
+): List<PlayerMediaItem>? {
+    if (other.size <= size) return null
+    if (!hasSamePlaybackSourcesAs(other.subList(0, size))) return null
+    return other.subList(size, other.size).toList()
+}
+
+/**
+ * The address with the id that identifies *this* playback of it removed.
+ *
+ * A play session is minted per queue build, so two entries can name the same file through
+ * different session ids. Comparing the raw URLs would then read "the sources changed" and
+ * tear down a healthy engine — which is the question this key exists to answer correctly.
+ * For comparison only; the result is not a fetchable URL.
+ */
+private fun String.playbackSourceKey(): String =
+    replace(Regex("[?&]PlaySessionId=[^&]*"), "")
 
 data class PlayerState(
     val loading: Boolean = true,
@@ -208,50 +314,6 @@ class PlayerStoreFactory(
                     return@launch
                 }
 
-                fun versionsOf(id: String, versions: List<MediaVersion>) = versions.map {
-                    // Aim the fallback at the file it is replacing rather than at a fixed
-                    // 1080p — see EmbyStream.transcodeTarget.
-                    val (targetWidth, targetBitrate) = EmbyStream.transcodeTarget(
-                        sourceWidth = it.video?.width,
-                        sourceBitrateBps = it.bitrateBps ?: it.video?.bitrateBps,
-                    )
-                    PlayerMediaVersion(
-                        id = it.id,
-                        label = it.name,
-                        detail = it.summary,
-                        url = EmbyStream.directPlay(
-                            server.baseUrl,
-                            id,
-                            server.accessToken,
-                            mediaSourceId = it.id,
-                        ),
-                        transcodeUrl = EmbyStream.transcode(
-                            server.baseUrl,
-                            id,
-                            server.accessToken,
-                            maxWidth = targetWidth,
-                            videoBitrate = targetBitrate,
-                            mediaSourceId = it.id,
-                        ),
-                        fallbackTranscodeUrl = EmbyStream.progressiveTranscode(
-                            server.baseUrl,
-                            id,
-                            server.accessToken,
-                            maxWidth = targetWidth,
-                            videoBitrate = targetBitrate,
-                            mediaSourceId = it.id,
-                        ),
-                        container = it.container?.uppercase(),
-                        dolbyVision = it.isDolbyVision,
-                        dolbyAtmos = it.hasDolbyAtmos,
-                        dolbyProfile = it.dolbyProfile,
-                        needsDolbyDecoder = it.needsDolbyCapableDecoder,
-                        sourceWidth = it.video?.width,
-                        sourceBitrateBps = it.bitrateBps ?: it.video?.bitrateBps,
-                        audioTrackCount = it.audioTracks.size,
-                    )
-                }
-
                 fun itemOf(
                     id: String,
                     title: String,
@@ -267,24 +329,37 @@ class PlayerStoreFactory(
                     progress: Float? = null,
                     caption: String? = null,
                 ): PlayerMediaItem {
-                  val playerVersions = versionsOf(id, versions)
+                  val playerVersions = versions.toPlayerMediaVersions(
+                      baseUrl = server.baseUrl,
+                      itemId = id,
+                      token = server.accessToken,
+                  )
                   // The file the detail page picked, else the server's first — which is
                   // also what an unqualified stream request would have returned anyway.
                   val chosen = playerVersions.firstOrNull { it.id == mediaSourceId }
                       ?: playerVersions.firstOrNull()
+                  // Entries whose sources were never fetched still need addresses; they get
+                  // the unqualified ones, which is the file the server would have picked.
+                  val unqualified = chosen ?: EmbyStream
+                      .streamUrls(server.baseUrl, id, server.accessToken)
+                      .let {
+                          PlayerMediaVersion(
+                              id = id,
+                              label = "",
+                              detail = "",
+                              url = it.direct,
+                              transcodeUrl = it.transcode,
+                              fallbackTranscodeUrl = it.progressiveTranscode,
+                              playSessionId = it.playSessionId,
+                          )
+                      }
                   return PlayerMediaItem(
                     id = id,
-                    url = chosen?.url
-                        ?: EmbyStream.directPlay(server.baseUrl, id, server.accessToken),
-                    transcodeUrl = chosen?.transcodeUrl
-                        ?: EmbyStream.transcode(server.baseUrl, id, server.accessToken),
+                    url = unqualified.url,
+                    transcodeUrl = unqualified.transcodeUrl,
                     title = title,
-                    fallbackTranscodeUrl = chosen?.fallbackTranscodeUrl
-                        ?: EmbyStream.progressiveTranscode(
-                            server.baseUrl,
-                            id,
-                            server.accessToken,
-                        ),
+                    fallbackTranscodeUrl = unqualified.fallbackTranscodeUrl,
+                    playSessionId = unqualified.playSessionId,
                     serverId = server.id,
                     playbackSegments = playbackSegments,
                     seasonNumber = seasonNumber,
@@ -347,7 +422,12 @@ class PlayerStoreFactory(
                         .getOrNull()
                         ?.providerIds
                         .orEmpty()
-                    val episodesResult = repo.episodes(server, seriesId, null)
+                    val episodesResult = repo.episodes(
+                        server,
+                        seriesId,
+                        null,
+                        includeMediaSources = true,
+                    )
                     episodesResult.onFailure {
                         AppLog.warning(
                             category = "feature.player",
@@ -370,12 +450,11 @@ class PlayerStoreFactory(
                                 seriesId,
                                 detail.seriesName,
                                 seriesProviderIds,
-                                // Only the episode actually opened has had its sources
-                                // fetched; the rest of the season came from a list query
-                                // that doesn't carry them, and detailing every episode to
-                                // populate a picker almost nobody opens isn't worth the
-                                // round trips.
-                                versions = if (ep.id == itemId) detail.versions else emptyList(),
+                                // The opened detail is the freshest copy; every sibling now
+                                // carries MediaSources from the single episode-list request.
+                                // Without this, their transcode URL used item id as
+                                // MediaSourceId and Emby rejected it with HTTP 400.
+                                versions = if (ep.id == itemId) detail.versions else ep.versions,
                                 stillTag = ep.primaryTag,
                                 // A finished episode reads as full rather than as untouched:
                                 // Emby clears the resume percentage on completion, so the

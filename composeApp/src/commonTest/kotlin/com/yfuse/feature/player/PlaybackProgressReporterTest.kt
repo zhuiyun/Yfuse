@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class PlaybackProgressReporterTest {
 
@@ -77,6 +78,246 @@ class PlaybackProgressReporterTest {
             ),
             events.map(Event::summary),
         )
+    }
+
+    /**
+     * The reports have to name the session the stream URLs were built with. When they did not,
+     * `Playing/Stopped` described a session the server had no encoding for, so the transcode
+     * it was reporting the end of kept running.
+     */
+    @Test
+    fun reports_carry_the_session_id_the_stream_urls_were_built_with() = runTest {
+        val events = mutableListOf<Event>()
+        val reporter = PlaybackProgressReporter(
+            items = listOf(
+                PlayerMediaItem(
+                    id = "e1",
+                    url = "direct-1?PlaySessionId=yfuse-abc",
+                    transcodeUrl = "transcode-1?PlaySessionId=yfuse-abc",
+                    title = "第一集",
+                    playSessionId = "yfuse-abc",
+                ),
+            ),
+            sink = RecordingSink(events),
+            scope = this,
+        )
+
+        reporter.update(PlaybackState(playing = true, positionMs = 1_000L))
+        runCurrent()
+        reporter.close(PlaybackState(positionMs = 5_000L))
+        runCurrent()
+
+        assertEquals(listOf("started", "progress", "stopped"), events.map(Event::kind))
+        assertEquals(List(3) { "yfuse-abc" }, events.map(Event::sessionId))
+    }
+
+    @Test
+    fun version_handover_stops_old_session_and_reports_the_new_session() = runTest {
+        val events = mutableListOf<Event>()
+        val sink = RecordingSink(events)
+        val original = PlayerMediaItem(
+            id = "movie",
+            url = "direct/original",
+            transcodeUrl = "hls/original",
+            title = "电影",
+            playSessionId = "session-original",
+            versions = listOf(
+                PlayerMediaVersion(
+                    id = "alternate",
+                    label = "备用版本",
+                    detail = "",
+                    url = "direct/alternate",
+                    transcodeUrl = "hls/alternate",
+                    fallbackTranscodeUrl = "progressive/alternate",
+                    playSessionId = "session-alternate",
+                ),
+            ),
+        )
+
+        val reporter = PlaybackProgressReporter(listOf(original), sink, this)
+        reporter.update(PlaybackState(playing = true, positionMs = 1_000L))
+        runCurrent()
+        reporter.rebind(
+            items = listOf(original.withVersion("alternate")),
+            state = PlaybackState(playing = true, positionMs = 3_000L),
+        )
+        runCurrent()
+        reporter.close(PlaybackState(positionMs = 5_000L))
+        runCurrent()
+
+        assertEquals(
+            listOf(
+                "session-original",
+                "session-original",
+                "session-alternate",
+                "session-alternate",
+                "session-alternate",
+            ),
+            events.map(Event::sessionId),
+        )
+        assertEquals(
+            listOf("started", "stopped", "started", "progress", "stopped"),
+            events.map(Event::kind),
+        )
+    }
+
+    @Test
+    fun appending_an_episode_does_not_restart_the_active_session() = runTest {
+        val events = mutableListOf<Event>()
+        val first = PlayerMediaItem(
+            "e1", "direct-1", "hls-1", "第一集", playSessionId = "session-1",
+        )
+        val second = PlayerMediaItem(
+            "e2", "direct-2", "hls-2", "第二集", playSessionId = "session-2",
+        )
+        val reporter = PlaybackProgressReporter(listOf(first), RecordingSink(events), this)
+        reporter.update(PlaybackState(playing = true, currentIndex = 0, positionMs = 1_000L))
+        runCurrent()
+
+        reporter.rebind(
+            listOf(first, second),
+            PlaybackState(playing = true, currentIndex = 0, positionMs = 2_000L),
+        )
+        runCurrent()
+        assertEquals(listOf("started"), events.map(Event::kind))
+
+        reporter.update(PlaybackState(playing = true, currentIndex = 1, positionMs = 0L))
+        runCurrent()
+        reporter.close(PlaybackState(currentIndex = 1, positionMs = 1_000L))
+        runCurrent()
+
+        assertEquals(
+            listOf("session-1", "session-1", "session-2", "session-2", "session-2"),
+            events.map(Event::sessionId),
+        )
+        assertEquals(
+            listOf("started", "stopped", "started", "progress", "stopped"),
+            events.map(Event::kind),
+        )
+    }
+
+    @Test
+    fun reordering_the_queue_follows_the_active_session_instead_of_the_old_numeric_index() = runTest {
+        val events = mutableListOf<Event>()
+        val first = PlayerMediaItem(
+            "e1", "direct-1", "hls-1", "第一集", playSessionId = "session-1",
+        )
+        val second = PlayerMediaItem(
+            "e2", "direct-2", "hls-2", "第二集", playSessionId = "session-2",
+        )
+        val reporter = PlaybackProgressReporter(listOf(first, second), RecordingSink(events), this)
+        reporter.update(
+            PlaybackState(playing = true, currentIndex = 1, positionMs = 1_000L, itemCount = 2),
+        )
+        runCurrent()
+
+        // Queue refresh arrives before the rebuilt engine publishes its remapped index. Index 1
+        // still means e2 in the old queue, but means e1 in the new queue.
+        reporter.rebind(
+            listOf(second, first),
+            PlaybackState(playing = true, currentIndex = 1, positionMs = 2_000L, itemCount = 2),
+        )
+        runCurrent()
+        reporter.update(
+            PlaybackState(playing = true, currentIndex = 0, positionMs = 2_000L, itemCount = 2),
+        )
+        runCurrent()
+        reporter.close(
+            PlaybackState(playing = false, currentIndex = 0, positionMs = 3_000L, itemCount = 2),
+        )
+        runCurrent()
+
+        assertEquals(listOf("e2", "e2", "e2"), events.map(Event::itemId))
+        assertEquals(listOf("started", "progress", "stopped"), events.map(Event::kind))
+        assertTrue(events.all { it.sessionId == "session-2" })
+    }
+
+    @Test
+    fun shrinking_the_queue_remaps_the_active_index_without_starting_the_session_twice() = runTest {
+        val events = mutableListOf<Event>()
+        val first = PlayerMediaItem(
+            "e1", "direct-1", "hls-1", "第一集", playSessionId = "session-1",
+        )
+        val second = PlayerMediaItem(
+            "e2", "direct-2", "hls-2", "第二集", playSessionId = "session-2",
+        )
+        val third = PlayerMediaItem(
+            "e3", "direct-3", "hls-3", "第三集", playSessionId = "session-3",
+        )
+        val reporter = PlaybackProgressReporter(
+            listOf(first, second, third),
+            RecordingSink(events),
+            this,
+        )
+        reporter.update(
+            PlaybackState(playing = true, currentIndex = 2, positionMs = 1_000L, itemCount = 3),
+        )
+        runCurrent()
+
+        // e3 survives at index 1. The old implementation left activeIndex=2 pointing past the
+        // shortened list, then treated the next update as a second start of the same session.
+        reporter.rebind(
+            listOf(second, third),
+            PlaybackState(playing = true, currentIndex = 2, positionMs = 2_000L, itemCount = 3),
+        )
+        runCurrent()
+        reporter.update(
+            PlaybackState(playing = true, currentIndex = 1, positionMs = 2_000L, itemCount = 2),
+        )
+        runCurrent()
+        reporter.close(
+            PlaybackState(playing = false, currentIndex = 1, positionMs = 3_000L, itemCount = 2),
+        )
+        runCurrent()
+
+        assertEquals(listOf("e3", "e3", "e3"), events.map(Event::itemId))
+        assertEquals(listOf("started", "progress", "stopped"), events.map(Event::kind))
+        assertTrue(events.all { it.sessionId == "session-3" })
+    }
+
+    @Test
+    fun recoverable_engine_error_does_not_delete_session_before_handover() = runTest {
+        val events = mutableListOf<Event>()
+        val item = PlayerMediaItem(
+            "movie", "direct", "hls", "电影", playSessionId = "session",
+        )
+        val reporter = PlaybackProgressReporter(listOf(item), RecordingSink(events), this)
+        reporter.update(PlaybackState(playing = true, positionMs = 1_000L))
+        runCurrent()
+
+        reporter.update(
+            PlaybackState(
+                playing = false,
+                positionMs = 1_500L,
+                error = "当前引擎失败",
+                fallbacksExhausted = true,
+            ),
+        )
+        runCurrent()
+
+        assertEquals(listOf("started", "progress"), events.map(Event::kind))
+        reporter.close(PlaybackState(positionMs = 1_500L, error = "全部失败"))
+        runCurrent()
+        assertEquals("stopped", events.last().kind)
+    }
+
+    @Test
+    fun an_entry_without_a_session_id_still_gets_one() = runTest {
+        // Offline files, and queues marshalled by a build that predates the field.
+        val events = mutableListOf<Event>()
+        val reporter = PlaybackProgressReporter(
+            items = listOf(PlayerMediaItem("e1", "file:///movie.mkv", "", "本地文件")),
+            sink = RecordingSink(events),
+            scope = this,
+        )
+
+        reporter.update(PlaybackState(playing = true, positionMs = 1_000L))
+        runCurrent()
+        reporter.close(PlaybackState(positionMs = 1_000L))
+        runCurrent()
+
+        assertTrue(events.isNotEmpty())
+        assertTrue(events.all { it.sessionId.isNotBlank() }, events.toString())
     }
 
     private data class Event(

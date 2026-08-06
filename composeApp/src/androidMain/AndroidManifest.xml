@@ -37,7 +37,7 @@
             android:name="com.yfuse.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.Yfuse.Launch"
+            android:theme="@style/Theme.Yfuse"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density|uiMode"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

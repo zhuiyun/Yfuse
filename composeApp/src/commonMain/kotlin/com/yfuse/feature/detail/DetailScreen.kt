@@ -88,12 +88,14 @@ import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
+import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.player.PlaybackSelection
+import com.yfuse.feature.player.PlaybackSelectionState
 import com.yfuse.feature.watch.WatchInviteShareSheet
 import org.koin.core.context.GlobalContext
 
@@ -114,6 +116,36 @@ private val PlayButtonHeroOverlap = SheetGap + DetailPlayButtonHeight + 20.dp
  * lift, so being a little out costs one frame of settling and nothing else.
  */
 private val TypicalCaptionHeight = 116.dp
+
+/**
+ * A player selection is consumed only after this detail screen can resolve it.
+ *
+ * The player may publish its selection before either the initial playable episode or the
+ * cross-server comparison has arrived. Returning false leaves the one-shot pending so the
+ * surrounding [LaunchedEffect] can try again when those asynchronous inputs change.
+ */
+internal fun shouldApplyPlaybackSelection(
+    selection: PlaybackSelectionState,
+    appliedSelection: PlaybackSelectionState?,
+    detailReady: Boolean,
+    playServerId: String?,
+    playTargetReady: Boolean,
+    sources: List<ServerSource>,
+): Boolean {
+    if (!detailReady || selection == appliedSelection) return false
+    val serverId = selection.serverId ?: return false
+    if (selection.itemId == null) return false
+    return if (playServerId == serverId) {
+        playTargetReady
+    } else {
+        sources.any { source ->
+            source.serverId == serverId &&
+                source.reachable &&
+                source.source != null &&
+                source.itemId != null
+        }
+    }
+}
 
 /** The selected visual target puts the glass summary over the lower third of the hero. */
 @Composable
@@ -152,30 +184,41 @@ fun DetailScreen(component: DetailComponent) {
     var overviewExpanded by remember { mutableStateOf(false) }
     // Hoisted out of the list: the hero badges what this copy is, and 媒体信息 at the foot
     // of the page spells the same file out — one answer to "which file", read twice.
-    val playableVersions = state.playTarget?.versions.orEmpty()
-    val selectedVersion = playableVersions.firstOrNull { it.id == state.selectedVersionId }
-        ?: playableVersions.firstOrNull()
-    // Resource, episode, version and resume are one pending playback selection. Keeping
-    // them together here makes the main key an exact preview of either way playback starts.
-    val playDetailLine = remember(
-        state.playServer,
-        state.playTarget,
+    val serverVersions = state.playTarget?.versions.orEmpty()
+    val playableVersions = remember(serverVersions) { serverVersions.bestVersionsFirst() }
+    // Resolved against the server's own order, not the sorted one: the fallback is "whatever
+    // the server lists first", which is also what an unqualified stream request returns.
+    val selectedVersion = serverVersions.firstOrNull { it.id == state.selectedVersionId }
+        ?: serverVersions.firstOrNull()
+    // 资源 has to describe the file that will play, not the server's default — see `describing`.
+    val comparableSources = remember(
+        state.sources,
         selectedVersion,
-        state.playPositionTicks,
+        state.selectedSourceServerId,
+        state.selectedSourceItemId,
     ) {
+        // Restate first, then rank the facts the cards actually display. Sorting the old
+        // default and rewriting it afterwards could leave a selected 720p copy wearing Best
+        // while a visible 1080p copy sat behind it.
+        state.sources.describing(
+            version = selectedVersion,
+            selectedServerId = state.selectedSourceServerId,
+            selectedItemId = state.selectedSourceItemId,
+        ).bestSourcesFirst()
+    }
+    // Which library, and which episode. It used to append the version name, its quality
+    // label and the resume timestamp as well, which on a long server name ran past the
+    // button and ellipsized the part that identifies the episode. The version is stated by
+    // 版本 and 媒体信息, and the resume point by the progress bar under the button.
+    val playDetailLine = remember(state.playServer, state.playTarget) {
         val target = state.playTarget
         val coordinate = listOfNotNull(
             target?.seasonNumber?.let { "S$it" },
             target?.episodeNumber?.let { "E$it" },
         ).joinToString(" ").takeIf { it.isNotBlank() }
-        val resume = state.playPositionTicks
-            .takeIf { it > 0L }
-            ?.let { clockLabel(it / 10_000L) }
         listOfNotNull(
             state.playServer?.serverName,
             coordinate,
-            selectedVersion?.let { "${it.name} ${it.qualityLabel}" },
-            resume,
         ).joinToString(" · ").takeIf { it.isNotBlank() }
     }
 
@@ -189,19 +232,46 @@ fun DetailScreen(component: DetailComponent) {
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
 
+    // Mirroring the player's last selection is a one-shot per selection, not a standing rule.
+    //
+    // `state.playTarget?.versions` used to be a key, and selecting an episode is precisely
+    // what changes it — so every manual switch re-ran this effect, which pushed the episode
+    // the *player* had last played straight back over the one just tapped. Returning from
+    // the player therefore froze the episode list on that episode: the selection was applied,
+    // reverted, and applied again on every attempt.
+    var appliedSelection by remember { mutableStateOf<PlaybackSelectionState?>(null) }
     LaunchedEffect(
         playbackSelection,
+        state.detail,
         state.sources,
         state.episodes,
-        state.playTarget?.versions,
+        state.playServer,
+        state.playTarget,
     ) {
+        // Do not consume the one-shot until the store has enough data to act on it. The old
+        // code marked it applied as soon as the title detail arrived; if cross-server sources
+        // or the playable episode were still loading, SyncPlaybackSelection did nothing and
+        // every later re-run skipped the selection forever.
+        if (
+            !shouldApplyPlaybackSelection(
+                selection = playbackSelection,
+                appliedSelection = appliedSelection,
+                detailReady = state.detail != null,
+                playServerId = state.playServer?.id,
+                playTargetReady = state.playTarget != null,
+                sources = state.sources,
+            )
+        ) return@LaunchedEffect
+        val syncedServerId = playbackSelection.serverId ?: return@LaunchedEffect
+        val syncedItemId = playbackSelection.itemId ?: return@LaunchedEffect
         component.store.accept(
             DetailIntent.SyncPlaybackSelection(
-                serverId = playbackSelection.serverId,
-                itemId = playbackSelection.itemId,
+                serverId = syncedServerId,
+                itemId = syncedItemId,
                 versionId = playbackSelection.versionId,
             ),
         )
+        appliedSelection = playbackSelection
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -370,10 +440,10 @@ fun DetailScreen(component: DetailComponent) {
                     }
                 }
 
-                if (state.sources.any { it.reachable && it.source != null && it.itemId != null }) {
+                if (comparableSources.any { it.reachable && it.source != null && it.itemId != null }) {
                     item(key = "sources") {
                         SourceSection(
-                            sources = state.sources,
+                            sources = comparableSources,
                             selectedServerId = state.selectedSourceServerId,
                             selectedItemId = state.selectedSourceItemId,
                             accent = Brand.Primary,
@@ -550,7 +620,7 @@ fun DetailScreen(component: DetailComponent) {
 
         if (sourceListOpen) {
             SourceListDialog(
-                sources = state.sources,
+                sources = comparableSources,
                 selectedServerId = state.selectedSourceServerId,
                 selectedItemId = state.selectedSourceItemId,
                 accent = Brand.Primary,
@@ -970,16 +1040,6 @@ private fun TitleBlock(
             }
         }
     }
-}
-
-/** `20:01` / `1:20:01` — a position on a timeline, in the shape a player prints it. */
-private fun clockLabel(positionMs: Long): String {
-    val totalSeconds = positionMs / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    val tail = "${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
-    return if (hours > 0) "$hours:$tail" else "$minutes:${seconds.toString().padStart(2, '0')}"
 }
 
 /** `1小时13分钟` — hours only when there are any, because "0小时13分钟" reads as a bug. */

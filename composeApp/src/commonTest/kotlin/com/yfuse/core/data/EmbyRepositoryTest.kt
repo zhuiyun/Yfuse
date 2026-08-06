@@ -4,16 +4,21 @@ import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
+import com.yfuse.core.network.toUserMessage
 import com.yfuse.feature.authRoutes
 import com.yfuse.feature.homeRoutes
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpMethod
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class EmbyRepositoryTest {
@@ -63,7 +68,7 @@ class EmbyRepositoryTest {
 
     @Test
     fun libraries_network_failure_maps_to_network_error() = runTest {
-        val repo = testRepo { throw RuntimeException("boom") }
+        val repo = testRepo { throw IOException("connection closed") }
 
         val res = repo.libraries(server)
 
@@ -250,6 +255,153 @@ class EmbyRepositoryTest {
     }
 
     @Test
+    fun compareSources_uses_each_movies_best_media_source() = runTest {
+        val repo = testRepo {
+            json(
+                """{"Items":[{"Id":"m1","Name":"电影A","Type":"Movie","MediaSources":[""" +
+                    """{"Id":"large-1080","Size":107374182400,"Bitrate":80000000,""" +
+                    """"MediaStreams":[{"Type":"Video","Width":1920,"Height":1080}]},""" +
+                    """{"Id":"compact-4k","Size":21474836480,"Bitrate":20000000,""" +
+                    """"MediaStreams":[{"Type":"Video","Width":3840,"Height":1600}]}]}]}""",
+            )
+        }
+
+        val source = repo.compareSources(
+            servers = listOf(server),
+            currentServerId = server.id,
+            title = "电影A",
+            mediaType = "movie",
+        ).single().source
+
+        assertEquals(3840, source?.videoWidth)
+        assertEquals(1600, source?.videoHeight)
+        assertEquals("4K · 20.0 GB · 20 Mbps", source?.summary)
+    }
+
+    @Test
+    fun compareSources_uses_requested_episode_and_its_best_media_source() = runTest {
+        var nextUpRequests = 0
+        val repo = testRepo { request ->
+            when {
+                request.url.encodedPath.contains("/Shows/NextUp") -> {
+                    nextUpRequests++
+                    json("""{"Items":[]}""")
+                }
+                request.url.encodedPath.endsWith("/Shows/s1/Episodes") -> {
+                    assertEquals("2", request.url.parameters["Season"])
+                    json(
+                        """{"Items":[""" +
+                            """{"Id":"e21","Name":"另一集","Type":"Episode","ParentIndexNumber":2,"IndexNumber":1,""" +
+                            """"MediaSources":[{"Id":"other","MediaStreams":[{"Type":"Video","Width":1280,"Height":720}]}]},""" +
+                            """{"Id":"e23","Name":"目标集","Type":"Episode","ParentIndexNumber":2,"IndexNumber":3,""" +
+                            """"MediaSources":[{"Id":"large-1080","Size":85899345920,"Bitrate":70000000,""" +
+                            """"MediaStreams":[{"Type":"Video","Width":1920,"Height":1080}]},""" +
+                            """{"Id":"compact-4k","Size":16106127360,"Bitrate":18000000,""" +
+                            """"MediaStreams":[{"Type":"Video","Width":3840,"Height":2160}]}]}]}""",
+                    )
+                }
+                else -> json("""{"Items":[{"Id":"s1","Name":"某剧","Type":"Series"}]}""")
+            }
+        }
+
+        val source = repo.compareSources(
+            servers = listOf(server),
+            currentServerId = server.id,
+            title = "某剧",
+            mediaType = "tv",
+            seasonNumber = 2,
+            episodeNumber = 3,
+        ).single().source
+
+        assertEquals(0, nextUpRequests)
+        assertEquals(3840, source?.videoWidth)
+        assertEquals(2160, source?.videoHeight)
+    }
+
+    @Test
+    fun compareSources_does_not_offer_a_server_missing_the_requested_episode() = runTest {
+        val repo = testRepo { request ->
+            if (request.url.encodedPath.endsWith("/Shows/s1/Episodes")) {
+                json(
+                    """{"Items":[{"Id":"e21","Type":"Episode","ParentIndexNumber":2,""" +
+                        """"IndexNumber":1,"MediaSources":[{"Id":"only"}]}]}""",
+                )
+            } else {
+                json("""{"Items":[{"Id":"s1","Name":"某剧","Type":"Series"}]}""")
+            }
+        }
+
+        val result = repo.compareSources(
+            servers = listOf(server),
+            currentServerId = server.id,
+            title = "某剧",
+            mediaType = "tv",
+            seasonNumber = 2,
+            episodeNumber = 3,
+        ).single()
+
+        assertTrue(result.reachable)
+        assertEquals("s1", result.itemId)
+        assertEquals(null, result.source)
+    }
+
+    @Test
+    fun compareSources_retries_io_failures_up_to_success() = runTest {
+        var requests = 0
+        val repo = testRepo {
+            requests++
+            if (requests < 3) throw IOException("connection reset")
+            json(
+                """{"Items":[{"Id":"m1","Name":"电影A","Type":"Movie",""" +
+                    """"MediaSources":[{"Id":"source","MediaStreams":[{"Type":"Video","Height":1080}]}]}]}""",
+            )
+        }
+
+        val result = repo.compareSources(listOf(server), server.id, "电影A").single()
+
+        assertEquals(3, requests)
+        assertTrue(result.reachable)
+        assertEquals("1080P", result.source?.quality)
+    }
+
+    @Test
+    fun compareSources_retries_server_errors_up_to_success() = runTest {
+        var requests = 0
+        val repo = testRepo {
+            requests++
+            if (requests < 3) {
+                respond(content = "", status = HttpStatusCode.ServiceUnavailable)
+            } else {
+                json(
+                    """{"Items":[{"Id":"m1","Name":"电影A","Type":"Movie",""" +
+                        """"MediaSources":[{"Id":"source","MediaStreams":[{"Type":"Video","Height":720}]}]}]}""",
+                )
+            }
+        }
+
+        val result = repo.compareSources(listOf(server), server.id, "电影A").single()
+
+        assertEquals(3, requests)
+        assertTrue(result.reachable)
+        assertEquals("720P", result.source?.quality)
+    }
+
+    @Test
+    fun compareSources_does_not_retry_forbidden() = runTest {
+        var requests = 0
+        val repo = testRepo {
+            requests++
+            respond(content = "", status = HttpStatusCode.Forbidden)
+        }
+
+        val result = repo.compareSources(listOf(server), server.id, "电影A").single()
+
+        assertEquals(1, requests)
+        assertFalse(result.reachable)
+        assertEquals(null, result.source)
+    }
+
+    @Test
     fun compareSources_keeps_found_resource_when_stream_metadata_is_unavailable() = runTest {
         val repo = testRepo { request ->
             if (request.url.encodedPath.endsWith("/Items/m1")) {
@@ -430,5 +582,110 @@ class EmbyRepositoryTest {
             ),
             paths,
         )
+    }
+
+    /**
+     * The snapshot was one `Limit=10000` request. Every library larger than that synced
+     * silently truncated and still reported success — across a week of real logs the reported
+     * item count was 10000 or 1000 and never once a genuine total.
+     */
+    @Test
+    fun user_library_snapshot_pages_until_the_server_total_is_reached() = runTest {
+        val requested = mutableListOf<String>()
+        val total = 4_500
+        val repo = testRepo { request ->
+            requested += request.url.parameters["StartIndex"].orEmpty()
+            val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+            val limit = request.url.parameters["Limit"]?.toInt() ?: 0
+            val page = (start until minOf(start + limit, total)).map { index ->
+                """{"Id":"i$index","Name":"标题$index","UserData":{"Played":true}}"""
+            }
+            json("""{"Items":[${page.joinToString(",")}],"TotalRecordCount":$total}""")
+        }
+
+        val res = repo.userLibrarySnapshot(server)
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals(total, res.getOrThrow().size)
+        assertEquals("i0", res.getOrThrow().first().id)
+        assertEquals("i4499", res.getOrThrow().last().id)
+        assertEquals(listOf("0", "2000", "4000"), requested)
+    }
+
+    @Test
+    fun a_server_that_ignores_start_index_does_not_loop_forever() = runTest {
+        // An empty page is the only signal that a server which reports a large total but
+        // will not paginate has actually run out of rows.
+        var calls = 0
+        val repo = testRepo {
+            calls++
+            json("""{"Items":[],"TotalRecordCount":999999}""")
+        }
+
+        val res = repo.userLibrarySnapshot(server)
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals(0, res.getOrThrow().size)
+        assertEquals(1, calls)
+    }
+
+    /** Emby uses 403 as well as 401 when a token/account is no longer valid. */
+    @Test
+    fun emby_forbidden_is_an_authentication_failure() = runTest {
+        val repo = testRepo { respond(content = "", status = HttpStatusCode.Forbidden) }
+
+        val res = repo.userLibrarySnapshot(server)
+
+        assertTrue(res.isFailure)
+        assertEquals(EmbyError.Unauthorized, (res.exceptionOrNull() as EmbyErrorException).error)
+    }
+
+    @Test
+    fun cloudflare_forbidden_is_an_access_block_not_an_authentication_failure() = runTest {
+        val repo = testRepo {
+            respond(
+                content = "<!doctype html><title>Attention Required | Cloudflare</title>" +
+                    "<p>Sorry, you have been blocked</p>",
+                status = HttpStatusCode.Forbidden,
+                headers = headersOf(HttpHeaders.ContentType, "text/html; charset=UTF-8"),
+            )
+        }
+
+        val res = repo.userLibrarySnapshot(server)
+
+        assertTrue(res.isFailure)
+        val error = (res.exceptionOrNull() as EmbyErrorException).error
+        assertEquals(EmbyError.AccessDenied(provider = "Cloudflare"), error)
+        assertEquals(
+            "访问被 Cloudflare 拦截，请更换网络或联系服务器管理员",
+            error.toUserMessage(),
+        )
+    }
+
+    @Test
+    fun stopping_a_transcode_names_the_device_and_play_session() = runTest {
+        var path: String? = null
+        var query: String? = null
+        val repo = testRepo { request ->
+            path = request.url.encodedPath
+            query = request.url.encodedQuery
+            assertEquals(HttpMethod.Delete, request.method)
+            json("{}")
+        }
+
+        assertTrue(repo.stopTranscoding(server, "yfuse-abc").isSuccess)
+
+        assertEquals("/Videos/ActiveEncodings", path)
+        assertTrue(query!!.contains("PlaySessionId=yfuse-abc"), query!!)
+        assertTrue(query!!.contains("DeviceId="), query!!)
+    }
+
+    @Test
+    fun stopping_an_already_gone_transcode_is_idempotent_success() = runTest {
+        listOf(HttpStatusCode.NotFound, HttpStatusCode.Gone).forEach { status ->
+            val repo = testRepo { respond(content = "", status = status) }
+
+            assertTrue(repo.stopTranscoding(server, "yfuse-gone").isSuccess, status.toString())
+        }
     }
 }

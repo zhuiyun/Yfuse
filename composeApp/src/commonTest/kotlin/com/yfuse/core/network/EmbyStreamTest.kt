@@ -18,6 +18,9 @@ class EmbyStreamTest {
         assertTrue("api_key=token" in fullHd)
         assertTrue("MediaSourceId=movie" in fullHd)
         assertTrue("TranscodingProtocol=hls" in fullHd)
+        assertTrue("Container=ts" in fullHd)
+        assertTrue("MaxAudioChannels=2" in fullHd)
+        assertTrue("TranscodingMaxAudioChannels=2" in fullHd)
     }
 
     @Test
@@ -35,6 +38,20 @@ class EmbyStreamTest {
         assertTrue("static=false" in url)
         assertTrue("MediaSourceId=movie" in url)
         assertTrue("Container=mp4" in url)
+        assertTrue("MaxAudioChannels=2" in url)
+    }
+
+    @Test
+    fun credentials_and_media_source_are_query_encoded() {
+        val url = EmbyStream.transcode(
+            baseUrl = "http://emby",
+            itemId = "movie",
+            token = "token+/= value",
+            mediaSourceId = "source one+two",
+        )
+
+        assertTrue("api_key=token%2B%2F%3D%20value" in url, url)
+        assertTrue("MediaSourceId=source%20one%2Btwo" in url, url)
     }
 
     @Test
@@ -60,5 +77,66 @@ class EmbyStreamTest {
     fun a_source_thinner_than_the_ladder_is_not_padded_out() {
         // Re-encoding a 3 Mbps file at 24 Mbps buys nothing and costs the server.
         assertEquals(3840 to 3_000_000, EmbyStream.transcodeTarget(3840, 3_000_000))
+    }
+
+    /**
+     * Emby matches a running encoding on (DeviceId, PlaySessionId). All three addresses for
+     * one file have to name the same session or falling back from one to another reads as a
+     * second playback — and `Playing/Stopped` can then end neither.
+     */
+    @Test
+    fun every_address_for_a_file_names_the_same_play_session() {
+        val urls = EmbyStream.streamUrls("http://emby", "movie", "token")
+
+        assertTrue(urls.playSessionId.isNotBlank())
+        listOf(urls.direct, urls.transcode, urls.progressiveTranscode).forEach { url ->
+            assertTrue("PlaySessionId=${urls.playSessionId}" in url, url)
+            assertTrue("DeviceId=" in url, url)
+        }
+    }
+
+    @Test
+    fun each_file_gets_its_own_play_session() {
+        val first = EmbyStream.streamUrls("http://emby", "movie", "token")
+        val second = EmbyStream.streamUrls("http://emby", "movie", "token")
+
+        assertTrue(first.playSessionId != second.playSessionId)
+        assertTrue(first.playSessionId.all(Char::isLetterOrDigit))
+    }
+
+    /**
+     * The device id was the literal `yfuse` on every install, so a server could not tell two
+     * of the user's own devices apart and reaped the wrong sessions.
+     */
+    @Test
+    fun the_device_id_is_not_a_shared_constant() {
+        assertTrue("DeviceId=yfuse&" !in EmbyStream.streamUrls("http://emby", "m", "t").transcode)
+        assertTrue(!EmbyStream.streamUrls("http://emby", "m", "t").transcode.endsWith("DeviceId=yfuse"))
+    }
+
+    @Test
+    fun a_transcode_ladder_follows_the_source_through_stream_urls() {
+        val urls = EmbyStream.streamUrls(
+            baseUrl = "http://emby",
+            itemId = "movie",
+            token = "token",
+            sourceWidth = 3840,
+            sourceBitrateBps = 80_000_000,
+        )
+
+        // The episode-polling path used to build these with the bare 1080p/6 Mbps defaults.
+        assertTrue("MaxWidth=3840" in urls.transcode, urls.transcode)
+        assertTrue("VideoBitrate=24000000" in urls.transcode, urls.transcode)
+        assertTrue("MaxWidth=3840" in urls.progressiveTranscode, urls.progressiveTranscode)
+    }
+
+    @Test
+    fun quality_selection_still_rewrites_a_session_bearing_url() {
+        val urls = EmbyStream.streamUrls("http://emby", "movie", "token", sourceWidth = 3840)
+
+        val capped = EmbyStream.withQuality(urls.transcode, PlaybackQuality.FullHd)
+
+        assertTrue("MaxWidth=1920" in capped, capped)
+        assertTrue("PlaySessionId=${urls.playSessionId}" in capped, capped)
     }
 }

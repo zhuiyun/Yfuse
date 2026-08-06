@@ -1,21 +1,25 @@
 package com.yfuse
 
 import android.content.Intent
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.toArgb
 import com.arkivanov.decompose.retainedComponent
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AnimatedSplashApp
 import com.yfuse.app.RootComponent
+import com.yfuse.app.isNightMode
+import com.yfuse.app.splashBackground
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
-import com.yfuse.core.designsystem.ThemeMode
+import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.update.AppUpdateManager
@@ -28,24 +32,17 @@ class MainActivity : ComponentActivity() {
     private var rootComponent: RootComponent? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Cold starts keep the dedicated fullscreen launch theme until the
-        // Compose splash completes. Configuration recreation skips replay.
-        if (savedInstanceState != null) {
-            setTheme(R.style.Theme_Yfuse)
-        } else {
-            val launchTheme = if (
-                GlobalContext.get().get<ThemePreferences>().mode.value == ThemeMode.Dark
-            ) {
-                R.style.Theme_Yfuse_Launch_Dark
-            } else {
-                R.style.Theme_Yfuse_Launch_Light
-            }
-            setTheme(launchTheme)
-        }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // The starting window was painted from the -night resources, so it followed the OS
+        // rather than our own light/dark setting. Repaint the activity window in the colour we
+        // actually resolved, so nothing behind the Compose splash can flash the other way;
+        // AnimatedSplashApp eases the visible splash across the same gap.
         val koin = GlobalContext.get()
+        val dark = koin.get<ThemePreferences>().mode.value.resolveDark(resources.isNightMode())
+        window.setBackgroundDrawable(ColorDrawable(splashBackground(dark).toArgb()))
+
         val root = retainedComponent { ctx ->
             RootComponent(
                 componentContext = ctx,

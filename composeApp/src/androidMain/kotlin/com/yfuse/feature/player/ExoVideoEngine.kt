@@ -16,6 +16,7 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -25,6 +26,7 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.hls.HlsTrackMetadataEntry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
@@ -37,11 +39,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "YfusePlayer"
 
 /** How often the position is sampled; ExoPlayer has no position callback. */
 private const val TICK_MS = 500L
+private const val TRANSIENT_RETRY_LIMIT = 2
+private const val MANIFEST_RETRY_LIMIT = 1
 
 internal enum class UnsupportedMediaTrack { Audio, Video }
 
@@ -56,6 +61,108 @@ internal fun unsupportedMediaTrack(
     else -> null
 }
 
+/** A track before repeated HLS rendition declarations have been collapsed. */
+internal data class ManifestTrackCandidate(
+    val id: String,
+    val label: String,
+    val language: String?,
+    val selected: Boolean,
+    /** EXT-X-MEDIA identity; null for direct files and manifests without rendition metadata. */
+    val manifestGroupId: String?,
+    val manifestName: String?,
+    /** Codec/channel hint used only when two genuine tracks would otherwise look identical. */
+    val qualifier: String? = null,
+)
+
+/**
+ * Collapse only tracks proven to be repeated declarations of one HLS rendition.
+ *
+ * Language and display label are not identities: two real commentary/main audio tracks, or
+ * simplified/traditional subtitles, often share both. HLS gives every EXT-X-MEDIA rendition
+ * a stable `(GROUP-ID, NAME)` pair, so only that pair is safe to merge. When the manifest
+ * omits it, preserving an apparent duplicate is preferable to making a real track unreachable.
+ */
+internal fun collapseManifestTrackDuplicates(
+    candidates: List<ManifestTrackCandidate>,
+): List<EngineTrack> {
+    val collapsed = mutableListOf<ManifestTrackCandidate>()
+    val renditionIndices = mutableMapOf<Pair<String, String>, Int>()
+    candidates.forEach { candidate ->
+        val group = candidate.manifestGroupId?.takeIf { it.isNotBlank() }
+        val name = candidate.manifestName?.takeIf { it.isNotBlank() }
+        val rendition = if (group != null && name != null) group to name else null
+        val existingIndex = rendition?.let(renditionIndices::get)
+        if (existingIndex == null) {
+            rendition?.let { renditionIndices[it] = collapsed.size }
+            collapsed += candidate
+        } else {
+            val existing = collapsed[existingIndex]
+            if (candidate.selected && !existing.selected) {
+                // The row keeps whichever concrete group Exo currently selected, so its tick
+                // and a subsequent selection request both address the active rendition.
+                collapsed[existingIndex] = existing.copy(id = candidate.id, selected = true)
+            }
+        }
+    }
+
+    val labelCounts = collapsed.groupingBy { it.label }.eachCount()
+    val labelOrdinals = mutableMapOf<String, Int>()
+    val uniqueQualifiers = collapsed.groupBy { it.label }.mapValues { (_, group) ->
+        val qualifiers = group.mapNotNull { it.qualifier?.takeIf(String::isNotBlank) }
+        qualifiers.size == group.size && qualifiers.distinct().size == group.size
+    }
+    return collapsed.map { candidate ->
+        val repeatedLabel = (labelCounts[candidate.label] ?: 0) > 1
+        val label = if (!repeatedLabel) {
+            candidate.label
+        } else if (uniqueQualifiers[candidate.label] == true) {
+            "${candidate.label} · ${candidate.qualifier}"
+        } else {
+            val ordinal = (labelOrdinals[candidate.label] ?: 0) + 1
+            labelOrdinals[candidate.label] = ordinal
+            "${candidate.label} $ordinal"
+        }
+        EngineTrack(
+            id = candidate.id,
+            label = label,
+            language = candidate.language,
+            selected = candidate.selected,
+        )
+    }
+}
+
+@UnstableApi
+private fun Format.hlsRenditionIdentity(): Pair<String, String>? {
+    val entries = metadata ?: return null
+    for (index in 0 until entries.length()) {
+        val rendition = entries[index] as? HlsTrackMetadataEntry ?: continue
+        val group = rendition.groupId?.takeIf { it.isNotBlank() } ?: continue
+        val name = rendition.name?.takeIf { it.isNotBlank() } ?: continue
+        return group to name
+    }
+    return null
+}
+
+private fun Format.trackQualifier(type: Int): String? {
+    val codec = codecs
+        ?.substringBefore(',')
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.uppercase()
+        ?: sampleMimeType
+            ?.substringAfterLast('/')
+            ?.takeIf { it.isNotBlank() }
+            ?.uppercase()
+    return when (type) {
+        C.TRACK_TYPE_AUDIO -> listOfNotNull(
+            codec,
+            channelCount.takeIf { it > 0 }?.let { "$it 声道" },
+        ).joinToString(" · ").takeIf(String::isNotBlank)
+        C.TRACK_TYPE_TEXT -> codec
+        else -> codec
+    }
+}
+
 /**
  * ExoPlayer behind the engine-agnostic [VideoEngine] contract.
  *
@@ -68,7 +175,7 @@ internal fun unsupportedMediaTrack(
 @UnstableApi
 class ExoVideoEngine(
     context: Context,
-    private val items: List<PlayerMediaItem>,
+    items: List<PlayerMediaItem>,
     startIndex: Int,
     startPositionMs: Long,
     private val scope: CoroutineScope,
@@ -77,6 +184,7 @@ class ExoVideoEngine(
     quality: PlaybackQuality,
     customUserAgent: String,
     videoCacheBytes: Long,
+    private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
 
     private val _state = MutableStateFlow(
@@ -91,8 +199,17 @@ class ExoVideoEngine(
     )
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
+    /** Grows via [appendItems]; index-keyed state below stays valid because entries only
+     *  ever arrive at the end. */
+    private val items = items.toMutableList()
+
     private val transcodedIndices = mutableSetOf<Int>()
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
+    private val progressiveTransitionIndices = mutableSetOf<Int>()
+    private val retryCounts = mutableMapOf<String, Int>()
+    private var retryJob: Job? = null
+    private var fallbackJob: Job? = null
+    private var released = false
     private val cacheHandle = VideoCachePool.acquire(context.applicationContext, videoCacheBytes)
 
     val player: ExoPlayer = run {
@@ -254,6 +371,7 @@ class ExoVideoEngine(
                 )
             }
             if (state == Player.STATE_READY) {
+                retryCounts.remove(retryKey(player.currentMediaItemIndex))
                 fallbackForUnsupportedTracks(
                     tracks = player.currentTracks,
                     includeMissingExpectedAudio = true,
@@ -268,6 +386,7 @@ class ExoVideoEngine(
                     currentIndex = index,
                     transcoding = index in transcodedIndices,
                     fallbacksExhausted = false,
+                    automaticFallbackBlocked = false,
                     positionMs = 0L,
                     durationMs = knownDuration(),
                     error = null,
@@ -294,20 +413,49 @@ class ExoVideoEngine(
 
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "playback failed: ${error.errorCodeName}", error)
+            val index = player.currentMediaItemIndex
+            val httpCause = generateSequence(error as Throwable) { it.cause }
+                .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                .firstOrNull()
+            val failedUrl = httpCause?.dataSpec?.uri?.toString()
             AppLog.error(
                 category = "player.exo",
                 event = "playback_failed",
                 message = "ExoPlayer playback failed",
                 throwable = error,
-                attributes = mapOf(
-                    "errorCode" to error.errorCodeName,
-                    "itemIndex" to player.currentMediaItemIndex.toString(),
-                    "transcoding" to _state.value.transcoding.toString(),
-                ),
+                attributes = buildMap {
+                    put("errorCode", error.errorCodeName)
+                    put("itemIndex", index.toString())
+                    put("transcoding", _state.value.transcoding.toString())
+                    // Which of the three addresses failed, and — the question the previous
+                    // diagnostic bundles could not answer — what the server actually said.
+                    put("streamVariant", streamVariantOf(index))
+                    failedUrl?.let { url ->
+                        put("requestUrl", sanitizePlaybackUrl(url))
+                        playbackQueryParameter(url, "MediaSourceId")?.let {
+                            put("mediaSourceId", it)
+                        }
+                    }
+                    httpCause?.let {
+                        put("httpStatus", it.responseCode.toString())
+                        put("httpMessage", it.responseMessage.orEmpty().take(120))
+                        it.responseBody
+                            .takeIf { body -> body.isNotEmpty() }
+                            ?.toString(Charsets.UTF_8)
+                            ?.replace(Regex("\\s+"), " ")
+                            ?.trim()
+                            ?.take(240)
+                            ?.takeIf(String::isNotBlank)
+                            ?.let { body -> put("httpBody", sanitizePlaybackUrl(body)) }
+                    }
+                },
             )
             when (error.errorCode) {
                 PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
-                -> if (!switchToProgressiveTranscode()) {
+                -> if (
+                    !scheduleRetry(index, MANIFEST_RETRY_LIMIT, "malformed_manifest") &&
+                    !switchToProgressiveTranscode()
+                ) {
                     _state.update {
                         it.copy(
                             error = "服务器返回了无效的转码清单",
@@ -330,8 +478,63 @@ class ExoVideoEngine(
                     }
                 }
 
+                // The server answered, and refused. This used to fall through to the generic
+                // branch: no fallback attempted, and `fallbacksExhausted` left false, so the
+                // controls still offered a retry that could only fail the same way. Walking
+                // the chain matters most here — a rejected HLS manifest request should still
+                // get the progressive attempt rather than stopping at the first refusal.
+                PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+                PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+                -> if (blocksAutomaticPlaybackFallback(httpCause?.responseCode)) {
+                    _state.update {
+                        it.copy(
+                            error = httpFailureMessage(
+                                httpCause?.responseCode,
+                                httpCause?.responseBody?.toString(Charsets.UTF_8),
+                            ),
+                            buffering = false,
+                            fallbacksExhausted = true,
+                            automaticFallbackBlocked = true,
+                        )
+                    }
+                } else if (!advanceFallback()) {
+                    _state.update {
+                        it.copy(
+                            error = httpFailureMessage(
+                                httpCause?.responseCode,
+                                httpCause?.responseBody?.toString(Charsets.UTF_8),
+                            ),
+                            buffering = false,
+                            fallbacksExhausted = true,
+                        )
+                    }
+                }
+
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+                -> if (
+                    !scheduleRetry(index, TRANSIENT_RETRY_LIMIT, "transient_network") &&
+                    !advanceFallback()
+                ) {
+                    _state.update {
+                        it.copy(
+                            error = "网络连接多次失败，已尝试所有播放方式",
+                            buffering = false,
+                            fallbacksExhausted = true,
+                        )
+                    }
+                }
+
                 else -> _state.update {
-                    it.copy(error = "播放失败：${error.errorCodeName}", buffering = false)
+                    // Unknown fatal errors still get the bounded engine/version recovery in
+                    // PlayerRoot. Leaving this false stranded the user on Exo even though two
+                    // independent decoder stacks and possibly another file were available.
+                    it.copy(
+                        error = "播放失败：${error.errorCodeName}",
+                        buffering = false,
+                        fallbacksExhausted = true,
+                    )
                 }
             }
         }
@@ -413,12 +616,24 @@ class ExoVideoEngine(
     override fun currentPositionMs(): Long = player.currentPosition
 
     override fun retry() {
-        _state.update { it.copy(error = null, buffering = true, ended = false) }
+        _state.update {
+            it.copy(
+                error = null,
+                buffering = true,
+                ended = false,
+                automaticFallbackBlocked = false,
+            )
+        }
         player.prepare()
         player.playWhenReady = true
     }
 
     override fun release() {
+        released = true
+        retryJob?.cancel()
+        retryJob = null
+        fallbackJob?.cancel()
+        fallbackJob = null
         ticker?.cancel()
         ticker = null
         player.removeListener(listener)
@@ -526,22 +741,44 @@ class ExoVideoEngine(
         switchToTranscode()
     }
 
+    /**
+     * The pickable tracks of one type, with proven HLS rendition repetitions collapsed.
+     *
+     * An HLS manifest — which is what the server's transcode serves — declares its audio and
+     * subtitle renditions once per variant stream. ExoPlayer faithfully reports one track
+     * group per variant, so a file with a single 国语 track arrived here as five identical
+     * 国语 entries and the picker listed all of them. Labels and languages are not unique,
+     * though: commentary/main tracks and regional subtitle variants often share both. The
+     * manifest's EXT-X-MEDIA `(GROUP-ID, NAME)` pair is therefore the only deduplication key.
+     *
+     * A duplicate row carries the selection if any concrete Exo group is selected. Genuine
+     * same-label tracks are preserved and receive a codec/channel qualifier or an ordinal.
+     */
     private fun tracksOf(type: Int, fallbackPrefix: String): List<EngineTrack> {
         var ordinal = 0
-        return player.currentTracks.groups.withIndex()
+        val candidates = mutableListOf<ManifestTrackCandidate>()
+        player.currentTracks.groups.withIndex()
             .filter { (_, group) -> group.type == type }
-            .flatMap { (groupIndex, group) ->
-                (0 until group.length).map { trackIndex ->
+            .forEach { (groupIndex, group) ->
+                (0 until group.length).forEach { trackIndex ->
                     val format = group.getTrackFormat(trackIndex)
                     ordinal++
-                    EngineTrack(
+                    val rendition = format.hlsRenditionIdentity()
+                    candidates += ManifestTrackCandidate(
                         id = "$groupIndex:$trackIndex",
-                        label = format.label ?: format.language ?: "$fallbackPrefix $ordinal",
+                        label = format.label
+                            ?: rendition?.second
+                            ?: format.language
+                            ?: "$fallbackPrefix $ordinal",
                         language = format.language,
                         selected = group.isTrackSelected(trackIndex),
+                        manifestGroupId = rendition?.first,
+                        manifestName = rendition?.second,
+                        qualifier = format.trackQualifier(type),
                     )
                 }
             }
+        return collapseManifestTrackDuplicates(candidates)
     }
 
     /**
@@ -581,34 +818,184 @@ class ExoVideoEngine(
         return true
     }
 
+    /**
+     * ExoPlayer can extend a live playlist, so a newly published episode costs nothing.
+     * Appending only at the tail is what keeps [transcodedIndices] and the rest of the
+     * index-keyed state meaningful.
+     */
+    override fun appendItems(items: List<PlayerMediaItem>): Boolean {
+        if (items.isEmpty()) return true
+        this.items += items
+        player.addMediaItems(items.map { mediaItem(it.url, it.title) })
+        _state.update { it.copy(itemCount = this.items.size.coerceAtLeast(1)) }
+        AppLog.info(
+            category = "player.exo",
+            event = "queue_extended",
+            message = "Queue extended without restarting playback",
+            attributes = mapOf(
+                "addedCount" to items.size.toString(),
+                "itemCount" to this.items.size.toString(),
+            ),
+        )
+        return true
+    }
+
     /** Some Emby proxies cannot serve master.m3u8; retry the same item as MP4. */
     private fun switchToProgressiveTranscode(): Boolean {
         val index = player.currentMediaItemIndex
         if (index in progressiveTranscodeIndices) return false
+        if (index in progressiveTransitionIndices) return true
         val item = items.getOrNull(index) ?: return false
         if (item.fallbackTranscodeUrl.isEmpty()) return false
         transcodedIndices += index
-        progressiveTranscodeIndices += index
+        progressiveTransitionIndices += index
         val position = player.currentPosition
         _state.update { it.copy(error = null, buffering = true) }
-        Log.i(TAG, "HLS manifest invalid; falling back to progressive transcode for index=$index")
+        // Stop reading HLS before deleting its encoder. Starting MP4 first can briefly leave
+        // two ffmpeg jobs under one session; one-slot servers reject the second with HTTP 400.
+        player.stop()
+        Log.i(TAG, "cleaning HLS encoder before progressive fallback for index=$index")
         AppLog.info(
             category = "player.exo",
-            event = "progressive_transcode_fallback",
-            message = "Switching from HLS to progressive transcode",
+            event = "progressive_transcode_cleanup",
+            message = "Stopping the HLS encoder before progressive transcode fallback",
             attributes = mapOf("itemIndex" to index.toString()),
         )
-        player.replaceMediaItem(index, mediaItem(item.fallbackTranscodeUrl, item.title))
-        player.prepare()
-        player.seekTo(index, position)
-        player.playWhenReady = true
+        fallbackJob?.cancel()
+        fallbackJob = scope.launch {
+            val cleaned = item.playSessionId.isBlank() ||
+                withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
+            if (released || player.currentMediaItemIndex != index) return@launch
+            progressiveTransitionIndices -= index
+            if (!cleaned) {
+                AppLog.warning(
+                    category = "player.exo",
+                    event = "progressive_transcode_cleanup_failed",
+                    message = "The active HLS encoder could not be stopped safely",
+                    attributes = mapOf("itemIndex" to index.toString()),
+                )
+                _state.update {
+                    it.copy(
+                        error = "无法清理旧的服务器转码，正在尝试其他播放器",
+                        buffering = false,
+                        fallbacksExhausted = true,
+                    )
+                }
+                return@launch
+            }
+            progressiveTranscodeIndices += index
+            AppLog.info(
+                category = "player.exo",
+                event = "progressive_transcode_fallback",
+                message = "Switching from HLS to progressive transcode",
+                attributes = mapOf("itemIndex" to index.toString()),
+            )
+            player.replaceMediaItem(index, mediaItem(item.fallbackTranscodeUrl, item.title))
+            player.prepare()
+            player.seekTo(index, position)
+            player.playWhenReady = true
+        }
         return true
+    }
+
+    /**
+     * The next rung down the ladder: direct play → HLS transcode → progressive transcode.
+     *
+     * Both switch functions already refuse to repeat a rung they have spent on this entry,
+     * so calling them in order is enough to find the next untried one — or to report that
+     * there is none, which is what the caller needs to stop offering a pointless retry.
+     */
+    private fun advanceFallback(): Boolean =
+        switchToTranscode() || switchToProgressiveTranscode()
+
+    /** A bounded retry for failures that are commonly one bad proxy connection or startup read. */
+    private fun scheduleRetry(index: Int, limit: Int, reason: String): Boolean {
+        val key = retryKey(index)
+        val attempted = retryCounts[key] ?: 0
+        if (attempted >= limit) return false
+        val nextAttempt = attempted + 1
+        retryCounts[key] = nextAttempt
+        retryJob?.cancel()
+        _state.update { it.copy(error = null, buffering = true) }
+        AppLog.info(
+            category = "player.exo",
+            event = "playback_retry_scheduled",
+            message = "Retrying the current playback request after a transient failure",
+            attributes = mapOf(
+                "itemIndex" to index.toString(),
+                "streamVariant" to streamVariantOf(index),
+                "attempt" to nextAttempt.toString(),
+                "limit" to limit.toString(),
+                "reason" to reason,
+            ),
+        )
+        retryJob = scope.launch {
+            delay(if (nextAttempt == 1) 500L else 1_500L)
+            if (released || player.currentMediaItemIndex != index) return@launch
+            player.prepare()
+            player.playWhenReady = true
+        }
+        return true
+    }
+
+    private fun retryKey(index: Int): String = "$index:${streamVariantOf(index)}"
+
+    /** Which address the entry is currently being played from, for the diagnostic log. */
+    private fun streamVariantOf(index: Int): String = when {
+        index in progressiveTranscodeIndices -> "progressive"
+        index in transcodedIndices -> "hls"
+        else -> "direct"
+    }
+
+    private fun httpFailureMessage(status: Int?, body: String?): String = when (status) {
+        401 -> "服务器登录已失效（401），请重新登录该服务器"
+        403 -> if (body.isAccessBlockPage()) {
+            "服务器入口或 Cloudflare 拒绝了当前网络访问（403），重新登录通常无效"
+        } else {
+            "当前账号没有播放权限，或服务器入口拒绝了访问（403）"
+        }
+        400 -> "服务器无法处理当前版本的转码请求（400），正在尝试其他播放方式"
+        404 -> "服务器上找不到这个文件（404）"
+        // What an Emby server returns once its transcoding slots are all taken, which is the
+        // state a leaked encoding leaves it in.
+        429, 503 -> "服务器暂时无法提供转码（$status），请稍后再试"
+        null -> "服务器拒绝了播放请求"
+        else -> "服务器拒绝了播放请求（$status）"
     }
 
     private fun knownDuration(): Long =
         player.duration.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
 
 }
+
+/** Keeps a failing address useful in diagnostics without exporting the user's server token. */
+internal fun sanitizePlaybackUrl(value: String): String {
+    val querySafe = value.replace(
+        Regex("(?i)(api_key|x-emby-token)=([^&\\s]+)"),
+    ) { match -> "${match.groupValues[1]}=<redacted>" }
+    return querySafe.replace(
+        Regex("(?i)(\"?(?:api_key|x-emby-token)\"?\\s*:\\s*\")([^\"]+)(\")"),
+    ) { match -> "${match.groupValues[1]}<redacted>${match.groupValues[3]}" }
+}
+
+private fun String?.isAccessBlockPage(): Boolean {
+    val value = this?.lowercase().orEmpty()
+    return "cloudflare" in value ||
+        "sorry, you have been blocked" in value ||
+        "access denied" in value ||
+        "attention required" in value
+}
+
+internal fun playbackQueryParameter(url: String, name: String): String? =
+    Regex("(?:[?&])${Regex.escape(name)}=([^&]+)", RegexOption.IGNORE_CASE)
+        .find(url)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.takeIf(String::isNotBlank)
+
+/** An account or edge-policy rejection applies to every URL/engine for this server. */
+internal fun blocksAutomaticPlaybackFallback(httpStatus: Int?): Boolean =
+    httpStatus == 401 || httpStatus == 403
 
 private fun mediaItem(url: String, title: String): MediaItem =
     MediaItem.Builder()

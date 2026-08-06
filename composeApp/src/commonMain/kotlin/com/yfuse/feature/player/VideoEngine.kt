@@ -52,6 +52,15 @@ data class PlaybackState(
     val transcoding: Boolean = false,
     /** True once nothing further is left to fall back to for the current entry. */
     val fallbacksExhausted: Boolean = false,
+    /**
+     * True when retrying another URL, decoder, or physical file cannot repair the failure.
+     *
+     * Authentication and access-policy responses apply to every playback URL on the same
+     * server. Cycling through three engines and every version only repeats the rejected
+     * request and can replace the useful "重新登录/检查访问策略" message with a generic
+     * decoder error. Manual retry is still available and clears this flag.
+     */
+    val automaticFallbackBlocked: Boolean = false,
     val diagnostics: PlaybackDiagnostics = PlaybackDiagnostics(),
 ) {
     val hasNext: Boolean get() = currentIndex + 1 < itemCount
@@ -107,6 +116,16 @@ interface VideoEngine {
      * gated on the engine being ExoPlayer, no way to ask for one either.
      */
     fun switchToTranscode(): Boolean = false
+
+    /**
+     * Adds entries to the end of the queue without disturbing what is playing.
+     *
+     * Returns false when this engine cannot, leaving the caller to rebuild it — which
+     * restarts the current entry at its current position. A series queue is re-listed from
+     * the server every couple of minutes while it plays, so a show that publishes an episode
+     * mid-episode used to interrupt the episode being watched to make room for it.
+     */
+    fun appendItems(items: List<PlayerMediaItem>): Boolean = false
 
     fun release()
 }

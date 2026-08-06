@@ -72,6 +72,9 @@ internal object DiagnosticLogStore {
 
     @Volatile
     private var initialized = false
+
+    @Volatile
+    private var crashHandlerInstalled = false
     private lateinit var appContext: Context
     private lateinit var directory: File
     private var sessionId = ""
@@ -174,7 +177,16 @@ internal object DiagnosticLogStore {
         }
     }
 
+    /**
+     * Chains onto whatever handler is already installed, at most once.
+     *
+     * Without the guard a second [initialize] installs a second handler whose `previous` is
+     * the first one, so a single crash is written twice — which is how the 07-30 logs came to
+     * hold two identical CRITICAL entries 0.9 ms apart, reading as two crashes.
+     */
     private fun installCrashHandler() {
+        if (crashHandlerInstalled) return
+        crashHandlerInstalled = true
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             runCatching {

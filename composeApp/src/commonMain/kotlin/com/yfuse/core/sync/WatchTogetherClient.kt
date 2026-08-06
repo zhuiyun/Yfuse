@@ -345,9 +345,21 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
     /** True once any attempt for the current room has been welcomed. Failures before this
      *  point are the user's initial attempt going wrong (bad address, room doesn't exist) —
      *  surfaced once, not retried. Failures after it are a live room dropping a connection,
-     *  which retries indefinitely until [leave] is called. */
+     *  which retries until it succeeds, the caller [leave]s, or the bounds below are hit. */
     private var everWelcomed = false
     private var reconnectAttempt = 0
+
+    /**
+     * When the current run of failures started, on the wall clock, or null while connected.
+     *
+     * The retry loop used to be unbounded, and it lives on a scope that outlives any screen.
+     * A backgrounded process suspends mid-`delay` rather than being cancelled, so a room left
+     * reconnecting was observed resuming and rejoining two and a half days later — on its
+     * third attempt, having held a socket and its ping timer open across the whole gap. Wall
+     * clock rather than a monotonic mark because that gap is exactly what has to be measured,
+     * and a frozen process does not accumulate monotonic time.
+     */
+    private var reconnectingSinceEpochMs: Long? = null
 
     private val _state = MutableStateFlow(WatchTogetherState())
     val state: StateFlow<WatchTogetherState> = _state.asStateFlow()
@@ -617,6 +629,7 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         clock.reset()
         everWelcomed = false
         reconnectAttempt = 0
+        reconnectingSinceEpochMs = null
         localPlaybackStatus = LocalPlaybackStatus()
         lastSentPlaybackStatus = null
         nextLocalChatId = -1L
@@ -664,6 +677,24 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
             }
 
             reconnectAttempt++
+            val since = reconnectingSinceEpochMs
+                ?: System.currentTimeMillis().also { reconnectingSinceEpochMs = it }
+            val offlineMs = (System.currentTimeMillis() - since).coerceAtLeast(0L)
+            if (reconnectAttempt > MAX_RECONNECT_ATTEMPTS || offlineMs > MAX_RECONNECT_WINDOW_MS) {
+                AppLog.warning(
+                    category = "watch_together",
+                    event = "reconnect_abandoned",
+                    message = "Watch-together reconnection gave up; room released",
+                    throwable = outcome.exceptionOrNull(),
+                    attributes = mapOf(
+                        "attempt" to reconnectAttempt.toString(),
+                        "offlineMs" to offlineMs.toString(),
+                    ),
+                )
+                _state.value = WatchTogetherState(error = "一起看连接已断开，请重新加入房间")
+                _timeline.value = null
+                return
+            }
             val retryDelayMs = backoffDelayMs(reconnectAttempt)
             AppLog.warning(
                 category = "watch_together",
@@ -673,6 +704,7 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                 attributes = mapOf(
                     "attempt" to reconnectAttempt.toString(),
                     "retryDelayMs" to retryDelayMs.toString(),
+                    "offlineMs" to offlineMs.toString(),
                 ),
             )
             _state.update { it.copy(connecting = false, reconnecting = true, error = null) }
@@ -763,6 +795,7 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                                     welcomedThisAttempt = true
                                     everWelcomed = true
                                     reconnectAttempt = 0
+                                    reconnectingSinceEpochMs = null
                                     AppLog.info(
                                         category = "watch_together",
                                         event = "room_joined",
@@ -864,6 +897,22 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
     }
 
     private fun applyRoomSnapshot(wire: WatchWireMessage) {
+        // Only `welcome` used to be logged, and a host is alone at welcome by definition — so
+        // every host's diagnostics read `participantCount=1` for the whole session and there
+        // was no way to tell a room nobody joined from one that filled up and emptied again.
+        val previousCount = _state.value.participantCount
+        wire.participantCount?.takeIf { it != previousCount && wire.type != "welcome" }?.let {
+            AppLog.info(
+                category = "watch_together",
+                event = "participants_changed",
+                message = "Watch-together room membership changed",
+                attributes = mapOf(
+                    "participantCount" to it.toString(),
+                    "previousCount" to previousCount.toString(),
+                    "isHost" to (wire.isHost ?: _state.value.isHost).toString(),
+                ),
+            )
+        }
         _state.update { current ->
             val isHost = wire.isHost ?: current.isHost
             val canControl = wire.canControl ?: current.canControl
@@ -1040,6 +1089,16 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         const val MAX_CHAT_HISTORY = 50
         const val WATCH_PROTOCOL_VERSION = 3
         const val CHAT_ACK_TIMEOUT_MS = 8_000L
+
+        /**
+         * How hard a dropped room is chased before it is declared gone.
+         *
+         * Two bounds rather than one: the count catches a server that accepts and immediately
+         * closes the socket, and the window catches a process that was frozen mid-backoff and
+         * would otherwise wake up hours later still holding a room nobody is in.
+         */
+        const val MAX_RECONNECT_ATTEMPTS = 10
+        const val MAX_RECONNECT_WINDOW_MS = 5 * 60 * 1000L
         const val LATENCY_REPORT_BUCKET_MS = 10L
         const val DRIFT_REPORT_BUCKET_MS = 50L
 

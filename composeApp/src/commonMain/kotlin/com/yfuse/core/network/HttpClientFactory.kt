@@ -2,6 +2,7 @@ package com.yfuse.core.network
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
@@ -23,20 +24,50 @@ expect fun embyHttpEngine(): HttpClientEngine
 const val DEFAULT_EMBY_USER_AGENT: String = "Emby for Android Mobile"
 
 /**
+ * How long an Emby request may take before it is abandoned.
+ *
+ * These were never configured: the client relied on whatever the engine happened to default
+ * to, which is why timeout failures in the diagnostic logs reported `connect_timeout=unknown
+ * ms`. A self-hosted Emby behind a home connection is genuinely slow, so the request budget
+ * is generous; failing to *connect* is a different thing and worth giving up on sooner.
+ */
+data class EmbyTimeouts(
+    val requestMs: Long = 30_000L,
+    val connectMs: Long = 10_000L,
+    val socketMs: Long = 30_000L,
+)
+
+/**
  * Creates the shared Ktor client for Emby.
  *
  * - `ContentEncoding(gzip)`: Emby returns gzip-compressed responses by default.
  * - `expectSuccess = true`: non-2xx responses throw, so callers can map them.
+ * - `HttpTimeout`: explicit budgets rather than the engine's undeclared defaults.
  * - injects the Emby client identity header. The per-server access token is
  *   added by the repository on each authenticated request.
  */
 fun createEmbyClient(
     engine: HttpClientEngine = embyHttpEngine(),
     customUserAgent: () -> String = { "" },
+    /**
+     * Null omits the plugin entirely, for unit tests driving a `MockEngine`.
+     *
+     * Those answer instantly, so there is nothing for a timeout to protect, and the plugin's
+     * per-request watchdog is still being cancelled after a test disposes its store — which
+     * lands a continuation on `Dispatchers.Main` moments after `resetMain()` has removed it.
+     */
+    timeouts: EmbyTimeouts? = EmbyTimeouts(),
 ): HttpClient =
     HttpClient(engine) {
         expectSuccess = true
         install(ContentEncoding) { gzip() }
+        timeouts?.let { budget ->
+            install(HttpTimeout) {
+                requestTimeoutMillis = budget.requestMs
+                connectTimeoutMillis = budget.connectMs
+                socketTimeoutMillis = budget.socketMs
+            }
+        }
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true; isLenient = true })
         }
