@@ -22,6 +22,41 @@ import kotlin.test.assertTrue
 class DanmakuTest {
 
     @Test
+    fun thinning_keeps_the_whole_timeline_instead_of_only_the_opening() {
+        // 12 comments spread over two hours, thinned to a budget of 4.
+        val comments = List(12) { index ->
+            DanmakuComment(
+                timeMs = index * 600_000L,
+                text = "comment-$index",
+                kind = DanmakuKind.Scroll,
+                color = 0xFFFFFF,
+            )
+        }
+
+        val thinned = comments.thinToBudget(4)
+
+        assertEquals(4, thinned.size)
+        // The last kept comment must still come from late in the episode, not the first minutes.
+        assertTrue(thinned.last().timeMs >= comments[comments.size / 2].timeMs)
+        assertEquals(comments.first().timeMs, thinned.first().timeMs)
+        assertEquals(thinned.map { it.timeMs }.sorted(), thinned.map { it.timeMs })
+    }
+
+    @Test
+    fun thinning_leaves_a_list_within_budget_untouched() {
+        val comments = List(3) { index ->
+            DanmakuComment(
+                timeMs = index * 1_000L,
+                text = "c$index",
+                kind = DanmakuKind.Scroll,
+                color = 0xFFFFFF,
+            )
+        }
+
+        assertEquals(comments, comments.thinToBudget(5_000))
+    }
+
+    @Test
     fun bounded_response_reader_accepts_the_exact_limit() = runTest {
         val text = "12345678"
 

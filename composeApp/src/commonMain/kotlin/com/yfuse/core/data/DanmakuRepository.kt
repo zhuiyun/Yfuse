@@ -30,6 +30,24 @@ import kotlinx.serialization.json.intOrNull
 /** Hard cap applied after ContentEncoding has decompressed the response body. */
 internal const val MAX_DANMAKU_RESPONSE_BYTES: Int = 4 * 1024 * 1024
 
+/**
+ * How many comments one track keeps. Rendering binary-searches a time window, so the list length
+ * costs memory rather than frame time.
+ */
+internal const val MAX_DANMAKU_COMMENTS: Int = 20_000
+
+/**
+ * Drops comments evenly across the whole timeline once [budget] is exceeded.
+ *
+ * Taking the first [budget] entries of a time-sorted list spends the whole budget on the opening
+ * minutes and leaves the rest of an episode with no danmaku at all.
+ */
+internal fun List<DanmakuComment>.thinToBudget(budget: Int): List<DanmakuComment> {
+    require(budget > 0) { "弹幕上限无效" }
+    if (size <= budget) return this
+    return List(budget) { slot -> this[(slot.toLong() * size / budget).toInt()] }
+}
+
 internal class DanmakuResponseTooLargeException(
     val maximumBytes: Int,
 ) : IllegalStateException("Danmaku response exceeds $maximumBytes bytes")
@@ -376,8 +394,8 @@ object DanmakuParser {
             .filter { it.timeMs >= 0L && it.text.isNotBlank() }
             .map { it.copy(text = it.text.trim().take(240)) }
             .sortedBy(DanmakuComment::timeMs)
-            .take(5_000)
             .toList()
+            .thinToBudget(MAX_DANMAKU_COMMENTS)
     }
 
     private fun parseXml(body: String): List<DanmakuComment> =
