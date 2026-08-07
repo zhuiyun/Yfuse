@@ -37,4 +37,13 @@ private class AndroidShareHandler(private val context: Context) : ShareHandler {
             Toast.makeText(context, "邀请已复制", Toast.LENGTH_SHORT).show()
         }
     }
+
+    override fun copyRoomCode(roomCode: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        clipboard?.setPrimaryClip(ClipData.newPlainText("Yfuse 房间码", roomCode))
+        // Android 13+ shows the system clipboard preview; older versions need app feedback.
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+            Toast.makeText(context, "房间码已复制", Toast.LENGTH_SHORT).show()
+        }
+    }
 }

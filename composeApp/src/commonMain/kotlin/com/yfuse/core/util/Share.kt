@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 interface ShareHandler {
     fun shareText(text: String)
     fun copyText(text: String)
+    fun copyRoomCode(roomCode: String)
 }
 
 @Composable

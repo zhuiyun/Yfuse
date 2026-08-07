@@ -182,6 +182,29 @@ data class WatchChatMessage(
     val deliveryState: ChatDeliveryState = ChatDeliveryState.Sent,
 )
 
+/**
+ * Reconciles an optimistic local chat row with the authoritative server echo. Retries can
+ * also produce the same echo more than once, so both the client correlation id and the
+ * final server id are treated idempotently.
+ */
+internal fun mergeIncomingWatchChat(
+    messages: List<WatchChatMessage>,
+    incoming: WatchChatMessage,
+    maxHistory: Int,
+): List<WatchChatMessage> {
+    val withoutOptimistic = incoming.clientMessageId?.let { messageId ->
+        messages.filterNot {
+            it.clientId == incoming.clientId &&
+                it.clientMessageId == messageId &&
+                it.deliveryState != ChatDeliveryState.Sent
+        }
+    } ?: messages
+    if (withoutOptimistic.any { it.id == incoming.id }) {
+        return if (withoutOptimistic.size == messages.size) messages else withoutOptimistic
+    }
+    return (withoutOptimistic + incoming).takeLast(maxHistory)
+}
+
 data class WatchTogetherState(
     /** Handshaking on a brand-new `createRoom`/`joinRoom` call — no room has ever answered yet. */
     val connecting: Boolean = false,
@@ -842,16 +865,14 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                             "chat" -> {
                                 val chat = wire.chat?.toDomain() ?: continue
                                 _state.update { current ->
-                                    val withoutPending = chat.clientMessageId?.let { messageId ->
-                                        current.chatMessages.filterNot {
-                                            it.clientMessageId == messageId &&
-                                                it.deliveryState != ChatDeliveryState.Sent
-                                        }
-                                    } ?: current.chatMessages
-                                    if (withoutPending.any { it.id == chat.id }) current else {
+                                    val merged = mergeIncomingWatchChat(
+                                        messages = current.chatMessages,
+                                        incoming = chat,
+                                        maxHistory = MAX_CHAT_HISTORY,
+                                    )
+                                    if (merged === current.chatMessages) current else {
                                         current.copy(
-                                            chatMessages = (withoutPending + chat)
-                                                .takeLast(MAX_CHAT_HISTORY),
+                                            chatMessages = merged,
                                             chatError = null,
                                         )
                                     }
@@ -922,7 +943,10 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
             } else {
                 current.chatMessages.filter { local ->
                     local.deliveryState != ChatDeliveryState.Sent &&
-                        history.none { it.clientMessageId == local.clientMessageId }
+                        history.none {
+                            it.clientId == local.clientId &&
+                                it.clientMessageId == local.clientMessageId
+                        }
                 }
             }
             // Any change of hands settles every outstanding negotiation: a granted request

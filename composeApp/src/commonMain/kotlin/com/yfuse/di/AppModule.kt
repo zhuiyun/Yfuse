@@ -33,8 +33,11 @@ import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.createCastManager
 import org.koin.dsl.module
 
-/** Root DI graph. [settings] is provided per platform (SharedPreferences on Android). */
-fun appModule(settings: Settings) = module {
+/**
+ * Root DI graph. [settings] and [appVersion] are supplied by the platform so common network
+ * code reports the version embedded in the installed package rather than a duplicated constant.
+ */
+fun appModule(settings: Settings, appVersion: String) = module {
     single { settings }
     single { ServerRegistry(get()) }
     single { ThemePreferences(get()) }
@@ -49,10 +52,13 @@ fun appModule(settings: Settings) = module {
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }
     single<CastManager> { createCastManager() }
-    single<OfflineMediaManager> { createOfflineMediaManager(get()) }
+    single<OfflineMediaManager> { createOfflineMediaManager(get(), get()) }
     single {
         val userAgent = get<UserAgentPreferences>()
-        createEmbyClient(customUserAgent = { userAgent.userAgent.value })
+        createEmbyClient(
+            customUserAgent = { userAgent.userAgent.value },
+            appVersion = appVersion,
+        )
     }
     single { EmbyRepository(get()) }
     single { AiringScheduleCache(get()) }

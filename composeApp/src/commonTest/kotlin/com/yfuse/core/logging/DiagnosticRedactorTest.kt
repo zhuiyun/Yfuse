@@ -51,4 +51,24 @@ class DiagnosticRedactorTest {
         assertFalse(redacted.getValue("set-cookie").contains("private-cookie"))
         assertTrue(redacted.getValue("operation") == "load_detail")
     }
+
+    @Test
+    fun logcat_payload_redacts_message_attributes_and_stack_trace() {
+        val payload = formatSafeLogcatMessage(
+            event = "request_failed",
+            message = "GET https://example.test/image?api_key=message-secret",
+            attributes = mapOf(
+                "accessToken" to "attribute-secret",
+                "operation" to "Authorization: Bearer nested-secret",
+            ),
+            throwableText = "IllegalStateException: password=stack-secret",
+        )
+
+        assertFalse("message-secret" in payload)
+        assertFalse("attribute-secret" in payload)
+        assertFalse("nested-secret" in payload)
+        assertFalse("stack-secret" in payload)
+        assertTrue("request_failed" in payload)
+        assertTrue("<redacted>" in payload)
+    }
 }

@@ -78,7 +78,12 @@ class EmbyRepositoryTest {
 
     @Test
     fun homeContent_aggregates_resume_latest_and_featured() = runTest {
-        val repo = testRepo { homeRoutes(it) }
+        val repo = testRepo {
+            if (it.url.encodedPath.endsWith("/Items/Counts")) {
+                assertEquals("u1", it.url.parameters["UserId"])
+            }
+            homeRoutes(it)
+        }
 
         val res = repo.homeContent(server)
 
@@ -98,6 +103,25 @@ class EmbyRepositoryTest {
         // featured only includes items with a backdrop (the movie, not the episode)
         assertEquals(1, content.featured.size)
         assertEquals("某电影", content.featured.first().title)
+        assertEquals(42, content.counts?.movieCount)
+        assertEquals(7, content.counts?.seriesCount)
+    }
+
+    @Test
+    fun homeContent_keeps_content_when_item_counts_are_unavailable() = runTest {
+        val repo = testRepo {
+            if (it.url.encodedPath.endsWith("/Items/Counts")) {
+                respond(content = "", status = HttpStatusCode.InternalServerError)
+            } else {
+                homeRoutes(it)
+            }
+        }
+
+        val result = repo.homeContent(server)
+
+        assertTrue(result.isSuccess, result.toString())
+        assertTrue(result.getOrThrow().rows.isNotEmpty())
+        assertEquals(null, result.getOrThrow().counts)
     }
 
     @Test

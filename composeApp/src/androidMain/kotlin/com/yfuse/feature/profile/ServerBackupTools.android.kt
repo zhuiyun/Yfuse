@@ -64,6 +64,7 @@ import com.yfuse.core.designsystem.sc
 import com.yfuse.core.logging.AppLog
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.util.Base64
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
@@ -463,24 +464,18 @@ private fun decodeQrBitmap(bitmap: Bitmap): String {
     ).text
 }
 
-private fun encodeQrPayload(raw: String): String {
+internal fun encodeQrPayload(raw: String): String {
     val bytes = ByteArrayOutputStream().use { output ->
         GZIPOutputStream(output).use { it.write(raw.encodeToByteArray()) }
         output.toByteArray()
     }
-    return "YFUSE1:" + android.util.Base64.encodeToString(
-        bytes,
-        android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING,
-    )
+    return "YFUSE1:" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 }
 
-private fun decodeQrPayload(value: String): String {
+internal fun decodeQrPayload(value: String): String {
     if (!value.startsWith("YFUSE1:")) return value
     val bytes = try {
-        android.util.Base64.decode(
-            value.removePrefix("YFUSE1:"),
-            android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING,
-        )
+        Base64.getUrlDecoder().decode(value.removePrefix("YFUSE1:"))
     } catch (e: IllegalArgumentException) {
         error("不是有效的迁移二维码（编码格式不匹配）")
     }

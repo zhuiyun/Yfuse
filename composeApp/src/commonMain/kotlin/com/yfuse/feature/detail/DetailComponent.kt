@@ -7,8 +7,6 @@ import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.network.EmbyImages
-import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.offline.OfflineDownloadRequest
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.util.componentScope
@@ -52,17 +50,7 @@ class DetailComponent(
                 serverId = server.id,
                 itemId = detail.id,
                 title = detail.title,
-                sourceUrl = EmbyStream.directPlay(
-                    server.baseUrl,
-                    detail.id,
-                    server.accessToken,
-                    mediaSourceId = state.selectedVersionId,
-                ),
-                posterUrl = EmbyImages.poster(
-                    server.baseUrl,
-                    detail,
-                    accessToken = server.accessToken,
-                ),
+                mediaSourceId = state.selectedVersionId,
             ),
         )
     }

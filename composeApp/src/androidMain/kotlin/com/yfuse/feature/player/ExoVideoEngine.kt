@@ -28,6 +28,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.hls.HlsTrackMetadataEntry
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import kotlinx.coroutines.CoroutineScope
@@ -356,7 +357,7 @@ class ExoVideoEngine(
         }
 
         override fun onPlaybackStateChanged(state: Int) {
-            Log.i(TAG, "exo state=$state")
+            safeLogcat(Log.INFO, TAG, "exo state=$state")
             val buffering = state == Player.STATE_BUFFERING
             val bufferEvent = buffering && !wasBuffering
             wasBuffering = buffering
@@ -412,7 +413,7 @@ class ExoVideoEngine(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            Log.e(TAG, "playback failed: ${error.errorCodeName}", error)
+            safeLogcat(Log.ERROR, TAG, "playback failed: ${error.errorCodeName}", error)
             val index = player.currentMediaItemIndex
             val httpCause = generateSequence(error as Throwable) { it.cause }
                 .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
@@ -727,7 +728,7 @@ class ExoVideoEngine(
         // index so a final callback from the old stream cannot spend the next fallback.
         if (index in transcodedIndices) return
         val type = unsupported.name.lowercase()
-        Log.w(TAG, "no supported $type track; switching to transcode")
+        safeLogcat(Log.WARN, TAG, "no supported $type track; switching to transcode")
         AppLog.warning(
             category = "player.exo",
             event = "unsupported_${type}_tracks",
@@ -804,7 +805,7 @@ class ExoVideoEngine(
                 diagnostics = it.diagnostics.copy(playMethod = "服务器转码"),
             )
         }
-        Log.i(TAG, "falling back to transcode for index=$index")
+        safeLogcat(Log.INFO, TAG, "falling back to transcode for index=$index")
         AppLog.info(
             category = "player.exo",
             event = "transcode_fallback",
@@ -854,7 +855,7 @@ class ExoVideoEngine(
         // Stop reading HLS before deleting its encoder. Starting MP4 first can briefly leave
         // two ffmpeg jobs under one session; one-slot servers reject the second with HTTP 400.
         player.stop()
-        Log.i(TAG, "cleaning HLS encoder before progressive fallback for index=$index")
+        safeLogcat(Log.INFO, TAG, "cleaning HLS encoder before progressive fallback for index=$index")
         AppLog.info(
             category = "player.exo",
             event = "progressive_transcode_cleanup",

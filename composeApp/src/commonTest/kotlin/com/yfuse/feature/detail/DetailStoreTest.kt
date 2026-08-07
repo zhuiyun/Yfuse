@@ -22,6 +22,7 @@ import kotlinx.io.IOException
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.dsl.module
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -90,11 +91,11 @@ class DetailStoreTest {
 
     @Test
     fun resource_selection_retries_transient_connection_failures_then_succeeds() = runTest {
-        var attempts = 0
+        val attempts = AtomicInteger()
         val store = movieStore(
             m2DetailFailure = {
-                attempts++
-                IOException("server closed the connection").takeIf { attempts < 3 }
+                IOException("server closed the connection")
+                    .takeIf { attempts.incrementAndGet() < 3 }
             },
         )
         store.states.first { it.playTarget?.id == "m1" && it.sources.size == 2 }
@@ -102,7 +103,7 @@ class DetailStoreTest {
         store.accept(DetailIntent.SelectSource("two", "m2"))
         store.states.first { !it.selectionLoading && it.playTarget?.id == "m2" }
 
-        assertEquals(3, attempts)
+        assertEquals(3, attempts.get())
         assertEquals("two", store.state.playServer?.id)
         assertNull(store.state.actionMessage)
         store.dispose()
@@ -110,10 +111,10 @@ class DetailStoreTest {
 
     @Test
     fun resource_selection_stops_after_bounded_network_retries() = runTest {
-        var attempts = 0
+        val attempts = AtomicInteger()
         val store = movieStore(
             m2DetailFailure = {
-                attempts++
+                attempts.incrementAndGet()
                 IOException("server closed the connection")
             },
         )
@@ -122,7 +123,7 @@ class DetailStoreTest {
         store.accept(DetailIntent.SelectSource("two", "m2"))
         store.states.first { !it.selectionLoading && it.actionMessage != null }
 
-        assertEquals(3, attempts)
+        assertEquals(3, attempts.get())
         assertEquals("one", store.state.selectedSourceServerId)
         assertEquals("m1", store.state.selectedSourceItemId)
         assertEquals(
@@ -134,9 +135,12 @@ class DetailStoreTest {
 
     @Test
     fun resource_selection_does_not_retry_a_cloudflare_access_block() = runTest {
-        var attempts = 0
+        val attempts = AtomicInteger()
         val store = movieStore(
-            m2DetailFailure = { attempts++; null },
+            m2DetailFailure = {
+                attempts.incrementAndGet()
+                null
+            },
             m2CloudflareBlocked = true,
         )
         store.states.first { it.playTarget?.id == "m1" && it.sources.size == 2 }
@@ -144,7 +148,7 @@ class DetailStoreTest {
         store.accept(DetailIntent.SelectSource("two", "m2"))
         store.states.first { !it.selectionLoading && it.actionMessage != null }
 
-        assertEquals(1, attempts)
+        assertEquals(1, attempts.get())
         assertEquals(
             "资源切换失败：访问被 Cloudflare 拦截，请更换网络或联系服务器管理员",
             store.state.actionMessage,
@@ -385,11 +389,11 @@ class DetailStoreTest {
 
     @Test
     fun season_episode_load_retries_transient_failures() = runTest {
-        var attempts = 0
+        val attempts = AtomicInteger()
         val store = seriesStore(
             seasonTwoEpisodesFailure = {
-                attempts++
-                IOException("temporary catalog failure").takeIf { attempts < 3 }
+                IOException("temporary catalog failure")
+                    .takeIf { attempts.incrementAndGet() < 3 }
             },
         )
         store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
@@ -399,7 +403,7 @@ class DetailStoreTest {
             !it.episodesLoading && !it.selectionLoading && it.playTarget?.id == "e3"
         }
 
-        assertEquals(3, attempts)
+        assertEquals(3, attempts.get())
         assertEquals("season2", store.state.selectedSeasonId)
         assertEquals(listOf("e3"), store.state.episodes.map { it.id })
         store.dispose()
@@ -407,10 +411,10 @@ class DetailStoreTest {
 
     @Test
     fun exhausted_season_load_keeps_the_previous_episode_directory() = runTest {
-        var attempts = 0
+        val attempts = AtomicInteger()
         val store = seriesStore(
             seasonTwoEpisodesFailure = {
-                attempts++
+                attempts.incrementAndGet()
                 IOException("catalog unavailable")
             },
         )
@@ -419,7 +423,7 @@ class DetailStoreTest {
         store.accept(DetailIntent.SelectSeason("season2"))
         store.states.first { !it.episodesLoading && it.actionMessage != null }
 
-        assertEquals(3, attempts)
+        assertEquals(3, attempts.get())
         assertEquals("season1", store.state.selectedSeasonId)
         assertEquals(listOf("e1", "e2"), store.state.episodes.map { it.id })
         assertTrue(store.state.actionMessage?.isNotBlank() == true)

@@ -7,7 +7,6 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.SavedServer
-import com.yfuse.core.network.APP_VERSION
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
@@ -15,7 +14,6 @@ data class ProfileState(
     val currentServer: SavedServer? = null,
     /** All saved servers — the 我的服务器 list. */
     val servers: List<SavedServer> = emptyList(),
-    val appVersion: String = APP_VERSION,
 ) {
     val serverCount: Int get() = servers.size
 }

@@ -46,6 +46,7 @@ import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.feature.watch.CopyableRoomCode
 import com.yfuse.core.util.graphemeCount
 import com.yfuse.core.util.takeGraphemes
 import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
@@ -73,7 +74,7 @@ internal fun UserAgentDialog(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "自定义 User-Agent",
-            subtitle = "应用于服务器 API 与视频取流请求；留空时使用系统默认值。",
+            subtitle = "应用于服务器 API 与视频取流请求；留空时使用应用默认值。",
             onClose = onDismiss,
         )
         Column(
@@ -536,7 +537,11 @@ internal fun WatchJoinDialog(
                     .padding(vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(roomCode.orEmpty(), style = sc(22f, 800), color = Brand.Primary)
+                CopyableRoomCode(
+                    roomCode = roomCode.orEmpty(),
+                    style = sc(22f, 800),
+                    color = Brand.Primary,
+                )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "$participantCount 人在线",

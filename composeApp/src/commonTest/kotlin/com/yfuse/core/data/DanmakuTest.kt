@@ -1,12 +1,67 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.network.createDanmakuClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import io.ktor.utils.io.ByteReadChannel
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 class DanmakuTest {
+
+    @Test
+    fun bounded_response_reader_accepts_the_exact_limit() = runTest {
+        val text = "12345678"
+
+        val result = ByteReadChannel(text).readBoundedDanmakuText(maximumBytes = 8)
+
+        assertEquals(text, result)
+    }
+
+    @Test
+    fun bounded_response_reader_rejects_the_first_excess_byte() = runTest {
+        assertFailsWith<DanmakuResponseTooLargeException> {
+            ByteReadChannel("123456789").readBoundedDanmakuText(maximumBytes = 8)
+        }
+    }
+
+    @Test
+    fun response_limit_is_applied_after_gzip_decompression() = runTest {
+        // 30 compressed bytes expand to 1,000 ASCII bytes. A 64-byte cap therefore only
+        // fails when ContentEncoding has run before readBoundedDanmakuText.
+        val compressed = byteArrayOf(
+            31, -117, 8, 0, 0, 0, 0, 0, 0, 10, 75, 76, 28, 5, -93, 96, 20, 36,
+            14, 115, 0, 0, 3, -38, 56, -102, -24, 3, 0, 0,
+        )
+        val client = createDanmakuClient(
+            MockEngine {
+                respond(
+                    content = ByteReadChannel(compressed),
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentEncoding, "gzip"),
+                )
+            },
+        )
+
+        try {
+            val response = client.get("https://danmaku.example.test/comments")
+            assertFailsWith<DanmakuResponseTooLargeException> {
+                response.bodyAsChannel().readBoundedDanmakuText(maximumBytes = 64)
+            }
+        } finally {
+            client.close()
+        }
+    }
 
     @Test
     fun preferences_survive_recreation() {

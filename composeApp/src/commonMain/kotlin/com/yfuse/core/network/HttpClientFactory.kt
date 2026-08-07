@@ -38,6 +38,16 @@ data class EmbyTimeouts(
 )
 
 /**
+ * Danmaku endpoints are user-configured third-party services, so they need their own
+ * deliberately short budget instead of being allowed to hold a player request forever.
+ */
+data class DanmakuTimeouts(
+    val requestMs: Long = 15_000L,
+    val connectMs: Long = 10_000L,
+    val socketMs: Long = 15_000L,
+)
+
+/**
  * Creates the shared Ktor client for Emby.
  *
  * - `ContentEncoding(gzip)`: Emby returns gzip-compressed responses by default.
@@ -47,6 +57,8 @@ data class EmbyTimeouts(
  *   added by the repository on each authenticated request.
  */
 fun createEmbyClient(
+    /** Actual package version supplied by the platform build; never a hand-maintained copy. */
+    appVersion: String,
     engine: HttpClientEngine = embyHttpEngine(),
     customUserAgent: () -> String = { "" },
     /**
@@ -72,7 +84,7 @@ fun createEmbyClient(
             json(Json { ignoreUnknownKeys = true; isLenient = true })
         }
         defaultRequest {
-            header("X-Emby-Authorization", buildAuthHeader())
+            header("X-Emby-Authorization", buildAuthHeader(appVersion))
             customUserAgent().trim().takeIf { it.isNotEmpty() }?.let { value ->
                 header(HttpHeaders.UserAgent, value)
             }
@@ -87,8 +99,14 @@ fun createEmbyClient(
  */
 fun createDanmakuClient(
     engine: HttpClientEngine = embyHttpEngine(),
+    timeouts: DanmakuTimeouts = DanmakuTimeouts(),
 ): HttpClient =
     HttpClient(engine) {
         expectSuccess = true
         install(ContentEncoding) { gzip() }
+        install(HttpTimeout) {
+            requestTimeoutMillis = timeouts.requestMs
+            connectTimeoutMillis = timeouts.connectMs
+            socketTimeoutMillis = timeouts.socketMs
+        }
     }

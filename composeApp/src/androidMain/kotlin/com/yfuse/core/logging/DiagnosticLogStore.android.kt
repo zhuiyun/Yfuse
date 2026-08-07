@@ -118,10 +118,11 @@ internal object DiagnosticLogStore {
                 val failures = writeFailureCount.incrementAndGet()
                 lastWriteFailure.set(error.javaClass.name)
                 if (failures == 1 || failures % 25 == 0) {
-                    Log.e(
-                        LogTag,
-                        "Failed to persist diagnostic log entry (count=$failures)",
-                        error,
+                    safeLogcat(
+                        priority = Log.ERROR,
+                        tag = LogTag,
+                        message = "Failed to persist diagnostic log entry (count=$failures)",
+                        throwable = error,
                     )
                 }
             }
@@ -373,7 +374,13 @@ internal actual fun writeDiagnosticLog(
         DiagnosticLevel.Error -> Log.ERROR
         DiagnosticLevel.Critical -> Log.ERROR
     }
-    val attrString = if (attributes.isEmpty()) "" else " " + attributes.entries.joinToString(", ") { "${it.key}=${it.value}" }
-    Log.println(priority, category, "$event | $message$attrString")
+    safeLogcat(
+        priority = priority,
+        tag = category,
+        event = event,
+        message = message,
+        throwable = throwable,
+        attributes = attributes,
+    )
     DiagnosticLogStore.record(level, category, event, message, throwable, attributes)
 }

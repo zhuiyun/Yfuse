@@ -67,7 +67,11 @@ fun AddServerDialog(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = if (editing) "编辑服务器" else "添加服务器",
-            subtitle = if (editing) "修改服务器信息后重新登录" else "连接你自己的 Emby 服务器",
+            subtitle = if (editing) {
+                "名称可直接修改；连接信息变更后需重新登录"
+            } else {
+                "连接你自己的 Emby 服务器"
+            },
             onClose = onDismiss,
         )
 
@@ -160,12 +164,19 @@ fun AddServerDialog(
             }
 
             Spacer(Modifier.height(4.dp))
-            FieldLabel("服务器地址")
+            FieldLabel("服务器信息")
             Column(
                 Modifier
                     .fillMaxWidth()
                     .background(palette.card2),
             ) {
+                FormInput(
+                    label = "显示名称",
+                    value = form.serverName,
+                    placeholder = if (editing) "输入服务器名称" else "留空使用服务器名称",
+                    enabled = !form.submitting,
+                    divider = true,
+                ) { onIntent(ServersIntent.ServerNameChanged(it)) }
                 FormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         ProtocolSegment("HTTPS", form.https, Modifier.weight(1f)) {
@@ -210,7 +221,7 @@ fun AddServerDialog(
                 FormInput(
                     label = "密码",
                     value = form.password,
-                    placeholder = "留空表示无密码",
+                    placeholder = if (editing) "仅修改名称时无需填写" else "留空表示无密码",
                     enabled = !form.submitting,
                     password = true,
                     divider = false,
@@ -275,7 +286,7 @@ fun AddServerDialog(
             onClick = { onIntent(ServersIntent.Submit) },
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,
-            enabled = form.canSubmit,
+            enabled = form.canSubmit && (!editing || form.serverName.isNotBlank()),
             loading = form.submitting,
         )
     }

@@ -44,6 +44,7 @@ import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchNetworkQuality
 import com.yfuse.core.sync.WatchParticipant
+import com.yfuse.feature.watch.CopyableRoomCode
 
 /**
  * In-player watch-together control. Since the entry points moved to where people actually
@@ -100,12 +101,11 @@ internal fun WatchTogetherDialog(
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                Text(
-                    roomCode.orEmpty(),
+                CopyableRoomCode(
+                    roomCode = roomCode.orEmpty(),
                     style = sc(24f, 800),
                     color = Brand.Primary,
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
                 )
                 Text(
                     "${if (isHost) "房主" else if (canControl) "可控制" else "成员"} · " +

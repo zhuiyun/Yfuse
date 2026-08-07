@@ -3,6 +3,7 @@ package com.yfuse.core.data
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.HomeRow
+import com.yfuse.core.model.LibraryCounts
 import com.yfuse.core.model.MediaItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -30,6 +31,7 @@ class LibraryCacheTest {
             featured = listOf(item("a")),
             resume = listOf(item("b")),
             rows = listOf(HomeRow("lib1", "电影", listOf(item("c")), totalCount = 99)),
+            counts = LibraryCounts(movieCount = 42, seriesCount = 7),
         )
 
         cache.write("server1", content)

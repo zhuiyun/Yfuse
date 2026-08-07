@@ -14,12 +14,15 @@ import com.yfuse.core.network.DiscoveredServer
 import com.yfuse.core.network.LanDiscovery
 import com.yfuse.core.network.createLanDiscovery
 import com.yfuse.core.network.toUserMessage
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 /** 添加服务器 form: protocol segment + address + port, plus the credentials. */
 data class LoginForm(
+    /** Optional on first login; prefilled with the saved display name while editing. */
+    val serverName: String = "",
     /** The prototype defaults the protocol segment to HTTPS. */
     val https: Boolean = true,
     val host: String = "",
@@ -99,6 +102,8 @@ data class ServersState(
     val scanning: Boolean = false,
     val discovered: List<DiscoveredServer> = emptyList(),
     val publicUsers: List<PublicUserDto> = emptyList(),
+    /** True once an edit touches address/account fields; name changes do not set it. */
+    val connectionEdited: Boolean = false,
     /** Non-null when the dialog is open in "edit existing server" mode; the saved server's
      *  id is preserved so [ServersStore] can replace it on submit (the user may change the
      *  host or account, which would otherwise create a new entry). */
@@ -108,10 +113,10 @@ data class ServersState(
 sealed interface ServersIntent {
     data object OpenAddDialog : ServersIntent
     data object DismissDialog : ServersIntent
-    /** Open the dialog in edit mode, prefilled from the saved server. The user must re-enter
-     *  the password — tokens aren't stored in plaintext so we can't keep them, and changing
-     *  the host or account requires re-authenticating anyway. */
+    /** Open the dialog in edit mode, prefilled from the saved server. Renaming is local;
+     *  changing the host or account still requires re-authentication. */
     data class EditServer(val server: SavedServer) : ServersIntent
+    data class ServerNameChanged(val value: String) : ServersIntent
     data class ProtocolChanged(val https: Boolean) : ServersIntent
     data class HostChanged(val value: String) : ServersIntent
     data class PortChanged(val value: String) : ServersIntent
@@ -139,6 +144,7 @@ private sealed interface Msg {
     data object DialogOpen : Msg
     data object DialogClose : Msg
     data class EditOpen(val server: SavedServer) : Msg
+    data class ServerName(val v: String) : Msg
     data class Protocol(val https: Boolean) : Msg
     data class Host(val v: String) : Msg
     data class Port(val v: String) : Msg
@@ -174,15 +180,39 @@ class ServersStoreFactory(
     private inner class ExecutorImpl :
         CoroutineExecutor<ServersIntent, Action, ServersState, Msg, ServersLabel>() {
 
+        private var scanJob: Job? = null
+        private var publicUsersJob: Job? = null
+        private var scanRequestId = 0
+        private var publicUsersRequestId = 0
+
+        private fun cancelDialogJobs() {
+            scanRequestId++
+            publicUsersRequestId++
+            scanJob?.cancel()
+            publicUsersJob?.cancel()
+            scanJob = null
+            publicUsersJob = null
+        }
+
         override fun executeAction(action: Action) = when (action) {
             is Action.Data -> dispatch(Msg.Data(action.servers, action.defaultId))
         }
 
         override fun executeIntent(intent: ServersIntent) {
             when (intent) {
-                ServersIntent.OpenAddDialog -> dispatch(Msg.DialogOpen)
-                ServersIntent.DismissDialog -> dispatch(Msg.DialogClose)
-                is ServersIntent.EditServer -> dispatch(Msg.EditOpen(intent.server))
+                ServersIntent.OpenAddDialog -> {
+                    cancelDialogJobs()
+                    dispatch(Msg.DialogOpen)
+                }
+                ServersIntent.DismissDialog -> {
+                    cancelDialogJobs()
+                    dispatch(Msg.DialogClose)
+                }
+                is ServersIntent.EditServer -> {
+                    cancelDialogJobs()
+                    dispatch(Msg.EditOpen(intent.server))
+                }
+                is ServersIntent.ServerNameChanged -> dispatch(Msg.ServerName(intent.value))
                 is ServersIntent.ProtocolChanged -> dispatch(Msg.Protocol(intent.https))
                 is ServersIntent.HostChanged -> dispatch(Msg.Host(intent.value))
                 is ServersIntent.PortChanged -> dispatch(Msg.Port(intent.value))
@@ -199,9 +229,12 @@ class ServersStoreFactory(
         }
 
         private fun scan() {
+            scanJob?.cancel()
+            val requestId = ++scanRequestId
             dispatch(Msg.ScanStarted)
-            scope.launch {
+            scanJob = scope.launch {
                 val result = runCatching { discovery.discover() }
+                if (requestId != scanRequestId) return@launch
                 result
                     .onSuccess {
                         AppLog.info(
@@ -220,10 +253,13 @@ class ServersStoreFactory(
                         )
                     }
                 dispatch(Msg.ScanDone(result.getOrDefault(emptyList())))
+                scanJob = null
             }
         }
 
         private fun selectDiscovered(server: DiscoveredServer) {
+            publicUsersJob?.cancel()
+            val requestId = ++publicUsersRequestId
             val match = Regex("""^(https?)://([^/:]+)(?::(\d+))?""")
                 .find(server.address.trim())
             val https = match?.groupValues?.getOrNull(1).equals("https", true)
@@ -234,8 +270,10 @@ class ServersStoreFactory(
             dispatch(Msg.Protocol(https))
             dispatch(Msg.Host(host))
             dispatch(Msg.Port(port))
-            scope.launch {
+            dispatch(Msg.PublicUsers(emptyList()))
+            publicUsersJob = scope.launch {
                 val result = repo.publicUsers(server.address)
+                if (requestId != publicUsersRequestId) return@launch
                 result.onFailure {
                     AppLog.warning(
                         category = "server.auth",
@@ -245,6 +283,7 @@ class ServersStoreFactory(
                     )
                 }
                 dispatch(Msg.PublicUsers(result.getOrDefault(emptyList())))
+                publicUsersJob = null
             }
         }
 
@@ -252,6 +291,32 @@ class ServersStoreFactory(
             val form = state().form
             if (!form.canSubmit) return
             val editingId = state().editingServerId
+            val existing = editingId?.let { id -> state().servers.firstOrNull { it.id == id } }
+            val requestedName = form.serverName
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .trim()
+                .take(60)
+            if (existing != null && requestedName.isBlank()) {
+                dispatch(Msg.SubmitError("服务器名称不能为空"))
+                return
+            }
+
+            // A display-name-only edit is local metadata. Keep the token, server id and
+            // default selection intact instead of asking the user to enter their password.
+            if (
+                existing != null &&
+                form.password.isBlank() &&
+                !state().connectionEdited
+            ) {
+                if (!registry.rename(existing.id, requestedName)) {
+                    dispatch(Msg.SubmitError("服务器已不存在，请重新打开编辑页面"))
+                    return
+                }
+                cancelDialogJobs()
+                dispatch(Msg.SubmitDone)
+                return
+            }
             dispatch(Msg.Submitting)
             scope.launch {
                 repo.authenticate(form.url, form.username.trim(), form.password)
@@ -260,17 +325,19 @@ class ServersStoreFactory(
                         // Preserve the user's chosen server name when editing — otherwise
                         // a fresh login would clobber it with whatever the server reports
                         // as the user's display name. New servers fall back to that name.
-                        val savedServer = if (editingId != null) {
-                            val existing = state().servers.firstOrNull { it.id == editingId }
-                            authResult.toSavedServer(serverName = existing?.serverName)
+                        val savedServer = authResult.toSavedServer(
+                            serverName = requestedName.takeIf { it.isNotBlank() }
+                                ?: existing?.serverName,
+                        )
+                        val saved = if (editingId == null) {
+                            registry.addOrUpdate(savedServer)
+                            true
                         } else {
-                            authResult.toSavedServer()
+                            registry.replace(editingId, savedServer)
                         }
-                        registry.addOrUpdate(savedServer)
-                        // If the user edited the host or account, the new id won't match
-                        // editingId — remove the stale entry so we don't leave a duplicate.
-                        if (editingId != null && savedServer.id != editingId) {
-                            registry.remove(editingId)
+                        if (!saved) {
+                            dispatch(Msg.SubmitError("原服务器已不存在，请重新添加"))
+                            return@onSuccess
                         }
                         AppLog.info(
                             category = "server.auth",
@@ -278,6 +345,7 @@ class ServersStoreFactory(
                             message = "Server login succeeded",
                             attributes = mapOf("serverId" to savedServer.id),
                         )
+                        cancelDialogJobs()
                         dispatch(Msg.SubmitDone)
                         publish(ServersLabel.ServerAdded)
                     }
@@ -300,8 +368,24 @@ class ServersStoreFactory(
     private object ReducerImpl : Reducer<ServersState, Msg> {
         override fun ServersState.reduce(msg: Msg): ServersState = when (msg) {
             is Msg.Data -> copy(servers = msg.servers, defaultServerId = msg.defaultId)
-            Msg.DialogOpen -> copy(dialogVisible = true, form = LoginForm(), editingServerId = null)
-            Msg.DialogClose -> copy(dialogVisible = false, form = LoginForm(), editingServerId = null)
+            Msg.DialogOpen -> copy(
+                dialogVisible = true,
+                form = LoginForm(),
+                editingServerId = null,
+                scanning = false,
+                discovered = emptyList(),
+                publicUsers = emptyList(),
+                connectionEdited = false,
+            )
+            Msg.DialogClose -> copy(
+                dialogVisible = false,
+                form = LoginForm(),
+                editingServerId = null,
+                scanning = false,
+                discovered = emptyList(),
+                publicUsers = emptyList(),
+                connectionEdited = false,
+            )
             is Msg.EditOpen -> {
                 // Reuse the add dialog in-place by prefilling the form from the saved
                 // server. Password is deliberately left blank — the stored access token
@@ -312,7 +396,12 @@ class ServersStoreFactory(
                 copy(
                     dialogVisible = true,
                     editingServerId = msg.server.id,
+                    scanning = false,
+                    discovered = emptyList(),
+                    publicUsers = emptyList(),
+                    connectionEdited = false,
                     form = LoginForm(
+                        serverName = msg.server.serverName,
                         https = https,
                         host = host,
                         port = port,
@@ -321,17 +410,24 @@ class ServersStoreFactory(
                     ),
                 )
             }
+            is Msg.ServerName -> copy(
+                form = form.copy(serverName = msg.v.take(60), error = null),
+            )
             is Msg.Protocol -> copy(
                 form = form.copy(
                     https = msg.https,
                     port = defaultServerPort(msg.https),
                     error = null,
                 ),
+                connectionEdited = true,
             )
             is Msg.Host -> {
                 val parsed = parseServerAddress(msg.v)
                 if (parsed == null) {
-                    copy(form = form.copy(host = msg.v, error = null))
+                    copy(
+                        form = form.copy(host = msg.v, error = null),
+                        connectionEdited = true,
+                    )
                 } else {
                     val resolvedHttps = parsed.https ?: form.https
                     copy(
@@ -346,18 +442,37 @@ class ServersStoreFactory(
                                 },
                             error = null,
                         ),
+                        connectionEdited = true,
                     )
                 }
             }
-            is Msg.Port -> copy(form = form.copy(port = msg.v, error = null))
-            is Msg.Username -> copy(form = form.copy(username = msg.v, error = null))
+            is Msg.Port -> copy(
+                form = form.copy(port = msg.v, error = null),
+                connectionEdited = true,
+            )
+            is Msg.Username -> copy(
+                form = form.copy(username = msg.v, error = null),
+                connectionEdited = true,
+            )
             is Msg.Password -> copy(form = form.copy(password = msg.v, error = null))
             Msg.Submitting -> copy(form = form.copy(submitting = true, error = null))
-            Msg.SubmitDone -> copy(dialogVisible = false, form = LoginForm())
+            Msg.SubmitDone -> copy(
+                dialogVisible = false,
+                form = LoginForm(),
+                editingServerId = null,
+                scanning = false,
+                discovered = emptyList(),
+                publicUsers = emptyList(),
+                connectionEdited = false,
+            )
             is Msg.SubmitError -> copy(form = form.copy(submitting = false, error = msg.m))
             Msg.ScanStarted -> copy(scanning = true, discovered = emptyList())
-            is Msg.ScanDone -> copy(scanning = false, discovered = msg.servers)
-            is Msg.PublicUsers -> copy(publicUsers = msg.users)
+            is Msg.ScanDone -> if (dialogVisible) {
+                copy(scanning = false, discovered = msg.servers)
+            } else {
+                this
+            }
+            is Msg.PublicUsers -> if (dialogVisible) copy(publicUsers = msg.users) else this
         }
     }
 }

@@ -89,6 +89,13 @@ fun WatchRoomInfoDialog(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            state.roomCode?.let { roomCode ->
+                CopyableRoomCode(
+                    roomCode = roomCode,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = sc(20f, 800),
+                )
+            }
             NowWatching(mediaKey = mediaKey, resolution = resolution)
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

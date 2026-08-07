@@ -24,6 +24,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
+/*
+ * The deployment host currently has no TLS listener on 443. Keep this one legacy cleartext
+ * origin until the service can move to HTTPS; [validateForUpdateSource] prevents a manifest
+ * from redirecting the APK download to another origin or downgrading a future HTTPS source.
+ */
 private const val UPDATE_MANIFEST = "http://47.112.219.60/yfuse/update.json"
 
 val LocalAppUpdateManager = staticCompositionLocalOf<AppUpdateManager?> { null }
@@ -37,6 +42,46 @@ data class UpdateManifest(
     val size: Long,
     val notes: String = "",
 )
+
+/**
+ * Constrains the unsigned update manifest before any APK bytes are downloaded.
+ *
+ * Android still verifies that an update is signed by the installed application's key, and
+ * [sha256] verifies transport integrity against the accepted manifest. This policy adds a
+ * separate boundary for the legacy HTTP source: it cannot point at an unrelated host or path,
+ * and once [sourceUrl] moves to HTTPS it cannot downgrade the APK download back to HTTP.
+ */
+internal fun UpdateManifest.validateForUpdateSource(sourceUrl: String): UpdateManifest {
+    require(versionCode > 0 && versionName.isNotBlank()) { "升级信息不完整" }
+    require(size > 0L) { "安装包大小无效" }
+    require(sha256.matches(Regex("[0-9a-fA-F]{64}"))) { "安装包校验值无效" }
+
+    val source = URL(sourceUrl)
+    val target = URL(apkUrl)
+    require(target.userInfo == null && target.ref == null) { "安装包地址无效" }
+    require(target.protocol.equals("https", ignoreCase = true) ||
+        target.protocol.equals(source.protocol, ignoreCase = true)
+    ) {
+        "安装包地址不允许降低连接安全性"
+    }
+    require(target.host.equals(source.host, ignoreCase = true)) {
+        "安装包地址不属于升级服务器"
+    }
+    val sameEffectivePort = source.portOrDefault() == target.portOrDefault()
+    val standardHttpsUpgrade = source.protocol.equals("http", true) &&
+        target.protocol.equals("https", true) && target.portOrDefault() == 443
+    require(sameEffectivePort || standardHttpsUpgrade) {
+        "安装包地址端口不属于升级服务器"
+    }
+    val normalizedSourcePath = source.toURI().normalize().path
+    val normalizedTargetPath = target.toURI().normalize().path
+    val sourceDirectory = normalizedSourcePath.substringBeforeLast('/', missingDelimiterValue = "/")
+        .trimEnd('/') + "/"
+    require(normalizedTargetPath.startsWith(sourceDirectory)) {
+        "安装包地址不属于升级目录"
+    }
+    return this
+}
 
 sealed interface UpdateState {
     data object Checking : UpdateState
@@ -75,6 +120,7 @@ class AppUpdateManager(private val activity: Activity) {
                     }
                     connection.inputStream.bufferedReader().use {
                         json.decodeFromString<UpdateManifest>(it.readText())
+                            .validateForUpdateSource(UPDATE_MANIFEST)
                     }
                 }
             }.onSuccess {
@@ -127,6 +173,7 @@ class AppUpdateManager(private val activity: Activity) {
                 ),
             )
             runCatching {
+                manifest.validateForUpdateSource(UPDATE_MANIFEST)
                 withContext(Dispatchers.IO) {
                     val dir = File(activity.cacheDir, "updates").apply { mkdirs() }
                     val target = File(dir, "Yfuse-${manifest.versionName}.apk")
@@ -259,3 +306,5 @@ private fun File.sha256(): String {
     }
     return digest.digest().joinToString("") { "%02x".format(it) }
 }
+
+private fun URL.portOrDefault(): Int = port.takeIf { it >= 0 } ?: defaultPort

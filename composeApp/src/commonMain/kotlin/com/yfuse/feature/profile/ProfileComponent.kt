@@ -58,8 +58,8 @@ class ProfileComponent(
     val watchTogetherPreferences: WatchTogetherPreferences = GlobalContext.get().get()
     val watchTogether: WatchTogetherClient = GlobalContext.get().get()
 
-    /** 下载与缓存 · 清除全部缓存. */
-    fun onClearCache() = clearImageCache()
+    /** Clear the shared image cache; offline video files and library metadata are untouched. */
+    suspend fun onClearCache() = clearImageCache()
 
     /** Long-pressing a non-current server row removes it. */
     fun onRemoveServer(id: String) {

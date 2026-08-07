@@ -44,13 +44,21 @@ class ServerRegistry(private val settings: Settings) {
 
     val defaultServer: SavedServer? get() = _data.value.defaultServer
 
-    fun serverById(id: String): SavedServer? = _data.value.servers.firstOrNull { it.id == id }
+    fun serverById(id: String): SavedServer? =
+        _data.value.servers.firstOrNull { it.id == id }
+            ?: _data.value.servers.firstOrNull { id in it.previousIds }
 
     /** Adds a server (or updates it if the same id already exists). First one becomes default. */
     fun addOrUpdate(server: SavedServer) {
         val current = _data.value
-        val replacing = current.servers.any { it.id == server.id }
-        val servers = current.servers.filterNot { it.id == server.id } + server
+        val existing = current.servers.firstOrNull { it.id == server.id }
+        val replacing = existing != null
+        val normalized = server.copy(
+            previousIds = (server.previousIds + existing?.previousIds.orEmpty()) - server.id,
+        )
+        val servers = current.servers
+            .filterNot { it.id == server.id }
+            .map { it.copy(previousIds = it.previousIds - server.id) } + normalized
         val defaultId = current.defaultServerId ?: server.id
         commit(current.copy(servers = servers, defaultServerId = defaultId))
         AppLog.info(
@@ -82,9 +90,76 @@ class ServerRegistry(private val settings: Settings) {
         }
     }
 
+    /** Updates the user-visible server name without touching its login session or identity. */
+    fun rename(id: String, name: String): Boolean {
+        val normalized = name
+            .replace('\r', ' ')
+            .replace('\n', ' ')
+            .trim()
+            .take(60)
+        if (normalized.isBlank()) return false
+        val current = _data.value
+        val existing = current.servers.firstOrNull { it.id == id } ?: return false
+        if (existing.serverName == normalized) return true
+        commit(
+            current.copy(
+                servers = current.servers.map {
+                    if (it.id == id) it.copy(serverName = normalized) else it
+                },
+            ),
+        )
+        AppLog.info(
+            category = "server.registry",
+            event = "server_renamed",
+            message = "Saved server display name changed",
+            attributes = mapOf("serverId" to id),
+        )
+        return true
+    }
+
+    /** Atomically replaces an edited server while preserving its list position and default. */
+    fun replace(id: String, server: SavedServer): Boolean {
+        val current = _data.value
+        val oldIndex = current.servers.indexOfFirst { it.id == id }
+        if (oldIndex < 0) return false
+        val existing = current.servers[oldIndex]
+        val colliding = current.servers.firstOrNull { it.id == server.id }
+        val replacement = server.copy(
+            previousIds = (
+                server.previousIds +
+                    existing.previousIds +
+                    colliding?.previousIds.orEmpty() +
+                    id
+                ) - server.id,
+        )
+        val remaining = current.servers
+            .filterNot { it.id == id || it.id == server.id }
+            .map { it.copy(previousIds = it.previousIds - server.id) }
+        val servers = remaining.toMutableList().apply {
+            add(oldIndex.coerceAtMost(size), replacement)
+        }
+        val defaultId = when (current.defaultServerId) {
+            id, server.id -> server.id
+            else -> current.defaultServerId
+        }
+        commit(current.copy(servers = servers, defaultServerId = defaultId))
+        AppLog.info(
+            category = "server.registry",
+            event = "server_replaced",
+            message = "Saved server connection changed",
+            attributes = mapOf(
+                "previousServerId" to id,
+                "serverId" to server.id,
+            ),
+        )
+        return true
+    }
+
     fun remove(id: String) {
         val current = _data.value
-        val servers = current.servers.filterNot { it.id == id }
+        val servers = current.servers
+            .filterNot { it.id == id }
+            .map { it.copy(previousIds = it.previousIds - id) }
         val defaultId = if (current.defaultServerId == id) servers.firstOrNull()?.id else current.defaultServerId
         commit(current.copy(servers = servers, defaultServerId = defaultId))
         AppLog.info(
@@ -98,7 +173,7 @@ class ServerRegistry(private val settings: Settings) {
         )
     }
 
-    /** Versioned portable backup shared by file and QR import/export. */
+    /** Versioned portable backup shared by file and QR import/export, including display names. */
     fun exportBackup(): String {
         val current = _data.value
         AppLog.info(
@@ -131,6 +206,7 @@ class ServerRegistry(private val settings: Settings) {
             }
             require(backup.version == 1) { "不支持的备份版本" }
             require(backup.servers.isNotEmpty()) { "备份中没有服务器" }
+            val current = _data.value
             val imported = backup.servers.map {
                 require(it.baseUrl.startsWith("http://") || it.baseUrl.startsWith("https://")) {
                     "服务器地址无效"
@@ -143,11 +219,18 @@ class ServerRegistry(private val settings: Settings) {
                     userId = it.userId,
                     userName = it.userName,
                     accessToken = it.accessToken,
+                    previousIds = current.servers
+                        .firstOrNull { saved ->
+                            saved.id == SavedServer.idOf(it.baseUrl, it.userId)
+                        }
+                        ?.previousIds
+                        .orEmpty(),
                 )
             }
-            val current = _data.value
             val ids = imported.mapTo(hashSetOf()) { it.id }
-            val merged = current.servers.filterNot { it.id in ids } + imported
+            val merged = current.servers
+                .filterNot { it.id in ids }
+                .map { it.copy(previousIds = it.previousIds - ids) } + imported
             val importedDefault = backup.defaultServerId?.let { oldId ->
                 backup.servers.firstOrNull {
                     SavedServer.idOf(it.baseUrl, it.userId) == oldId

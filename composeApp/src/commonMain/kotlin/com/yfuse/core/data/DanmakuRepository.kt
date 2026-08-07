@@ -2,17 +2,21 @@ package com.yfuse.core.data
 
 import com.yfuse.core.logging.AppLog
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.cancel
+import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -22,6 +26,29 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
+
+/** Hard cap applied after ContentEncoding has decompressed the response body. */
+internal const val MAX_DANMAKU_RESPONSE_BYTES: Int = 4 * 1024 * 1024
+
+internal class DanmakuResponseTooLargeException(
+    val maximumBytes: Int,
+) : IllegalStateException("Danmaku response exceeds $maximumBytes bytes")
+
+/**
+ * Reads at most one byte beyond [maximumBytes], then cancels the remaining stream.
+ * This keeps a compressed response from expanding into an unbounded in-memory String.
+ */
+internal suspend fun ByteReadChannel.readBoundedDanmakuText(
+    maximumBytes: Int = MAX_DANMAKU_RESPONSE_BYTES,
+): String {
+    require(maximumBytes > 0) { "maximumBytes must be positive" }
+    val bytes = readRemaining(maximumBytes.toLong() + 1L).readByteArray()
+    if (bytes.size > maximumBytes) {
+        cancel()
+        throw DanmakuResponseTooLargeException(maximumBytes)
+    }
+    return bytes.decodeToString()
+}
 
 enum class DanmakuKind { Scroll, Top, Bottom }
 
@@ -230,10 +257,20 @@ class DanmakuRepository(private val client: HttpClient) {
             )
         }
         return try {
-            val body: String = call().body()
+            // bodyAsChannel runs through Ktor's response pipeline, so ContentEncoding has
+            // already decompressed gzip data before this hard limit is applied.
+            val body = call().bodyAsChannel().readBoundedDanmakuText()
             Result.success(body)
         } catch (error: CancellationException) {
             throw error
+        } catch (error: DanmakuResponseTooLargeException) {
+            AppLog.warning(
+                category = "danmaku",
+                event = "response_too_large",
+                message = "Danmaku response exceeded the decompressed size limit",
+                attributes = mapOf("maximumBytes" to error.maximumBytes.toString()),
+            )
+            Result.failure(IllegalStateException("弹幕响应过大，已停止读取"))
         } catch (error: ResponseException) {
             AppLog.warning(
                 category = "danmaku",

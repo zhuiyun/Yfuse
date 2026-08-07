@@ -4,6 +4,7 @@ import android.util.Log
 import android.view.SurfaceView
 import com.mediadevkit.sdk.MDKPlayer
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import java.util.concurrent.atomic.AtomicInteger
@@ -218,7 +219,7 @@ class MdkVideoEngine(
             instance?.setSurfaceView(null)
             instance?.close()
         }.onFailure {
-            Log.w(MDK_TAG, "MDK teardown failed", it)
+            safeLogcat(Log.WARN, MDK_TAG, "MDK teardown failed", it)
             AppLog.warning(
                 category = "player.mdk",
                 event = "teardown_failed",
@@ -240,7 +241,7 @@ class MdkVideoEngine(
                 player = instance
             }
         }.onFailure {
-            Log.e(MDK_TAG, "MDK initialization failed", it)
+            safeLogcat(Log.ERROR, MDK_TAG, "MDK initialization failed", it)
             AppLog.error(
                 category = "player.mdk",
                 event = "initialization_failed",
@@ -261,7 +262,7 @@ class MdkVideoEngine(
             instance.setMedia(playbackUrl(item, index))
             instance.setState(MDKPlayer.STATE_PLAYING)
         }.onFailure {
-            Log.e(MDK_TAG, "MDK load failed", it)
+            safeLogcat(Log.ERROR, MDK_TAG, "MDK load failed", it)
             AppLog.error(
                 category = "player.mdk",
                 event = "load_failed",
@@ -356,7 +357,7 @@ class MdkVideoEngine(
             }
         }.onFailure {
             if (!released) {
-                Log.w(MDK_TAG, "MDK state polling failed", it)
+                safeLogcat(Log.WARN, MDK_TAG, "MDK state polling failed", it)
                 AppLog.warning(
                     category = "player.mdk",
                     event = "state_poll_failed",
@@ -483,7 +484,7 @@ class MdkVideoEngine(
     private inline fun runMdk(block: (MDKPlayer) -> Unit) {
         val instance = player ?: return
         runCatching { block(instance) }.onFailure {
-            Log.w(MDK_TAG, "MDK call failed", it)
+            safeLogcat(Log.WARN, MDK_TAG, "MDK call failed", it)
             AppLog.warning(
                 category = "player.mdk",
                 event = "engine_call_failed",

@@ -45,12 +45,20 @@ data class HomeRow(
     val totalCount: Int = items.size,
 )
 
+/** Exact server-wide title counts; null on [HomeContent] means the count request failed. */
+@Serializable
+data class LibraryCounts(
+    val movieCount: Int,
+    val seriesCount: Int,
+)
+
 /** Aggregated content for the media library home screen. */
 @Serializable
 data class HomeContent(
     val featured: List<MediaItem> = emptyList(),
     val resume: List<MediaItem> = emptyList(),
     val rows: List<HomeRow> = emptyList(),
+    val counts: LibraryCounts? = null,
 ) {
     val isEmpty: Boolean get() = featured.isEmpty() && resume.isEmpty() && rows.isEmpty()
 }

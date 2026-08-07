@@ -75,13 +75,32 @@ val tmdbToken: String = Properties().apply {
     if (file.exists()) file.inputStream().use { load(it) }
 }.getProperty("tmdb.token").orEmpty()
 
+val releaseSigningPropertiesFile = providers.gradleProperty("releaseSigningPropertiesFile")
+    .orNull
+    ?.trim()
+    ?.takeIf(String::isNotEmpty)
+    ?.let { rootProject.file(it) }
+    ?: rootProject.file("keystore.properties")
 val releaseSigningProperties = Properties().apply {
-    val file = rootProject.file("keystore.properties")
-    if (file.exists()) file.inputStream().use { load(it) }
+    if (releaseSigningPropertiesFile.exists()) {
+        releaseSigningPropertiesFile.inputStream().use { load(it) }
+    }
 }
-val releaseSigningReady = releaseSigningProperties.getProperty("storeFile")
-    ?.let(rootProject::file)
-    ?.exists() == true
+val releaseSigningKeys = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+val releaseStoreFile = releaseSigningProperties.getProperty("storeFile")
+    ?.trim()
+    ?.takeIf(String::isNotEmpty)
+    ?.let { rootProject.file(it) }
+val releaseSigningReady = releaseStoreFile?.isFile == true && releaseSigningKeys
+    .filterNot { it == "storeFile" }
+    .all { !releaseSigningProperties.getProperty(it).isNullOrBlank() }
+val allowDebugSigning = providers.gradleProperty("allowDebugSigning").orNull?.let { raw ->
+    when (raw.trim().lowercase()) {
+        "", "true" -> true
+        "false" -> false
+        else -> error("allowDebugSigning must be omitted, true, or false")
+    }
+} ?: false
 
 val versionFile = rootProject.file("version.properties")
 val versionProperties = Properties().apply {
@@ -146,7 +165,7 @@ android {
     signingConfigs {
         if (releaseSigningReady) {
             create("release") {
-                storeFile = rootProject.file(releaseSigningProperties.getProperty("storeFile"))
+                storeFile = requireNotNull(releaseStoreFile)
                 storePassword = releaseSigningProperties.getProperty("storePassword")
                 keyAlias = releaseSigningProperties.getProperty("keyAlias")
                 keyPassword = releaseSigningProperties.getProperty("keyPassword")
@@ -164,9 +183,15 @@ android {
             )
             signingConfig = if (releaseSigningReady) {
                 signingConfigs.getByName("release")
-            } else {
-                logger.warn("Release keystore is missing; the APK will use the debug signing key.")
+            } else if (allowDebugSigning) {
+                logger.warn(
+                    "Release keystore is missing; explicit -PallowDebugSigning is using the debug key.",
+                )
                 signingConfigs.getByName("debug")
+            } else {
+                // The verification task below fails every release packaging path. Leaving the
+                // config unset here keeps ordinary debug/test configuration usable.
+                null
             }
         }
     }
@@ -201,7 +226,25 @@ android {
     }
 }
 
+val verifyReleaseSigning by tasks.registering {
+    group = "verification"
+    description = "Rejects release packaging without production signing or explicit local opt-in."
+    doLast {
+        if (!releaseSigningReady && !allowDebugSigning) {
+            throw GradleException(
+                "Release signing is not fully configured. Provide keystore.properties or " +
+                    "use -PallowDebugSigning only for a non-distributable local build.",
+            )
+        }
+    }
+}
+
 tasks.configureEach {
+    val releasePackagingTask = name.contains("Release", ignoreCase = true) &&
+        listOf("assemble", "bundle", "package").any { name.startsWith(it, ignoreCase = true) }
+    if (releasePackagingTask) {
+        dependsOn(verifyReleaseSigning)
+    }
     if (name == "assembleRelease") {
         doLast {
             if (

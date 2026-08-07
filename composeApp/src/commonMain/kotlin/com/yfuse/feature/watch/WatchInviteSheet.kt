@@ -72,6 +72,11 @@ fun WatchInviteSheet(
             subtitle = "房间码 $roomCode · 视频仍由你自己的服务器播放",
             onClose = onDismiss,
         )
+        CopyableRoomCode(
+            roomCode = roomCode,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            style = sc(18f, 800),
+        )
 
         when (resolution) {
             InviteResolution.Resolving -> Row(
@@ -282,7 +287,11 @@ fun WatchInviteShareSheet(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(roomCode, style = sc(26f, 800), color = Brand.Primary)
+                    CopyableRoomCode(
+                        roomCode = roomCode,
+                        modifier = Modifier.fillMaxWidth(),
+                        style = sc(26f, 800),
+                    )
                     Text(
                         if (participantCount > 1) "$participantCount 人在房间" else "等待对方加入",
                         style = mr(10.5f, 500),

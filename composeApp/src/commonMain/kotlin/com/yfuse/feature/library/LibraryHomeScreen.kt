@@ -309,6 +309,13 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                     onItemClick = { component.onOpenItem(it.id) },
                                 )
                             }
+
+                            state.content.counts?.let { counts ->
+                                LibraryCountFooter(
+                                    movieCount = counts.movieCount,
+                                    seriesCount = counts.seriesCount,
+                                )
+                            }
                         }
                     }
                 }
@@ -331,6 +338,20 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
     }
+}
+
+/** Quiet end-of-page summary backed by Emby's full-library counts, not preview rows. */
+@Composable
+private fun LibraryCountFooter(movieCount: Int, seriesCount: Int) {
+    Text(
+        text = "电影 $movieCount 部 · 剧集 $seriesCount 部",
+        style = mr(11f, 500),
+        color = LocalPalette.current.sub2,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.pageHorizontal, vertical = 20.dp),
+    )
 }
 
 /**

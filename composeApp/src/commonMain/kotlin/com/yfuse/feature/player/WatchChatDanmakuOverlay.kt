@@ -18,7 +18,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -48,11 +47,31 @@ private data class WatchChatFlight(
     val lane: Int,
 )
 
-/** Returns only live arrivals; history at or below [lastSeenId] is never replayed. */
-internal fun watchChatMessagesAfter(
+internal sealed interface WatchChatAnimationKey {
+    data class ClientMessage(
+        val clientId: String,
+        val clientMessageId: String,
+    ) : WatchChatAnimationKey
+
+    data class ServerMessage(val id: Long) : WatchChatAnimationKey
+}
+
+/**
+ * Pending local chat and its later server echo deliberately share one key. This lets the
+ * sender see the optimistic message immediately without animating it a second time when
+ * the echo replaces the pending row in chat history.
+ */
+internal fun WatchChatMessage.animationKey(): WatchChatAnimationKey = clientMessageId
+    ?.let { WatchChatAnimationKey.ClientMessage(clientId, it) }
+    ?: WatchChatAnimationKey.ServerMessage(id)
+
+/** Returns only messages whose stable local/server identity has not been animated yet. */
+internal fun watchChatMessagesNotSeen(
     messages: List<WatchChatMessage>,
-    lastSeenId: Long,
-): List<WatchChatMessage> = messages.filter { it.id > lastSeenId }.sortedBy { it.id }
+    seenKeys: Set<WatchChatAnimationKey>,
+): List<WatchChatMessage> = messages
+    .filter { it.animationKey() !in seenKeys }
+    .sortedWith(compareBy<WatchChatMessage> { it.sentAtMs }.thenBy { it.id })
 
 /**
  * Real-time room chat overlay. Unlike media danmaku it uses wall-clock animation, so chat
@@ -65,8 +84,8 @@ internal fun WatchChatDanmakuOverlay(
     enabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val latestId = messages.maxOfOrNull { it.id } ?: 0L
-    var lastSeenId by remember(roomCode) { mutableLongStateOf(latestId) }
+    val messageKeys = messages.map { it.animationKey() }
+    var seenKeys by remember(roomCode) { mutableStateOf(messageKeys.toSet()) }
     var nextLane by remember(roomCode) { mutableIntStateOf(0) }
     var active by remember(roomCode) { mutableStateOf(emptyList<WatchChatFlight>()) }
 
@@ -78,15 +97,15 @@ internal fun WatchChatDanmakuOverlay(
     ) {
         val laneCount = (maxHeight / CHAT_LANE_HEIGHT).toInt().coerceIn(1, MAX_LANES)
 
-        LaunchedEffect(enabled, roomCode, latestId, laneCount) {
+        LaunchedEffect(enabled, roomCode, messageKeys, laneCount) {
             if (!enabled || roomCode == null) {
-                lastSeenId = latestId
+                seenKeys = messageKeys.toSet()
                 active = emptyList()
                 return@LaunchedEffect
             }
-            val arrivals = watchChatMessagesAfter(messages, lastSeenId)
+            val arrivals = watchChatMessagesNotSeen(messages, seenKeys)
+            seenKeys = messageKeys.toSet()
             if (arrivals.isEmpty()) return@LaunchedEffect
-            lastSeenId = arrivals.last().id
             val flights = arrivals.mapIndexed { index, message ->
                 WatchChatFlight(message, (nextLane + index) % laneCount)
             }
@@ -95,12 +114,13 @@ internal fun WatchChatDanmakuOverlay(
         }
 
         active.forEach { flight ->
-            key(flight.message.id) {
+            val animationKey = flight.message.animationKey()
+            key(animationKey) {
                 WatchChatDanmakuItem(
                     flight = flight,
                     viewportWidth = maxWidth,
                     onFinished = {
-                        active = active.filterNot { it.message.id == flight.message.id }
+                        active = active.filterNot { it.message.animationKey() == animationKey }
                     },
                 )
             }
@@ -116,10 +136,11 @@ private fun WatchChatDanmakuItem(
 ) {
     val density = LocalDensity.current
     val viewportWidthPx = with(density) { viewportWidth.toPx() }
-    val offsetX = remember(flight.message.id) { Animatable(viewportWidthPx) }
+    val animationKey = flight.message.animationKey()
+    val offsetX = remember(animationKey) { Animatable(viewportWidthPx) }
     val latestOnFinished by rememberUpdatedState(onFinished)
-    var contentWidthPx by remember(flight.message.id) { mutableIntStateOf(0) }
-    var ready by remember(flight.message.id) { mutableStateOf(false) }
+    var contentWidthPx by remember(animationKey) { mutableIntStateOf(0) }
+    var ready by remember(animationKey) { mutableStateOf(false) }
 
     LaunchedEffect(viewportWidthPx, contentWidthPx) {
         if (viewportWidthPx <= 0f || contentWidthPx <= 0) return@LaunchedEffect

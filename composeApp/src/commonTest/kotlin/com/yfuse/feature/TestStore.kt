@@ -20,7 +20,11 @@ private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
 fun testRepo(
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ): EmbyRepository = EmbyRepository(
-    createEmbyClient(MockEngine(handler), timeouts = null),
+    createEmbyClient(
+        appVersion = "test",
+        engine = MockEngine(handler),
+        timeouts = null,
+    ),
 )
 
 /** A fresh in-memory server registry for tests. */
@@ -49,8 +53,13 @@ fun MockRequestHandleScope.homeRoutes(
         """"BackdropImageTags":[],"UserData":{"PlayedPercentage":30.0}}]}""",
     latest: String = """[{"Id":"m1","Name":"某电影","Type":"Movie","ProductionYear":2026,""" +
         """"ImageTags":{"Primary":"pt"},"BackdropImageTags":["bt"]}]""",
+    movieCount: Int = 42,
+    seriesCount: Int = 7,
 ): HttpResponseData = when {
     request.url.encodedPath.endsWith("/Views") -> json(views)
+    request.url.encodedPath.endsWith("/Items/Counts") -> json(
+        """{"MovieCount":$movieCount,"SeriesCount":$seriesCount}""",
+    )
     request.url.encodedPath.contains("/Items/Resume") -> json(resume)
     request.url.encodedPath.contains("/Items/Latest") -> json(latest)
     else -> json("{}")

@@ -64,6 +64,7 @@ class LibraryCache(private val settings: Settings) {
             rows = content.rows.take(MAX_ROWS).map { row ->
                 row.copy(items = row.items.take(MAX_ITEMS_PER_ROW))
             },
+            counts = content.counts,
         )
         runCatching {
             settings.putString(

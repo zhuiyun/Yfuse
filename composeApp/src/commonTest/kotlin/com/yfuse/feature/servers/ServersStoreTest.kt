@@ -25,6 +25,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class ServersStoreTest {
 
@@ -55,6 +56,108 @@ class ServersStoreTest {
 
         assertEquals(1, registry.data.value.servers.size)
         assertEquals("zhuiyun", registry.data.value.servers.first().serverName)
+        store.dispose()
+    }
+
+    @Test
+    fun submit_uses_custom_server_name() = runTest {
+        val registry = testRegistry()
+        val store = store(registry) { req -> authRoutes(req) }
+        store.accept(ServersIntent.ServerNameChanged("  客厅影院  "))
+        store.accept(ServersIntent.ProtocolChanged(https = false))
+        store.accept(ServersIntent.HostChanged("host"))
+        store.accept(ServersIntent.PortChanged("8096"))
+        store.accept(ServersIntent.UsernameChanged("zhuiyun"))
+        store.accept(ServersIntent.PasswordChanged("123456"))
+
+        store.labels.test {
+            store.accept(ServersIntent.Submit)
+            assertEquals(ServersLabel.ServerAdded, awaitItem())
+            cancelAndConsumeRemainingEvents()
+        }
+
+        assertEquals("客厅影院", registry.data.value.servers.single().serverName)
+        store.dispose()
+    }
+
+    @Test
+    fun editing_display_name_keeps_session_and_does_not_reauthenticate() = runTest {
+        val registry = testRegistry()
+        val existing = SavedServer(
+            id = SavedServer.idOf("http://host", "u"),
+            baseUrl = "http://host",
+            serverName = "旧名称",
+            userId = "u",
+            userName = "zhuiyun",
+            accessToken = "existing-token",
+        )
+        registry.addOrUpdate(existing)
+        val store = store(registry) { error("rename must not make a network request") }
+        store.states.first { it.servers.isNotEmpty() }
+
+        store.accept(ServersIntent.EditServer(existing))
+        assertEquals("旧名称", store.state.form.serverName)
+        store.accept(ServersIntent.ServerNameChanged("  家庭影院  "))
+        store.accept(ServersIntent.Submit)
+
+        val renamed = registry.defaultServer
+        assertEquals(existing.id, renamed?.id)
+        assertEquals("家庭影院", renamed?.serverName)
+        assertEquals("existing-token", renamed?.accessToken)
+        assertEquals(false, store.state.dialogVisible)
+        assertEquals(null, store.state.editingServerId)
+        store.dispose()
+    }
+
+    @Test
+    fun editing_connection_reauthenticates_and_keeps_the_custom_name() = runTest {
+        val registry = testRegistry()
+        val existing = SavedServer(
+            id = SavedServer.idOf("http://oldhost:8096", "old-user-id"),
+            baseUrl = "http://oldhost:8096",
+            serverName = "家庭影院",
+            userId = "old-user-id",
+            userName = "zhuiyun",
+            accessToken = "old-token",
+        )
+        registry.addOrUpdate(existing)
+        val other = SavedServer(
+            id = SavedServer.idOf("http://other:8096", "other-user"),
+            baseUrl = "http://other:8096",
+            serverName = "其他服务器",
+            userId = "other-user",
+            userName = "other",
+            accessToken = "other-token",
+        )
+        registry.addOrUpdate(other)
+        val store = store(registry) { request ->
+            authRoutes(
+                request,
+                authBody =
+                    """{"AccessToken":"new-token","User":{"Id":"u1","Name":"zhuiyun"}}""",
+            )
+        }
+        store.states.first { it.servers.isNotEmpty() }
+        store.accept(ServersIntent.EditServer(existing))
+        store.accept(ServersIntent.HostChanged("newhost"))
+        store.accept(ServersIntent.PasswordChanged("password"))
+
+        store.labels.test {
+            store.accept(ServersIntent.Submit)
+            assertEquals(ServersLabel.ServerAdded, awaitItem())
+            cancelAndConsumeRemainingEvents()
+        }
+
+        val updated = registry.data.value.servers.first { it.baseUrl == "http://newhost:8096" }
+        assertEquals(2, registry.data.value.servers.size)
+        assertEquals("家庭影院", updated.serverName)
+        assertEquals("new-token", updated.accessToken)
+        assertEquals("http://newhost:8096", updated.baseUrl)
+        // Stale routes and queued offline downloads keep resolving after an address edit.
+        assertEquals(updated, registry.serverById(existing.id))
+        assertTrue(existing.id in updated.previousIds)
+        assertEquals(other, registry.serverById(other.id))
+        assertEquals(updated.id, registry.data.value.defaultServerId)
         store.dispose()
     }
 

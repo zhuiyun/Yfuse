@@ -4,6 +4,7 @@ import com.yfuse.core.data.dto.AuthRequestDto
 import com.yfuse.core.data.dto.AuthResultDto
 import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.ItemsResponseDto
+import com.yfuse.core.data.dto.ItemCountsDto
 import com.yfuse.core.data.dto.MediaSourceDto
 import com.yfuse.core.data.dto.PublicInfoDto
 import com.yfuse.core.data.dto.PublicUserDto
@@ -23,6 +24,7 @@ import com.yfuse.core.model.Season
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.HomeRow
+import com.yfuse.core.model.LibraryCounts
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.SavedServer
@@ -343,6 +345,22 @@ class EmbyRepository(private val client: HttpClient) {
                     )
                 }.getOrDefault(HomeRow(WATCH_LATER_COLLECTION_ID, "稍后观看", emptyList()))
             }
+            val countsDeferred = async {
+                runCatching { fetchItemCounts(server) }
+                    .onFailure {
+                        // Counts are useful footer metadata, not a reason to blank an
+                        // otherwise healthy library page. A missing/older endpoint simply
+                        // leaves the footer hidden until a later refresh succeeds.
+                        AppLog.warning(
+                            category = "emby",
+                            event = "library_counts_degraded",
+                            message = "Library title counts failed and were omitted",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                    }
+                    .getOrNull()
+            }
             val rowDeferred = views.map { view ->
                 async {
                     val items = runCatching { fetchLatest(server, view.id) }
@@ -379,13 +397,14 @@ class EmbyRepository(private val client: HttpClient) {
                 }
             }
             val resume = resumeDeferred.await()
+            val counts = countsDeferred.await()
             val rows = listOf(favoritesDeferred.await(), watchLaterDeferred.await()) +
                 rowDeferred.awaitAll().filter { it.items.isNotEmpty() }
             val featured = (resume + rows.flatMap { it.items })
                 .filter { it.backdropTag != null }
                 .distinctBy { it.id }
                 .take(6)
-            HomeContent(featured = featured, resume = resume, rows = rows)
+            HomeContent(featured = featured, resume = resume, rows = rows, counts = counts)
         }
     }
 
@@ -1034,6 +1053,18 @@ class EmbyRepository(private val client: HttpClient) {
             header("X-Emby-Token", server.accessToken)
         }.body()
         return dto.Items.map { MediaLibrary(it.Id, it.Name, it.CollectionType) }
+    }
+
+    /** One lightweight request gives exact Movie/Series totals across the selected user. */
+    private suspend fun fetchItemCounts(server: SavedServer): LibraryCounts {
+        val dto: ItemCountsDto = client.get("${server.baseUrl}/Items/Counts") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("UserId", server.userId)
+        }.body()
+        return LibraryCounts(
+            movieCount = dto.MovieCount.coerceAtLeast(0),
+            seriesCount = dto.SeriesCount.coerceAtLeast(0),
+        )
     }
 
     /** `Limit=0` returns just the count, which is all the category chip needs. */

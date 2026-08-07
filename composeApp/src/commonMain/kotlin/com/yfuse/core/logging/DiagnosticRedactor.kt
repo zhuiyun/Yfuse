@@ -1,6 +1,9 @@
 package com.yfuse.core.logging
 
 private const val Redacted = "<redacted>"
+private const val MaxLogcatMessageChars = 4_000
+private const val MaxLogcatAttributeChars = 1_000
+private const val MaxLogcatStackTraceChars = 16_000
 
 private val sensitiveKeys = setOf(
     "accesstoken",
@@ -57,4 +60,37 @@ internal fun redactDiagnosticAttributes(
     attributes: Map<String, String>,
 ): Map<String, String> = attributes.mapValues { (key, value) ->
     if (key.lowercase() in sensitiveKeys) Redacted else redactDiagnosticText(value)
+}
+
+/**
+ * Produces the only payload Android diagnostics are allowed to send to Logcat.
+ * Redaction happens before truncation so a truncated replacement can never reveal a prefix.
+ */
+internal fun formatSafeLogcatMessage(
+    event: String? = null,
+    message: String,
+    attributes: Map<String, String> = emptyMap(),
+    throwableText: String? = null,
+): String = buildString {
+    event?.let {
+        append(redactDiagnosticText(it).take(120))
+        append(" | ")
+    }
+    append(redactDiagnosticText(message).take(MaxLogcatMessageChars))
+    redactDiagnosticAttributes(attributes)
+        .entries
+        .take(32)
+        .takeIf { it.isNotEmpty() }
+        ?.let { entries ->
+            append(' ')
+            append(
+                entries.joinToString(", ") { (key, value) ->
+                    "${redactDiagnosticText(key).take(80)}=${value.take(MaxLogcatAttributeChars)}"
+                },
+            )
+        }
+    throwableText?.takeIf { it.isNotBlank() }?.let {
+        append('\n')
+        append(redactDiagnosticText(it).take(MaxLogcatStackTraceChars))
+    }
 }

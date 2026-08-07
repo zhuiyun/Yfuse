@@ -19,6 +19,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -739,6 +740,102 @@ class WatchTogetherServerTest {
         finished.complete(Unit)
         host.cancelAndJoin()
         guest.cancelAndJoin()
+    }
+
+    @Test
+    fun active_room_creation_is_limited_per_ip_without_blocking_other_ips() = testApplication {
+        application {
+            watchTogetherModule(
+                maxActiveRoomsPerIp = 1,
+                clientIpResolver = { call ->
+                    call.request.queryParameters["testIp"] ?: "test-default"
+                },
+            )
+        }
+        val socketClient = createClient { install(WebSockets) }
+
+        socketClient.webSocket("/watch?testIp=shared") {
+            send("""{"type":"hello","clientId":"host-1","mediaKey":"tmdb:101"}""")
+            val first = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("welcome", first["type"]?.jsonPrimitive?.content)
+            assertTrue(
+                first["roomCode"]?.jsonPrimitive?.content
+                    ?.matches(Regex("[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}")) == true,
+            )
+
+            socketClient.webSocket("/watch?testIp=shared") {
+                send("""{"type":"hello","clientId":"host-2","mediaKey":"tmdb:102"}""")
+                val limited = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("error", limited["type"]?.jsonPrimitive?.content)
+                assertEquals("room_ip_limit", limited["errorCode"]?.jsonPrimitive?.content)
+            }
+
+            socketClient.webSocket("/watch?testIp=other") {
+                send("""{"type":"hello","clientId":"host-3","mediaKey":"tmdb:103"}""")
+                val other = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("welcome", other["type"]?.jsonPrimitive?.content)
+            }
+        }
+    }
+
+    @Test
+    fun expired_empty_room_releases_its_ip_creation_quota() = testApplication {
+        application {
+            watchTogetherModule(
+                roomGraceMs = 20L,
+                maxActiveRoomsPerIp = 1,
+                clientIpResolver = { call ->
+                    call.request.queryParameters["testIp"] ?: "test-default"
+                },
+            )
+        }
+        val socketClient = createClient { install(WebSockets) }
+
+        socketClient.webSocket("/watch?testIp=recycled") {
+            send("""{"type":"hello","clientId":"host-1","mediaKey":"tmdb:201"}""")
+            val first = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("welcome", first["type"]?.jsonPrimitive?.content)
+        }
+
+        // Allow both the server-side socket cleanup and the configured room grace to pass.
+        delay(100L)
+
+        socketClient.webSocket("/watch?testIp=recycled") {
+            send("""{"type":"hello","clientId":"host-2","mediaKey":"tmdb:202"}""")
+            val recreated = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("welcome", recreated["type"]?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test
+    fun proxy_headers_are_only_used_after_explicit_trust() {
+        assertEquals(
+            "10.0.0.4",
+            resolveClientIp(
+                remoteHost = "10.0.0.4",
+                xForwardedFor = "203.0.113.8, 10.0.0.3",
+                forwarded = null,
+                trustProxyHeaders = false,
+            ),
+        )
+        assertEquals(
+            "203.0.113.8",
+            resolveClientIp(
+                remoteHost = "10.0.0.4",
+                xForwardedFor = "203.0.113.8, 10.0.0.3",
+                forwarded = null,
+                trustProxyHeaders = true,
+            ),
+        )
+        assertEquals(
+            "2001:db8::7",
+            resolveClientIp(
+                remoteHost = "10.0.0.4",
+                xForwardedFor = null,
+                forwarded = "for=\"[2001:db8::7]:4711\";proto=https",
+                trustProxyHeaders = true,
+            ),
+        )
     }
 }
 

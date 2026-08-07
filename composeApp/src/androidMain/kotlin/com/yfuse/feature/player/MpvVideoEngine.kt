@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import android.view.Surface
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import dev.jdtech.mpv.MPVLib
@@ -336,7 +337,7 @@ class MpvVideoEngine(
                 existing.setPropertyString("vo", "gpu")
             }
                 .onFailure {
-                    Log.e(TAG, "mpv re-attach failed", it)
+                    safeLogcat(Log.ERROR, TAG, "mpv re-attach failed", it)
                     AppLog.error(
                         category = "player.mpv",
                         event = "surface_reattach_failed",
@@ -351,7 +352,7 @@ class MpvVideoEngine(
         runCatching {
             val instance = MPVLib.create(context)
             if (instance == null) {
-                Log.e(TAG, "MPVLib.create returned null")
+                safeLogcat(Log.ERROR, TAG, "MPVLib.create returned null")
                 AppLog.error(
                     category = "player.mpv",
                     event = "initialization_failed",
@@ -425,7 +426,7 @@ class MpvVideoEngine(
             instance.attachSurface(surface)
             instance.setPropertyString("force-window", "yes")
             replaceFile(currentUrl())
-            Log.i(TAG, "mpv loadfile issued")
+            safeLogcat(Log.INFO, TAG, "mpv loadfile issued")
             AppLog.info(
                 category = "player.mpv",
                 event = "load_requested",
@@ -444,7 +445,7 @@ class MpvVideoEngine(
                     failed.destroy()
                 }
             }
-            Log.e(TAG, "mpv start failed", it)
+            safeLogcat(Log.ERROR, TAG, "mpv start failed", it)
             AppLog.error(
                 category = "player.mpv",
                 event = "start_failed",
@@ -556,7 +557,7 @@ class MpvVideoEngine(
             instance.command(arrayOf("stop"))
             instance.destroy()
         }.onFailure {
-            Log.w(TAG, "mpv teardown failed", it)
+            safeLogcat(Log.WARN, TAG, "mpv teardown failed", it)
             AppLog.warning(
                 category = "player.mpv",
                 event = "teardown_failed",
@@ -664,7 +665,7 @@ class MpvVideoEngine(
         }.getOrDefault(false)
         if (reachedEof) return
 
-        Log.e(TAG, "mpv ended playback before reaching EOF")
+        safeLogcat(Log.ERROR, TAG, "mpv ended playback before reaching EOF")
         AppLog.error(
             category = "player.mpv",
             event = "playback_failed",
@@ -721,7 +722,7 @@ class MpvVideoEngine(
 
             _state.update { it.copy(audioTracks = audio, subtitleTracks = subtitles) }
         }.onFailure {
-            Log.w(TAG, "reading track-list failed", it)
+            safeLogcat(Log.WARN, TAG, "reading track-list failed", it)
             AppLog.warning(
                 category = "player.mpv",
                 event = "track_list_failed",
@@ -813,7 +814,7 @@ class MpvVideoEngine(
             .fold(
                 onSuccess = { true },
                 onFailure = {
-                    Log.w(TAG, "mpv call failed", it)
+                    safeLogcat(Log.WARN, TAG, "mpv call failed", it)
                     AppLog.warning(
                         category = "player.mpv",
                         event = "engine_call_failed",

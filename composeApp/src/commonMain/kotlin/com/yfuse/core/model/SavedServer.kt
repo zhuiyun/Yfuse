@@ -2,7 +2,7 @@ package com.yfuse.core.model
 
 import kotlinx.serialization.Serializable
 
-/** A server the user has logged into, with its saved session. */
+/** A server the user has logged into, with its saved session and user-visible name. */
 @Serializable
 data class SavedServer(
     val id: String,
@@ -11,6 +11,8 @@ data class SavedServer(
     val userId: String,
     val userName: String,
     val accessToken: String,
+    /** Previous connection-derived ids retained when this saved server is edited. */
+    val previousIds: Set<String> = emptySet(),
 ) {
     companion object {
         /** Stable id so re-logging into the same server+user updates one entry. */

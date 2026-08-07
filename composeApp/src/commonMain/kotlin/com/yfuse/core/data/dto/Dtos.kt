@@ -42,6 +42,13 @@ data class AuthUserDto(val Id: String, val Name: String)
 @Serializable
 data class ViewsDto(val Items: List<ViewItemDto> = emptyList())
 
+/** Aggregate counts returned by `/Items/Counts` for one Emby user. */
+@Serializable
+data class ItemCountsDto(
+    val MovieCount: Int = 0,
+    val SeriesCount: Int = 0,
+)
+
 @Serializable
 data class ViewItemDto(
     val Id: String,

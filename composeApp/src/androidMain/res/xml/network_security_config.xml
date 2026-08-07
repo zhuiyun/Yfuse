@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      Users may explicitly connect to arbitrary self-hosted HTTP Emby servers, including LAN
+      hosts that cannot be enumerated here. The built-in update and watch relay also remain on
+      a legacy bare-IP HTTP endpoint until that service exposes TLS. Keep cleartext explicit
+      here instead of a blanket manifest flag, then deny it for public services that support
+      HTTPS and validate the legacy update URL again in application code.
+    -->
+    <base-config cleartextTrafficPermitted="true" />
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">themoviedb.org</domain>
+    </domain-config>
+</network-security-config>

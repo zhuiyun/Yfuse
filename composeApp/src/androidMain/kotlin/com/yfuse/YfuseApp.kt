@@ -5,12 +5,14 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
+import coil3.intercept.Interceptor
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.network.imageCacheKeyForUrl
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.core.offline.offlineApplicationContext
 import com.yfuse.di.appModule
@@ -31,7 +33,7 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
         initializeDeviceId(prefs)
         val settings = SharedPreferencesSettings(prefs)
         startKoin {
-            modules(appModule(settings))
+            modules(appModule(settings, BuildConfig.VERSION_NAME))
         }
     }
 
@@ -40,6 +42,24 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
             .components {
+                add(
+                    Interceptor { chain ->
+                        val request = chain.request
+                        val requestUrl = request.data as? String
+                        val safeCacheKey = requestUrl?.let(::imageCacheKeyForUrl)
+                        if (requestUrl != null && safeCacheKey != requestUrl) {
+                            // Only the cache identity changes. request.data remains the original
+                            // authenticated URL used by KtorNetworkFetcher.
+                            val safeRequest = request.newBuilder()
+                                .memoryCacheKey(safeCacheKey)
+                                .diskCacheKey(safeCacheKey)
+                                .build()
+                            chain.withRequest(safeRequest).proceed()
+                        } else {
+                            chain.proceed()
+                        }
+                    },
+                )
                 add(
                     KtorNetworkFetcherFactory(
                         httpClient = {

@@ -2,11 +2,13 @@ package com.yfuse.watch
 
 import io.ktor.http.ContentType
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.cio.CIO
 import io.ktor.server.http.content.staticFiles
+import io.ktor.server.plugins.origin
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
@@ -19,8 +21,8 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import java.io.File
+import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.random.Random
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.delay
@@ -169,6 +171,8 @@ private enum class ControlMode(val wireValue: String) {
  */
 private class Room(
     val code: String,
+    /** Network identity that consumed the creation quota for this room. */
+    val creatorIp: String,
     var hostId: String,
     var timeline: Timeline,
     var controlMode: ControlMode = ControlMode.HostOnly,
@@ -201,9 +205,6 @@ private class Room(
     }
 }
 
-private val rooms = ConcurrentHashMap<String, Room>()
-/** Serializes the size check with insertion so [MAX_ROOMS] remains a hard cap under bursts. */
-private val roomCreationLock = Any()
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
 
 private const val ROOM_CODE_LENGTH = 6
@@ -235,6 +236,7 @@ private const val HOST_GRACE_MS = 20_000L
  * ration normal use.
  */
 private const val MAX_ROOMS = 500
+private const val DEFAULT_MAX_ACTIVE_ROOMS_PER_IP = 8
 private const val MAX_PARTICIPANTS_PER_ROOM = 12
 private const val MAX_MESSAGES_PER_WINDOW = 240
 private const val RATE_WINDOW_MS = 10_000L
@@ -260,7 +262,27 @@ fun Application.watchTogetherModule(
     updateRoot: File = File(System.getenv("UPDATE_ROOT") ?: "/srv/yfuse-update/yfuse"),
     /** Injectable so tests can exercise the handover without waiting out the real window. */
     hostGraceMs: Long = HOST_GRACE_MS,
+    /** Empty rooms retain their code briefly for reconnects, then release quota on sweep. */
+    roomGraceMs: Long = ROOM_GRACE_MS,
+    maxActiveRoomsPerIp: Int = System.getenv("WATCH_MAX_ACTIVE_ROOMS_PER_IP")
+        ?.toIntOrNull()
+        ?.coerceIn(1, MAX_ROOMS)
+        ?: DEFAULT_MAX_ACTIVE_ROOMS_PER_IP,
+    /** Only enable when the reverse proxy overwrites client-supplied forwarding headers. */
+    trustProxyHeaders: Boolean = System.getenv("WATCH_TRUST_PROXY_HEADERS")
+        ?.equals("true", ignoreCase = true)
+        ?: false,
+    /** Test seam; production normally uses the socket/proxy-aware resolver below. */
+    clientIpResolver: ((ApplicationCall) -> String)? = null,
 ) {
+    require(roomGraceMs >= 0L) { "roomGraceMs must not be negative" }
+    require(maxActiveRoomsPerIp in 1..MAX_ROOMS) {
+        "maxActiveRoomsPerIp must be between 1 and $MAX_ROOMS"
+    }
+    val roomStore = RoomStore(
+        roomGraceMs = roomGraceMs,
+        maxActiveRoomsPerIp = maxActiveRoomsPerIp,
+    )
     // Outlives any one socket, which is what a delayed host handover needs: the connection
     // whose loss starts the clock is precisely the one that can't run the timer.
     val appScope: CoroutineScope = this
@@ -282,6 +304,17 @@ fun Application.watchTogetherModule(
         }
         staticFiles("/yfuse", updateRoot)
         webSocket("/watch") {
+            val clientIp = clientIpResolver
+                ?.invoke(call)
+                ?.trim()
+                ?.take(128)
+                ?.ifBlank { null }
+                ?: resolveClientIp(
+                    remoteHost = call.request.origin.remoteHost,
+                    xForwardedFor = call.request.headers["X-Forwarded-For"],
+                    forwarded = call.request.headers["Forwarded"],
+                    trustProxyHeaders = trustProxyHeaders,
+                )
             var joinedRoom: Room? = null
             var joinedClientId: String? = null
             var windowStartedAtMs = System.currentTimeMillis()
@@ -326,17 +359,34 @@ fun Application.watchTogetherModule(
                             val name = normalizeName(message.name)
                             val avatarId = normalizeAvatarId(message.avatarId, clientId)
 
-                            sweepExpiredRooms()
+                            roomStore.sweepExpiredRooms()
 
                             val room = if (message.roomCode == null) {
                                 val mediaKey = message.mediaKey?.takeIf { it.isNotBlank() }
                                     ?: return@consumeEach sendError("缺少媒体标识")
-                                createRoom(mediaKey, clientId)
-                                    ?: return@consumeEach sendError(
-                                        "一起看服务房间已满，请稍后再试",
+                                when (
+                                    val created = roomStore.createRoom(
+                                        mediaKey = mediaKey,
+                                        hostId = clientId,
+                                        creatorIp = clientIp,
                                     )
+                                ) {
+                                    is RoomCreationResult.Created -> created.room
+                                    RoomCreationResult.IpLimitReached -> {
+                                        return@consumeEach sendError(
+                                            "当前网络创建的活跃房间过多，请稍后再试",
+                                            "room_ip_limit",
+                                        )
+                                    }
+                                    RoomCreationResult.ServiceFull -> {
+                                        return@consumeEach sendError(
+                                            "一起看服务房间已满，请稍后再试",
+                                            "room_service_full",
+                                        )
+                                    }
+                                }
                             } else {
-                                rooms[message.roomCode.uppercase()]
+                                roomStore.find(message.roomCode.uppercase())
                                     ?: return@consumeEach sendError("房间不存在或已关闭")
                             }
 
@@ -346,19 +396,20 @@ fun Application.watchTogetherModule(
                             // control to whoever happened to still be connected.
                             var roomFull = false
                             var removedByHost = false
-                            val staleSession = synchronized(room) {
+                            var staleSession: WebSocketSession? = null
+                            val roomStillCurrent = roomStore.mutateIfCurrent(room) {
                                 if (clientId in room.removedClientIds) {
                                     removedByHost = true
-                                    return@synchronized null
+                                    return@mutateIfCurrent
                                 }
                                 val rejoining = room.participants.containsKey(clientId)
                                 if (!rejoining &&
                                     room.participants.size >= MAX_PARTICIPANTS_PER_ROOM
                                 ) {
                                     roomFull = true
-                                    return@synchronized null
+                                    return@mutateIfCurrent
                                 }
-                                val stale = room.participants[clientId]?.session
+                                staleSession = room.participants[clientId]?.session
                                 room.participants[clientId] = Participant(
                                     clientId,
                                     name,
@@ -381,7 +432,9 @@ fun Application.watchTogetherModule(
                                     room.hostId = clientId
                                     room.hostAbsentSinceMs = null
                                 }
-                                stale
+                            }
+                            if (!roomStillCurrent) {
+                                return@consumeEach sendError("房间不存在或已关闭")
                             }
                             if (removedByHost) {
                                 sendError("你已被房主移出当前房间", "removed_by_host")
@@ -748,17 +801,60 @@ private fun CoroutineScope.scheduleHostHandover(room: Room, graceMs: Long) {
     }
 }
 
-private fun createRoom(mediaKey: String, hostId: String): Room? {
-    synchronized(roomCreationLock) {
-        if (rooms.size >= MAX_ROOMS) return null
+private sealed interface RoomCreationResult {
+    data class Created(val room: Room) : RoomCreationResult
+    data object IpLimitReached : RoomCreationResult
+    data object ServiceFull : RoomCreationResult
+}
+
+/**
+ * Application-local room index. Quota is derived from the rooms that are actually present
+ * instead of a second mutable counter, so every successful expiry/removal releases it in
+ * the same atomic operation and a failed creation can never leak a slot.
+ */
+private class RoomStore(
+    private val roomGraceMs: Long,
+    private val maxActiveRoomsPerIp: Int,
+    private val roomCodeRandom: SecureRandom = SecureRandom(),
+) {
+    private val rooms = ConcurrentHashMap<String, Room>()
+
+    /** Serializes expiry, quota checks, and insertion under concurrent create bursts. */
+    private val creationLock = Any()
+
+    fun find(code: String): Room? = rooms[code]
+
+    /**
+     * Registers a join while holding the same store→room lock order used by expiry. A room
+     * found just before its grace elapsed therefore cannot be removed between lookup and
+     * clearing `emptySinceMs`.
+     */
+    fun mutateIfCurrent(room: Room, block: (Room) -> Unit): Boolean =
+        synchronized(creationLock) {
+            if (rooms[room.code] !== room) return@synchronized false
+            synchronized(room) { block(room) }
+            true
+        }
+
+    fun createRoom(
+        mediaKey: String,
+        hostId: String,
+        creatorIp: String,
+    ): RoomCreationResult = synchronized(creationLock) {
+        sweepExpiredRoomsLocked(System.currentTimeMillis())
+        if (rooms.size >= MAX_ROOMS) return@synchronized RoomCreationResult.ServiceFull
+        if (rooms.values.count { it.creatorIp == creatorIp } >= maxActiveRoomsPerIp) {
+            return@synchronized RoomCreationResult.IpLimitReached
+        }
         while (true) {
-            val code = buildString {
+            val code = buildString(ROOM_CODE_LENGTH) {
                 repeat(ROOM_CODE_LENGTH) {
-                    append(ROOM_CODE_ALPHABET[Random.nextInt(ROOM_CODE_ALPHABET.length)])
+                    append(ROOM_CODE_ALPHABET[roomCodeRandom.nextInt(ROOM_CODE_ALPHABET.length)])
                 }
             }
             val room = Room(
                 code = code,
+                creatorIp = creatorIp,
                 hostId = hostId,
                 timeline = Timeline(
                     mediaKey = mediaKey,
@@ -766,33 +862,78 @@ private fun createRoom(mediaKey: String, hostId: String): Room? {
                     anchorAtServerMs = System.currentTimeMillis(),
                 ),
             )
-            if (rooms.putIfAbsent(code, room) == null) return room
+            if (rooms.putIfAbsent(code, room) == null) {
+                return@synchronized RoomCreationResult.Created(room)
+            }
+        }
+        @Suppress("UNREACHABLE_CODE")
+        RoomCreationResult.ServiceFull
+    }
+
+    /**
+     * Swept opportunistically on `hello`: no timer is required, but stale rooms and their
+     * per-IP quota are reclaimed before any lookup or new creation can consume capacity.
+     */
+    fun sweepExpiredRooms(nowMs: Long = System.currentTimeMillis()) {
+        synchronized(creationLock) {
+            sweepExpiredRoomsLocked(nowMs)
+        }
+    }
+
+    private fun sweepExpiredRoomsLocked(nowMs: Long) {
+        rooms.values.forEach { room ->
+            // Registration uses the same store→room lock order, so an expired room cannot
+            // be removed between lookup and clearing `emptySinceMs`.
+            synchronized(room) {
+                val since = room.emptySinceMs
+                if (since != null && nowMs - since >= roomGraceMs) {
+                    rooms.remove(room.code, room)
+                }
+            }
         }
     }
 }
 
 /**
- * Swept opportunistically on `hello` rather than on a background timer: this is a small,
- * single-process, in-memory store, and there is no user-facing requirement to reclaim a
- * dead room's memory on a fixed schedule — only to reclaim it *before* its code could
- * plausibly be reused. Piggybacking on the one call site that actually creates new rooms
- * (and therefore could collide with an old code) avoids owning a lifecycle-scoped
- * background job at all.
+ * Resolves the quota identity. Forwarding headers are intentionally ignored unless the
+ * deployment opts in; otherwise a direct client could rotate a spoofed header to bypass
+ * the limit. The trusted proxy must overwrite, rather than append to, inbound headers.
  */
-private fun sweepExpiredRooms() {
-    val now = System.currentTimeMillis()
-    rooms.values.forEach { room ->
-        // The only other writer of `emptySinceMs` (a reconnect clearing it in the `hello`
-        // handler) also takes this same lock, so checking and removing under one
-        // `synchronized` block leaves no window for a room to be reoccupied and then
-        // evicted anyway.
-        synchronized(room) {
-            val since = room.emptySinceMs
-            if (since != null && now - since > ROOM_GRACE_MS) {
-                rooms.remove(room.code, room)
+internal fun resolveClientIp(
+    remoteHost: String,
+    xForwardedFor: String?,
+    forwarded: String?,
+    trustProxyHeaders: Boolean,
+): String {
+    val direct = remoteHost.trim().take(128).ifBlank { "unknown" }
+    if (!trustProxyHeaders) return direct
+
+    val forwardedFor = xForwardedFor
+        ?.substringBefore(',')
+        ?.let(::normalizeForwardedAddress)
+        ?: forwarded
+            ?.substringBefore(',')
+            ?.split(';')
+            ?.firstNotNullOfOrNull { part ->
+                part.substringAfter('=', missingDelimiterValue = "")
+                    .takeIf { part.substringBefore('=').trim().equals("for", ignoreCase = true) }
+                    ?.let(::normalizeForwardedAddress)
             }
-        }
+    return forwardedFor ?: direct
+}
+
+private fun normalizeForwardedAddress(raw: String): String? {
+    var value = raw.trim().removeSurrounding("\"")
+    if (value.equals("unknown", ignoreCase = true) || value.startsWith('_')) return null
+    if (value.startsWith('[')) {
+        value = value.substringAfter('[').substringBefore(']')
+    } else if (value.count { it == ':' } == 1 && value.substringBeforeLast(':').contains('.')) {
+        value = value.substringBeforeLast(':')
     }
+    return value
+        .trim()
+        .lowercase()
+        .takeIf { it.isNotBlank() && it.length <= 128 }
 }
 
 private fun Room.welcomeMessage(clientId: String): WireMessage = synchronized(this) {
