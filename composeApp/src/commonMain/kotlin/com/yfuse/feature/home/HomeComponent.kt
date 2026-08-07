@@ -6,11 +6,13 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.util.componentScope
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import org.koin.core.context.GlobalContext
 
 class HomeComponent(
     componentContext: ComponentContext,
@@ -26,7 +28,13 @@ class HomeComponent(
     val onOpenCalendar: () -> Unit,
 ) : ComponentContext by componentContext {
 
-    val store = HomeStoreFactory(storeFactory, tmdb, emby, registry).create()
+    val store = HomeStoreFactory(
+        storeFactory = storeFactory,
+        tmdb = tmdb,
+        emby = emby,
+        registry = registry,
+        cache = GlobalContext.get().get<TmdbHomeCache>(),
+    ).create()
 
     init {
         val scope = componentScope(lifecycle)

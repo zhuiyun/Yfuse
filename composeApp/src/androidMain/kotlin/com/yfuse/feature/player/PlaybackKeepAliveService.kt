@@ -16,16 +16,27 @@ import android.os.IBinder
 class PlaybackKeepAliveService : Service() {
     override fun onCreate() {
         super.onCreate()
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager.createNotificationChannel(
             NotificationChannel(
-                CHANNEL,
+                PlayerActivity.NOTIFICATION_CHANNEL,
                 "后台播放",
                 NotificationManager.IMPORTANCE_LOW,
             ),
         )
         // startForegroundService() starts a strict system deadline before onStartCommand. Enter
         // the foreground as soon as the service exists so main-thread work cannot make us miss it.
-        startForeground(NOTIFICATION_ID, notification())
+        // PlayerActivity normally posted the full MediaStyle notification first; reuse it instead
+        // of replacing its transport controls with this service's minimal fallback notification.
+        val existingNotification = runCatching {
+            notificationManager.activeNotifications
+                .firstOrNull { it.id == PlayerActivity.NOTIFICATION_ID }
+                ?.notification
+        }.getOrNull()
+        startForeground(
+            PlayerActivity.NOTIFICATION_ID,
+            existingNotification ?: notification(),
+        )
     }
 
     override fun onStartCommand(
@@ -39,10 +50,10 @@ class PlaybackKeepAliveService : Service() {
             PendingIntent.getActivity(
                 this,
                 0,
-                packageManager.getLaunchIntentForPackage(packageName),
+                PlayerActivity.openIntent(this),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-        val builder = Notification.Builder(this, CHANNEL)
+        val builder = Notification.Builder(this, PlayerActivity.NOTIFICATION_CHANNEL)
         return builder
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("Yfuse 正在播放")
@@ -55,9 +66,4 @@ class PlaybackKeepAliveService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
-    private companion object {
-        const val CHANNEL = "yfuse_playback"
-        const val NOTIFICATION_ID = 2407
-    }
 }

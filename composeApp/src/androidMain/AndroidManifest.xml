@@ -63,8 +63,6 @@
             android:name="com.yfuse.feature.player.PlayerActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:taskAffinity="com.yfuse.player"
-            android:excludeFromRecents="true"
             android:supportsPictureInPicture="true"
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density|uiMode"

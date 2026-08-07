@@ -1,7 +1,10 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
+import com.russhwolf.settings.Settings
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.ServersData
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -105,6 +108,80 @@ class ServerRegistryTest {
         assertEquals(replacement.id, reloaded.serverById(original.id)?.id)
         assertEquals("new-token", reloaded.serverById(original.id)?.accessToken)
         assertEquals(replacement.id, reloaded.defaultServer?.id)
+    }
+
+    @Test
+    fun failed_old_cache_cleanup_does_not_fail_an_already_committed_replacement() {
+        val original = server("old")
+        val replacement = server("new")
+        val cacheKey = "library.cache.${original.id}"
+        val backing = MapSettings().apply { putString(cacheKey, "cached-home") }
+        val settings = object : Settings by backing {
+            override fun remove(key: String) {
+                if (key == cacheKey) error("cache storage unavailable")
+                backing.remove(key)
+            }
+        }
+        val registry = ServerRegistry(settings).apply { addOrUpdate(original) }
+
+        assertTrue(registry.replace(original.id, replacement))
+
+        assertEquals(replacement.id, registry.defaultServer?.id)
+        assertEquals(replacement.id, registry.serverById(original.id)?.id)
+        assertEquals("cached-home", backing.getStringOrNull(cacheKey))
+    }
+
+    @Test
+    fun repeated_replacements_keep_only_recent_aliases_and_preserve_lookup() {
+        val settings = MapSettings()
+        val registry = ServerRegistry(settings)
+        val ids = (0..MAX_SERVER_PREVIOUS_IDS + 2).map { "server-$it" }
+        registry.addOrUpdate(server(ids.first()))
+
+        ids.drop(1).forEach { nextId ->
+            assertTrue(registry.replace(requireNotNull(registry.defaultServer).id, server(nextId)))
+        }
+
+        val reloaded = ServerRegistry(settings)
+        val latest = requireNotNull(reloaded.defaultServer)
+        val expected = ids.dropLast(1).takeLast(MAX_SERVER_PREVIOUS_IDS)
+        val dropped = ids.dropLast(1).dropLast(MAX_SERVER_PREVIOUS_IDS)
+        assertEquals(ids.last(), latest.id)
+        assertEquals(expected, latest.previousIds.toList())
+        expected.forEach { alias -> assertEquals(latest.id, reloaded.serverById(alias)?.id) }
+        dropped.forEach { alias -> assertNull(reloaded.serverById(alias)) }
+    }
+
+    @Test
+    fun loading_legacy_unbounded_aliases_keeps_the_most_recent_entries() {
+        val settings = MapSettings()
+        val aliases = (0..MAX_SERVER_PREVIOUS_IDS + 2).map { "legacy-$it" }
+        val saved = server("current").copy(previousIds = aliases.toCollection(linkedSetOf()))
+        settings.putString("library.cache.${saved.id}", "current-cache")
+        aliases.forEach { settings.putString("library.cache.$it", "orphan-cache") }
+        settings.putString("library.cache.unknown", "orphan-cache")
+        settings.putString(
+            "servers.data",
+            Json.encodeToString(
+                ServersData.serializer(),
+                ServersData(servers = listOf(saved), defaultServerId = saved.id),
+            ),
+        )
+
+        val loaded = requireNotNull(ServerRegistry(settings).defaultServer)
+
+        assertEquals(aliases.takeLast(MAX_SERVER_PREVIOUS_IDS), loaded.previousIds.toList())
+        val persisted = Json.decodeFromString(
+            ServersData.serializer(),
+            requireNotNull(settings.getStringOrNull("servers.data")),
+        )
+        assertEquals(
+            aliases.takeLast(MAX_SERVER_PREVIOUS_IDS),
+            persisted.servers.single().previousIds.toList(),
+        )
+        assertEquals("current-cache", settings.getStringOrNull("library.cache.${saved.id}"))
+        aliases.forEach { assertNull(settings.getStringOrNull("library.cache.$it")) }
+        assertNull(settings.getStringOrNull("library.cache.unknown"))
     }
 
     @Test

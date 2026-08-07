@@ -7,6 +7,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
+import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -65,6 +66,13 @@ data class ServerSyncState(
     val conflicts: List<SyncConflict> = emptyList(),
 )
 
+@Serializable
+private data class ServerRetryState(
+    val serverId: String,
+    val failureStreak: Int,
+    val retryNotBeforeEpochMs: Long,
+)
+
 class ServerSyncManager(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
@@ -77,7 +85,11 @@ class ServerSyncManager(
         const val PROGRESS_KEY = "sync.progress"
         const val ARTWORK_KEY = "sync.artwork"
         const val FAVORITES_KEY = "sync.favorites"
+        const val RETRY_STATE_KEY = "sync.retry.v1"
         const val PERIOD_MS = 15 * 60 * 1000L
+
+        /** Once the exponent reaches this streak, additional failures use the same ceiling. */
+        const val MAX_FAILURE_STREAK = 6
 
         /** Ceiling on the exponential hold-off for a server that keeps failing. */
         const val MAX_BACKOFF_MS = 60 * 60 * 1000L
@@ -88,19 +100,19 @@ class ServerSyncManager(
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val pendingSerializer = ListSerializer(PendingSyncMutation.serializer())
+    private val retryStateSerializer = ListSerializer(ServerRetryState.serializer())
     private val pending = MutableStateFlow(loadPending())
     private val snapshots = mutableMapOf<String, List<SyncedUserItem>>()
 
     /**
-     * Per-server consecutive failures, and the earliest time each may be tried again.
+     * Persisted per-server consecutive failures, and the earliest time each may be tried again.
      *
      * Every server in the list used to be retried on every cycle regardless of history. In
      * practice one server timed out on all fourteen of its attempts across a week of logs and
      * another answered 403 six times running, and each of those cost the sweep a full request
      * budget before the servers that do work were reached.
      */
-    private val failureStreaks = mutableMapOf<String, Int>()
-    private val retryNotBeforeEpochMs = mutableMapOf<String, Long>()
+    private val retryStates = loadRetryStates()
     private val _state = MutableStateFlow(
         ServerSyncState(
             pendingCount = pending.value.size,
@@ -167,9 +179,10 @@ class ServerSyncManager(
     }
 
     /**
-     * [force] bypasses the per-server hold-off, for a sync the user asked for by name.
+     * [force] bypasses the transient per-server hold-off, for a sync the user asked for by name.
      * Without it 立即同步 would silently do nothing for exactly the servers the user is
-     * pressing it because of.
+     * pressing it because of. Endpoints known to be permanently unavailable are still skipped
+     * before HTTP, because forcing them can only repeat the same DNS failure.
      */
     suspend fun syncAll(force: Boolean = false) {
         registry.data.value.servers.forEach { sync(it, force) }
@@ -286,8 +299,29 @@ class ServerSyncManager(
     }
 
     private suspend fun sync(server: SavedServer, force: Boolean = false) {
+        val unavailableReason = server.knownUnavailableEndpointReason()
+        if (unavailableReason != null) {
+            setStatus(server) {
+                it.copy(
+                    syncing = false,
+                    online = false,
+                    error = unavailableReason,
+                )
+            }
+            AppLog.warning(
+                category = "sync",
+                event = "server_sync_skipped_unavailable_endpoint",
+                message = "Server synchronization skipped for a known unavailable endpoint",
+                attributes = mapOf(
+                    "serverId" to server.id,
+                    "forced" to force.toString(),
+                ),
+            )
+            return
+        }
         val now = System.currentTimeMillis()
-        val notBefore = retryNotBeforeEpochMs[server.id]?.takeUnless { force }
+        val retryState = retryStates[server.id]
+        val notBefore = retryState?.retryNotBeforeEpochMs?.takeUnless { force }
         if (notBefore != null && now < notBefore) {
             AppLog.info(
                 category = "sync",
@@ -295,7 +329,7 @@ class ServerSyncManager(
                 message = "Server synchronization skipped while backing off",
                 attributes = mapOf(
                     "serverId" to server.id,
-                    "failureStreak" to (failureStreaks[server.id] ?: 0).toString(),
+                    "failureStreak" to (retryState?.failureStreak ?: 0).toString(),
                     "retryInMs" to (notBefore - now).toString(),
                 ),
             )
@@ -304,8 +338,7 @@ class ServerSyncManager(
         setStatus(server) { it.copy(syncing = true, error = null) }
         repo.userLibrarySnapshot(server).fold(
             onSuccess = { remote ->
-                failureStreaks.remove(server.id)
-                retryNotBeforeEpochMs.remove(server.id)
+                clearRetryState(server.id)
                 val conflicts = detectConflicts(server.id, remote)
                 snapshots[server.id] = remote
                 setStatus(server) {
@@ -352,10 +385,16 @@ class ServerSyncManager(
             },
             onFailure = { error ->
                 val unauthorized = error.isUnauthorized()
-                val streak = (failureStreaks[server.id] ?: 0) + 1
-                failureStreaks[server.id] = streak
+                val streak = ((retryStates[server.id]?.failureStreak ?: 0) + 1)
+                    .coerceAtMost(MAX_FAILURE_STREAK)
                 val backoffMs = backoffFor(streak, unauthorized)
-                retryNotBeforeEpochMs[server.id] = System.currentTimeMillis() + backoffMs
+                commitRetryState(
+                    ServerRetryState(
+                        serverId = server.id,
+                        failureStreak = streak,
+                        retryNotBeforeEpochMs = System.currentTimeMillis() + backoffMs,
+                    ),
+                )
                 AppLog.warning(
                     category = "sync",
                     event = "server_sync_failed",
@@ -401,6 +440,64 @@ class ServerSyncManager(
 
     private fun Throwable.isUnauthorized(): Boolean =
         (this as? EmbyErrorException)?.error == EmbyError.Unauthorized
+
+    private fun commitRetryState(value: ServerRetryState) {
+        retryStates[value.serverId] = value
+        persistRetryStates()
+    }
+
+    private fun clearRetryState(serverId: String) {
+        if (retryStates.remove(serverId) != null) persistRetryStates()
+    }
+
+    private fun persistRetryStates() {
+        runCatching {
+            if (retryStates.isEmpty()) {
+                settings.remove(RETRY_STATE_KEY)
+            } else {
+                settings.putString(
+                    RETRY_STATE_KEY,
+                    json.encodeToString(retryStateSerializer, retryStates.values.toList()),
+                )
+            }
+        }.onFailure {
+            AppLog.error(
+                category = "sync",
+                event = "retry_state_persist_failed",
+                message = "Failed to persist server synchronization backoff",
+                throwable = it,
+                attributes = mapOf("serverCount" to retryStates.size.toString()),
+            )
+        }
+    }
+
+    private fun loadRetryStates(): MutableMap<String, ServerRetryState> {
+        val raw = settings.getStringOrNull(RETRY_STATE_KEY) ?: return mutableMapOf()
+        val knownServerIds = registry.data.value.servers.mapTo(hashSetOf()) { it.id }
+        val now = System.currentTimeMillis()
+        return runCatching {
+            linkedMapOf<String, ServerRetryState>().apply {
+                json.decodeFromString(retryStateSerializer, raw)
+                    .filter { it.serverId in knownServerIds && it.failureStreak > 0 }
+                    .forEach { state ->
+                        this[state.serverId] = state.copy(
+                            failureStreak = state.failureStreak.coerceAtMost(MAX_FAILURE_STREAK),
+                            // Protect against corrupted data or a wall clock moved far backwards.
+                            retryNotBeforeEpochMs = state.retryNotBeforeEpochMs.coerceAtMost(
+                                now + UNAUTHORIZED_BACKOFF_MS,
+                            ),
+                        )
+                    }
+            }
+        }.onFailure {
+            AppLog.error(
+                category = "sync",
+                event = "stored_retry_state_invalid",
+                message = "Stored server synchronization backoff could not be decoded",
+                throwable = it,
+            )
+        }.getOrDefault(mutableMapOf())
+    }
 
     private suspend fun replayNonConflicting(
         server: SavedServer,

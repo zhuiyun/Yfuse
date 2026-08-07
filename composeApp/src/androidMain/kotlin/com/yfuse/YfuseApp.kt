@@ -10,8 +10,11 @@ import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
+import com.yfuse.core.data.DiagnosticPreferences
+import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.SafeLogcatOutputGate
 import com.yfuse.core.network.imageCacheKeyForUrl
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.core.offline.offlineApplicationContext
@@ -23,8 +26,6 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
-        DiagnosticLogStore.initialize(this)
-        AppLog.info("app", "initializing", "Initializing application dependencies")
         imageCacheContext = this
         offlineApplicationContext = this
         val prefs = getSharedPreferences("yfuse", MODE_PRIVATE)
@@ -32,9 +33,20 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
         // and it has to be the same one across launches for sessions to be reapable.
         initializeDeviceId(prefs)
         val settings = SharedPreferencesSettings(prefs)
-        startKoin {
-            modules(appModule(settings, BuildConfig.VERSION_NAME))
+        val diagnosticPreferences = DiagnosticPreferences(settings)
+        SafeLogcatOutputGate.initialize(diagnosticPreferences)
+        DiagnosticLogStore.initialize(this)
+        AppLog.info("app", "initializing", "Initializing application dependencies")
+        val koinApplication = startKoin {
+            modules(
+                appModule(
+                    settings = settings,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    diagnosticPreferences = diagnosticPreferences,
+                ),
+            )
         }
+        koinApplication.koin.get<AccountRepository>().start()
     }
 
     // Keep decoded images hot in memory and original responses on disk. This is

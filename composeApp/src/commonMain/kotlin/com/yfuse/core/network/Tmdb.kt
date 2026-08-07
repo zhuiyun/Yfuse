@@ -16,12 +16,12 @@ expect fun tmdbToken(): String
 const val TMDB_BASE = "https://api.themoviedb.org/3"
 
 /**
- * Shorter than the Emby budget on purpose: TMDB is a CDN-fronted public API, so a request
- * that has not connected in a few seconds is not going to. Home rows wait on these, and six
- * of them are issued at once — the whole screen should not sit on the engine's default.
+ * Shorter than the Emby budget on purpose, but long enough for mainland DNS and TLS setup.
+ * Sixteen home feeds are issued concurrently; an overly aggressive six-second connect budget
+ * made every shelf fail together on otherwise usable mobile networks.
  */
-private const val TMDB_REQUEST_TIMEOUT_MS = 12_000L
-private const val TMDB_CONNECT_TIMEOUT_MS = 6_000L
+private const val TMDB_REQUEST_TIMEOUT_MS = 20_000L
+private const val TMDB_CONNECT_TIMEOUT_MS = 12_000L
 
 /** Client for TMDB; authenticates with the v4 read token. */
 fun createTmdbClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient =

@@ -4,6 +4,7 @@ import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.DanmakuPreferences
+import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.PlaybackRecoverySnapshot
@@ -57,6 +58,7 @@ class ProfileComponent(
     private val libraryCache: LibraryCache = GlobalContext.get().get()
     val watchTogetherPreferences: WatchTogetherPreferences = GlobalContext.get().get()
     val watchTogether: WatchTogetherClient = GlobalContext.get().get()
+    val account: AccountRepository = GlobalContext.get().get()
 
     /** Clear the shared image cache; offline video files and library metadata are untouched. */
     suspend fun onClearCache() = clearImageCache()

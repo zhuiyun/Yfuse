@@ -156,7 +156,6 @@ private sealed interface DetailMsg {
     data class Resolving(val value: Boolean) : DetailMsg
     data class SelectionLoading(val value: Boolean) : DetailMsg
     data class VersionSelected(val versionId: String) : DetailMsg
-    data class SourceSelected(val serverId: String?, val itemId: String?) : DetailMsg
     data class EpisodeSelected(val itemId: String) : DetailMsg
     data class SeasonsLoaded(val seasons: List<Season>, val selected: String?) : DetailMsg
     data object EpisodesLoading : DetailMsg
@@ -164,8 +163,16 @@ private sealed interface DetailMsg {
     data class EpisodesLoaded(val episodes: List<Episode>) : DetailMsg
     data class SourcesLoaded(val sources: List<ServerSource>) : DetailMsg
     data class RelatedLoaded(val items: List<MediaItem>) : DetailMsg
-    data class FavoriteChanged(val value: Boolean) : DetailMsg
-    data class PlayedChanged(val value: Boolean) : DetailMsg
+    data class FavoriteChanged(
+        val serverId: String,
+        val itemId: String,
+        val value: Boolean,
+    ) : DetailMsg
+    data class PlayedChanged(
+        val serverId: String,
+        val itemId: String,
+        val value: Boolean,
+    ) : DetailMsg
     data class ActionMessage(val value: String?) : DetailMsg
     data class PlaybackSelectionLoaded(
         val server: SavedServer,
@@ -175,6 +182,7 @@ private sealed interface DetailMsg {
         val seasons: List<Season>? = null,
         val selectedSeasonId: String? = null,
         val episodes: List<Episode>? = null,
+        val preferredVersionId: String? = null,
     ) : DetailMsg
     data class AudioLanguageSelected(val language: String?) : DetailMsg
     data class SubtitleLanguageSelected(val language: String?) : DetailMsg
@@ -208,10 +216,14 @@ class DetailStoreFactory(
         /** Only one cross-server resolution may own the pending UI state at a time. */
         private var sourceSelectionJob: Job? = null
         private var sourceSelectionOperation = 0L
+        /** Prevents an older episode response from committing after a newer selection flow. */
+        private var episodeSelectionOperation = 0L
         private var pendingSourceServerId: String? = null
         private var pendingSourceItemId: String? = null
-        private var playPendingSourceWhenReady = false
+        private var playWhenSelectionReady = false
+        private var playFromStartWhenSelectionReady = false
         private var sourceLoadGeneration = 0L
+        private var relatedLoadGeneration = 0L
 
         override fun executeAction(action: DetailAction) = load()
 
@@ -233,14 +245,17 @@ class DetailStoreFactory(
                         // The first tap starts resolution; a second tap means "play this as
                         // soon as it is concrete". Dropping that tap made the resource dialog
                         // close while nothing happened.
-                        playPendingSourceWhenReady = true
-                        dispatch(DetailMsg.ActionMessage("正在切换资源，完成后将自动播放"))
+                        queuePlayAfterSelection(
+                            fromStart = false,
+                            message = "正在切换资源，完成后将自动播放",
+                        )
                     } else if (
                         current.selectedSourceServerId == intent.serverId &&
                         current.selectedSourceItemId == intent.itemId
                     ) {
                         play(fromStart = false)
                     } else {
+                        clearQueuedPlay()
                         selectSource(intent.serverId, intent.itemId)
                     }
                 }
@@ -251,15 +266,32 @@ class DetailStoreFactory(
                         dispatch(DetailMsg.VersionSelected(intent.versionId))
                     }
                 }
-                is DetailIntent.SelectSeason -> selectSeason(intent.seasonId)
+                is DetailIntent.SelectSeason -> {
+                    clearQueuedPlay()
+                    selectSeason(intent.seasonId)
+                }
                 is DetailIntent.SelectAudioLanguage ->
                     dispatch(DetailMsg.AudioLanguageSelected(intent.language))
                 is DetailIntent.SelectSubtitleLanguage ->
                     dispatch(DetailMsg.SubtitleLanguageSelected(intent.language))
                 is DetailIntent.SelectEpisode -> {
-                    if (state().selectedEpisodeId == intent.episodeId) {
+                    val pendingServerId = pendingSourceServerId
+                    val pendingItemId = pendingSourceItemId
+                    if (
+                        pendingServerId != null &&
+                        pendingItemId != null &&
+                        state().selectedEpisodeId != intent.episodeId
+                    ) {
+                        // The active cross-server request captured an episode coordinate when
+                        // it started. A later episode tap supersedes that coordinate, so
+                        // restart the bounded resolution against the same chosen server.
+                        clearQueuedPlay()
+                        dispatch(DetailMsg.EpisodeSelected(intent.episodeId))
+                        selectSource(pendingServerId, pendingItemId)
+                    } else if (state().selectedEpisodeId == intent.episodeId) {
                         play(fromStart = false)
                     } else {
+                        clearQueuedPlay()
                         selectEpisode(intent.episodeId, intent.startPositionTicks)
                     }
                 }
@@ -274,7 +306,13 @@ class DetailStoreFactory(
                             it.itemId != null
                     }
                     if (current.selectedSourceServerId != syncedServerId && source?.itemId != null) {
-                        selectSource(source.serverId, source.itemId)
+                        clearQueuedPlay()
+                        selectSource(
+                            serverId = source.serverId,
+                            sourceItemId = source.itemId,
+                            preferredPlaybackItemId = syncedItemId,
+                            preferredVersionId = intent.versionId,
+                        )
                         return
                     }
                     current.episodes.firstOrNull { it.id == syncedItemId }?.let { episode ->
@@ -340,6 +378,7 @@ class DetailStoreFactory(
                         loadRelated(server, detail)
                     }
                     .onFailure {
+                        clearQueuedPlay()
                         dispatch(DetailMsg.SelectionLoading(false))
                         AppLog.warning(
                             category = "feature.detail",
@@ -388,6 +427,7 @@ class DetailStoreFactory(
                             state().playServer?.id == server.id &&
                             state().playSourceDetail?.id == detail.id
                         ) {
+                            clearQueuedPlay()
                             dispatch(DetailMsg.SelectionLoading(false))
                         }
                         AppLog.warning(
@@ -436,10 +476,26 @@ class DetailStoreFactory(
         }
 
         private fun loadRelated(server: SavedServer, detail: MediaDetail) {
+            val generation = ++relatedLoadGeneration
             scope.launch {
                 repo.similarItems(server, detail.id)
-                    .onSuccess { dispatch(DetailMsg.RelatedLoaded(it)) }
+                    .onSuccess {
+                        if (
+                            generation == relatedLoadGeneration &&
+                            state().server?.id == server.id &&
+                            state().detail?.id == detail.id
+                        ) {
+                            dispatch(DetailMsg.RelatedLoaded(it))
+                        }
+                    }
                     .onFailure {
+                        if (
+                            generation != relatedLoadGeneration ||
+                            state().server?.id != server.id ||
+                            state().detail?.id != detail.id
+                        ) {
+                            return@onFailure
+                        }
                         AppLog.warning(
                             category = "feature.detail",
                             event = "related_load_failed",
@@ -456,6 +512,7 @@ class DetailStoreFactory(
             server: SavedServer,
             sourceDetail: MediaDetail,
             preferredEpisode: EpisodeCoordinate?,
+            preferredPlaybackItemId: String? = null,
         ): Result<ResolvedPlaybackSelection> = cancellableResult {
             if (sourceDetail.type != "Series") {
                 val catalog = seriesIdOf(sourceDetail)?.let { seriesId ->
@@ -469,6 +526,31 @@ class DetailStoreFactory(
                     seasons = catalog?.seasons.orEmpty(),
                     selectedSeasonId = catalog?.selectedSeasonId,
                     episodes = catalog?.episodes.orEmpty(),
+                )
+            }
+
+            if (preferredPlaybackItemId != null) {
+                val targetDetail = repo.itemDetail(server, preferredPlaybackItemId).getOrThrow()
+                if (targetDetail.type != "Episode" || targetDetail.seriesId != sourceDetail.id) {
+                    throw EpisodeUnavailableException(
+                        seasonNumber = targetDetail.seasonNumber,
+                        episodeNumber = targetDetail.episodeNumber,
+                    )
+                }
+                val catalog = loadSeriesCatalog(
+                    server = server,
+                    seriesId = sourceDetail.id,
+                    target = targetDetail,
+                    allEpisodes = null,
+                )
+                return@cancellableResult ResolvedPlaybackSelection(
+                    server = server,
+                    sourceDetail = sourceDetail,
+                    target = targetDetail,
+                    positionTicks = targetDetail.resumePositionTicks ?: 0L,
+                    seasons = catalog.seasons,
+                    selectedSeasonId = catalog.selectedSeasonId,
+                    episodes = catalog.episodes,
                 )
             }
 
@@ -527,7 +609,10 @@ class DetailStoreFactory(
             return SeriesCatalog(seasons, selectedSeasonId, episodes)
         }
 
-        private fun dispatchPlaybackSelection(selection: ResolvedPlaybackSelection) {
+        private fun dispatchPlaybackSelection(
+            selection: ResolvedPlaybackSelection,
+            preferredVersionId: String? = null,
+        ) {
             dispatch(
                 DetailMsg.PlaybackSelectionLoaded(
                     server = selection.server,
@@ -537,6 +622,7 @@ class DetailStoreFactory(
                     seasons = selection.seasons,
                     selectedSeasonId = selection.selectedSeasonId,
                     episodes = selection.episodes,
+                    preferredVersionId = preferredVersionId,
                 ),
             )
             loadSources(
@@ -545,19 +631,34 @@ class DetailStoreFactory(
                 seasonNumber = selection.target.seasonNumber,
                 episodeNumber = selection.target.episodeNumber,
             )
+            playQueuedSelectionIfReady()
         }
 
-        private fun selectSource(serverId: String, sourceItemId: String) {
+        private fun selectSource(
+            serverId: String,
+            sourceItemId: String,
+            preferredPlaybackItemId: String? = null,
+            preferredVersionId: String? = null,
+        ) {
             val server = registry.serverById(serverId) ?: return
             val current = state()
-            val coordinate = current.playTarget?.let {
-                EpisodeCoordinate(it.seasonNumber, it.episodeNumber)
-            }
+            // EpisodeSelected is committed before its detail request completes. If the user
+            // switches server during that request, carry the episode they just chose rather
+            // than the older concrete playTarget that is still visible underneath it.
+            val coordinate = current.episodes
+                .firstOrNull { it.id == current.selectedEpisodeId }
+                ?.let { EpisodeCoordinate(it.seasonNumber, it.indexNumber) }
+                ?: current.playTarget?.let {
+                    EpisodeCoordinate(it.seasonNumber, it.episodeNumber)
+                }
+            // The chosen coordinate above is carried to the new server. Any response from
+            // the old server is stale from this point onward, even while the new server is
+            // still resolving and the committed play target remains visible underneath.
+            episodeSelectionOperation++
             val operation = ++sourceSelectionOperation
             sourceSelectionJob?.cancel()
             pendingSourceServerId = serverId
             pendingSourceItemId = sourceItemId
-            playPendingSourceWhenReady = false
             dispatch(DetailMsg.ActionMessage(null))
             dispatch(DetailMsg.SelectionLoading(true))
             sourceSelectionJob = scope.launch {
@@ -567,24 +668,24 @@ class DetailStoreFactory(
                             server = server,
                             sourceItemId = sourceItemId,
                             coordinate = coordinate,
+                            preferredPlaybackItemId = preferredPlaybackItemId,
                             operation = operation,
                         )
                     } ?: Result.failure(SourceSelectionTimeoutException())
                     if (operation != sourceSelectionOperation) return@launch
-                    val playWhenReady = playPendingSourceWhenReady
                     pendingSourceServerId = null
                     pendingSourceItemId = null
-                    playPendingSourceWhenReady = false
                     result
                         .onSuccess { selection ->
                             // Commit the visible source and the concrete play target together.
                             // Until this point the previous source remains the only truth.
-                            dispatch(DetailMsg.SourceSelected(serverId, sourceItemId))
-                            dispatchPlaybackSelection(selection)
-                            if (playWhenReady) publishPlay(state(), fromStart = false)
+                            dispatchPlaybackSelection(selection, preferredVersionId)
+                            loadRelated(selection.server, selection.sourceDetail)
                         }
                         .onFailure {
+                            clearQueuedPlay()
                             dispatch(DetailMsg.SelectionLoading(false))
+                            restoreCommittedEpisodeSelection()
                             AppLog.warning(
                                 category = "feature.detail",
                                 event = "source_selection_failed",
@@ -607,7 +708,6 @@ class DetailStoreFactory(
                         sourceSelectionJob = null
                         pendingSourceServerId = null
                         pendingSourceItemId = null
-                        playPendingSourceWhenReady = false
                     }
                 }
             }
@@ -622,13 +722,19 @@ class DetailStoreFactory(
             server: SavedServer,
             sourceItemId: String,
             coordinate: EpisodeCoordinate?,
+            preferredPlaybackItemId: String?,
             operation: Long,
         ): Result<ResolvedPlaybackSelection> {
             var attempt = 1
             while (true) {
                 val result = repo.itemDetail(server, sourceItemId).fold(
                     onSuccess = { sourceDetail ->
-                        resolvePlaybackSelection(server, sourceDetail, coordinate)
+                        resolvePlaybackSelection(
+                            server = server,
+                            sourceDetail = sourceDetail,
+                            preferredEpisode = coordinate,
+                            preferredPlaybackItemId = preferredPlaybackItemId,
+                        )
                     },
                     onFailure = { Result.failure(it) },
                 )
@@ -681,6 +787,7 @@ class DetailStoreFactory(
             // operation's identity. Bind to the already committed playback source instead.
             val playServerId = server.id
             val playSourceItemId = sourceDetail.id
+            val operation = ++episodeSelectionOperation
             dispatch(DetailMsg.EpisodeSelected(episodeId))
             dispatch(DetailMsg.SelectionLoading(true))
             scope.launch {
@@ -691,7 +798,10 @@ class DetailStoreFactory(
                         "itemId" to episodeId,
                     ),
                     stillCurrent = {
-                        state().selectedEpisodeId == episodeId &&
+                        operation == episodeSelectionOperation &&
+                            pendingSourceServerId == null &&
+                            !state().episodesLoading &&
+                            state().selectedEpisodeId == episodeId &&
                             state().playServer?.id == playServerId &&
                             state().playSourceDetail?.id == playSourceItemId
                     },
@@ -733,6 +843,9 @@ class DetailStoreFactory(
                     )
                 }
                 if (
+                    operation != episodeSelectionOperation ||
+                    pendingSourceServerId != null ||
+                    state().episodesLoading ||
                     state().selectedEpisodeId != episodeId ||
                     state().playServer?.id != playServerId ||
                     state().playSourceDetail?.id != playSourceItemId
@@ -741,14 +854,10 @@ class DetailStoreFactory(
                 }
                 result
                     .onSuccess { selection ->
-                        dispatchPlaybackSelection(selection)
-                        preferredVersionId
-                            ?.takeIf { selected ->
-                                selection.target.versions.any { it.id == selected }
-                            }
-                            ?.let { dispatch(DetailMsg.VersionSelected(it)) }
+                        dispatchPlaybackSelection(selection, preferredVersionId)
                     }
                     .onFailure {
+                        clearQueuedPlay()
                         dispatch(DetailMsg.SelectionLoading(false))
                         previousEpisodeId?.let { dispatch(DetailMsg.EpisodeSelected(it)) }
                         dispatch(DetailMsg.ActionMessage(it.toUserMessage("剧集切换失败，请重试")))
@@ -761,6 +870,7 @@ class DetailStoreFactory(
             val sourceDetail = current.playSourceDetail ?: return
             val server = current.playServer ?: return
             val seriesId = seriesIdOf(sourceDetail) ?: return
+            episodeSelectionOperation++
             val playServerId = server.id
             val playSourceItemId = sourceDetail.id
             val previousSeasonId = current.selectedSeasonId
@@ -793,7 +903,10 @@ class DetailStoreFactory(
                         dispatch(DetailMsg.EpisodesLoaded(episodes))
                         val selected = episodes.firstOrNull { it.id == state().selectedEpisodeId }
                             ?: episodes.firstOrNull()
-                            ?: return@onSuccess
+                            ?: run {
+                                clearQueuedPlay()
+                                return@onSuccess
+                            }
                         selectEpisode(selected.id, selected.resumePositionTicks ?: 0L)
                     }
                     .onFailure {
@@ -806,8 +919,20 @@ class DetailStoreFactory(
                         }
                         dispatch(DetailMsg.SeasonsLoaded(state().seasons, previousSeasonId))
                         dispatch(DetailMsg.EpisodesLoadingFinished)
+                        restoreCommittedEpisodeSelection()
+                        clearQueuedPlay()
                         dispatch(DetailMsg.ActionMessage(it.toUserMessage("剧集加载失败，请重试")))
                     }
+            }
+        }
+
+        private fun restoreCommittedEpisodeSelection() {
+            val committedEpisodeId = state().playTarget
+                ?.takeIf { it.type == "Episode" }
+                ?.id
+                ?: return
+            if (state().selectedEpisodeId != committedEpisodeId) {
+                dispatch(DetailMsg.EpisodeSelected(committedEpisodeId))
             }
         }
 
@@ -856,7 +981,11 @@ class DetailStoreFactory(
         private fun play(fromStart: Boolean) {
             val current = state()
             val server = current.playServer ?: return
-            if (current.resolvingPlay || current.selectionLoading) return
+            if (current.resolvingPlay) return
+            if (current.selectionLoading || current.episodesLoading) {
+                queuePlayAfterSelection(fromStart)
+                return
+            }
             val target = current.playTarget
             if (target == null) {
                 val sourceDetail = current.playSourceDetail ?: return
@@ -876,6 +1005,27 @@ class DetailStoreFactory(
                 return
             }
             publishPlay(current, fromStart)
+        }
+
+        private fun queuePlayAfterSelection(
+            fromStart: Boolean,
+            message: String = "正在切换播放内容，完成后将自动播放",
+        ) {
+            playWhenSelectionReady = true
+            playFromStartWhenSelectionReady = fromStart
+            dispatch(DetailMsg.ActionMessage(message))
+        }
+
+        private fun clearQueuedPlay() {
+            playWhenSelectionReady = false
+            playFromStartWhenSelectionReady = false
+        }
+
+        private fun playQueuedSelectionIfReady() {
+            if (!playWhenSelectionReady) return
+            val fromStart = playFromStartWhenSelectionReady
+            clearQueuedPlay()
+            publishPlay(state(), fromStart)
         }
 
         private fun publishPlay(current: DetailState, fromStart: Boolean) {
@@ -907,12 +1057,20 @@ class DetailStoreFactory(
             scope.launch {
                 sync.setFavorite(server, detail.id, detail.title, target)
                     .onSuccess {
-                        dispatch(DetailMsg.FavoriteChanged(target))
-                        dispatch(DetailMsg.ActionMessage(if (target) "已加入收藏" else "已取消收藏"))
+                        if (isVisibleSource(server.id, detail.id)) {
+                            dispatch(DetailMsg.FavoriteChanged(server.id, detail.id, target))
+                            dispatch(
+                                DetailMsg.ActionMessage(
+                                    if (target) "已加入收藏" else "已取消收藏",
+                                ),
+                            )
+                        }
                     }
                     .onFailure {
-                        dispatch(DetailMsg.FavoriteChanged(target))
-                        dispatch(DetailMsg.ActionMessage("服务器暂不可用，收藏操作已排队同步"))
+                        if (isVisibleSource(server.id, detail.id)) {
+                            dispatch(DetailMsg.FavoriteChanged(server.id, detail.id, target))
+                            dispatch(DetailMsg.ActionMessage("服务器暂不可用，收藏操作已排队同步"))
+                        }
                     }
             }
         }
@@ -926,15 +1084,26 @@ class DetailStoreFactory(
             scope.launch {
                 sync.setPlayed(server, detail.id, detail.title, target)
                     .onSuccess {
-                        dispatch(DetailMsg.PlayedChanged(target))
-                        dispatch(DetailMsg.ActionMessage(if (target) "已标记为看过" else "已标记为未看"))
+                        if (isVisibleSource(server.id, detail.id)) {
+                            dispatch(DetailMsg.PlayedChanged(server.id, detail.id, target))
+                            dispatch(
+                                DetailMsg.ActionMessage(
+                                    if (target) "已标记为看过" else "已标记为未看",
+                                ),
+                            )
+                        }
                     }
                     .onFailure {
-                        dispatch(DetailMsg.PlayedChanged(target))
-                        dispatch(DetailMsg.ActionMessage("服务器暂不可用，已看状态已排队同步"))
+                        if (isVisibleSource(server.id, detail.id)) {
+                            dispatch(DetailMsg.PlayedChanged(server.id, detail.id, target))
+                            dispatch(DetailMsg.ActionMessage("服务器暂不可用，已看状态已排队同步"))
+                        }
                     }
             }
         }
+
+        private fun isVisibleSource(serverId: String, itemId: String): Boolean =
+            state().server?.id == serverId && state().detail?.id == itemId
 
         private fun addToWatchLater() {
             val current = state()
@@ -978,11 +1147,6 @@ class DetailStoreFactory(
             is DetailMsg.Resolving -> copy(resolvingPlay = msg.value)
             is DetailMsg.SelectionLoading -> copy(selectionLoading = msg.value)
             is DetailMsg.VersionSelected -> withSelectedVersion(msg.versionId)
-            is DetailMsg.SourceSelected -> copy(
-                selectedSourceServerId = msg.serverId,
-                selectedSourceItemId = msg.itemId,
-                actionMessage = null,
-            )
             is DetailMsg.EpisodeSelected -> copy(
                 selectedEpisodeId = msg.itemId,
                 actionMessage = null,
@@ -1000,34 +1164,69 @@ class DetailStoreFactory(
                 )
             }
             is DetailMsg.RelatedLoaded -> copy(related = msg.items)
-            is DetailMsg.FavoriteChanged -> copy(
-                detail = detail?.copy(isFavorite = msg.value),
-                actionMessage = null,
-            )
-            is DetailMsg.PlayedChanged -> copy(
-                detail = detail?.copy(played = msg.value),
-                actionMessage = null,
-            )
+            is DetailMsg.FavoriteChanged -> if (
+                server?.id == msg.serverId && detail?.id == msg.itemId
+            ) {
+                copy(
+                    detail = detail.copy(isFavorite = msg.value),
+                    playSourceDetail = playSourceDetail?.let { source ->
+                        if (source.id == msg.itemId) source.copy(isFavorite = msg.value) else source
+                    },
+                    actionMessage = null,
+                )
+            } else {
+                this
+            }
+            is DetailMsg.PlayedChanged -> if (
+                server?.id == msg.serverId && detail?.id == msg.itemId
+            ) {
+                copy(
+                    detail = detail.copy(played = msg.value),
+                    playSourceDetail = playSourceDetail?.let { source ->
+                        if (source.id == msg.itemId) source.copy(played = msg.value) else source
+                    },
+                    actionMessage = null,
+                )
+            } else {
+                this
+            }
             is DetailMsg.ActionMessage -> copy(actionMessage = msg.value)
             is DetailMsg.AudioLanguageSelected -> copy(preferredAudioLanguage = msg.language)
             is DetailMsg.SubtitleLanguageSelected -> copy(preferredSubtitleLanguage = msg.language)
-            is DetailMsg.PlaybackSelectionLoaded -> copy(
-                playServer = msg.server,
-                playSourceDetail = msg.sourceDetail,
-                playTarget = msg.target,
-                playPositionTicks = msg.positionTicks,
-                selectedEpisodeId = msg.target.id.takeIf { msg.target.type == "Episode" },
-                seasons = msg.seasons ?: seasons,
-                selectedSeasonId = if (msg.seasons != null) {
-                    msg.selectedSeasonId
-                } else {
-                    selectedSeasonId
-                },
-                episodes = msg.episodes ?: episodes,
-                episodesLoading = false,
-                selectionLoading = false,
-                actionMessage = null,
-            ).withSelectedVersion(msg.target.versions.firstOrNull()?.id)
+            is DetailMsg.PlaybackSelectionLoaded -> {
+                val sourceChanged = server?.id != msg.server.id || detail?.id != msg.sourceDetail.id
+                val versionId = msg.preferredVersionId
+                    ?.takeIf { preferred ->
+                        msg.target.versions.any { it.id == preferred }
+                    }
+                    ?: msg.target.versions.firstOrNull()?.id
+                copy(
+                    detail = if (sourceChanged) msg.sourceDetail else detail ?: msg.sourceDetail,
+                    server = msg.server,
+                    playServer = msg.server,
+                    playSourceDetail = if (sourceChanged) {
+                        msg.sourceDetail
+                    } else {
+                        playSourceDetail ?: msg.sourceDetail
+                    },
+                    playTarget = msg.target,
+                    playPositionTicks = msg.positionTicks,
+                    selectedSourceServerId = msg.server.id,
+                    selectedSourceItemId = msg.sourceDetail.id,
+                    selectedEpisodeId = msg.target.id.takeIf { msg.target.type == "Episode" },
+                    seasons = msg.seasons ?: seasons,
+                    selectedSeasonId = if (msg.seasons != null) {
+                        msg.selectedSeasonId
+                    } else {
+                        selectedSeasonId
+                    },
+                    episodes = msg.episodes ?: episodes,
+                    episodesLoading = false,
+                    selectionLoading = false,
+                    related = if (sourceChanged) emptyList() else related,
+                    actionMessage = null,
+                ).withSelectedVersion(versionId)
+            }
         }
     }
 }

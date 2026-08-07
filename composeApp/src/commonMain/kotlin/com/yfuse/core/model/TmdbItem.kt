@@ -38,9 +38,11 @@ data class TmdbDetail(
     val cast: List<TmdbPerson> = emptyList(),
 )
 
+@Serializable
 data class TmdbRow(val title: String, val items: List<TmdbItem>)
 
 /** Aggregated TMDB content for the home tab. */
+@Serializable
 data class TmdbHome(
     val featured: List<TmdbItem> = emptyList(),
     val rows: List<TmdbRow> = emptyList(),

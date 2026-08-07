@@ -48,7 +48,7 @@ kotlin {
 
         androidMain.dependencies {
             implementation(project(":mdkAndroid"))
-            implementation(libs.ktor.cio)
+            implementation(libs.ktor.okhttp)
             implementation(libs.androidx.activity.compose)
             implementation(libs.media3.exoplayer)
             implementation(libs.media3.ui)
@@ -57,6 +57,11 @@ kotlin {
             implementation(files("libs/libmpv-release.aar"))
             implementation(libs.androidx.palette)
             implementation(libs.zxing.core)
+        }
+
+        androidUnitTest.dependencies {
+            implementation(libs.okhttp.mockwebserver)
+            implementation(libs.okhttp.tls)
         }
 
         commonTest.dependencies {

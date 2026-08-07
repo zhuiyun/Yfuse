@@ -11,6 +11,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 
+/**
+ * Enough history for stale routes and queued work without letting repeated address edits grow
+ * the persisted registry forever. Iteration order is oldest to newest among the retained ids.
+ */
+internal const val MAX_SERVER_PREVIOUS_IDS = 8
+
 @Serializable
 private data class PortableServerBackup(
     @SerialName("v") val version: Int = 1,
@@ -54,7 +60,11 @@ class ServerRegistry(private val settings: Settings) {
         val existing = current.servers.firstOrNull { it.id == server.id }
         val replacing = existing != null
         val normalized = server.copy(
-            previousIds = (server.previousIds + existing?.previousIds.orEmpty()) - server.id,
+            previousIds = recentPreviousIds(
+                server.id,
+                server.previousIds,
+                existing?.previousIds.orEmpty(),
+            ),
         )
         val servers = current.servers
             .filterNot { it.id == server.id }
@@ -125,12 +135,13 @@ class ServerRegistry(private val settings: Settings) {
         val existing = current.servers[oldIndex]
         val colliding = current.servers.firstOrNull { it.id == server.id }
         val replacement = server.copy(
-            previousIds = (
-                server.previousIds +
-                    existing.previousIds +
-                    colliding?.previousIds.orEmpty() +
-                    id
-                ) - server.id,
+            previousIds = recentPreviousIds(
+                server.id,
+                server.previousIds,
+                existing.previousIds,
+                colliding?.previousIds.orEmpty(),
+                listOf(id),
+            ),
         )
         val remaining = current.servers
             .filterNot { it.id == id || it.id == server.id }
@@ -171,6 +182,61 @@ class ServerRegistry(private val settings: Settings) {
                 "serverCount" to servers.size.toString(),
             ),
         )
+    }
+
+    /**
+     * Replaces the local registry with a decrypted account-sync snapshot.
+     *
+     * The cloud service only stores ciphertext, so validation belongs here after authenticated
+     * decryption. IDs are re-derived instead of trusted and the whole change is committed once,
+     * preventing observers from seeing a half-applied server list.
+     */
+    fun replaceFromSync(snapshot: ServersData): Result<Int> = runCatching {
+        require(snapshot.servers.size <= 100) { "同步的服务器数量过多" }
+        val normalized = snapshot.servers.map { server ->
+            val baseUrl = server.baseUrl.trim().trimEnd('/')
+            require(baseUrl.length in 8..2_048 &&
+                (baseUrl.startsWith("https://") || baseUrl.startsWith("http://"))
+            ) { "同步的服务器地址无效" }
+            val userId = server.userId.trim()
+            val token = server.accessToken.trim()
+            require(userId.isNotEmpty() && userId.length <= 256 && token.length in 1..4_096) {
+                "同步的服务器凭据无效"
+            }
+            server.copy(
+                id = SavedServer.idOf(baseUrl, userId),
+                baseUrl = baseUrl,
+                serverName = server.serverName
+                    .replace('\r', ' ')
+                    .replace('\n', ' ')
+                    .trim()
+                    .take(60)
+                    .ifBlank { "Emby" },
+                userId = userId,
+                userName = server.userName
+                    .replace('\r', ' ')
+                    .replace('\n', ' ')
+                    .trim()
+                    .take(128),
+                accessToken = token,
+                previousIds = recentPreviousIds(
+                    SavedServer.idOf(baseUrl, userId),
+                    server.previousIds.take(MAX_SERVER_PREVIOUS_IDS),
+                ),
+            )
+        }
+        require(normalized.map { it.id }.distinct().size == normalized.size) {
+            "同步数据中包含重复服务器"
+        }
+        val requestedDefault = snapshot.defaultServerId
+        val defaultId = requestedDefault?.let { oldId ->
+            snapshot.servers.indexOfFirst { it.id == oldId }
+                .takeIf { it >= 0 }
+                ?.let(normalized::get)
+                ?.id
+        } ?: normalized.firstOrNull()?.id
+        commit(ServersData(normalized, defaultId))
+        normalized.size
     }
 
     /** Versioned portable backup shared by file and QR import/export, including display names. */
@@ -262,14 +328,33 @@ class ServerRegistry(private val settings: Settings) {
             }
 
     private fun commit(data: ServersData) {
-        _data.value = data
-        settings.putString(KEY, json.encodeToString(ServersData.serializer(), data))
+        val normalized = data.withBoundedPreviousIds()
+        _data.value = normalized
+        settings.putString(KEY, json.encodeToString(ServersData.serializer(), normalized))
+        clearOrphanedLibraryCaches(normalized)
     }
 
     private fun load(): ServersData {
         val raw = settings.getStringOrNull(KEY) ?: return ServersData()
         return runCatching {
-            json.decodeFromString(ServersData.serializer(), raw)
+            val decoded = json.decodeFromString(ServersData.serializer(), raw)
+            val normalized = decoded.withBoundedPreviousIds()
+            if (normalized != decoded) {
+                // One-time migration for registries written before alias history was bounded.
+                // A failed cleanup must not make otherwise valid saved servers disappear.
+                runCatching {
+                    settings.putString(KEY, json.encodeToString(ServersData.serializer(), normalized))
+                }.onFailure { error ->
+                    AppLog.warning(
+                        category = "server.registry",
+                        event = "alias_history_migration_failed",
+                        message = "Saved server alias history could not be compacted",
+                        throwable = error,
+                    )
+                }
+            }
+            clearOrphanedLibraryCaches(normalized)
+            normalized
         }.onFailure {
             AppLog.error(
                 category = "server.registry",
@@ -279,4 +364,47 @@ class ServerRegistry(private val settings: Settings) {
             )
         }.getOrDefault(ServersData())
     }
+
+    private fun clearOrphanedLibraryCaches(data: ServersData) {
+        runCatching {
+            LibraryCache(settings).clearOrphans(data.servers.mapTo(mutableSetOf()) { it.id })
+        }.onFailure { error ->
+            // Registry state has already loaded/committed. Cache cleanup is best-effort and
+            // must never make a valid connection edit appear to have failed.
+            AppLog.warning(
+                category = "server.registry",
+                event = "orphan_library_cache_clear_failed",
+                message = "Orphaned library caches could not be cleared",
+                throwable = error,
+            )
+        }
+    }
 }
+
+/**
+ * Later occurrences win so reusing an older alias makes it recent again. This matters when a
+ * replacement collides with an existing saved connection and both histories are merged.
+ */
+private fun recentPreviousIds(
+    currentId: String,
+    vararg histories: Iterable<String>,
+): Set<String> {
+    val newestFirst = buildList {
+        histories.forEach { addAll(it) }
+    }.asReversed()
+        .asSequence()
+        .filter { it != currentId }
+        .distinct()
+        .take(MAX_SERVER_PREVIOUS_IDS)
+        .toList()
+
+    return linkedSetOf<String>().apply {
+        newestFirst.asReversed().forEach { add(it) }
+    }
+}
+
+private fun ServersData.withBoundedPreviousIds(): ServersData = copy(
+    servers = servers.map { server ->
+        server.copy(previousIds = recentPreviousIds(server.id, server.previousIds))
+    },
+)

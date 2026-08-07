@@ -2,14 +2,16 @@
 <network-security-config>
     <!--
       Users may explicitly connect to arbitrary self-hosted HTTP Emby servers, including LAN
-      hosts that cannot be enumerated here. The built-in update and watch relay also remain on
-      a legacy bare-IP HTTP endpoint until that service exposes TLS. Keep cleartext explicit
-      here instead of a blanket manifest flag, then deny it for public services that support
-      HTTPS and validate the legacy update URL again in application code.
+      hosts that cannot be enumerated here. Keep cleartext explicit for those user-managed
+      services. Network security config matches hosts but cannot distinguish ports, so the
+      shared 47.112.219.60 host must inherit this policy: it is both Yfuse's HTTPS origin and a
+      user-managed HTTP Emby server on port 19001. Yfuse's own URLs enforce HTTPS in application
+      code. Hostnames that are not shared with user servers remain HTTPS-only below.
     -->
     <base-config cleartextTrafficPermitted="true" />
 
     <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">yfuse.zhuiyun.site</domain>
         <domain includeSubdomains="true">themoviedb.org</domain>
     </domain-config>
 </network-security-config>

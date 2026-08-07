@@ -390,10 +390,12 @@ class ExoVideoEngine(
                     automaticFallbackBlocked = false,
                     positionMs = 0L,
                     durationMs = knownDuration(),
+                    bufferedPositionMs = 0L,
                     error = null,
                     ended = false,
                     diagnostics = it.diagnostics.copy(
                         playMethod = if (index in transcodedIndices) "服务器转码" else "直播放",
+                        bufferedDurationMs = 0L,
                     ),
                 )
             }
@@ -564,11 +566,13 @@ class ExoVideoEngine(
         ticker = scope.launch {
             while (isActive) {
                 _state.update {
+                    val bufferedDurationMs = player.totalBufferedDuration.coerceAtLeast(0L)
                     it.copy(
                         positionMs = player.currentPosition,
                         durationMs = knownDuration(),
+                        bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0L),
                         diagnostics = it.diagnostics.copy(
-                            bufferedDurationMs = player.totalBufferedDuration.coerceAtLeast(0L),
+                            bufferedDurationMs = bufferedDurationMs,
                         ),
                     )
                 }
@@ -588,7 +592,13 @@ class ExoVideoEngine(
 
     override fun seekTo(positionMs: Long) {
         player.seekTo(positionMs)
-        _state.update { it.copy(positionMs = positionMs, ended = false) }
+        _state.update {
+            it.copy(
+                positionMs = positionMs,
+                bufferedPositionMs = positionMs.coerceAtLeast(0L),
+                ended = false,
+            )
+        }
     }
 
     override fun setSpeed(speed: Float) {
@@ -605,6 +615,7 @@ class ExoVideoEngine(
             it.copy(
                 error = null,
                 buffering = true,
+                bufferedPositionMs = 0L,
                 ended = false,
                 transcoding = index in transcodedIndices,
                 fallbacksExhausted = false,
@@ -621,6 +632,7 @@ class ExoVideoEngine(
             it.copy(
                 error = null,
                 buffering = true,
+                bufferedPositionMs = it.positionMs,
                 ended = false,
                 automaticFallbackBlocked = false,
             )
@@ -801,8 +813,12 @@ class ExoVideoEngine(
             it.copy(
                 error = null,
                 buffering = true,
+                bufferedPositionMs = position,
                 transcoding = true,
-                diagnostics = it.diagnostics.copy(playMethod = "服务器转码"),
+                diagnostics = it.diagnostics.copy(
+                    playMethod = "服务器转码",
+                    bufferedDurationMs = 0L,
+                ),
             )
         }
         safeLogcat(Log.INFO, TAG, "falling back to transcode for index=$index")
@@ -851,7 +867,9 @@ class ExoVideoEngine(
         transcodedIndices += index
         progressiveTransitionIndices += index
         val position = player.currentPosition
-        _state.update { it.copy(error = null, buffering = true) }
+        _state.update {
+            it.copy(error = null, buffering = true, bufferedPositionMs = position)
+        }
         // Stop reading HLS before deleting its encoder. Starting MP4 first can briefly leave
         // two ffmpeg jobs under one session; one-slot servers reject the second with HTTP 400.
         player.stop()

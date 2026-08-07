@@ -10,12 +10,14 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteReadChannel
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlinx.coroutines.test.runTest
 
 class DanmakuTest {
 
@@ -88,6 +90,160 @@ class DanmakuTest {
         assertEquals(DanmakuFontSize.Large, restored.fontSize.value)
         assertEquals(DanmakuSpeed.Fast, restored.speed.value)
         assertEquals(DanmakuOpacity.High, restored.opacity.value)
+    }
+
+    @Test
+    fun sync_snapshot_serializes_and_round_trips_every_account_owned_value() {
+        val original = DanmakuPreferences(MapSettings())
+        val first = requireNotNull(original.addSource("模板", "https://a.example.com/{id}"))
+        val second = requireNotNull(original.addSource("接口", "https://b.example.com/api/v2"))
+        original.selectSource(second.id)
+        original.bind(
+            "s:九门|1|4",
+            DanmakuBinding(second.id, "episode-4", "九门 - 第4集"),
+        )
+        original.setEnabled(false)
+        original.setDisplayArea(DanmakuDisplayArea.ThreeQuarters)
+        original.setFontSize(DanmakuFontSize.ExtraLarge)
+        original.setSpeed(DanmakuSpeed.Fast)
+        original.setOpacity(DanmakuOpacity.High)
+        original.setMergeDuplicates(false)
+        original.addBlockedWord("剧透")
+        original.rememberSearch("只留在原设备")
+
+        val json = Json { encodeDefaults = true }
+        val encoded = json.encodeToString(DanmakuSyncSnapshot.serializer(), original.snapshot())
+        val decoded = json.decodeFromString(DanmakuSyncSnapshot.serializer(), encoded)
+        val targetSettings = MapSettings()
+        val target = DanmakuPreferences(targetSettings).apply {
+            rememberSearch("目标设备历史")
+        }
+
+        target.applySnapshot(decoded).getOrThrow()
+
+        assertEquals(DanmakuSyncSnapshot.CURRENT_VERSION, decoded.version)
+        assertEquals(listOf(first.id, second.id), target.sources.value.map { it.id })
+        assertEquals(original.snapshot(), target.snapshot())
+        assertEquals(listOf("目标设备历史"), target.recentSearches.value)
+        assertFalse(encoded.contains("只留在原设备"))
+        assertEquals(target.snapshot(), DanmakuPreferences(targetSettings).snapshot())
+    }
+
+    @Test
+    fun invalid_snapshot_validation_and_apply_are_side_effect_free() {
+        val settings = MapSettings()
+        val preferences = DanmakuPreferences(settings)
+        requireNotNull(preferences.addSource("原有", "https://good.example.com"))
+        preferences.setEnabled(false)
+        val before = preferences.snapshot()
+        val invalid = before.copy(
+            sources = listOf(DanmakuSource("bad", "坏地址", "file:///tmp/comments.xml")),
+            enabled = true,
+        )
+
+        assertTrue(preferences.validateSnapshot(invalid).isFailure)
+        assertEquals(before, preferences.snapshot())
+        assertEquals(before, DanmakuPreferences(settings).snapshot())
+        assertTrue(
+            preferences.applySnapshot(
+                before.copy(version = DanmakuSyncSnapshot.CURRENT_VERSION + 1),
+            ).isFailure,
+        )
+        assertTrue(preferences.applySnapshot(invalid).isFailure)
+        assertEquals(before, preferences.snapshot())
+    }
+
+    @Test
+    fun oversized_snapshot_is_rejected() {
+        val preferences = DanmakuPreferences(MapSettings())
+        val tooManySources = List(MAX_DANMAKU_SYNC_SOURCES + 1) { index ->
+            DanmakuSource("source-$index", "来源 $index", "https://$index.example.com")
+        }
+
+        assertTrue(
+            preferences.applySnapshot(DanmakuSyncSnapshot(sources = tooManySources)).isFailure,
+        )
+        assertTrue(preferences.sources.value.isEmpty())
+    }
+
+    @Test
+    fun applying_snapshot_repairs_active_source_and_drops_deleted_source_bindings() {
+        val settings = MapSettings()
+        val preferences = DanmakuPreferences(settings)
+        val kept = DanmakuSource("source-kept", "保留", "https://kept.example.com")
+        val deleted = DanmakuSource("source-deleted", "删除", "https://deleted.example.com")
+        val snapshot = DanmakuSyncSnapshot(
+            sources = listOf(kept),
+            activeSourceId = deleted.id,
+            bindings = linkedMapOf(
+                "movie:kept" to DanmakuBinding(kept.id, "episode-kept", "保留匹配"),
+                "movie:deleted" to DanmakuBinding(deleted.id, "episode-deleted", "失效匹配"),
+            ),
+        )
+
+        preferences.applySnapshot(snapshot).getOrThrow()
+
+        assertEquals(kept.id, preferences.activeSourceId.value)
+        assertEquals(listOf("movie:kept"), preferences.bindings.value.keys.toList())
+        val restored = DanmakuPreferences(settings)
+        assertEquals(kept.id, restored.activeSourceId.value)
+        assertEquals(listOf("movie:kept"), restored.bindings.value.keys.toList())
+    }
+
+    @Test
+    fun applying_empty_snapshot_clears_sources_without_reviving_legacy_link() {
+        val settings = MapSettings().apply {
+            putString("danmaku.urlTemplate", "https://legacy.example.com/{id}")
+        }
+        val preferences = DanmakuPreferences(settings)
+        assertEquals(1, preferences.sources.value.size)
+
+        preferences.applySnapshot(DanmakuSyncSnapshot()).getOrThrow()
+
+        assertTrue(preferences.sources.value.isEmpty())
+        assertTrue(preferences.bindings.value.isEmpty())
+        assertNull(preferences.activeSourceId.value)
+        assertTrue(DanmakuPreferences(settings).sources.value.isEmpty())
+    }
+
+    @Test
+    fun snapshot_import_limits_display_text_and_normalizes_blocked_words() {
+        val source = DanmakuSource(
+            id = "source-a",
+            name = "名".repeat(MAX_DANMAKU_SYNC_SOURCE_NAME_CHARS + 5),
+            url = "https://a.example.com",
+        )
+        val preferences = DanmakuPreferences(MapSettings())
+
+        preferences.applySnapshot(
+            DanmakuSyncSnapshot(
+                sources = listOf(source),
+                bindings = mapOf(
+                    "movie:a" to DanmakuBinding(
+                        source.id,
+                        "episode-a",
+                        "标".repeat(MAX_DANMAKU_SYNC_BINDING_LABEL_CHARS + 5),
+                    ),
+                ),
+                blockedWords = listOf(
+                    " 剧透 ",
+                    "剧透",
+                    "词".repeat(MAX_DANMAKU_SYNC_BLOCKED_WORD_CHARS + 5),
+                    "   ",
+                ),
+            ),
+        ).getOrThrow()
+
+        assertEquals(
+            MAX_DANMAKU_SYNC_SOURCE_NAME_CHARS,
+            preferences.sources.value.single().name.length,
+        )
+        assertEquals(
+            MAX_DANMAKU_SYNC_BINDING_LABEL_CHARS,
+            preferences.bindings.value.getValue("movie:a").label.length,
+        )
+        assertEquals(2, preferences.blockedWords.value.size)
+        assertEquals(MAX_DANMAKU_SYNC_BLOCKED_WORD_CHARS, preferences.blockedWords.value.last().length)
     }
 
     @Test

@@ -13,6 +13,7 @@ import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -48,6 +49,21 @@ private sealed interface Msg {
     data class Failed(val message: String) : Msg
 }
 
+/** Connection fields that change which authenticated library request is being served. */
+private data class LibraryConnection(
+    val serverId: String,
+    val baseUrl: String,
+    val userId: String,
+    val accessToken: String,
+)
+
+private fun SavedServer.libraryConnection(): LibraryConnection = LibraryConnection(
+    serverId = id,
+    baseUrl = baseUrl,
+    userId = userId,
+    accessToken = accessToken,
+)
+
 class LibraryStoreFactory(
     private val storeFactory: StoreFactory,
     private val repo: EmbyRepository,
@@ -70,7 +86,9 @@ class LibraryStoreFactory(
     private inner class ExecutorImpl :
         CoroutineExecutor<LibraryIntent, Action, LibraryState, Msg, Nothing>() {
 
-        private var loadedServerId: String? = null
+        private var loadedConnection: LibraryConnection? = null
+        private var loadGeneration = 0L
+        private var loadJob: Job? = null
 
         override fun executeAction(action: Action) {
             when (action) {
@@ -78,13 +96,17 @@ class LibraryStoreFactory(
                     dispatch(Msg.Data(action.servers, action.default))
                     val server = action.default
                     if (server == null) {
-                        loadedServerId = null
-                    } else if (server.id != loadedServerId) {
-                        loadedServerId = server.id
+                        loadedConnection = null
+                        cancelLoad()
+                    } else if (server.libraryConnection() != loadedConnection) {
+                        loadedConnection = server.libraryConnection()
                         // Paint whatever this server last served before the request goes
-                        // out. Msg.Data has just cleared `content` for a server change, so
-                        // without this the library shows a skeleton on every cold start.
-                        cache.read(server.id)?.let { dispatch(Msg.Loaded(it)) }
+                        // out. Msg.Data clears `content` for a real server change. A token
+                        // rotation keeps newer in-memory state, so an older disk snapshot
+                        // must not overwrite it while the authenticated refresh is pending.
+                        if (state().content.isEmpty) {
+                            cache.read(server.id)?.let { dispatch(Msg.Loaded(it)) }
+                        }
                         load(server)
                     }
                 }
@@ -96,7 +118,7 @@ class LibraryStoreFactory(
                 is LibraryIntent.SelectServer -> registry.setDefault(intent.id)
                 is LibraryIntent.ToggleFavorite -> toggleFavorite(intent)
                 LibraryIntent.Retry -> state().currentServer?.let {
-                    loadedServerId = it.id
+                    loadedConnection = it.libraryConnection()
                     load(it)
                 }
             }
@@ -116,34 +138,60 @@ class LibraryStoreFactory(
         }
 
         private fun load(server: SavedServer) {
+            loadJob?.cancel()
+            val generation = ++loadGeneration
+            val connection = server.libraryConnection()
             dispatch(Msg.Loading)
-            scope.launch {
-                repo.homeContent(server)
-                    .onSuccess {
-                        cache.write(server.id, it)
-                        dispatch(Msg.Loaded(it))
-                    }
-                    .onFailure {
-                        AppLog.warning(
-                            category = "feature.library",
-                            event = "load_failed",
-                            message = "Media library home failed to load",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id),
-                        )
-                        dispatch(Msg.Failed(it.toUserMessage("加载失败")))
-                    }
+            loadJob = scope.launch {
+                try {
+                    repo.homeContent(server)
+                        .onSuccess { content ->
+                            if (!ownsLoad(generation, connection)) return@onSuccess
+                            cache.write(server.id, content)
+                            dispatch(Msg.Loaded(content))
+                        }
+                        .onFailure { error ->
+                            if (!ownsLoad(generation, connection)) return@onFailure
+                            AppLog.warning(
+                                category = "feature.library",
+                                event = "load_failed",
+                                message = "Media library home failed to load",
+                                throwable = error,
+                                attributes = mapOf("serverId" to server.id),
+                            )
+                            dispatch(Msg.Failed(error.toUserMessage("加载失败")))
+                        }
+                } finally {
+                    if (generation == loadGeneration) loadJob = null
+                }
             }
+        }
+
+        private fun ownsLoad(generation: Long, connection: LibraryConnection): Boolean =
+            generation == loadGeneration &&
+                loadedConnection == connection &&
+                state().currentServer?.libraryConnection() == connection
+
+        private fun cancelLoad() {
+            loadGeneration++
+            loadJob?.cancel()
+            loadJob = null
         }
     }
 
     private object ReducerImpl : Reducer<LibraryState, Msg> {
         override fun LibraryState.reduce(msg: Msg): LibraryState = when (msg) {
-            is Msg.Data -> copy(
-                servers = msg.servers,
-                currentServer = msg.current,
-                content = if (msg.current?.id != currentServer?.id) HomeContent() else content,
-            )
+            is Msg.Data -> {
+                val serverChanged = msg.current?.id != currentServer?.id
+                val resetTransientState = msg.current == null || serverChanged
+                copy(
+                    servers = msg.servers,
+                    currentServer = msg.current,
+                    loading = if (resetTransientState) false else loading,
+                    content = if (resetTransientState) HomeContent() else content,
+                    error = if (resetTransientState) null else error,
+                )
+            }
             Msg.Loading -> copy(loading = true, error = null)
             is Msg.Loaded -> copy(loading = false, content = msg.content, error = null)
             is Msg.FavoriteChanged -> copy(

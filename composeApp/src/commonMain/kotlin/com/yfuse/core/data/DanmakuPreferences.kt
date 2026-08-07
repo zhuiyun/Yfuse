@@ -5,11 +5,13 @@ import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
+@Serializable
 enum class DanmakuDisplayArea(
     val label: String,
     val fraction: Float,
@@ -20,6 +22,7 @@ enum class DanmakuDisplayArea(
     Full("全屏", 1f),
 }
 
+@Serializable
 enum class DanmakuFontSize(
     val label: String,
     val scale: Float,
@@ -30,6 +33,7 @@ enum class DanmakuFontSize(
     ExtraLarge("特大", 1.4f),
 }
 
+@Serializable
 enum class DanmakuSpeed(
     val label: String,
     val durationMs: Long,
@@ -39,6 +43,7 @@ enum class DanmakuSpeed(
     Fast("快", 5_500L),
 }
 
+@Serializable
 enum class DanmakuOpacity(
     val label: String,
     val alpha: Float,
@@ -68,13 +73,6 @@ class DanmakuPreferences(private val settings: Settings) {
 
         /** Enough to get back to last night's show; more is a list nobody reads. */
         const val MAX_RECENT = 8
-
-        /**
-         * Hand-picked matches worth remembering. Each is a few dozen bytes and they are only
-         * written when someone corrects a match, so this ceiling is years away; it exists so
-         * a long-lived install can't grow the settings blob without bound.
-         */
-        const val MAX_BINDINGS = 300
     }
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -127,14 +125,81 @@ class DanmakuPreferences(private val settings: Settings) {
     private val _recentSearches = MutableStateFlow(loadList(KEY_RECENT))
     val recentSearches: StateFlow<List<String>> = _recentSearches.asStateFlow()
 
+    /**
+     * The account-owned part of the danmaku configuration.
+     *
+     * Search history and all player-runtime state deliberately stay out: neither is needed to
+     * reproduce the user's configuration on another device.
+     */
+    fun snapshot(): DanmakuSyncSnapshot = DanmakuSyncSnapshot(
+        sources = _sources.value.toList(),
+        activeSourceId = _activeSourceId.value,
+        bindings = _bindings.value.toMap(),
+        enabled = _enabled.value,
+        displayArea = _displayArea.value,
+        fontSize = _fontSize.value,
+        speed = _speed.value,
+        opacity = _opacity.value,
+        mergeDuplicates = _mergeDuplicates.value,
+        blockedWords = _blockedWords.value.toList(),
+    )
+
+    /** Validates and normalizes an untrusted snapshot without changing Settings or StateFlow. */
+    fun validateSnapshot(snapshot: DanmakuSyncSnapshot): Result<DanmakuSyncSnapshot> =
+        runCatching { snapshot.normalizedForApply() }
+
+    /**
+     * Replaces the account-owned configuration after validating the complete snapshot.
+     *
+     * Validation happens before either Settings or StateFlow is touched. Orphaned bindings and
+     * a stale active-source pointer are repairable merge artifacts, so they are removed/fixed
+     * rather than making an otherwise usable snapshot fail.
+     */
+    fun applySnapshot(snapshot: DanmakuSyncSnapshot): Result<Unit> = runCatching {
+        val normalized = validateSnapshot(snapshot).getOrThrow()
+
+        // Persist first. Observers only see the new in-memory state after every value has been
+        // accepted by the platform Settings implementation.
+        settings.putString(KEY_SOURCES, json.encodeToString(sourcesSerializer, normalized.sources))
+        normalized.activeSourceId?.let { settings.putString(KEY_ACTIVE_SOURCE, it) }
+            ?: settings.remove(KEY_ACTIVE_SOURCE)
+        if (normalized.bindings.isEmpty()) {
+            settings.remove(KEY_BINDINGS)
+        } else {
+            settings.putString(
+                KEY_BINDINGS,
+                json.encodeToString(bindingsSerializer, normalized.bindings),
+            )
+        }
+        settings.putBoolean(KEY_ENABLED, normalized.enabled)
+        settings.putString(KEY_DISPLAY_AREA, normalized.displayArea.name)
+        settings.putString(KEY_FONT_SIZE, normalized.fontSize.name)
+        settings.putString(KEY_SPEED, normalized.speed.name)
+        settings.putString(KEY_OPACITY, normalized.opacity.name)
+        settings.putBoolean(KEY_MERGE, normalized.mergeDuplicates)
+        persistList(KEY_BLOCKED, normalized.blockedWords)
+
+        _sources.value = normalized.sources
+        _activeSourceId.value = normalized.activeSourceId
+        _bindings.value = normalized.bindings
+        _enabled.value = normalized.enabled
+        _displayArea.value = normalized.displayArea
+        _fontSize.value = normalized.fontSize
+        _speed.value = normalized.speed
+        _opacity.value = normalized.opacity
+        _mergeDuplicates.value = normalized.mergeDuplicates
+        _blockedWords.value = normalized.blockedWords
+    }
+
     fun setMergeDuplicates(enabled: Boolean) {
         _mergeDuplicates.value = enabled
         settings.putBoolean(KEY_MERGE, enabled)
     }
 
     fun addBlockedWord(word: String) {
-        val normalized = word.trim().take(40)
+        val normalized = word.trim().take(MAX_DANMAKU_SYNC_BLOCKED_WORD_CHARS)
         if (normalized.isEmpty() || _blockedWords.value.any { it.equals(normalized, true) }) return
+        if (_blockedWords.value.size >= MAX_DANMAKU_SYNC_BLOCKED_WORDS) return
         _blockedWords.value = _blockedWords.value + normalized
         persistList(KEY_BLOCKED, _blockedWords.value)
     }
@@ -160,12 +225,13 @@ class DanmakuPreferences(private val settings: Settings) {
 
     /** Returns the stored source, or null when the URL is unusable. */
     fun addSource(name: String, url: String): DanmakuSource? {
+        if (_sources.value.size >= MAX_DANMAKU_SYNC_SOURCES) return null
         val source = DanmakuSource(
             id = DanmakuSource.newId(),
-            name = name.trim().take(24).ifBlank { defaultName() },
+            name = name.trim().take(MAX_DANMAKU_SYNC_SOURCE_NAME_CHARS).ifBlank { defaultName() },
             url = url.trim(),
         )
-        if (source.url.isBlank()) return null
+        if (!source.url.isValidDanmakuSourceUrl()) return null
         _sources.value = _sources.value + source
         // Selecting the first one is not a preference, it is the only possible answer.
         if (_sources.value.size == 1) selectSource(source.id)
@@ -175,10 +241,13 @@ class DanmakuPreferences(private val settings: Settings) {
 
     fun updateSource(id: String, name: String, url: String) {
         val trimmedUrl = url.trim()
-        if (trimmedUrl.isBlank()) return
+        if (!trimmedUrl.isValidDanmakuSourceUrl()) return
         _sources.value = _sources.value.map { source ->
             if (source.id == id) {
-                source.copy(name = name.trim().take(24).ifBlank { source.name }, url = trimmedUrl)
+                source.copy(
+                    name = name.trim().take(MAX_DANMAKU_SYNC_SOURCE_NAME_CHARS).ifBlank { source.name },
+                    url = trimmedUrl,
+                )
             } else {
                 source
             }
@@ -223,9 +292,9 @@ class DanmakuPreferences(private val settings: Settings) {
         // Re-inserting moves the entry to the end, so trimming from the front drops the
         // least recently corrected match rather than an arbitrary one.
         val trimmed = (_bindings.value - itemId) +
-            (itemId to binding.copy(label = binding.label.take(120)))
-        _bindings.value = if (trimmed.size > MAX_BINDINGS) {
-            trimmed.entries.drop(trimmed.size - MAX_BINDINGS).associate { it.key to it.value }
+            (itemId to binding.copy(label = binding.label.take(MAX_DANMAKU_SYNC_BINDING_LABEL_CHARS)))
+        _bindings.value = if (trimmed.size > MAX_DANMAKU_SYNC_BINDINGS) {
+            trimmed.entries.drop(trimmed.size - MAX_DANMAKU_SYNC_BINDINGS).associate { it.key to it.value }
         } else {
             trimmed
         }
@@ -350,4 +419,68 @@ class DanmakuPreferences(private val settings: Settings) {
         }
         settings.putString(KEY_BINDINGS, json.encodeToString(bindingsSerializer, current))
     }
+
+    private fun DanmakuSyncSnapshot.normalizedForApply(): DanmakuSyncSnapshot {
+        require(version == DanmakuSyncSnapshot.CURRENT_VERSION) { "不支持的弹幕同步数据版本" }
+        require(sources.size <= MAX_DANMAKU_SYNC_SOURCES) { "弹幕源数量超过限制" }
+        require(bindings.size <= MAX_DANMAKU_SYNC_BINDINGS) { "弹幕匹配数量超过限制" }
+        require(blockedWords.size <= MAX_DANMAKU_SYNC_BLOCKED_WORDS) { "弹幕屏蔽词数量超过限制" }
+
+        val normalizedSources = sources.mapIndexed { index, source ->
+            require(source.id.isNotBlank()) { "弹幕源 ID 不能为空" }
+            require(source.id.length <= MAX_DANMAKU_SYNC_SOURCE_ID_CHARS) { "弹幕源 ID 过长" }
+            val normalizedUrl = source.url.trim()
+            require(normalizedUrl.isValidDanmakuSourceUrl()) { "弹幕源地址无效" }
+            source.copy(
+                name = source.name.trim()
+                    .take(MAX_DANMAKU_SYNC_SOURCE_NAME_CHARS)
+                    .ifBlank { "弹幕源 ${index + 1}" },
+                url = normalizedUrl,
+            )
+        }
+        val sourceIds = normalizedSources.mapTo(linkedSetOf()) { it.id }
+        require(sourceIds.size == normalizedSources.size) { "弹幕源 ID 重复" }
+
+        val normalizedBindings = buildMap {
+            bindings.forEach { (key, binding) ->
+                require(key.isNotBlank()) { "弹幕匹配键不能为空" }
+                require(key.length <= MAX_DANMAKU_SYNC_BINDING_KEY_CHARS) { "弹幕匹配键过长" }
+                require(binding.sourceId.isNotBlank()) { "弹幕匹配缺少来源" }
+                require(binding.sourceId.length <= MAX_DANMAKU_SYNC_SOURCE_ID_CHARS) {
+                    "弹幕匹配来源 ID 过长"
+                }
+                require(binding.episodeId.isNotBlank()) { "弹幕匹配缺少剧集 ID" }
+                require(binding.episodeId.length <= MAX_DANMAKU_SYNC_EPISODE_ID_CHARS) {
+                    "弹幕剧集 ID 过长"
+                }
+                if (binding.sourceId in sourceIds) {
+                    put(
+                        key,
+                        binding.copy(label = binding.label.take(MAX_DANMAKU_SYNC_BINDING_LABEL_CHARS)),
+                    )
+                }
+            }
+        }
+
+        val normalizedBlockedWords = blockedWords
+            .mapNotNull { word ->
+                word.trim()
+                    .take(MAX_DANMAKU_SYNC_BLOCKED_WORD_CHARS)
+                    .takeIf(String::isNotEmpty)
+            }
+            .distinctBy { it.lowercase() }
+
+        return copy(
+            version = DanmakuSyncSnapshot.CURRENT_VERSION,
+            sources = normalizedSources,
+            activeSourceId = activeSourceId?.takeIf(sourceIds::contains)
+                ?: normalizedSources.firstOrNull()?.id,
+            bindings = normalizedBindings,
+            blockedWords = normalizedBlockedWords,
+        )
+    }
+
+    private fun String.isValidDanmakuSourceUrl(): Boolean =
+        length <= MAX_DANMAKU_SYNC_SOURCE_URL_CHARS &&
+            (startsWith("http://") || startsWith("https://"))
 }

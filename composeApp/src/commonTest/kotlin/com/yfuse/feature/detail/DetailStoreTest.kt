@@ -4,8 +4,10 @@ import app.cash.turbine.test
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
+import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
@@ -17,6 +19,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.IOException
 import org.koin.core.context.startKoin
@@ -29,11 +32,21 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class DetailStoreTest {
     @BeforeTest
     fun setUp() {
-        startKoin { modules(module { single { PlaybackTrackRequest() } }) }
+        val syncRegistry = testRegistry()
+        val syncRepo = testRepo { json("{}") }
+        startKoin {
+            modules(
+                module {
+                    single { PlaybackTrackRequest() }
+                    single { ServerSyncManager(syncRepo, syncRegistry, MapSettings()) }
+                },
+            )
+        }
     }
 
     @AfterTest
@@ -69,11 +82,14 @@ class DetailStoreTest {
             val store = movieStore()
             store.states.first { it.playTarget?.id == "m1" && it.sources.size == 2 }
 
-            store.labels.test {
+            store.labels.test(timeout = 10.seconds) {
                 store.accept(DetailIntent.SelectSource("two", "m2"))
                 store.states.first { !it.selectionLoading && it.playTarget?.id == "m2" }
 
                 assertEquals("two", store.state.playServer?.id)
+                assertEquals("two", store.state.server?.id)
+                assertEquals("m2", store.state.detail?.id)
+                assertEquals("m2", store.state.playSourceDetail?.id)
                 assertEquals("w1", store.state.selectedVersionId)
                 assertEquals(90_000_000L, store.state.playPositionTicks)
                 expectNoEvents()
@@ -87,6 +103,21 @@ class DetailStoreTest {
             }
             store.dispose()
         }
+    }
+
+    @Test
+    fun quality_sorting_does_not_replace_the_current_server_as_the_default_selection() = runTest {
+        val lowQualityCurrent = MOVIE_ONE
+            .replace("Height\":2160", "Height\":480")
+            .replace("Height\":1080", "Height\":360")
+        val store = movieStore(movieOneBody = lowQualityCurrent)
+        store.states.first { it.playTarget?.id == "m1" && it.sources.size == 2 }
+
+        assertEquals("two", store.state.sources.bestSourcesFirst().first().serverId)
+        assertEquals("one", store.state.selectedSourceServerId)
+        assertEquals("m1", store.state.selectedSourceItemId)
+        assertEquals("one", store.state.playServer?.id)
+        store.dispose()
     }
 
     @Test
@@ -294,6 +325,59 @@ class DetailStoreTest {
     }
 
     @Test
+    fun play_while_episode_is_resolving_waits_for_and_plays_the_new_episode() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val store = seriesStore(
+            beforeEpisodeTwoDetail = {
+                started.complete(Unit)
+                release.await()
+            },
+        )
+        store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+
+        store.labels.test {
+            store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
+            started.await()
+            store.accept(DetailIntent.Play)
+            expectNoEvents()
+
+            release.complete(Unit)
+            assertEquals(
+                DetailLabel.Play("one", "e2", 20_000_000L, "ev2"),
+                awaitItem(),
+            )
+            assertEquals("e2", store.state.playTarget?.id)
+            cancelAndConsumeRemainingEvents()
+        }
+        store.dispose()
+    }
+
+    @Test
+    fun favorite_state_survives_switching_to_another_episode() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val store = seriesStore(
+            beforeEpisodeTwoDetail = {
+                started.complete(Unit)
+                release.await()
+            },
+        )
+        store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+
+        store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
+        started.await()
+        store.accept(DetailIntent.ToggleFavorite)
+        store.states.first { it.detail?.isFavorite == true }
+        release.complete(Unit)
+        store.states.first { !it.selectionLoading && it.playTarget?.id == "e2" }
+
+        assertTrue(store.state.detail?.isFavorite == true)
+        assertTrue(store.state.playSourceDetail?.isFavorite == true)
+        store.dispose()
+    }
+
+    @Test
     fun player_selection_syncs_episode_and_version_together() {
         runTest {
             val store = seriesStore()
@@ -324,6 +408,159 @@ class DetailStoreTest {
             assertEquals("ev2b", store.state.selectedVersionId)
             store.dispose()
         }
+    }
+
+    @Test
+    fun cross_server_player_selection_commits_its_exact_episode_and_version() = runTest {
+        val store = seriesStore(
+            includeSecondSource = true,
+            secondEpisodesBody = """{"Items":[$ALT_EPISODE_ONE,$ALT_EPISODE_NINE]}""",
+        )
+        store.states.first {
+            it.playTarget?.id == "e1" && it.episodes.size == 2 && it.sources.size == 2
+        }
+
+        store.accept(
+            DetailIntent.SyncPlaybackSelection(
+                serverId = "two",
+                itemId = "ae9",
+                versionId = "aev9",
+            ),
+        )
+        store.states.first {
+            !it.selectionLoading &&
+                it.playServer?.id == "two" &&
+                it.playTarget?.id == "ae9"
+        }
+
+        assertEquals("two", store.state.server?.id)
+        assertEquals("s2", store.state.detail?.id)
+        assertEquals("s2", store.state.playSourceDetail?.id)
+        assertEquals("ae9", store.state.selectedEpisodeId)
+        assertEquals("aev9", store.state.selectedVersionId)
+        assertEquals(listOf("ae1", "ae9"), store.state.episodes.map { it.id })
+        store.dispose()
+    }
+
+    @Test
+    fun server_switch_during_episode_resolution_keeps_the_newly_selected_coordinate() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val store = seriesStore(
+            includeSecondSource = true,
+            beforeEpisodeTwoDetail = {
+                started.complete(Unit)
+                release.await()
+            },
+            secondEpisodesBody = """{"Items":[$ALT_EPISODE_ONE,$ALT_EPISODE_TWO]}""",
+        )
+        store.states.first {
+            it.playTarget?.id == "e1" && it.episodes.size == 2 && it.sources.size == 2
+        }
+
+        store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
+        started.await()
+        store.accept(DetailIntent.SelectSource("two", "s2"))
+        store.states.first { !it.selectionLoading && it.playTarget?.id == "ae2" }
+        release.complete(Unit)
+
+        assertEquals("two", store.state.playServer?.id)
+        assertEquals("ae2", store.state.selectedEpisodeId)
+        assertEquals(1, store.state.playTarget?.seasonNumber)
+        assertEquals(2, store.state.playTarget?.episodeNumber)
+        store.dispose()
+    }
+
+    @Test
+    fun stale_episode_response_cannot_commit_while_server_switch_is_resolving() = runTest {
+        val oldEpisodeStarted = CompletableDeferred<Unit>()
+        val releaseOldEpisode = CompletableDeferred<Unit>()
+        val newServerStarted = CompletableDeferred<Unit>()
+        val releaseNewServer = CompletableDeferred<Unit>()
+        var switchingServer = false
+        val store = seriesStore(
+            includeSecondSource = true,
+            beforeEpisodeTwoDetail = {
+                oldEpisodeStarted.complete(Unit)
+                releaseOldEpisode.await()
+            },
+            beforeSecondEpisodes = {
+                if (switchingServer) {
+                    newServerStarted.complete(Unit)
+                    releaseNewServer.await()
+                }
+            },
+            secondEpisodesBody = """{"Items":[$ALT_EPISODE_ONE,$ALT_EPISODE_TWO]}""",
+        )
+        store.states.first {
+            it.playTarget?.id == "e1" && it.episodes.size == 2 && it.sources.size == 2
+        }
+
+        store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
+        oldEpisodeStarted.await()
+        switchingServer = true
+        store.accept(DetailIntent.SelectSource("two", "s2"))
+        newServerStarted.await()
+
+        // The old request finishes first. It must not make the page look ready or replace
+        // the committed target while the explicitly chosen server is still resolving.
+        releaseOldEpisode.complete(Unit)
+        runCurrent()
+        assertTrue(store.state.selectionLoading)
+        assertEquals("one", store.state.playServer?.id)
+        assertEquals("e1", store.state.playTarget?.id)
+
+        releaseNewServer.complete(Unit)
+        store.states.first { !it.selectionLoading && it.playTarget?.id == "ae2" }
+        assertEquals("two", store.state.playServer?.id)
+        assertEquals("ae2", store.state.selectedEpisodeId)
+        store.dispose()
+    }
+
+    @Test
+    fun episode_tap_during_server_switch_restarts_resolution_and_plays_new_coordinate() = runTest {
+        val firstServerResolutionStarted = CompletableDeferred<Unit>()
+        val releaseFirstResolution = CompletableDeferred<Unit>()
+        var switchingServer = false
+        var serverResolutionCalls = 0
+        val store = seriesStore(
+            includeSecondSource = true,
+            beforeSecondEpisodes = {
+                if (switchingServer) {
+                    serverResolutionCalls++
+                    if (serverResolutionCalls == 1) {
+                        firstServerResolutionStarted.complete(Unit)
+                        releaseFirstResolution.await()
+                    }
+                }
+            },
+            secondEpisodesBody = """{"Items":[$ALT_EPISODE_ONE,$ALT_EPISODE_TWO]}""",
+        )
+        store.states.first {
+            it.playTarget?.id == "e1" && it.episodes.size == 2 && it.sources.size == 2
+        }
+
+        store.labels.test {
+            switchingServer = true
+            store.accept(DetailIntent.SelectSource("two", "s2"))
+            firstServerResolutionStarted.await()
+
+            // The source request started for episode 1. Choosing episode 2 must restart it
+            // with the new coordinate; the following play tap waits for that exact target.
+            store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
+            store.accept(DetailIntent.Play)
+            releaseFirstResolution.complete(Unit)
+
+            assertEquals(
+                DetailLabel.Play("two", "ae2", 0L, "aev2"),
+                awaitItem(),
+            )
+            assertTrue(serverResolutionCalls >= 2)
+            assertEquals("two", store.state.playServer?.id)
+            assertEquals("ae2", store.state.selectedEpisodeId)
+            cancelAndConsumeRemainingEvents()
+        }
+        store.dispose()
     }
 
     @Test
@@ -437,6 +674,7 @@ class DetailStoreTest {
         includeThirdSource: Boolean = false,
         m3DetailFailure: (() -> Throwable?)? = null,
         sourceSelectionTimeoutMs: Long = 45_000L,
+        movieOneBody: String = MOVIE_ONE,
     ): com.arkivanov.mvikotlin.core.store.Store<
         DetailIntent,
         DetailState,
@@ -455,7 +693,7 @@ class DetailStoreTest {
             val host = request.url.host
             val path = request.url.encodedPath
             when {
-                path.endsWith("/Items/m1") -> json(MOVIE_ONE)
+                path.endsWith("/Items/m1") -> json(movieOneBody)
                 path.endsWith("/Items/m2") -> {
                     beforeM2Detail()
                     m2DetailFailure?.invoke()?.let { throw it }
@@ -477,7 +715,7 @@ class DetailStoreTest {
                 path.endsWith("/Similar") -> json("""{"Items":[]}""")
                 path.endsWith("/Items") -> json(
                     if (host == "one") {
-                        """{"Items":[$MOVIE_ONE]}"""
+                        """{"Items":[$movieOneBody]}"""
                     } else if (host == "two") {
                         """{"Items":[$MOVIE_TWO]}"""
                     } else {
@@ -500,6 +738,7 @@ class DetailStoreTest {
 
     private fun seriesStore(
         includeSecondSource: Boolean = false,
+        beforeEpisodeTwoDetail: suspend () -> Unit = {},
         beforeSecondEpisodes: suspend () -> Unit = {},
         secondEpisodesBody: String = """{"Items":[$ALT_EPISODE_ONE]}""",
         onSecondEpisodeDetail: () -> Unit = {},
@@ -523,12 +762,16 @@ class DetailStoreTest {
                 path.endsWith("/Items/s1") -> json(SERIES)
                 path.endsWith("/Items/s2") -> json(SERIES_TWO)
                 path.endsWith("/Items/e1") -> json(EPISODE_ONE)
-                path.endsWith("/Items/e2") -> json(EPISODE_TWO)
+                path.endsWith("/Items/e2") -> {
+                    beforeEpisodeTwoDetail()
+                    json(EPISODE_TWO)
+                }
                 path.endsWith("/Items/e3") -> json(EPISODE_THREE)
                 path.endsWith("/Items/ae1") -> {
                     onSecondEpisodeDetail()
                     json(ALT_EPISODE_ONE)
                 }
+                path.endsWith("/Items/ae2") -> json(ALT_EPISODE_TWO)
                 path.endsWith("/Items/ae9") -> json(ALT_EPISODE_NINE)
                 path.endsWith("/Shows/NextUp") -> {
                     if (host == "two") {
@@ -642,5 +885,11 @@ class DetailStoreTest {
             """"IndexNumber":9,"SeasonId":"aseason1","MediaSources":[""" +
             """{"Id":"aev9","Name":"备库第九集","MediaStreams":[""" +
             """{"Type":"Video","Height":720}]}]}"""
+
+        const val ALT_EPISODE_TWO = """{"Id":"ae2","Name":"第二集","Type":"Episode",""" +
+            """"SeriesId":"s2","SeriesName":"剧集","ParentIndexNumber":1,""" +
+            """"IndexNumber":2,"SeasonId":"aseason1","MediaSources":[""" +
+            """{"Id":"aev2","Name":"备库第二集","MediaStreams":[""" +
+            """{"Type":"Video","Height":1080}]}]}"""
     }
 }

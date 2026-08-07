@@ -34,6 +34,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
+import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -106,8 +107,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.collect
@@ -124,39 +123,13 @@ import kotlin.time.TimeSource
 class PlayerActivity : ComponentActivity() {
 
     companion object {
-        private const val NOTIFICATION_CHANNEL = "yfuse_playback"
-        private const val NOTIFICATION_ID = 2407
+        internal const val NOTIFICATION_CHANNEL = "yfuse_playback"
+        internal const val NOTIFICATION_ID = 2407
         private const val NOTIFICATION_PERMISSION_REQUEST = 2408
         private const val ACTION_PREVIOUS = "com.yfuse.player.PREVIOUS"
         private const val ACTION_PLAY_PAUSE = "com.yfuse.player.PLAY_PAUSE"
         private const val ACTION_NEXT = "com.yfuse.player.NEXT"
-        private const val EXTRA_IDS = "yfuse.ids"
-        private const val EXTRA_URLS = "yfuse.urls"
-        private const val EXTRA_TRANSCODE = "yfuse.transcodeUrls"
-        private const val EXTRA_FALLBACK_TRANSCODE = "yfuse.fallbackTranscodeUrls"
-        private const val EXTRA_TITLES = "yfuse.titles"
-        private const val EXTRA_SERVER_IDS = "yfuse.serverIds"
-        private const val EXTRA_SEGMENTS = "yfuse.playbackSegments"
-        private const val EXTRA_WATCH_KEYS = "yfuse.watchKeys"
-
-        /** `|`-joined per item; see `PlayerMediaItem.matchKeys`. */
-        private const val EXTRA_WATCH_MATCH_KEYS = "yfuse.watchMatchKeys"
-        private const val EXTRA_SEASONS = "yfuse.seasonNumbers"
-        private const val EXTRA_EPISODES = "yfuse.episodeNumbers"
-        private const val EXTRA_VERSIONS = "yfuse.versions"
-        private const val EXTRA_SERIES_KEYS = "yfuse.seriesIds"
-        private const val EXTRA_SERIES_NAMES = "yfuse.seriesNames"
-        private const val EXTRA_STILL_URLS = "yfuse.stillUrls"
-        private const val EXTRA_PROGRESS = "yfuse.progress"
-        private const val EXTRA_CAPTIONS = "yfuse.captions"
-        private const val EXTRA_VERSION_IDS = "yfuse.versionIds"
-        private const val EXTRA_PLAY_SESSION_IDS = "yfuse.playSessionIds"
-        private const val EXTRA_INDEX = "yfuse.index"
-        private const val EXTRA_POSITION = "yfuse.positionMs"
-        private const val EXTRA_ENGINE = "yfuse.engine"
-        private const val EXTRA_DECODER = "yfuse.decoder"
-        private const val EXTRA_AUTO_NEXT = "yfuse.autoNext"
-        private const val EXTRA_QUALITY = "yfuse.quality"
+        private const val ACTION_OPEN = "com.yfuse.player.OPEN"
         private const val EPISODE_REFRESH_INTERVAL_MS = 120_000L
 
         fun intent(
@@ -168,36 +141,41 @@ class PlayerActivity : ComponentActivity() {
             decoder: DecoderMode,
             autoNext: Boolean,
             quality: PlaybackQuality,
-        ): Intent = Intent(context, PlayerActivity::class.java).apply {
-            putExtra(EXTRA_IDS, items.map { it.id }.toTypedArray())
-            putExtra(EXTRA_URLS, items.map { it.url }.toTypedArray())
-            putExtra(EXTRA_TRANSCODE, items.map { it.transcodeUrl }.toTypedArray())
-            putExtra(EXTRA_FALLBACK_TRANSCODE, items.map { it.fallbackTranscodeUrl }.toTypedArray())
-            putExtra(EXTRA_TITLES, items.map { it.title }.toTypedArray())
-            putExtra(EXTRA_SERVER_IDS, items.map { it.serverId.orEmpty() }.toTypedArray())
-            putExtra(EXTRA_SEGMENTS, items.map(::encodePlaybackSegments).toTypedArray())
-            putExtra(EXTRA_WATCH_KEYS, items.map { it.watchKey }.toTypedArray())
-            putExtra(
-                EXTRA_WATCH_MATCH_KEYS,
-                items.map { it.matchKeys.joinToString(MATCH_KEY_SEPARATOR.toString()) }
-                    .toTypedArray(),
+        ): Intent {
+            val request = PlayerLaunchRequest.create(
+                items = items,
+                startIndex = startIndex,
+                startPositionMs = startPositionMs,
+                engine = engine,
+                decoder = decoder,
+                autoNext = autoNext,
+                quality = quality,
             )
-            putExtra(EXTRA_SEASONS, items.map { it.seasonNumber ?: -1 }.toIntArray())
-            putExtra(EXTRA_EPISODES, items.map { it.episodeNumber ?: -1 }.toIntArray())
-            putExtra(EXTRA_VERSIONS, items.map(::encodeVersions).toTypedArray())
-            putExtra(EXTRA_SERIES_KEYS, items.map { it.seriesId.orEmpty() }.toTypedArray())
-            putExtra(EXTRA_SERIES_NAMES, items.map { it.seriesName.orEmpty() }.toTypedArray())
-            putExtra(EXTRA_STILL_URLS, items.map { it.stillUrl.orEmpty() }.toTypedArray())
-            putExtra(EXTRA_PROGRESS, items.map { it.progress ?: Float.NaN }.toFloatArray())
-            putExtra(EXTRA_CAPTIONS, items.map { it.caption.orEmpty() }.toTypedArray())
-            putExtra(EXTRA_VERSION_IDS, items.map { it.versionId.orEmpty() }.toTypedArray())
-            putExtra(EXTRA_PLAY_SESSION_IDS, items.map { it.playSessionId }.toTypedArray())
-            putExtra(EXTRA_INDEX, startIndex)
-            putExtra(EXTRA_POSITION, startPositionMs)
-            putExtra(EXTRA_ENGINE, engine.name)
-            putExtra(EXTRA_DECODER, decoder.name)
-            putExtra(EXTRA_AUTO_NEXT, autoNext)
-            putExtra(EXTRA_QUALITY, quality.name)
+            val payload = PlayerLaunchIntentPayload.create(
+                request = request,
+                launchId = PlayerLaunchRegistry.register(request),
+            )
+            // Reuse a live player even if another activity is above it. onNewIntent consumes the
+            // fresh one-shot token and recreates this single instance with the replacement queue.
+            return Intent(context, PlayerActivity::class.java)
+                .apply(payload::writeTo)
+                .addFlags(
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+        }
+
+        /** Brings a live player forward without copying its queue or reusing its consumed token. */
+        internal fun openIntent(context: Context): Intent =
+            Intent(context, PlayerActivity::class.java)
+                .setAction(ACTION_OPEN)
+                .addFlags(
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+
+        internal fun discardLaunch(intent: Intent) {
+            PlayerLaunchRegistry.discard(PlayerLaunchIntentPayload.readFrom(intent)?.launchId)
         }
     }
 
@@ -226,6 +204,7 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var serverRegistry: ServerRegistry
     private var episodeRefreshJob: Job? = null
     private var episodePollingJob: Job? = null
+    private val launchViewModel by viewModels<PlayerLaunchViewModel>()
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
             AudioManager.AUDIOFOCUS_GAIN -> {
@@ -338,72 +317,39 @@ class PlayerActivity : ComponentActivity() {
             hide(WindowInsetsCompat.Type.systemBars())
         }
 
-        val initialEngine = intent.getStringExtra(EXTRA_ENGINE)
-            ?.let { name -> PlayerEngine.entries.firstOrNull { it.name == name } }
-            ?: PlayerEngine.Exo
-        val decoderMode = intent.getStringExtra(EXTRA_DECODER)
-            ?.let { name -> DecoderMode.entries.firstOrNull { it.name == name } }
-            ?: DecoderMode.Hardware
-        val autoNext = intent.getBooleanExtra(EXTRA_AUTO_NEXT, true)
-        val quality = intent.getStringExtra(EXTRA_QUALITY)
-            ?.let { name -> PlaybackQuality.entries.firstOrNull { it.name == name } }
-            ?: PlaybackQuality.Auto
-
-        val ids = intent.getStringArrayExtra(EXTRA_IDS).orEmpty()
-        val urls = intent.getStringArrayExtra(EXTRA_URLS).orEmpty()
-        val transcodeUrls = intent.getStringArrayExtra(EXTRA_TRANSCODE).orEmpty()
-        val fallbackTranscodeUrls = intent.getStringArrayExtra(EXTRA_FALLBACK_TRANSCODE).orEmpty()
-        val titles = intent.getStringArrayExtra(EXTRA_TITLES).orEmpty()
-        val serverIds = intent.getStringArrayExtra(EXTRA_SERVER_IDS).orEmpty()
-        val segmentRows = intent.getStringArrayExtra(EXTRA_SEGMENTS).orEmpty()
-        val watchKeys = intent.getStringArrayExtra(EXTRA_WATCH_KEYS).orEmpty()
-        val watchMatchKeys = intent.getStringArrayExtra(EXTRA_WATCH_MATCH_KEYS).orEmpty()
-        val seasonNumbers = intent.getIntArrayExtra(EXTRA_SEASONS) ?: intArrayOf()
-        val episodeNumbers = intent.getIntArrayExtra(EXTRA_EPISODES) ?: intArrayOf()
-        val versionRows = intent.getStringArrayExtra(EXTRA_VERSIONS).orEmpty()
-        val seriesIds = intent.getStringArrayExtra(EXTRA_SERIES_KEYS).orEmpty()
-        val seriesNames = intent.getStringArrayExtra(EXTRA_SERIES_NAMES).orEmpty()
-        val stillUrls = intent.getStringArrayExtra(EXTRA_STILL_URLS).orEmpty()
-        val progresses = intent.getFloatArrayExtra(EXTRA_PROGRESS) ?: floatArrayOf()
-        val captions = intent.getStringArrayExtra(EXTRA_CAPTIONS).orEmpty()
-        val versionIds = intent.getStringArrayExtra(EXTRA_VERSION_IDS).orEmpty()
-        val playSessionIds = intent.getStringArrayExtra(EXTRA_PLAY_SESSION_IDS).orEmpty()
-        val items = urls.mapIndexed { index, url ->
-            val watchKey = watchKeys.getOrElse(index) {
-                "emby:${ids.getOrElse(index) { index.toString() }}"
-            }
-            PlayerMediaItem(
-                id = ids.getOrElse(index) { index.toString() },
-                url = url,
-                transcodeUrl = EmbyStream.withQuality(
-                    transcodeUrls.getOrElse(index) { "" },
-                    quality,
-                ),
-                title = titles.getOrElse(index) { "" },
-                fallbackTranscodeUrl = EmbyStream.withQuality(
-                    fallbackTranscodeUrls.getOrElse(index) { "" },
-                    quality,
-                ),
-                serverId = serverIds.getOrNull(index)?.ifBlank { null },
-                playbackSegments = decodePlaybackSegments(segmentRows.getOrElse(index) { "" }),
-                seasonNumber = seasonNumbers.getOrNull(index)?.takeIf { it >= 0 },
-                episodeNumber = episodeNumbers.getOrNull(index)?.takeIf { it >= 0 },
-                seriesId = seriesIds.getOrNull(index)?.ifBlank { null },
-                seriesName = seriesNames.getOrNull(index)?.ifBlank { null },
-                watchKey = watchKey,
-                matchKeys = watchMatchKeys.getOrNull(index)
-                    ?.split(MATCH_KEY_SEPARATOR)
-                    ?.filter { it.isNotBlank() }
-                    ?.takeIf { it.isNotEmpty() }
-                    ?: listOf(watchKey),
-                versions = decodeVersions(versionRows.getOrElse(index) { "" }),
-                versionId = versionIds.getOrNull(index)?.ifBlank { null },
-                playSessionId = playSessionIds.getOrElse(index) { "" },
-                stillUrl = stillUrls.getOrNull(index)?.ifBlank { null },
-                progress = progresses.getOrNull(index)?.takeUnless { it.isNaN() },
-                caption = captions.getOrNull(index)?.ifBlank { null },
+        val launchPayload = PlayerLaunchIntentPayload.readFrom(intent)
+        val launchResolution = resolvePlayerLaunch(
+            retained = launchViewModel.request,
+            payload = launchPayload,
+        )
+        if (launchResolution is PlayerLaunchResolution.Expired) {
+            AppLog.warning(
+                category = "feature.player",
+                event = "launch_expired",
+                message = "Player launch data was missing or expired",
+                attributes = buildMap {
+                    put("hasLaunchId", (launchPayload != null).toString())
+                    launchResolution.fallback?.let { fallback ->
+                        put("itemId", fallback.itemId)
+                        fallback.serverId?.let { put("serverId", it) }
+                    }
+                },
             )
+            Toast.makeText(this, "播放会话已过期，请重新打开", Toast.LENGTH_SHORT).show()
+            clearStalePlaybackArtifacts()
+            finish()
+            return
         }
+        val launchRequest = (launchResolution as PlayerLaunchResolution.Ready).request
+        launchViewModel.request = launchRequest
+        val items = launchRequest.items
+        val initialEngine = launchRequest.engine
+        val decoderMode = launchRequest.decoder
+        val autoNext = launchRequest.autoNext
+        val quality = launchRequest.quality
+        val retainedResume = launchViewModel.resume
+        val initialStartIndex = retainedResume?.first ?: launchRequest.startIndex
+        val initialStartPositionMs = retainedResume?.second ?: launchRequest.startPositionMs
         playbackItems.value = items
         pictureInPicture.value = isInPictureInPictureMode
         pipWasVisible = isInPictureInPictureMode
@@ -460,7 +406,7 @@ class PlayerActivity : ComponentActivity() {
         val playbackSink = runCatching {
             val registry = koin.get<ServerRegistry>()
             val selectedServerId = items.getOrNull(
-                intent.getIntExtra(EXTRA_INDEX, 0),
+                initialStartIndex,
             )?.serverId
             val server = selectedServerId?.let(registry::serverById) ?: registry.defaultServer
             val repo = koin.get<EmbyRepository>()
@@ -483,8 +429,8 @@ class PlayerActivity : ComponentActivity() {
             YfuseTheme(dark = true, accent = accent) {
                 PlayerRoot(
                     items = liveItems,
-                    startIndex = intent.getIntExtra(EXTRA_INDEX, 0),
-                    startPositionMs = intent.getLongExtra(EXTRA_POSITION, 0L),
+                    startIndex = initialStartIndex,
+                    startPositionMs = initialStartPositionMs,
                     refreshedResume = refreshedResume,
                     queueRevision = refreshedRevision,
                     initialEngine = initialEngine,
@@ -509,6 +455,12 @@ class PlayerActivity : ComponentActivity() {
                     },
                     onPlaybackState = { state, item ->
                         activeState = state
+                        if (
+                            launchViewModel.request === launchRequest &&
+                            state.currentIndex in playbackItems.value.indices
+                        ) {
+                            launchViewModel.resume = state.currentIndex to state.positionMs.coerceAtLeast(0L)
+                        }
                         ActivePlayback.update(
                             item?.title.orEmpty(),
                             state,
@@ -533,6 +485,43 @@ class PlayerActivity : ComponentActivity() {
                     onRefreshEpisodes = ::refreshEpisodes,
                     onRemotePlayRequested = ::ensureAudioFocus,
                 )
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Notification taps only bring this live instance forward. They deliberately carry no
+        // launch token and must never restart playback or consume registry state.
+        if (intent.action == ACTION_OPEN) return
+
+        val payload = PlayerLaunchIntentPayload.readFrom(intent) ?: return
+        when (val replacement = resolveFreshPlayerLaunch(payload)) {
+            is PlayerLaunchResolution.Ready -> {
+                setIntent(intent)
+                launchViewModel.request = replacement.request
+                launchViewModel.resume = null
+                // Suppress leave-to-PiP while Activity.recreate tears down the old composition.
+                stopRequested = true
+                AppLog.info(
+                    category = "feature.player",
+                    event = "launch_replaced",
+                    message = "Active player is being replaced with a new launch request",
+                    attributes = mapOf("itemCount" to replacement.request.items.size.toString()),
+                )
+                recreate()
+            }
+            is PlayerLaunchResolution.Expired -> {
+                AppLog.warning(
+                    category = "feature.player",
+                    event = "replacement_launch_expired",
+                    message = "Replacement player launch data was missing or expired",
+                )
+                Toast.makeText(
+                    this,
+                    "新的播放会话已过期，继续当前播放",
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
         }
     }
@@ -602,36 +591,43 @@ class PlayerActivity : ComponentActivity() {
         ActivePlayback.clear()
         stopPlaybackKeepAliveService()
         abandonAudioFocus()
-        notificationManager.cancel(NOTIFICATION_ID)
+        if (::notificationManager.isInitialized) {
+            notificationManager.cancel(NOTIFICATION_ID)
+        }
         if (mediaReceiverRegistered) {
             runCatching { unregisterReceiver(mediaActionReceiver) }
             mediaReceiverRegistered = false
         }
-        mediaSession.isActive = false
-        mediaSession.release()
+        if (::mediaSession.isInitialized) {
+            mediaSession.isActive = false
+            mediaSession.release()
+        }
         super.onDestroy()
         playbackGate = null
     }
 
+    /** Removes notifications/services left behind when process death made a launch token stale. */
+    private fun clearStalePlaybackArtifacts() {
+        runCatching {
+            stopService(Intent(this, PlaybackKeepAliveService::class.java))
+        }
+        runCatching {
+            getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        }
+    }
+
     private fun closePlayerAndReturn() {
         if (stopRequested) return
-        // Mark the activity as closing before bringing the main task forward. Otherwise
-        // onUserLeaveHint can race this path and turn a deliberate close into PiP.
+        // Mark the activity as closing before finishing it. Otherwise onUserLeaveHint can
+        // race this path and turn a deliberate close into PiP. MainActivity stays directly
+        // underneath this activity in the same task, so finish() restores it without a relaunch.
         stopRequested = true
         activeEngine?.release()
         activeEngine = null
         abandonAudioFocus()
         ActivePlayback.clear()
         stopPlaybackKeepAliveService()
-        packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
-            startActivity(
-                launch.addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
-                ),
-            )
-        }
-        finishAndRemoveTask()
+        finish()
     }
 
     private fun enterPlayerPictureInPicture() {
@@ -652,7 +648,7 @@ class PlayerActivity : ComponentActivity() {
         abandonAudioFocus()
         ActivePlayback.clear()
         stopPlaybackKeepAliveService()
-        finishAndRemoveTask()
+        finish()
     }
 
     /**
@@ -1046,7 +1042,7 @@ class PlayerActivity : ComponentActivity() {
         val contentIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(intent).setClass(this, PlayerActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            openIntent(this),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val previousIntent = mediaPendingIntent(ACTION_PREVIOUS, 1)
@@ -1111,64 +1107,6 @@ class PlayerActivity : ComponentActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 }
-
-/** Separator for the `|`-joined `matchKeys` row; absent from provider ids and Emby ids. */
-private const val MATCH_KEY_SEPARATOR = '|'
-
-/**
- * Versions across the intent boundary, as JSON.
- *
- * This used to be six fields joined by an ASCII unit separator, positionally decoded. It
- * broke silently the first time a field was added to [PlayerMediaVersion] and nobody
- * remembered to touch both ends: the encoder wrote six, the decoder read six, and the
- * container and 杜比 flags added later arrived as their defaults — so the badge the player
- * was supposed to show never appeared and nothing anywhere reported a problem.
- *
- * A serializer cannot make that mistake. Unknown keys are ignored and missing ones take
- * their defaults, so the two ends can also be different versions of the app mid-update.
- */
-private val versionsJson = Json { ignoreUnknownKeys = true }
-private val versionsSerializer = ListSerializer(PlayerMediaVersion.serializer())
-
-private fun encodeVersions(item: PlayerMediaItem): String =
-    if (item.versions.isEmpty()) {
-        ""
-    } else {
-        versionsJson.encodeToString(versionsSerializer, item.versions)
-    }
-
-private fun decodeVersions(raw: String): List<PlayerMediaVersion> {
-    if (raw.isEmpty()) return emptyList()
-    return runCatching {
-        versionsJson.decodeFromString(versionsSerializer, raw)
-    }.onFailure {
-        AppLog.warning(
-            category = "feature.player",
-            event = "versions_undecodable",
-            message = "Playback versions could not be read from the launch intent",
-            throwable = it,
-        )
-    }.getOrDefault(emptyList())
-}
-
-private fun encodePlaybackSegments(item: PlayerMediaItem): String =
-    item.playbackSegments.joinToString(";") { segment ->
-        "${segment.type.name},${segment.startMs},${segment.endMs ?: ""}"
-    }
-
-private fun decodePlaybackSegments(raw: String): List<PlaybackSegment> =
-    raw.split(';').mapNotNull { row ->
-        val fields = row.split(',', limit = 3)
-        val type = fields.getOrNull(0)?.let { name ->
-            PlaybackSegmentType.entries.firstOrNull { it.name == name }
-        } ?: return@mapNotNull null
-        val startMs = fields.getOrNull(1)?.toLongOrNull() ?: return@mapNotNull null
-        PlaybackSegment(
-            type = type,
-            startMs = startMs,
-            endMs = fields.getOrNull(2)?.toLongOrNull(),
-        )
-    }
 
 /** How often a guest re-checks its drift against the room's timeline. */
 private const val GUEST_RECONCILE_TICK_MS = 1_000L
@@ -1481,7 +1419,7 @@ private fun PlayerRoot(
     // again. [settledSkip] is the one this player has already dealt with — cancelled, or
     // skipped and then rewound back into. Either way the user has since chosen to be here,
     // and moving the playhead off it a second time would be taking the choice back.
-    var settledSkip by remember { mutableStateOf<Pair<String, PlaybackSegmentType>?>(null) }
+    val settledSkip = remember { mutableStateOf<Pair<String, PlaybackSegmentType>?>(null) }
     var skipCountdownSeconds by remember { mutableStateOf<Int?>(null) }
     val skipOccurrence = activeSegment?.let { segment ->
         currentItem?.id?.let { it to segment.type }
@@ -1492,7 +1430,7 @@ private fun PlayerRoot(
     val skipArmed = skipOccurrence != null &&
         skipMode == SkipMode.Auto &&
         !watchGuest &&
-        skipOccurrence != settledSkip
+        skipOccurrence != settledSkip.value
     // The countdown outlives several position ticks, so it must fire against the playback
     // state as it is when it expires, not as it was when the effect was launched.
     val latestSkipSegment by rememberUpdatedState(skipSegment)
@@ -1508,7 +1446,7 @@ private fun PlayerRoot(
         skipCountdownSeconds = null
         // Settled before the seek, so that rewinding into this same opening later gets the
         // manual pill rather than a second countdown.
-        settledSkip = skipOccurrence
+        settledSkip.value = skipOccurrence
         latestSkipSegment()
     }
     // 详情页 picked a 音轨 / 字幕 before this opened; apply it once the engine has published
@@ -2313,7 +2251,7 @@ private fun PlayerRoot(
                     onSkip = skipSegment,
                     // Cancelling drops back to the manual pill rather than clearing the
                     // offer outright: "not automatically" is not "not at all".
-                    onCancelAuto = { settledSkip = skipOccurrence },
+                    onCancelAuto = { settledSkip.value = skipOccurrence },
                     onSetTimes = { introStart, introEnd, creditsLead ->
                         val seriesId = currentItem?.seriesId
                         if (seriesId != null) {

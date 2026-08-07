@@ -56,6 +56,11 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
         return nativePtr == 0 ? 0 : nativeDuration(nativePtr);
     }
 
+    /** Duration in milliseconds of packets buffered ahead of the current position. */
+    public synchronized long bufferedDuration() {
+        return nativePtr == 0 ? 0 : nativeBufferedDuration(nativePtr);
+    }
+
     public synchronized int mediaStatus() {
         return nativePtr == 0 ? STATUS_INVALID : nativeMediaStatus(nativePtr);
     }
@@ -161,6 +166,7 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
     private static native int nativeState(long ptr);
     private static native long nativePosition(long ptr);
     private static native long nativeDuration(long ptr);
+    private static native long nativeBufferedDuration(long ptr);
     private static native int nativeMediaStatus(long ptr);
     private static native int nativeVideoHeight(long ptr);
     private static native void nativeSeek(long ptr, long positionMs);
