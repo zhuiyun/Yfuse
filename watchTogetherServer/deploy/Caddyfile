@@ -12,6 +12,8 @@ https://47.112.219.60 {
 			profile shortlived
 		}
 	}
+	@account path /api/*
+	header @account Cache-Control "no-store"
 
 	reverse_proxy 127.0.0.1:8080 {
 		# Avoid dropping every active watch room immediately on a config reload.
@@ -24,6 +26,8 @@ yfuse.zhuiyun.site {
 	# Conservative first-rollout value. Raise to 31536000 after DNS, certificate,
 	# and deployment behavior have remained stable.
 	header Strict-Transport-Security "max-age=86400"
+	@account path /api/*
+	header @account Cache-Control "no-store"
 
 	reverse_proxy 127.0.0.1:8080 {
 		# Avoid dropping every active watch room immediately on a config reload.
@@ -35,6 +39,12 @@ yfuse.zhuiyun.site {
 # watch endpoint is the historical HTTP URL. Account APIs reject this transport;
 # remove this block after those client versions have aged out.
 http://47.112.219.60 {
+	@account path /api/*
+	header @account Content-Type "application/json; charset=utf-8"
+	header @account Cache-Control "no-store"
+	header @account Pragma "no-cache"
+	respond @account `{"error":{"code":"https_required","message":"账号接口仅接受 HTTPS 请求"}}` 426
+
 	reverse_proxy 127.0.0.1:8080 {
 		stream_close_delay 5m
 	}

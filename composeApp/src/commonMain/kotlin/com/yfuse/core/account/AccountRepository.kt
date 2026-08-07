@@ -1,0 +1,668 @@
+package com.yfuse.core.account
+
+import com.yfuse.core.data.DanmakuPreferences
+import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.SkipSegmentPreferences
+import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.security.AesGcmPayload
+import com.yfuse.core.security.RecoveryKeyEnvelope
+import com.yfuse.core.security.SecureStore
+import com.yfuse.core.security.SecureStoreException
+import com.yfuse.core.security.VaultCrypto
+import com.yfuse.core.security.base64UrlToBytes
+import com.yfuse.core.security.toBase64Url
+import com.yfuse.core.sync.CloudSyncSnapshotV1
+import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.applyCloudSyncSnapshot
+import com.yfuse.core.sync.captureCloudSyncSnapshot
+import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+
+/**
+ * Owns the account session and the client-encrypted sync document.
+ *
+ * Access tokens are memory-only. The rotating refresh token, vault key, and password-wrapped key
+ * envelope are stored through Android Keystore-backed [SecureStore]. Sync is deliberately manual:
+ * login only reads the cloud version; local data changes only after an explicit upload or restore.
+ */
+class AccountRepository(
+    private val api: AccountApi,
+    private val secureStore: SecureStore,
+    private val crypto: VaultCrypto,
+    private val registry: ServerRegistry,
+    private val theme: ThemePreferences,
+    private val watch: WatchTogetherPreferences,
+    private val danmaku: DanmakuPreferences,
+    private val skip: SkipSegmentPreferences,
+    private val serverSync: ServerSyncManager,
+    private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
+    /** Production supplies Main.immediate, the same serial dispatcher used by settings UI. */
+    private val mutationDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /** PBKDF2 and AES work must never block the Compose main thread. */
+    private val cryptoDispatcher: CoroutineDispatcher = Dispatchers.Default,
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val mutex = Mutex()
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+    private val _state = MutableStateFlow<AccountState>(AccountState.Restoring)
+    val state: StateFlow<AccountState> = _state.asStateFlow()
+
+    @Volatile
+    private var started = false
+
+    fun start() {
+        if (started) return
+        started = true
+        scope.launch { restoreSession() }
+    }
+
+    fun retryRestore() {
+        if (_state.value !is AccountState.RestoreFailed) return
+        _state.value = AccountState.Restoring
+        scope.launch { restoreSession() }
+    }
+
+    suspend fun register(
+        username: String,
+        password: CharArray,
+        nickname: String? = null,
+        avatarId: Int? = null,
+    ): Result<Unit> = try {
+        runCatching {
+            mutex.withLock {
+                validateCredentials(username, password)
+                val auth = api.register(
+                    username = username.trim(),
+                    password = password.concatToString(),
+                    nickname = nickname?.trim()?.takeIf(String::isNotEmpty),
+                    avatarId = avatarId,
+                )
+                acceptAuth(auth)
+                initializeEmptyVaultLocked(auth.user.id, password)
+                _state.value = requireSignedIn().copy(
+                    cloudHasData = false,
+                    message = "账号已创建，可手动上传本机数据",
+                )
+            }
+        }.onFailure(::recordFailure)
+    } finally {
+        password.fill('\u0000')
+    }
+
+    suspend fun login(username: String, password: CharArray): Result<Unit> = try {
+        runCatching {
+            mutex.withLock {
+                validateCredentials(username, password)
+                val auth = api.login(username.trim(), password.concatToString())
+                acceptAuth(auth)
+                clearVaultSecrets()
+                val remote = authorized { api.getSync(it) }
+                if (remote.payload == null) {
+                    initializeEmptyVaultLocked(auth.user.id, password)
+                    _state.value = requireSignedIn().copy(
+                        syncVersion = remote.version,
+                        cloudHasData = false,
+                        message = "账号已登录，云端暂无数据，可手动上传",
+                    )
+                } else {
+                    require(remote.version > 0L) { "云端同步版本无效" }
+                    val payload = remote.payload
+                    val recovery = payload.toRecoveryEnvelope()
+                    val vaultKey = withContext(cryptoDispatcher) {
+                        crypto.unwrapVaultKey(
+                            envelope = recovery,
+                            passphrase = password,
+                            aad = payload.recoveryAad(auth.user.id),
+                        )
+                    }
+                    try {
+                        storeVault(vaultKey, recovery)
+                    } finally {
+                        vaultKey.fill(0)
+                    }
+                    _state.value = requireSignedIn().copy(
+                        syncVersion = remote.version,
+                        cloudHasData = true,
+                        message = "云端版本 ${remote.version} 已就绪，点“恢复云端”后才会覆盖本机",
+                    )
+                }
+            }
+        }.onFailure(::recordFailure)
+    } finally {
+        password.fill('\u0000')
+    }
+
+    suspend fun uploadNow(): Result<Unit> = runCatching {
+        mutex.withLock {
+            requireSignedIn()
+            val remote = authorized { api.getSync(it) }
+            val vaultKey = requireVaultKey()
+            try {
+                uploadLocked(remote.version, vaultKey, successMessage = "已用本机数据覆盖云端")
+            } finally {
+                vaultKey.fill(0)
+            }
+        }
+    }.onFailure(::recordFailure)
+
+    suspend fun downloadNow(): Result<Unit> = runCatching {
+        mutex.withLock {
+            val expectedLocal = capturePlaintext()
+            val remote = authorized { api.getSync(it) }
+            if (remote.payload == null) {
+                _state.value = requireSignedIn().copy(
+                    syncVersion = remote.version,
+                    cloudHasData = false,
+                    message = "服务器暂无同步数据",
+                )
+                return@withLock
+            }
+            val vaultKey = requireVaultKey()
+            try {
+                decryptAndApplyLocked(remote, vaultKey, expectedLocal)
+            } finally {
+                vaultKey.fill(0)
+            }
+        }
+    }.onFailure(::recordFailure)
+
+    suspend fun clearRemoteSync(): Result<Unit> = runCatching {
+        mutex.withLock {
+            val cleared = authorized { api.clearSync(it) }
+            require(cleared.payload == null) { "服务器清空响应无效" }
+            _state.value = requireSignedIn().copy(
+                syncVersion = cleared.version,
+                cloudHasData = false,
+                syncing = false,
+                lastSyncedAtEpochMs = null,
+                message = "服务器同步数据已清空，本机数据和账号仍保留",
+            )
+        }
+    }.onFailure(::recordFailure)
+
+    suspend fun changePassword(
+        currentPassword: CharArray,
+        newPassword: CharArray,
+    ): Result<Unit> = try {
+        runCatching {
+            mutex.withLock {
+                require(currentPassword.size in 1..128) { "请输入当前密码" }
+                require(newPassword.size in 10..128) { "新密码需为 10–128 个字符" }
+                require(!currentPassword.contentEquals(newPassword)) { "新密码不能与当前密码相同" }
+                val signedIn = requireSignedIn()
+                val remote = authorized { api.getSync(it) }
+                remote.payload?.requireSupportedMetadata()
+                val cloudKeyVersion = remote.payload?.keyVersion ?: KEY_VERSION
+                require(cloudKeyVersion == KEY_VERSION) { "暂不支持这个云端密钥版本" }
+                val vaultKey = remote.payload?.let { payload ->
+                    val remoteRecovery = payload.toRecoveryEnvelope()
+                    withContext(cryptoDispatcher) {
+                        val key = runCatching {
+                            crypto.unwrapVaultKey(
+                                envelope = remoteRecovery,
+                                passphrase = currentPassword,
+                                aad = payload.recoveryAad(signedIn.session.user.id),
+                            )
+                        }.getOrElse {
+                            throw IllegalArgumentException("当前密码错误或云端加密数据无效")
+                        }
+                        try {
+                            val verifiedPlaintext = crypto.decrypt(
+                                key = key,
+                                payload = AesGcmPayload(
+                                    nonce = payload.nonce.base64UrlToBytes(),
+                                    ciphertext = payload.ciphertext.base64UrlToBytes(),
+                                ),
+                                aad = syncAad(
+                                    signedIn.session.user.id,
+                                    remote.version,
+                                    cloudKeyVersion,
+                                ),
+                            )
+                            verifiedPlaintext.fill(0)
+                            key
+                        } catch (error: Throwable) {
+                            key.fill(0)
+                            throw IllegalArgumentException("当前密码错误或云端加密数据无效", error)
+                        }
+                    }
+                } ?: requireVaultKey()
+                try {
+                    val recovery = withContext(cryptoDispatcher) {
+                        crypto.wrapVaultKey(
+                            vaultKey = vaultKey,
+                            passphrase = newPassword,
+                            aad = recoveryAad(
+                                userId = signedIn.session.user.id,
+                                keyVersion = cloudKeyVersion,
+                                wrapVersion = WRAP_VERSION,
+                                wrapKdf = WRAP_KDF,
+                                wrapIterations = VaultCrypto.DEFAULT_PBKDF2_ITERATIONS,
+                            ),
+                        )
+                    }
+                    val auth = authorized { accessToken ->
+                        api.changePassword(
+                            accessToken = accessToken,
+                            request = ChangePasswordRequest(
+                                currentPassword = currentPassword.concatToString(),
+                                newPassword = newPassword.concatToString(),
+                                expectedSyncVersion = remote.version,
+                                keyVersion = cloudKeyVersion,
+                                wrappedVaultKey = recovery.wrappedKey.ciphertext.toBase64Url(),
+                                wrapSalt = recovery.salt.toBase64Url(),
+                                wrapNonce = recovery.wrappedKey.nonce.toBase64Url(),
+                                wrapVersion = recovery.version,
+                                wrapKdf = WRAP_KDF,
+                                wrapIterations = recovery.iterations,
+                            ),
+                        )
+                    }
+                    acceptAuth(auth)
+                    storeVault(vaultKey, recovery)
+                    _state.value = requireSignedIn().copy(
+                        syncVersion = remote.version,
+                        cloudHasData = remote.payload != null,
+                        message = "登录密码已修改，加密密钥已同步更新",
+                    )
+                } finally {
+                    vaultKey.fill(0)
+                }
+            }
+        }.onFailure(::recordFailure)
+    } finally {
+        currentPassword.fill('\u0000')
+        newPassword.fill('\u0000')
+    }
+
+    suspend fun updateProfile(nickname: String, avatarId: Int): Result<Unit> = runCatching {
+        mutex.withLock {
+            val updated = authorized {
+                api.updateProfile(
+                    accessToken = it,
+                    nickname = nickname.trim(),
+                    avatarId = avatarId,
+                )
+            }
+            val current = requireSignedIn()
+            _state.value = current.copy(session = current.session.copy(user = updated), message = null)
+            watch.setProfile(updated.nickname, updated.avatarId)
+        }
+    }.onFailure(::recordFailure)
+
+    suspend fun logout(): Result<Unit> = runCatching {
+        mutex.withLock {
+            val access = (_state.value as? AccountState.SignedIn)?.session?.accessToken
+            if (access != null) runCatching { api.logout(access) }
+            secureStore.clear()
+            _state.value = AccountState.SignedOut
+        }
+    }
+
+    private suspend fun restoreSession() {
+        mutex.withLock {
+            runCatching {
+                val refresh = secureStore.get(KEY_REFRESH_TOKEN)?.decodeToString()
+                if (refresh.isNullOrBlank()) {
+                    _state.value = AccountState.SignedOut
+                    return@runCatching
+                }
+                acceptAuth(api.refresh(refresh))
+                val remote = authorized { api.getSync(it) }
+                val localVaultKey = secureStore.get(KEY_VAULT_KEY)
+                if (localVaultKey == null) {
+                    clearLocalAccountState()
+                    return@runCatching
+                }
+                try {
+                    require(localVaultKey.size == VaultCrypto.AES_KEY_SIZE_BYTES) {
+                        "本机同步密钥无效"
+                    }
+                } finally {
+                    localVaultKey.fill(0)
+                }
+                require(remote.version >= 0L) { "云端同步版本无效" }
+                _state.value = requireSignedIn().copy(
+                    syncVersion = remote.version,
+                    cloudHasData = remote.payload != null,
+                    message = if (remote.payload == null) {
+                        "云端暂无数据，可手动上传"
+                    } else {
+                        "云端版本 ${remote.version} 已就绪，点“恢复云端”后才会覆盖本机"
+                    },
+                )
+            }.onFailure { error ->
+                if (
+                    error is SecureStoreException ||
+                    error is AccountApiException && error.status == HttpStatusCode.Unauthorized
+                ) {
+                    runCatching { secureStore.clear() }
+                    _state.value = AccountState.SignedOut
+                } else {
+                    val current = _state.value as? AccountState.SignedIn
+                    if (current != null) {
+                        _state.value = current.copy(
+                            syncing = false,
+                            message = "已登录，暂时无法读取云端数据",
+                        )
+                    } else {
+                        _state.value = AccountState.RestoreFailed(
+                            "网络暂不可用，本机登录信息仍已安全保留。",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun uploadLocked(
+        baseVersion: Long,
+        vaultKey: ByteArray,
+        successMessage: String = "已安全同步",
+    ) {
+        val signedIn = requireSignedIn()
+        _state.value = signedIn.copy(syncing = true, message = null)
+        val plaintext = capturePlaintext()
+        require(plaintext.encodeToByteArray().size <= MAX_SYNC_PLAINTEXT_BYTES) {
+            "同步数据过大，请减少弹幕绑定或服务器数量"
+        }
+        val nextVersion = baseVersion + 1
+        val encrypted = withContext(cryptoDispatcher) {
+            crypto.encrypt(
+                key = vaultKey,
+                plaintext = plaintext.encodeToByteArray(),
+                aad = syncAad(signedIn.session.user.id, nextVersion, KEY_VERSION),
+            )
+        }
+        val payload = EncryptedSyncPayload(
+            keyVersion = KEY_VERSION,
+            nonce = encrypted.nonce.toBase64Url(),
+            ciphertext = encrypted.ciphertext.toBase64Url(),
+            wrappedVaultKey = requireSecret(KEY_WRAPPED_VAULT).toBase64Url(),
+            wrapSalt = requireSecret(KEY_WRAP_SALT).toBase64Url(),
+            wrapNonce = requireSecret(KEY_WRAP_NONCE).toBase64Url(),
+            wrapVersion = requireStoredInt(KEY_WRAP_VERSION),
+            wrapKdf = requireSecret(KEY_WRAP_KDF).decodeToString(),
+            wrapIterations = requireStoredInt(KEY_WRAP_ITERATIONS),
+        )
+        val response = authorized { api.putSync(it, baseVersion, payload) }
+        val current = requireSignedIn()
+        _state.value = current.copy(
+            syncVersion = response.version,
+            cloudHasData = true,
+            syncing = false,
+            lastSyncedAtEpochMs = response.updatedAtEpochMs ?: nowEpochMs(),
+            message = successMessage,
+        )
+    }
+
+    private suspend fun decryptAndApplyLocked(
+        remote: SyncResponse,
+        vaultKey: ByteArray,
+        expectedLocalPlaintext: String? = null,
+    ) {
+        val signedIn = requireSignedIn()
+        val payload = requireNotNull(remote.payload) { "云端同步数据为空" }
+        payload.requireSupportedMetadata()
+        val plaintextBytes = withContext(cryptoDispatcher) {
+            crypto.decrypt(
+                key = vaultKey,
+                payload = AesGcmPayload(
+                    nonce = payload.nonce.base64UrlToBytes(),
+                    ciphertext = payload.ciphertext.base64UrlToBytes(),
+                ),
+                aad = syncAad(signedIn.session.user.id, remote.version, payload.keyVersion),
+            )
+        }
+        try {
+            require(plaintextBytes.size <= MAX_SYNC_PLAINTEXT_BYTES) { "云端同步数据过大" }
+            val snapshot = json.decodeFromString<CloudSyncSnapshotV1>(plaintextBytes.decodeToString())
+            withContext(mutationDispatcher) {
+                if (expectedLocalPlaintext != null && capturePlaintextOnMutationDispatcher() != expectedLocalPlaintext) {
+                    error("同步期间本机设置发生变化，已取消云端覆盖，请重试")
+                }
+                // This synchronous apply now runs on the same serial dispatcher as Compose UI
+                // mutations, so no server edit can interleave after the second snapshot check.
+                applyCloudSyncSnapshot(
+                    snapshot,
+                    registry,
+                    theme,
+                    watch,
+                    danmaku,
+                    skip,
+                    serverSync,
+                ).getOrThrow()
+            }
+            _state.value = signedIn.copy(
+                syncVersion = remote.version,
+                cloudHasData = true,
+                syncing = false,
+                lastSyncedAtEpochMs = remote.updatedAtEpochMs ?: nowEpochMs(),
+                message = "已从云端恢复",
+            )
+        } finally {
+            plaintextBytes.fill(0)
+        }
+    }
+
+    private fun acceptAuth(auth: AuthResponse) {
+        secureStore.put(KEY_REFRESH_TOKEN, auth.refreshToken.encodeToByteArray())
+        watch.setProfile(auth.user.nickname, auth.user.avatarId)
+        val previous = _state.value as? AccountState.SignedIn
+        _state.value = AccountState.SignedIn(
+            session = AccountSession(
+                user = auth.user,
+                accessToken = auth.accessToken,
+                accessExpiresAtEpochMs = auth.accessExpiresAtEpochMs,
+                refreshExpiresAtEpochMs = auth.refreshExpiresAtEpochMs,
+            ),
+            syncVersion = previous?.syncVersion ?: 0,
+            cloudHasData = previous?.cloudHasData ?: false,
+            lastSyncedAtEpochMs = previous?.lastSyncedAtEpochMs,
+        )
+    }
+
+    private suspend fun <T> authorized(block: suspend (String) -> T): T {
+        var session = requireSignedIn().session
+        if (session.accessExpiresAtEpochMs <= nowEpochMs() + ACCESS_REFRESH_SKEW_MS) {
+            session = refreshLocked().session
+        }
+        return try {
+            block(session.accessToken)
+        } catch (error: AccountApiException) {
+            if (error.status != HttpStatusCode.Unauthorized) throw error
+            block(refreshLocked().session.accessToken)
+        }
+    }
+
+    private suspend fun refreshLocked(): AccountState.SignedIn {
+        val token = requireSecret(KEY_REFRESH_TOKEN).decodeToString()
+        try {
+            acceptAuth(api.refresh(token))
+        } catch (error: AccountApiException) {
+            if (error.status == HttpStatusCode.Unauthorized) {
+                secureStore.clear()
+                _state.value = AccountState.SignedOut
+            }
+            throw error
+        }
+        return requireSignedIn()
+    }
+
+    private fun storeVault(vaultKey: ByteArray, recovery: RecoveryKeyEnvelope) {
+        secureStore.put(KEY_VAULT_KEY, vaultKey)
+        secureStore.put(KEY_WRAP_SALT, recovery.salt)
+        secureStore.put(KEY_WRAP_NONCE, recovery.wrappedKey.nonce)
+        secureStore.put(KEY_WRAPPED_VAULT, recovery.wrappedKey.ciphertext)
+        secureStore.put(KEY_WRAP_VERSION, recovery.version.toString().encodeToByteArray())
+        secureStore.put(KEY_WRAP_KDF, WRAP_KDF.encodeToByteArray())
+        secureStore.put(KEY_WRAP_ITERATIONS, recovery.iterations.toString().encodeToByteArray())
+    }
+
+    private suspend fun initializeEmptyVaultLocked(userId: String, password: CharArray) {
+        val vaultKey = crypto.generateVaultKey()
+        try {
+            val recovery = withContext(cryptoDispatcher) {
+                crypto.wrapVaultKey(
+                    vaultKey = vaultKey,
+                    passphrase = password,
+                    aad = recoveryAad(
+                        userId = userId,
+                        keyVersion = KEY_VERSION,
+                        wrapVersion = WRAP_VERSION,
+                        wrapKdf = WRAP_KDF,
+                        wrapIterations = VaultCrypto.DEFAULT_PBKDF2_ITERATIONS,
+                    ),
+                )
+            }
+            storeVault(vaultKey, recovery)
+        } finally {
+            vaultKey.fill(0)
+        }
+    }
+
+    private fun clearVaultSecrets() {
+        listOf(
+            KEY_VAULT_KEY,
+            KEY_WRAP_SALT,
+            KEY_WRAP_NONCE,
+            KEY_WRAPPED_VAULT,
+            KEY_WRAP_VERSION,
+            KEY_WRAP_KDF,
+            KEY_WRAP_ITERATIONS,
+        ).forEach { secureStore.remove(it) }
+    }
+
+    private suspend fun capturePlaintext(): String = withContext(mutationDispatcher) {
+        capturePlaintextOnMutationDispatcher()
+    }
+
+    private fun capturePlaintextOnMutationDispatcher(): String = json.encodeToString(
+        captureCloudSyncSnapshot(registry, theme, watch, danmaku, skip, serverSync),
+    )
+
+    private fun EncryptedSyncPayload.toRecoveryEnvelope(): RecoveryKeyEnvelope {
+        requireSupportedMetadata()
+        val version = requireNotNull(wrapVersion) { "云端缺少密钥恢复版本" }
+        val kdf = requireNotNull(wrapKdf) { "云端缺少密钥恢复算法" }
+        val iterations = requireNotNull(wrapIterations) { "云端缺少密钥恢复参数" }
+        require(version == WRAP_VERSION && kdf == WRAP_KDF) { "暂不支持这个密钥恢复版本" }
+        val salt = requireNotNull(wrapSalt) { "云端缺少密钥恢复信息" }.base64UrlToBytes()
+        val nonce = requireNotNull(wrapNonce) { "云端缺少密钥恢复信息" }.base64UrlToBytes()
+        val wrapped = requireNotNull(wrappedVaultKey) { "云端缺少密钥恢复信息" }
+            .base64UrlToBytes()
+        return RecoveryKeyEnvelope(
+            version = version,
+            salt = salt,
+            iterations = iterations,
+            wrappedKey = AesGcmPayload(nonce, wrapped),
+        )
+    }
+
+    private fun EncryptedSyncPayload.requireSupportedMetadata() {
+        require(
+            schemaVersion == SYNC_SCHEMA_VERSION &&
+                algorithm == "AES-256-GCM" &&
+                keyVersion == KEY_VERSION
+        ) { "暂不支持这个加密数据版本" }
+    }
+
+    private fun EncryptedSyncPayload.recoveryAad(userId: String): ByteArray = recoveryAad(
+        userId = userId,
+        keyVersion = keyVersion,
+        wrapVersion = requireNotNull(wrapVersion) { "云端缺少密钥恢复版本" },
+        wrapKdf = requireNotNull(wrapKdf) { "云端缺少密钥恢复算法" },
+        wrapIterations = requireNotNull(wrapIterations) { "云端缺少密钥恢复参数" },
+    )
+
+    private fun requireSignedIn(): AccountState.SignedIn =
+        _state.value as? AccountState.SignedIn ?: error("请先登录 Yfuse 账号")
+
+    private fun requireVaultKey(): ByteArray = requireSecret(KEY_VAULT_KEY).also {
+        require(it.size == VaultCrypto.AES_KEY_SIZE_BYTES) { "本机同步密钥无效，请重新登录" }
+    }
+
+    private fun requireSecret(key: String): ByteArray =
+        secureStore.get(key) ?: error("本机缺少同步密钥，请重新登录")
+
+    private fun requireStoredInt(key: String): Int = requireSecret(key).decodeToString().toIntOrNull()
+        ?: error("本机同步密钥参数无效，请重新登录")
+
+    private fun clearLocalAccountState() {
+        runCatching { secureStore.clear() }
+        _state.value = AccountState.SignedOut
+    }
+
+    private fun recordFailure(error: Throwable) {
+        val current = _state.value as? AccountState.SignedIn ?: return
+        val message = when (error) {
+            is AccountApiException -> when (error.code) {
+                "invalid_credentials" -> "账号或密码错误"
+                "current_password_invalid" -> "当前密码错误"
+                "password_invalid" -> "新密码不符合要求"
+                "username_unavailable" -> "这个账号名已被使用"
+                "sync_version_conflict" -> "云端已有更新，请先从云端恢复"
+                "rate_limited" -> "尝试次数过多，请稍后再试"
+                else -> error.message
+            }
+            else -> error.message ?: "账号同步失败"
+        }
+        _state.value = current.copy(syncing = false, message = message)
+    }
+
+    private fun validateCredentials(username: String, password: CharArray) {
+        val normalized = username.trim()
+        require(USERNAME_PATTERN.matches(normalized)) {
+            "账号名需为 3–40 位字母、数字、点、横线或下划线，且以字母或数字开头"
+        }
+        require(password.size in 10..128) { "密码需为 10–128 个字符" }
+    }
+
+    private fun syncAad(userId: String, version: Long, keyVersion: Int): ByteArray =
+        "yfuse-sync:v$SYNC_SCHEMA_VERSION:$userId:$version:$keyVersion".encodeToByteArray()
+
+    private fun recoveryAad(
+        userId: String,
+        keyVersion: Int,
+        wrapVersion: Int,
+        wrapKdf: String,
+        wrapIterations: Int,
+    ): ByteArray =
+        "yfuse-vault-key:v1:$userId:$keyVersion:$wrapVersion:$wrapKdf:$wrapIterations"
+            .encodeToByteArray()
+
+    private companion object {
+        const val KEY_VERSION = 1
+        const val KEY_REFRESH_TOKEN = "refresh_token"
+        const val KEY_VAULT_KEY = "vault_key"
+        const val KEY_WRAP_SALT = "vault_wrap_salt"
+        const val KEY_WRAP_NONCE = "vault_wrap_nonce"
+        const val KEY_WRAPPED_VAULT = "wrapped_vault_key"
+        const val KEY_WRAP_VERSION = "vault_wrap_version"
+        const val KEY_WRAP_KDF = "vault_wrap_kdf"
+        const val KEY_WRAP_ITERATIONS = "vault_wrap_iterations"
+        const val SYNC_SCHEMA_VERSION = 1
+        const val WRAP_VERSION = RecoveryKeyEnvelope.CURRENT_VERSION
+        const val WRAP_KDF = "PBKDF2-HMAC-SHA256"
+        // The server accepts at most 256 KiB of ciphertext; AES-GCM appends a 16-byte tag.
+        const val MAX_SYNC_PLAINTEXT_BYTES = 256 * 1024 - VaultCrypto.GCM_TAG_SIZE_BYTES
+        const val ACCESS_REFRESH_SKEW_MS = 30_000L
+        val USERNAME_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9_.-]{2,39}")
+    }
+}

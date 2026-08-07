@@ -184,6 +184,61 @@ class ServerRegistry(private val settings: Settings) {
         )
     }
 
+    /**
+     * Replaces the local registry with a decrypted account-sync snapshot.
+     *
+     * The cloud service only stores ciphertext, so validation belongs here after authenticated
+     * decryption. IDs are re-derived instead of trusted and the whole change is committed once,
+     * preventing observers from seeing a half-applied server list.
+     */
+    fun replaceFromSync(snapshot: ServersData): Result<Int> = runCatching {
+        require(snapshot.servers.size <= 100) { "同步的服务器数量过多" }
+        val normalized = snapshot.servers.map { server ->
+            val baseUrl = server.baseUrl.trim().trimEnd('/')
+            require(baseUrl.length in 8..2_048 &&
+                (baseUrl.startsWith("https://") || baseUrl.startsWith("http://"))
+            ) { "同步的服务器地址无效" }
+            val userId = server.userId.trim()
+            val token = server.accessToken.trim()
+            require(userId.isNotEmpty() && userId.length <= 256 && token.length in 1..4_096) {
+                "同步的服务器凭据无效"
+            }
+            server.copy(
+                id = SavedServer.idOf(baseUrl, userId),
+                baseUrl = baseUrl,
+                serverName = server.serverName
+                    .replace('\r', ' ')
+                    .replace('\n', ' ')
+                    .trim()
+                    .take(60)
+                    .ifBlank { "Emby" },
+                userId = userId,
+                userName = server.userName
+                    .replace('\r', ' ')
+                    .replace('\n', ' ')
+                    .trim()
+                    .take(128),
+                accessToken = token,
+                previousIds = recentPreviousIds(
+                    SavedServer.idOf(baseUrl, userId),
+                    server.previousIds.take(MAX_SERVER_PREVIOUS_IDS),
+                ),
+            )
+        }
+        require(normalized.map { it.id }.distinct().size == normalized.size) {
+            "同步数据中包含重复服务器"
+        }
+        val requestedDefault = snapshot.defaultServerId
+        val defaultId = requestedDefault?.let { oldId ->
+            snapshot.servers.indexOfFirst { it.id == oldId }
+                .takeIf { it >= 0 }
+                ?.let(normalized::get)
+                ?.id
+        } ?: normalized.firstOrNull()?.id
+        commit(ServersData(normalized, defaultId))
+        normalized.size
+    }
+
     /** Versioned portable backup shared by file and QR import/export, including display names. */
     fun exportBackup(): String {
         val current = _data.value

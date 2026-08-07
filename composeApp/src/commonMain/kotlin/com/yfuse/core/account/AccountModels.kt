@@ -1,0 +1,118 @@
+package com.yfuse.core.account
+
+import kotlinx.serialization.Serializable
+
+const val ACCOUNT_BASE_URL: String = "https://47.112.219.60"
+
+@Serializable
+data class AccountUser(
+    val id: String,
+    val username: String,
+    val nickname: String,
+    val avatarId: Int,
+    val createdAtEpochMs: Long,
+    val updatedAtEpochMs: Long,
+)
+
+@Serializable
+internal data class RegisterRequest(
+    val username: String,
+    val password: String,
+    val nickname: String? = null,
+    val avatarId: Int? = null,
+)
+
+@Serializable
+internal data class LoginRequest(val username: String, val password: String)
+
+@Serializable
+internal data class RefreshRequest(val refreshToken: String)
+
+@Serializable
+internal data class UpdateProfileRequest(
+    val nickname: String? = null,
+    val avatarId: Int? = null,
+)
+
+@Serializable
+data class ChangePasswordRequest(
+    val currentPassword: String,
+    val newPassword: String,
+    val expectedSyncVersion: Long,
+    val keyVersion: Int,
+    val wrappedVaultKey: String,
+    val wrapSalt: String,
+    val wrapNonce: String,
+    val wrapVersion: Int,
+    val wrapKdf: String,
+    val wrapIterations: Int,
+)
+
+@Serializable
+data class AuthResponse(
+    val user: AccountUser,
+    val accessToken: String,
+    val accessExpiresAtEpochMs: Long,
+    val refreshToken: String,
+    val refreshExpiresAtEpochMs: Long,
+)
+
+/** Opaque encrypted document. The server validates its shape but never decrypts it. */
+@Serializable
+data class EncryptedSyncPayload(
+    val schemaVersion: Int = 1,
+    val algorithm: String = "AES-256-GCM",
+    val keyVersion: Int = 1,
+    val nonce: String,
+    val ciphertext: String,
+    val wrappedVaultKey: String? = null,
+    val wrapSalt: String? = null,
+    val wrapNonce: String? = null,
+    val wrapVersion: Int? = null,
+    val wrapKdf: String? = null,
+    val wrapIterations: Int? = null,
+)
+
+@Serializable
+data class SyncResponse(
+    val version: Long,
+    val payload: EncryptedSyncPayload? = null,
+    val updatedAtEpochMs: Long? = null,
+)
+
+@Serializable
+internal data class PutSyncRequest(
+    val baseVersion: Long,
+    val payload: EncryptedSyncPayload,
+)
+
+@Serializable
+internal data class ErrorBody(
+    val code: String,
+    val message: String,
+    val currentVersion: Long? = null,
+)
+
+@Serializable
+internal data class ErrorEnvelope(val error: ErrorBody)
+
+data class AccountSession(
+    val user: AccountUser,
+    val accessToken: String,
+    val accessExpiresAtEpochMs: Long,
+    val refreshExpiresAtEpochMs: Long,
+)
+
+sealed interface AccountState {
+    data object SignedOut : AccountState
+    data object Restoring : AccountState
+    data class RestoreFailed(val message: String) : AccountState
+    data class SignedIn(
+        val session: AccountSession,
+        val syncVersion: Long = 0,
+        val cloudHasData: Boolean = false,
+        val syncing: Boolean = false,
+        val lastSyncedAtEpochMs: Long? = null,
+        val message: String? = null,
+    ) : AccountState
+}

@@ -1,8 +1,12 @@
 package com.yfuse.watch
 
+import com.yfuse.watch.account.AccountBackend
+import com.yfuse.watch.account.AccountRateLimiter
+import com.yfuse.watch.account.accountRoutes
 import io.ktor.http.ContentType
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
@@ -253,9 +257,22 @@ private val graphemeRegex = Regex("\\X")
 
 fun main() {
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
-    embeddedServer(CIO, host = "0.0.0.0", port = port) {
-        watchTogetherModule()
+    val host = resolveServerHost(System.getenv("HOST"))
+    val accountBackend = AccountBackend.sqlite(
+        File(System.getenv("ACCOUNT_DB_PATH") ?: "/var/lib/yfuse/account.db"),
+    )
+    embeddedServer(CIO, host = host, port = port) {
+        watchTogetherModule(accountBackend = accountBackend)
     }.start(wait = true)
+}
+
+internal fun resolveServerHost(raw: String?): String {
+    val value = raw?.trim().orEmpty()
+    if (value.isEmpty()) return "127.0.0.1"
+    require(value.length <= 255 && value.none { it.isWhitespace() || Character.isISOControl(it) }) {
+        "HOST is invalid"
+    }
+    return value
 }
 
 fun Application.watchTogetherModule(
@@ -274,6 +291,10 @@ fun Application.watchTogetherModule(
         ?: false,
     /** Test seam; production normally uses the socket/proxy-aware resolver below. */
     clientIpResolver: ((ApplicationCall) -> String)? = null,
+    /** Account persistence is independent of the ephemeral watch-room store. */
+    accountBackend: AccountBackend = AccountBackend.inMemory(),
+    /** Authentication limiter is application-local and injectable for deterministic tests. */
+    accountRateLimiter: AccountRateLimiter = AccountRateLimiter(),
 ) {
     require(roomGraceMs >= 0L) { "roomGraceMs must not be negative" }
     require(maxActiveRoomsPerIp in 1..MAX_ROOMS) {
@@ -286,6 +307,7 @@ fun Application.watchTogetherModule(
     // Outlives any one socket, which is what a delayed host handover needs: the connection
     // whose loss starts the clock is precisely the one that can't run the timer.
     val appScope: CoroutineScope = this
+    monitor.subscribe(ApplicationStopped) { accountBackend.close() }
     install(WebSockets) {
         pingPeriodMillis = 20_000L
         timeoutMillis = 40_000L
@@ -293,6 +315,7 @@ fun Application.watchTogetherModule(
         masking = false
     }
     routing {
+        accountRoutes(accountBackend, accountRateLimiter)
         get("/health") {
             call.respondText("ok")
         }

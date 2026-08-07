@@ -48,8 +48,8 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 - 每房在内存中保留最近 50 条聊天，跟随房间一起回收；每连接每 3 秒最多发送 3 条
   聊天消息。v3 使用 `clientMessageId` 确认并去重重试，聊天不接受图片、文件或客户端
   伪造的发送者资料。
-- 昵称最多 24 个 Unicode 字素，头像是 8 个内置样式之一；服务端只保存当前房间内的
-  成员资料，不保存账号或图片。
+- 昵称最多 24 个 Unicode 字素，头像是 8 个内置样式之一；一起看房间只保存房间内的
+  临时成员状态。Yfuse 账号、资料与加密同步数据由独立的 `/api/v1` 账号接口持久化。
 - 房主可以选择仅房主控制、全员共同控制或指定管理员；房主身份仍保持唯一，管理员
   不会影响断线后的房主迁移。
 - 房主可以移出其他成员；被移出的客户端在当前房间存续期间无法再次加入。
@@ -100,8 +100,11 @@ Ktor 不再直接占用公网 80 端口。
 被重置。若不备案，应将生产服务部署到中国香港或海外节点，不能用明文 IP 承载账号凭据。
 
 1. 确保公网 80、443 可达；IP 证书续期需要持续通过 HTTP-01 或 TLS-ALPN-01 验证。
-2. 安装 `deploy/yfuse-watch.service` 到 `/etc/systemd/system/`，安装
-   `deploy/Caddyfile` 到 `/etc/caddy/Caddyfile`。
+2. 创建无登录权限的 `yfuse` 系统用户；把发行包解压到
+   `/opt/yfuse-watch/releases/<版本>` 并令 `/opt/yfuse-watch/current` 指向它；创建
+   `/srv/yfuse-update/yfuse` 作为更新文件目录。随后把 `deploy/yfuse-watch.service`
+   安装为 `/etc/systemd/system/yfuse-watch.service`，并把 `deploy/Caddyfile` 安装到
+   `/etc/caddy/Caddyfile`。
 3. 关闭公网 8080，只允许本机 Caddy 访问；SSH 使用标准 22 端口。
 4. 校验配置后启动服务：
 
@@ -131,6 +134,11 @@ HTTP 源的同源 APK 地址；新的 `update-v2.json` 和新客户端只使用 
   `1..500`。
 - `WATCH_TRUST_PROXY_HEADERS`：设为 `true` 后，使用 `X-Forwarded-For`（其次 RFC
   `Forwarded`）识别来源 IP；默认 `false`，防止直连客户端伪造转发头绕过限制。
+- `ACCOUNT_DB_PATH`：账号 SQLite 路径，生产模板为 `/var/lib/yfuse/account.db`。
+- `ACCOUNT_REGISTRATION_ENABLED`：是否开放新账号注册；创建所需账号后可设为 `false`。
+- `ACCOUNT_MAX_USERS`：账号总数上限；生产模板为 `100`。
+- `HOST`：Ktor 监听地址，默认 `127.0.0.1`；只有容器内部端口映射场景才应显式设为
+  `0.0.0.0`。
 
 反向代理部署通常需要开启 `WATCH_TRUST_PROXY_HEADERS=true`，否则 Ktor 看到的来源均为
 代理 IP，所有公网用户会共用默认的 8 个房间额度。生产 service 模板已经启用它；其
@@ -140,20 +148,27 @@ HTTP 源的同源 APK 地址；新的 `update-v2.json` 和新客户端只使用 
 ## Docker
 
 ```powershell
-.\gradlew.bat :watchTogetherServer:installDist
+.\gradlew.bat :watchTogetherServer:distTar
 docker build -t yfuse-watch .\watchTogetherServer
 docker run -d --restart unless-stopped \
-  -p 127.0.0.1:8080:8080 \
+  --network host \
+  -e HOST=127.0.0.1 \
   -e UPDATE_ROOT=/updates \
   -e WATCH_TRUST_PROXY_HEADERS=true \
   -v /srv/yfuse-update/yfuse:/updates:ro \
+  -v yfuse-account:/var/lib/yfuse \
   --name yfuse-watch \
   yfuse-watch
 ```
 
-> ⚠️ 本服务本身没有账号鉴权。容量、帧大小和消息频率限制只用于防止资源耗尽，
-> **不能代替认证或传输加密**。公网部署必须使用 HTTPS/WSS，且不能把 Ktor 的 8080
-> 明文端口直接暴露到公网。旧 IPv4 HTTP 入口只是有限期迁移措施。
+该示例使用 Linux host network，使宿主机 Caddy 仍从 loopback 访问 Ktor；同时将 Ktor
+显式绑定到 `127.0.0.1`，不会把 8080 暴露到公网。若改用 bridge 网络，必须同时设计明确的
+可信代理网段，否则应用会拒绝非 loopback 代理提供的 `X-Forwarded-Proto`，账号接口将返回
+`426 https_required`。
+
+> `/api/v1/account/*` 使用账号令牌鉴权；一起看房间仍允许未登录用户加入，房间权限和
+> 频率限制不能代替账号访问控制。公网部署必须使用 HTTPS/WSS，且不能把 Ktor 的 8080
+> 明文端口直接暴露到公网。Docker 必须持久化 `/var/lib/yfuse`，否则重建容器会丢失账号。
 
 房间仅驻留内存；最后一名成员退出后保留 5 分钟供重连，随后回收。
 

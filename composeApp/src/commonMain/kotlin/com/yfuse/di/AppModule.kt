@@ -3,6 +3,9 @@ package com.yfuse.di
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
+import com.yfuse.core.account.AccountApi
+import com.yfuse.core.account.AccountRepository
+import com.yfuse.core.account.createAccountClient
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DiagnosticPreferences
@@ -30,10 +33,14 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.offline.createOfflineMediaManager
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.core.security.SecureStore
+import com.yfuse.core.security.VaultCrypto
+import com.yfuse.core.security.createSecureStore
 import com.yfuse.feature.watch.WatchInviteResolver
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.createCastManager
 import org.koin.dsl.module
+import kotlinx.coroutines.Dispatchers
 
 /**
  * Root DI graph. [settings] and [appVersion] are supplied by the platform so common network
@@ -82,6 +89,23 @@ fun appModule(
     single { ServerSyncManager(get(), get(), get()) }
     single { WatchTogetherClient(get()) }
     single { WatchInviteResolver(get(), get()) }
+    single<SecureStore> { createSecureStore(get(), namespace = "account") }
+    single { VaultCrypto() }
+    single { AccountApi(createAccountClient()) }
+    single {
+        AccountRepository(
+            api = get(),
+            secureStore = get(),
+            crypto = get(),
+            registry = get(),
+            theme = get(),
+            watch = get(),
+            danmaku = get(),
+            skip = get(),
+            serverSync = get(),
+            mutationDispatcher = Dispatchers.Main.immediate,
+        )
+    }
     // Own client (different host + bearer auth), built inline so Koin keeps a
     // single HttpClient binding.
     single { TmdbRepository(createTmdbClient()) }

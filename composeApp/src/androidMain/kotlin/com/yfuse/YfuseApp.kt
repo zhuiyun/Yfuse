@@ -11,6 +11,7 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.core.data.DiagnosticPreferences
+import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.SafeLogcatOutputGate
@@ -36,7 +37,7 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
         SafeLogcatOutputGate.initialize(diagnosticPreferences)
         DiagnosticLogStore.initialize(this)
         AppLog.info("app", "initializing", "Initializing application dependencies")
-        startKoin {
+        val koinApplication = startKoin {
             modules(
                 appModule(
                     settings = settings,
@@ -45,6 +46,7 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
                 ),
             )
         }
+        koinApplication.koin.get<AccountRepository>().start()
     }
 
     // Keep decoded images hot in memory and original responses on disk. This is

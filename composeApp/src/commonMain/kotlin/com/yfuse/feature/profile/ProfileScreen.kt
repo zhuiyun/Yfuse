@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
+import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
@@ -102,12 +103,12 @@ private enum class Sheet {
 }
 
 private enum class ProfilePage {
+    Account,
     Playback,
     Danmaku,
     WatchTogether,
     Appearance,
     DataAndDiagnostics,
-    About,
     Downloads,
     Recovery,
     Splash,
@@ -145,6 +146,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val offlineItems by component.offlineMedia.items.collectAsState()
     val recoverySnapshot by component.playbackRecovery.snapshot.collectAsState()
     val syncState by component.syncManager.state.collectAsState()
+    val accountState by component.account.state.collectAsState()
     val serversState by component.serversStore.states
         .collectAsState(component.serversStore.state)
 
@@ -191,6 +193,11 @@ fun ProfileScreen(component: ProfileComponent) {
 
     Box(Modifier.fillMaxSize()) {
         when (page) {
+            ProfilePage.Account -> AccountSettingsScreen(
+                account = component.account,
+                onBack = ::closePage,
+            )
+
             ProfilePage.Playback -> PlaybackSettingsScreen(
                 onBack = ::closePage,
                 engine = engine,
@@ -279,8 +286,6 @@ fun ProfileScreen(component: ProfileComponent) {
                 )
             }
 
-            ProfilePage.About -> AboutSettingsScreen(onBack = ::closePage)
-
             ProfilePage.Downloads,
             ProfilePage.Recovery,
             ProfilePage.Splash,
@@ -304,6 +309,24 @@ fun ProfileScreen(component: ProfileComponent) {
                 contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
+                item {
+                    Section(title = "Yfuse 账号") {
+                        SettingsCard {
+                            SettingRow(
+                                title = "账号与同步",
+                                value = when (val account = accountState) {
+                                    AccountState.Restoring -> "正在恢复 ›"
+                                    is AccountState.RestoreFailed -> "连接失败 · 点此重试 ›"
+                                    AccountState.SignedOut -> "未登录 ›"
+                                    is AccountState.SignedIn -> "${account.session.user.nickname} · 手动加密同步 ›"
+                                },
+                                embedded = true,
+                                onClick = { openPage(ProfilePage.Account) },
+                            )
+                        }
+                    }
+                }
+
                 item {
                     Section(
                         title = "我的服务器",
@@ -411,16 +434,12 @@ fun ProfileScreen(component: ProfileComponent) {
                                 embedded = true,
                                 onClick = { openPage(ProfilePage.DataAndDiagnostics) },
                             )
-                            SettingsDivider()
-                            SettingRow(
-                                "关于",
-                                "更新与版本信息 ›",
-                                embedded = true,
-                                onClick = { openPage(ProfilePage.About) },
-                            )
                         }
                     }
                 }
+
+                item { AppUpdateTools() }
+                item { AppVersionFooter() }
             }
             }
         }
@@ -863,18 +882,6 @@ private fun DataAndDiagnosticsScreen(
                 DiagnosticLogTools()
             }
         }
-    }
-}
-
-@Composable
-private fun AboutSettingsScreen(onBack: () -> Unit) {
-    SettingsPage(
-        title = "关于",
-        subtitle = "更新与版本信息",
-        onBack = onBack,
-    ) {
-        item { AppUpdateTools() }
-        item { AppVersionFooter() }
     }
 }
 
