@@ -398,7 +398,8 @@ private fun SignedInAccountCard(
                 onClick = {
                     busy = true
                     scope.launch {
-                        account.uploadNow().exceptionOrNull()?.let { localError = it.message }
+                        // Failures already surface through the repository's status message.
+                        account.uploadNow()
                         busy = false
                     }
                 },
@@ -409,7 +410,7 @@ private fun SignedInAccountCard(
                 onClick = {
                     busy = true
                     scope.launch {
-                        account.downloadNow().exceptionOrNull()?.let { localError = it.message }
+                        account.downloadNow()
                         busy = false
                     }
                 },
