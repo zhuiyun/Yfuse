@@ -11,6 +11,7 @@ import com.yfuse.core.security.CryptoPrimitives
 import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.base64UrlToBytes
+import com.yfuse.core.security.toBase64Url
 import com.yfuse.core.sync.ServerSyncManager
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -166,6 +167,71 @@ class AccountRepositoryStateTest {
     }
 
     @Test
+    fun sync_rebuilds_missing_local_key_wrap_from_the_cloud_copy() = runTest {
+        val secureStore = RecordingAccountSecureStore().apply {
+            seedStoredSession()
+            // A vault whose wrap entries never landed. This is the state that made every sync
+            // report a missing sync key even though the server still holds the same wrap.
+            listOf(
+                KEY_WRAP_SALT,
+                KEY_WRAP_NONCE,
+                KEY_WRAPPED_VAULT,
+                KEY_WRAP_VERSION,
+                KEY_WRAP_KDF,
+                KEY_WRAP_ITERATIONS,
+            ).forEach { remove(it) }
+            resetObservations()
+        }
+        val cloudPayload = cloudSyncPayload()
+        var uploaded: PutSyncRequest? = null
+        val api = accountApi(
+            MockEngine { request ->
+                when (request.url.encodedPath) {
+                    REFRESH_PATH -> respondAccountJson(json.encodeToString(authResponse()))
+                    SYNC_PATH -> when (request.method.value) {
+                        "GET" -> respondAccountJson(
+                            json.encodeToString(SyncResponse(version = 5, payload = cloudPayload)),
+                        )
+                        "PUT" -> {
+                            uploaded = json.decodeFromString(
+                                request.body.toByteArray().decodeToString(),
+                            )
+                            respondAccountJson(
+                                json.encodeToString(
+                                    SyncResponse(version = 6, payload = cloudPayload),
+                                ),
+                            )
+                        }
+                        else -> error("Unexpected method ${request.method}")
+                    }
+                    else -> error("Unexpected path ${request.url.encodedPath}")
+                }
+            },
+        )
+        val repository = accountRepository(api, secureStore)
+
+        repository.start()
+        awaitAccountState(repository) { it is AccountState.SignedIn && it.syncVersion == 5L }
+
+        assertContentEquals(
+            cloudPayload.wrappedVaultKey?.base64UrlToBytes(),
+            secureStore.get(KEY_WRAPPED_VAULT),
+        )
+        assertEquals(cloudPayload.wrapKdf, secureStore.text(KEY_WRAP_KDF))
+
+        val result = repository.uploadNow()
+
+        assertTrue(result.isSuccess)
+        val request = assertNotNull(uploaded)
+        assertEquals(cloudPayload.wrappedVaultKey, request.payload.wrappedVaultKey)
+        assertEquals(cloudPayload.wrapSalt, request.payload.wrapSalt)
+        assertEquals(cloudPayload.wrapNonce, request.payload.wrapNonce)
+        val signedIn = assertIs<AccountState.SignedIn>(repository.state.value)
+        assertEquals(6L, signedIn.syncVersion)
+        assertEquals("已用本机数据覆盖云端", signedIn.message)
+    }
+
+    @Test
     fun restore_session_refresh_unauthorized_clears_credentials_and_signs_out() = runTest {
         val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
         val api = accountApi(
@@ -275,6 +341,17 @@ class AccountRepositoryStateTest {
         accessExpiresAtEpochMs = 9_000_000_000_000,
         refreshToken = refreshToken,
         refreshExpiresAtEpochMs = 9_000_000_000_000,
+    )
+
+    private fun cloudSyncPayload() = EncryptedSyncPayload(
+        nonce = ByteArray(VaultCrypto.GCM_NONCE_SIZE_BYTES) { (it + 5).toByte() }.toBase64Url(),
+        ciphertext = ByteArray(64) { (it + 7).toByte() }.toBase64Url(),
+        wrappedVaultKey = ByteArray(48) { (it + 11).toByte() }.toBase64Url(),
+        wrapSalt = ByteArray(16) { (it + 13).toByte() }.toBase64Url(),
+        wrapNonce = ByteArray(VaultCrypto.GCM_NONCE_SIZE_BYTES) { (it + 17).toByte() }.toBase64Url(),
+        wrapVersion = 1,
+        wrapKdf = "PBKDF2-HMAC-SHA256",
+        wrapIterations = VaultCrypto.DEFAULT_PBKDF2_ITERATIONS,
     )
 
     private fun io.ktor.client.engine.mock.MockRequestHandleScope.respondAccountJson(

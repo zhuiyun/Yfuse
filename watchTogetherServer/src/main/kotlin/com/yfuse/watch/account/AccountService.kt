@@ -626,7 +626,7 @@ internal class AccountService(
 
     private fun validateRegistrationPassword(password: String) {
         if (!isPlausiblePassword(password) || password.codePointCount(0, password.length) < MIN_PASSWORD_CHARS) {
-            invalidRequest("password_invalid", "密码至少 10 个字符，且不能包含控制字符")
+            invalidRequest("password_invalid", "密码至少 $MIN_PASSWORD_CHARS 个字符，且不能包含控制字符")
         }
     }
 
@@ -762,7 +762,7 @@ internal class AccountService(
     companion object {
         private const val DEFAULT_ACCESS_TTL_MS = 15 * 60_000L
         private const val DEFAULT_REFRESH_TTL_MS = 30L * 24 * 60 * 60_000L
-        private const val MIN_PASSWORD_CHARS = 10
+        private const val MIN_PASSWORD_CHARS = 8
         private const val MAX_PASSWORD_CHARS = 128
         private const val MAX_PASSWORD_BYTES = 512
         private const val MAX_NICKNAME_GRAPHEMES = 24

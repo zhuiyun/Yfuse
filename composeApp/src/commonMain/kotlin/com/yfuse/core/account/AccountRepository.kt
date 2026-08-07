@@ -111,7 +111,6 @@ class AccountRepository(
                 validateCredentials(username, password)
                 val auth = api.login(username.trim(), password.concatToString())
                 acceptAuth(auth)
-                clearVaultSecrets()
                 val remote = authorized { api.getSync(it) }
                 if (remote.payload == null) {
                     initializeEmptyVaultLocked(auth.user.id, password)
@@ -132,7 +131,7 @@ class AccountRepository(
                         )
                     }
                     try {
-                        storeVault(vaultKey, recovery)
+                        storeVault(auth.user.id, vaultKey, recovery)
                     } finally {
                         vaultKey.fill(0)
                     }
@@ -154,7 +153,12 @@ class AccountRepository(
             val remote = authorized { api.getSync(it) }
             val vaultKey = requireVaultKey()
             try {
-                uploadLocked(remote.version, vaultKey, successMessage = "已用本机数据覆盖云端")
+                uploadLocked(
+                    baseVersion = remote.version,
+                    vaultKey = vaultKey,
+                    remotePayload = remote.payload,
+                    successMessage = "已用本机数据覆盖云端",
+                )
             } finally {
                 vaultKey.fill(0)
             }
@@ -203,7 +207,9 @@ class AccountRepository(
         runCatching {
             mutex.withLock {
                 require(currentPassword.size in 1..128) { "请输入当前密码" }
-                require(newPassword.size in 10..128) { "新密码需为 10–128 个字符" }
+                require(newPassword.size in MIN_PASSWORD_CHARS..128) {
+                    "新密码需为 $MIN_PASSWORD_CHARS–128 个字符"
+                }
                 require(!currentPassword.contentEquals(newPassword)) { "新密码不能与当前密码相同" }
                 val signedIn = requireSignedIn()
                 val remote = authorized { api.getSync(it) }
@@ -275,7 +281,7 @@ class AccountRepository(
                         )
                     }
                     acceptAuth(auth)
-                    storeVault(vaultKey, recovery)
+                    storeVault(signedIn.session.user.id, vaultKey, recovery)
                     _state.value = requireSignedIn().copy(
                         syncVersion = remote.version,
                         cloudHasData = remote.payload != null,
@@ -337,6 +343,9 @@ class AccountRepository(
                 } finally {
                     localVaultKey.fill(0)
                 }
+                // Repair a vault whose wrap entries were lost, so the next sync does not report a
+                // missing key for material the server can hand back.
+                if (readStoredRecovery() == null) healLocalWrapFromCloud(remote.payload)
                 require(remote.version >= 0L) { "云端同步版本无效" }
                 _state.value = requireSignedIn().copy(
                     syncVersion = remote.version,
@@ -374,9 +383,17 @@ class AccountRepository(
     private suspend fun uploadLocked(
         baseVersion: Long,
         vaultKey: ByteArray,
+        remotePayload: EncryptedSyncPayload?,
         successMessage: String = "已安全同步",
     ) {
         val signedIn = requireSignedIn()
+        // The wrap only opens with the account password, so the copy the server already holds is
+        // as good as the local one. Rebuild from it when this device's copy is gone, and fall back
+        // to letting the server carry its own wrap forward rather than refusing to sync.
+        val recovery = readStoredRecovery() ?: healLocalWrapFromCloud(remotePayload)
+        require(recovery != null || remotePayload?.keyVersion == KEY_VERSION) {
+            "本机缺少同步密钥信息，请重新登录后再上传"
+        }
         _state.value = signedIn.copy(syncing = true, message = null)
         val plaintext = capturePlaintext()
         require(plaintext.encodeToByteArray().size <= MAX_SYNC_PLAINTEXT_BYTES) {
@@ -394,12 +411,12 @@ class AccountRepository(
             keyVersion = KEY_VERSION,
             nonce = encrypted.nonce.toBase64Url(),
             ciphertext = encrypted.ciphertext.toBase64Url(),
-            wrappedVaultKey = requireSecret(KEY_WRAPPED_VAULT).toBase64Url(),
-            wrapSalt = requireSecret(KEY_WRAP_SALT).toBase64Url(),
-            wrapNonce = requireSecret(KEY_WRAP_NONCE).toBase64Url(),
-            wrapVersion = requireStoredInt(KEY_WRAP_VERSION),
-            wrapKdf = requireSecret(KEY_WRAP_KDF).decodeToString(),
-            wrapIterations = requireStoredInt(KEY_WRAP_ITERATIONS),
+            wrappedVaultKey = recovery?.wrappedKey?.ciphertext?.toBase64Url(),
+            wrapSalt = recovery?.salt?.toBase64Url(),
+            wrapNonce = recovery?.wrappedKey?.nonce?.toBase64Url(),
+            wrapVersion = recovery?.version,
+            wrapKdf = recovery?.let { WRAP_KDF },
+            wrapIterations = recovery?.iterations,
         )
         val response = authorized { api.putSync(it, baseVersion, payload) }
         val current = requireSignedIn()
@@ -492,7 +509,12 @@ class AccountRepository(
     }
 
     private suspend fun refreshLocked(): AccountState.SignedIn {
-        val token = requireSecret(KEY_REFRESH_TOKEN).decodeToString()
+        val token = secureStore.get(KEY_REFRESH_TOKEN)?.decodeToString()?.takeIf(String::isNotBlank)
+        if (token == null) {
+            runCatching { secureStore.clear() }
+            _state.value = AccountState.SignedOut
+            error("登录状态已失效，请重新登录")
+        }
         try {
             acceptAuth(api.refresh(token))
         } catch (error: AccountApiException) {
@@ -505,14 +527,58 @@ class AccountRepository(
         return requireSignedIn()
     }
 
-    private fun storeVault(vaultKey: ByteArray, recovery: RecoveryKeyEnvelope) {
-        secureStore.put(KEY_VAULT_KEY, vaultKey)
+    /**
+     * Writes the vault key last, so its presence means the whole bundle landed. A half-written
+     * vault is rolled back instead of being left for the next sync to trip over.
+     */
+    private fun storeVault(userId: String, vaultKey: ByteArray, recovery: RecoveryKeyEnvelope) {
+        try {
+            storeWrap(recovery)
+            secureStore.put(KEY_VAULT_USER_ID, userId.encodeToByteArray())
+            secureStore.put(KEY_VAULT_KEY, vaultKey)
+        } catch (error: Throwable) {
+            runCatching { clearVaultSecrets() }
+            throw error
+        }
+    }
+
+    private fun storeWrap(recovery: RecoveryKeyEnvelope) {
         secureStore.put(KEY_WRAP_SALT, recovery.salt)
         secureStore.put(KEY_WRAP_NONCE, recovery.wrappedKey.nonce)
         secureStore.put(KEY_WRAPPED_VAULT, recovery.wrappedKey.ciphertext)
         secureStore.put(KEY_WRAP_VERSION, recovery.version.toString().encodeToByteArray())
         secureStore.put(KEY_WRAP_KDF, WRAP_KDF.encodeToByteArray())
         secureStore.put(KEY_WRAP_ITERATIONS, recovery.iterations.toString().encodeToByteArray())
+    }
+
+    private fun readStoredRecovery(): RecoveryKeyEnvelope? {
+        val salt = secureStore.get(KEY_WRAP_SALT) ?: return null
+        val nonce = secureStore.get(KEY_WRAP_NONCE) ?: return null
+        val wrapped = secureStore.get(KEY_WRAPPED_VAULT) ?: return null
+        val version = secureStore.get(KEY_WRAP_VERSION)?.decodeToString()?.toIntOrNull()
+            ?: return null
+        val kdf = secureStore.get(KEY_WRAP_KDF)?.decodeToString() ?: return null
+        val iterations = secureStore.get(KEY_WRAP_ITERATIONS)?.decodeToString()?.toIntOrNull()
+            ?: return null
+        if (version != WRAP_VERSION || kdf != WRAP_KDF) return null
+        // Sizes and iteration bounds are enforced by the envelope itself; treat a stored bundle
+        // that no longer satisfies them as absent so the cloud copy can replace it.
+        return runCatching {
+            RecoveryKeyEnvelope(
+                version = version,
+                salt = salt,
+                iterations = iterations,
+                wrappedKey = AesGcmPayload(nonce, wrapped),
+            )
+        }.getOrNull()
+    }
+
+    /** Restores the local key-wrap entries from the copy the sync response already carries. */
+    private fun healLocalWrapFromCloud(payload: EncryptedSyncPayload?): RecoveryKeyEnvelope? {
+        if (payload == null || payload.keyVersion != KEY_VERSION) return null
+        val recovery = runCatching { payload.toRecoveryEnvelope() }.getOrNull() ?: return null
+        runCatching { storeWrap(recovery) }
+        return recovery
     }
 
     private suspend fun initializeEmptyVaultLocked(userId: String, password: CharArray) {
@@ -531,7 +597,7 @@ class AccountRepository(
                     ),
                 )
             }
-            storeVault(vaultKey, recovery)
+            storeVault(userId, vaultKey, recovery)
         } finally {
             vaultKey.fill(0)
         }
@@ -540,6 +606,7 @@ class AccountRepository(
     private fun clearVaultSecrets() {
         listOf(
             KEY_VAULT_KEY,
+            KEY_VAULT_USER_ID,
             KEY_WRAP_SALT,
             KEY_WRAP_NONCE,
             KEY_WRAPPED_VAULT,
@@ -594,15 +661,21 @@ class AccountRepository(
     private fun requireSignedIn(): AccountState.SignedIn =
         _state.value as? AccountState.SignedIn ?: error("请先登录 Yfuse 账号")
 
-    private fun requireVaultKey(): ByteArray = requireSecret(KEY_VAULT_KEY).also {
-        require(it.size == VaultCrypto.AES_KEY_SIZE_BYTES) { "本机同步密钥无效，请重新登录" }
+    private fun requireVaultKey(): ByteArray {
+        val userId = requireSignedIn().session.user.id
+        val vaultKey = secureStore.get(KEY_VAULT_KEY) ?: error("本机缺少同步密钥，请重新登录")
+        require(vaultKey.size == VaultCrypto.AES_KEY_SIZE_BYTES) { "本机同步密钥无效，请重新登录" }
+        when (secureStore.get(KEY_VAULT_USER_ID)?.decodeToString()) {
+            // Installs that predate the owner tag hold a vault for the account that stored it.
+            null -> secureStore.put(KEY_VAULT_USER_ID, userId.encodeToByteArray())
+            userId -> Unit
+            else -> {
+                vaultKey.fill(0)
+                error("本机保存的是其他账号的同步密钥，请重新登录")
+            }
+        }
+        return vaultKey
     }
-
-    private fun requireSecret(key: String): ByteArray =
-        secureStore.get(key) ?: error("本机缺少同步密钥，请重新登录")
-
-    private fun requireStoredInt(key: String): Int = requireSecret(key).decodeToString().toIntOrNull()
-        ?: error("本机同步密钥参数无效，请重新登录")
 
     private fun clearLocalAccountState() {
         runCatching { secureStore.clear() }
@@ -631,7 +704,7 @@ class AccountRepository(
         require(USERNAME_PATTERN.matches(normalized)) {
             "账号名需为 3–40 位字母、数字、点、横线或下划线，且以字母或数字开头"
         }
-        require(password.size in 10..128) { "密码需为 10–128 个字符" }
+        require(password.size in MIN_PASSWORD_CHARS..128) { "密码需为 $MIN_PASSWORD_CHARS–128 个字符" }
     }
 
     private fun syncAad(userId: String, version: Long, keyVersion: Int): ByteArray =
@@ -648,9 +721,11 @@ class AccountRepository(
             .encodeToByteArray()
 
     private companion object {
+        const val MIN_PASSWORD_CHARS = 8
         const val KEY_VERSION = 1
         const val KEY_REFRESH_TOKEN = "refresh_token"
         const val KEY_VAULT_KEY = "vault_key"
+        const val KEY_VAULT_USER_ID = "vault_user_id"
         const val KEY_WRAP_SALT = "vault_wrap_salt"
         const val KEY_WRAP_NONCE = "vault_wrap_nonce"
         const val KEY_WRAPPED_VAULT = "wrapped_vault_key"

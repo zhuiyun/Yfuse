@@ -392,6 +392,24 @@ class AccountApiTest {
         }
     }
 
+    @Test
+    fun registration_accepts_eight_characters_and_rejects_anything_shorter() = testApplication {
+        application {
+            watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
+        }
+
+        val tooShort = client.post("/api/v1/auth/register") {
+            secureJson("""{"username":"Shorty","password":"Abc-123"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, tooShort.status)
+        assertEquals("password_invalid", tooShort.errorCode())
+
+        val accepted = client.post("/api/v1/auth/register") {
+            secureJson("""{"username":"Eighter","password":"Abc-1234"}""")
+        }
+        assertEquals(HttpStatusCode.Created, accepted.status)
+    }
+
     private suspend fun io.ktor.server.testing.ApplicationTestBuilder.register(): JsonObject =
         registerResponse().bodyAsText().asObject()
 
