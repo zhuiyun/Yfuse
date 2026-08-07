@@ -190,6 +190,12 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeDuration(JNIEnv*, jclass, jlong ptr) {
     return value == nullptr ? 0 : static_cast<jlong>(value->mediaInfo().duration);
 }
 
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mediadevkit_sdk_MDKPlayer_nativeBufferedDuration(JNIEnv*, jclass, jlong ptr) {
+    auto* value = player(ptr);
+    return value == nullptr ? 0 : static_cast<jlong>(value->buffered());
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativeMediaStatus(JNIEnv*, jclass, jlong ptr) {
     auto* value = player(ptr);

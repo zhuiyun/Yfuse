@@ -5,6 +5,7 @@ import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
+import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.AiringScheduleCache
 import com.yfuse.core.data.EmbyRepository
@@ -16,6 +17,7 @@ import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.TmdbRepository
@@ -37,8 +39,13 @@ import org.koin.dsl.module
  * Root DI graph. [settings] and [appVersion] are supplied by the platform so common network
  * code reports the version embedded in the installed package rather than a duplicated constant.
  */
-fun appModule(settings: Settings, appVersion: String) = module {
+fun appModule(
+    settings: Settings,
+    appVersion: String,
+    diagnosticPreferences: DiagnosticPreferences = DiagnosticPreferences(settings),
+) = module {
     single { settings }
+    single { diagnosticPreferences }
     single { ServerRegistry(get()) }
     single { ThemePreferences(get()) }
     single { PlaybackPreferences(get()) }
@@ -49,6 +56,7 @@ fun appModule(settings: Settings, appVersion: String) = module {
     single { SkipSegmentPreferences(get()) }
     single { PlaybackTrackRequest() }
     single { LibraryCache(get()) }
+    single { TmdbHomeCache(get()) }
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }
     single<CastManager> { createCastManager() }

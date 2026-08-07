@@ -11,6 +11,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 
+/**
+ * Enough history for stale routes and queued work without letting repeated address edits grow
+ * the persisted registry forever. Iteration order is oldest to newest among the retained ids.
+ */
+internal const val MAX_SERVER_PREVIOUS_IDS = 8
+
 @Serializable
 private data class PortableServerBackup(
     @SerialName("v") val version: Int = 1,
@@ -54,7 +60,11 @@ class ServerRegistry(private val settings: Settings) {
         val existing = current.servers.firstOrNull { it.id == server.id }
         val replacing = existing != null
         val normalized = server.copy(
-            previousIds = (server.previousIds + existing?.previousIds.orEmpty()) - server.id,
+            previousIds = recentPreviousIds(
+                server.id,
+                server.previousIds,
+                existing?.previousIds.orEmpty(),
+            ),
         )
         val servers = current.servers
             .filterNot { it.id == server.id }
@@ -125,12 +135,13 @@ class ServerRegistry(private val settings: Settings) {
         val existing = current.servers[oldIndex]
         val colliding = current.servers.firstOrNull { it.id == server.id }
         val replacement = server.copy(
-            previousIds = (
-                server.previousIds +
-                    existing.previousIds +
-                    colliding?.previousIds.orEmpty() +
-                    id
-                ) - server.id,
+            previousIds = recentPreviousIds(
+                server.id,
+                server.previousIds,
+                existing.previousIds,
+                colliding?.previousIds.orEmpty(),
+                listOf(id),
+            ),
         )
         val remaining = current.servers
             .filterNot { it.id == id || it.id == server.id }
@@ -262,14 +273,33 @@ class ServerRegistry(private val settings: Settings) {
             }
 
     private fun commit(data: ServersData) {
-        _data.value = data
-        settings.putString(KEY, json.encodeToString(ServersData.serializer(), data))
+        val normalized = data.withBoundedPreviousIds()
+        _data.value = normalized
+        settings.putString(KEY, json.encodeToString(ServersData.serializer(), normalized))
+        clearOrphanedLibraryCaches(normalized)
     }
 
     private fun load(): ServersData {
         val raw = settings.getStringOrNull(KEY) ?: return ServersData()
         return runCatching {
-            json.decodeFromString(ServersData.serializer(), raw)
+            val decoded = json.decodeFromString(ServersData.serializer(), raw)
+            val normalized = decoded.withBoundedPreviousIds()
+            if (normalized != decoded) {
+                // One-time migration for registries written before alias history was bounded.
+                // A failed cleanup must not make otherwise valid saved servers disappear.
+                runCatching {
+                    settings.putString(KEY, json.encodeToString(ServersData.serializer(), normalized))
+                }.onFailure { error ->
+                    AppLog.warning(
+                        category = "server.registry",
+                        event = "alias_history_migration_failed",
+                        message = "Saved server alias history could not be compacted",
+                        throwable = error,
+                    )
+                }
+            }
+            clearOrphanedLibraryCaches(normalized)
+            normalized
         }.onFailure {
             AppLog.error(
                 category = "server.registry",
@@ -279,4 +309,47 @@ class ServerRegistry(private val settings: Settings) {
             )
         }.getOrDefault(ServersData())
     }
+
+    private fun clearOrphanedLibraryCaches(data: ServersData) {
+        runCatching {
+            LibraryCache(settings).clearOrphans(data.servers.mapTo(mutableSetOf()) { it.id })
+        }.onFailure { error ->
+            // Registry state has already loaded/committed. Cache cleanup is best-effort and
+            // must never make a valid connection edit appear to have failed.
+            AppLog.warning(
+                category = "server.registry",
+                event = "orphan_library_cache_clear_failed",
+                message = "Orphaned library caches could not be cleared",
+                throwable = error,
+            )
+        }
+    }
 }
+
+/**
+ * Later occurrences win so reusing an older alias makes it recent again. This matters when a
+ * replacement collides with an existing saved connection and both histories are merged.
+ */
+private fun recentPreviousIds(
+    currentId: String,
+    vararg histories: Iterable<String>,
+): Set<String> {
+    val newestFirst = buildList {
+        histories.forEach { addAll(it) }
+    }.asReversed()
+        .asSequence()
+        .filter { it != currentId }
+        .distinct()
+        .take(MAX_SERVER_PREVIOUS_IDS)
+        .toList()
+
+    return linkedSetOf<String>().apply {
+        newestFirst.asReversed().forEach { add(it) }
+    }
+}
+
+private fun ServersData.withBoundedPreviousIds(): ServersData = copy(
+    servers = servers.map { server ->
+        server.copy(previousIds = recentPreviousIds(server.id, server.previousIds))
+    },
+)

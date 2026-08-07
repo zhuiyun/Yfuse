@@ -10,8 +10,10 @@ import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
+import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.SafeLogcatOutputGate
 import com.yfuse.core.network.imageCacheKeyForUrl
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.core.offline.offlineApplicationContext
@@ -23,8 +25,6 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
-        DiagnosticLogStore.initialize(this)
-        AppLog.info("app", "initializing", "Initializing application dependencies")
         imageCacheContext = this
         offlineApplicationContext = this
         val prefs = getSharedPreferences("yfuse", MODE_PRIVATE)
@@ -32,8 +32,18 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
         // and it has to be the same one across launches for sessions to be reapable.
         initializeDeviceId(prefs)
         val settings = SharedPreferencesSettings(prefs)
+        val diagnosticPreferences = DiagnosticPreferences(settings)
+        SafeLogcatOutputGate.initialize(diagnosticPreferences)
+        DiagnosticLogStore.initialize(this)
+        AppLog.info("app", "initializing", "Initializing application dependencies")
         startKoin {
-            modules(appModule(settings, BuildConfig.VERSION_NAME))
+            modules(
+                appModule(
+                    settings = settings,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    diagnosticPreferences = diagnosticPreferences,
+                ),
+            )
         }
     }
 

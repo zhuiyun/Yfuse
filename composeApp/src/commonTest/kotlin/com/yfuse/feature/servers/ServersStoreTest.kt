@@ -5,6 +5,7 @@ import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
+import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.authRoutes
@@ -25,6 +26,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServersStoreTest {
@@ -111,7 +113,8 @@ class ServersStoreTest {
 
     @Test
     fun editing_connection_reauthenticates_and_keeps_the_custom_name() = runTest {
-        val registry = testRegistry()
+        val settings = MapSettings()
+        val registry = ServerRegistry(settings)
         val existing = SavedServer(
             id = SavedServer.idOf("http://oldhost:8096", "old-user-id"),
             baseUrl = "http://oldhost:8096",
@@ -121,6 +124,8 @@ class ServersStoreTest {
             accessToken = "old-token",
         )
         registry.addOrUpdate(existing)
+        val oldCacheKey = "library.cache.${existing.id}"
+        settings.putString(oldCacheKey, "cached-home")
         val other = SavedServer(
             id = SavedServer.idOf("http://other:8096", "other-user"),
             baseUrl = "http://other:8096",
@@ -156,6 +161,7 @@ class ServersStoreTest {
         // Stale routes and queued offline downloads keep resolving after an address edit.
         assertEquals(updated, registry.serverById(existing.id))
         assertTrue(existing.id in updated.previousIds)
+        assertNull(settings.getStringOrNull(oldCacheKey))
         assertEquals(other, registry.serverById(other.id))
         assertEquals(updated.id, registry.data.value.defaultServerId)
         store.dispose()

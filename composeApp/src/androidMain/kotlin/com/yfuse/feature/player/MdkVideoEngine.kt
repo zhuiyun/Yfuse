@@ -134,7 +134,13 @@ class MdkVideoEngine(
 
     override fun seekTo(positionMs: Long) {
         pendingSeekMs = -1L
-        _state.update { it.copy(positionMs = positionMs, ended = false) }
+        _state.update {
+            it.copy(
+                positionMs = positionMs,
+                bufferedPositionMs = positionMs.coerceAtLeast(0L),
+                ended = false,
+            )
+        }
         runMdk { it.seek(positionMs.coerceAtLeast(0L)) }
     }
 
@@ -180,6 +186,7 @@ class MdkVideoEngine(
                 buffering = true,
                 positionMs = 0L,
                 durationMs = 0L,
+                bufferedPositionMs = 0L,
                 videoHeight = 0,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
@@ -189,6 +196,7 @@ class MdkVideoEngine(
                 fallbacksExhausted = false,
                 diagnostics = it.diagnostics.copy(
                     playMethod = if (transcoding) "服务器转码" else "直播放",
+                    bufferedDurationMs = 0L,
                 ),
             )
         }
@@ -202,7 +210,14 @@ class MdkVideoEngine(
         pendingSeekMs = _state.value.positionMs
         tracksLoadedForIndex = -1
         endHandled = false
-        _state.update { it.copy(error = null, buffering = true, ended = false) }
+        _state.update {
+            it.copy(
+                error = null,
+                buffering = true,
+                bufferedPositionMs = it.positionMs,
+                ended = false,
+            )
+        }
         ensurePlayer()?.let(::loadCurrent)
     }
 
@@ -333,13 +348,21 @@ class MdkVideoEngine(
                 endHandled = false
             }
 
+            val positionMs = instance.position().coerceAtLeast(0L)
+            val durationMs = instance.duration().coerceAtLeast(0L)
+            val bufferedDurationMs = instance.bufferedDuration().coerceAtLeast(0L)
             _state.update { current ->
                 current.copy(
                     playing =
                         instance.state() == MDKPlayer.STATE_PLAYING && !ended && !invalid,
                     buffering = buffering,
-                    positionMs = instance.position().coerceAtLeast(0L),
-                    durationMs = instance.duration().coerceAtLeast(0L),
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    bufferedPositionMs = bufferedEndPositionMs(
+                        positionMs = positionMs,
+                        durationMs = durationMs,
+                        bufferedDurationMs = bufferedDurationMs,
+                    ),
                     speed = instance.playbackRate(),
                     videoHeight = instance.videoHeight().coerceAtLeast(0),
                     error = if (invalid) {
@@ -350,6 +373,7 @@ class MdkVideoEngine(
                     fallbacksExhausted = current.fallbacksExhausted || invalid,
                     ended = ended,
                     diagnostics = current.diagnostics.copy(
+                        bufferedDurationMs = bufferedDurationMs,
                         bufferEvents =
                             current.diagnostics.bufferEvents + if (bufferEvent) 1 else 0,
                     ),
@@ -443,9 +467,13 @@ class MdkVideoEngine(
             it.copy(
                 error = null,
                 buffering = true,
+                bufferedPositionMs = it.positionMs,
                 ended = false,
                 transcoding = true,
-                diagnostics = it.diagnostics.copy(playMethod = "服务器转码"),
+                diagnostics = it.diagnostics.copy(
+                    playMethod = "服务器转码",
+                    bufferedDurationMs = 0L,
+                ),
             )
         }
         if (!progressive) {

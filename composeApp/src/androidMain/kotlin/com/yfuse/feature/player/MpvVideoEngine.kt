@@ -200,7 +200,16 @@ class MpvVideoEngine(
                     val ms = (value * 1000).toLong().coerceAtLeast(0L)
                     if (kotlin.math.abs(ms - lastPositionMs) < POSITION_STEP_MS) return
                     lastPositionMs = ms
-                    _state.update { it.copy(positionMs = ms) }
+                    _state.update {
+                        it.copy(
+                            positionMs = ms,
+                            bufferedPositionMs = bufferedEndPositionMs(
+                                positionMs = ms,
+                                durationMs = it.durationMs,
+                                bufferedDurationMs = it.diagnostics.bufferedDurationMs,
+                            ),
+                        )
+                    }
                 }
 
                 "duration" -> _state.update { it.copy(durationMs = (value * 1000).toLong()) }
@@ -223,9 +232,15 @@ class MpvVideoEngine(
                     )
                 }
                 "demuxer-cache-duration" -> _state.update {
+                    val bufferedDurationMs = (value * 1000.0).toLong().coerceAtLeast(0L)
                     it.copy(
+                        bufferedPositionMs = bufferedEndPositionMs(
+                            positionMs = it.positionMs,
+                            durationMs = it.durationMs,
+                            bufferedDurationMs = bufferedDurationMs,
+                        ),
                         diagnostics = it.diagnostics.copy(
-                            bufferedDurationMs = (value * 1000.0).toLong().coerceAtLeast(0L),
+                            bufferedDurationMs = bufferedDurationMs,
                         ),
                     )
                 }
@@ -274,7 +289,15 @@ class MpvVideoEngine(
         override fun event(eventId: Int) {
             when (eventId) {
                 MPVLib.MpvEvent.MPV_EVENT_START_FILE ->
-                    _state.update { it.copy(buffering = true, error = null, ended = false) }
+                    _state.update {
+                        it.copy(
+                            buffering = true,
+                            bufferedPositionMs = it.positionMs,
+                            error = null,
+                            ended = false,
+                            diagnostics = it.diagnostics.copy(bufferedDurationMs = 0L),
+                        )
+                    }
 
                 MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
                     val seekMs = pendingSeekMs
@@ -492,7 +515,13 @@ class MpvVideoEngine(
 
     override fun seekTo(positionMs: Long) {
         lastPositionMs = positionMs
-        _state.update { it.copy(positionMs = positionMs, ended = false) }
+        _state.update {
+            it.copy(
+                positionMs = positionMs,
+                bufferedPositionMs = positionMs.coerceAtLeast(0L),
+                ended = false,
+            )
+        }
         withMpv { it.command(arrayOf("seek", (positionMs / 1000.0).toString(), "absolute")) }
     }
 
@@ -515,6 +544,7 @@ class MpvVideoEngine(
                 currentIndex = index,
                 positionMs = 0L,
                 durationMs = 0L,
+                bufferedPositionMs = 0L,
                 buffering = true,
                 ended = false,
                 error = null,
@@ -524,6 +554,7 @@ class MpvVideoEngine(
                 subtitleTracks = emptyList(),
                 diagnostics = it.diagnostics.copy(
                     playMethod = if (transcoding) "服务器转码" else "直播放",
+                    bufferedDurationMs = 0L,
                 ),
             )
         }
@@ -536,7 +567,14 @@ class MpvVideoEngine(
         val position = _state.value.positionMs
         playRequested = true
         pendingSeekMs = position.coerceAtLeast(0L)
-        _state.update { it.copy(error = null, buffering = true, ended = false) }
+        _state.update {
+            it.copy(
+                error = null,
+                buffering = true,
+                bufferedPositionMs = position.coerceAtLeast(0L),
+                ended = false,
+            )
+        }
         if (mpv == null) {
             attachedSurface?.let(::attach)
             return
@@ -617,9 +655,13 @@ class MpvVideoEngine(
             it.copy(
                 error = null,
                 buffering = true,
+                bufferedPositionMs = it.positionMs,
                 ended = false,
                 transcoding = true,
-                diagnostics = it.diagnostics.copy(playMethod = "服务器转码"),
+                diagnostics = it.diagnostics.copy(
+                    playMethod = "服务器转码",
+                    bufferedDurationMs = 0L,
+                ),
             )
         }
         if (next == Step.Transcode) {

@@ -7,6 +7,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaItem
@@ -16,11 +17,17 @@ import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.pickForDay
 import com.yfuse.core.network.toUserMessage
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 data class HomeState(
     val loading: Boolean = true,
@@ -41,6 +48,8 @@ data class HomeState(
     val resume: List<MediaItem> = emptyList(),
     val resolving: Boolean = false,
     val error: String? = null,
+    /** A live refresh failed, but the last bounded cache is still usable. */
+    val recommendationNotice: String? = null,
     val actionMessage: String? = null,
 ) {
     /**
@@ -92,6 +101,7 @@ private sealed interface Action {
 
 private sealed interface Msg {
     data object Loading : Msg
+    data class Cached(val content: TmdbHome) : Msg
     data class Loaded(val content: TmdbHome) : Msg
     data class ResumeLoaded(val items: List<MediaItem>) : Msg
     data class Server(val value: SavedServer?) : Msg
@@ -100,11 +110,44 @@ private sealed interface Msg {
     data class ActionMessage(val value: String?) : Msg
 }
 
+private const val RECOMMENDATIONS_UNAVAILABLE_MESSAGE =
+    "影视推荐服务暂时不可用，请稍后重试"
+
+/**
+ * A synchronous Settings write cannot be interrupted once it starts. Serializing writes
+ * guarantees that a newer successful refresh always lands after an older canceled one.
+ */
+internal class RecommendationCacheWriter(
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val persist: suspend (TmdbHome) -> Unit,
+) {
+    private val mutex = Mutex()
+
+    suspend fun write(content: TmdbHome) = withContext(dispatcher) {
+        mutex.withLock { persist(content) }
+    }
+}
+
+private data class HomeServerConnection(
+    val serverId: String,
+    val baseUrl: String,
+    val userId: String,
+    val accessToken: String,
+)
+
+private fun SavedServer.homeConnection(): HomeServerConnection = HomeServerConnection(
+    serverId = id,
+    baseUrl = baseUrl,
+    userId = userId,
+    accessToken = accessToken,
+)
+
 class HomeStoreFactory(
     private val storeFactory: StoreFactory,
     private val tmdb: TmdbRepository,
     private val emby: EmbyRepository,
     private val registry: ServerRegistry,
+    private val cache: TmdbHomeCache,
 ) {
     fun create(): Store<HomeIntent, HomeState, HomeLabel> =
         storeFactory.create(
@@ -128,6 +171,13 @@ class HomeStoreFactory(
     private inner class ExecutorImpl :
         CoroutineExecutor<HomeIntent, Action, HomeState, Msg, HomeLabel>() {
 
+        private var recommendationGeneration = 0L
+        private var recommendationJob: Job? = null
+        private val recommendationCacheWriter = RecommendationCacheWriter { cache.write(it) }
+        private var resumeGeneration = 0L
+        private var resumeConnection: HomeServerConnection? = null
+        private var resumeJob: Job? = null
+
         override fun executeAction(action: Action) {
             when (action) {
                 Action.Load -> loadRecommendations()
@@ -142,7 +192,7 @@ class HomeStoreFactory(
             when (intent) {
                 HomeIntent.Retry -> {
                     loadRecommendations()
-                    loadResume(state().server)
+                    loadResume(state().server, force = true)
                 }
                 is HomeIntent.Open -> open(intent.item)
                 is HomeIntent.Favorite -> favorite(intent.item)
@@ -151,19 +201,39 @@ class HomeStoreFactory(
         }
 
         private fun loadRecommendations() {
+            recommendationJob?.cancel()
+            val generation = ++recommendationGeneration
             dispatch(Msg.Loading)
-            scope.launch {
-                tmdb.home()
-                    .onSuccess { dispatch(Msg.Loaded(it)) }
-                    .onFailure {
+            val shouldReadCache = state().content.isEmpty
+            recommendationJob = scope.launch {
+                try {
+                    if (shouldReadCache) {
+                        val cached = withContext(Dispatchers.Default) { cache.read() }
+                        if (generation != recommendationGeneration) return@launch
+                        cached?.let { dispatch(Msg.Cached(it)) }
+                    }
+
+                    val result = tmdb.home()
+                    if (generation != recommendationGeneration) return@launch
+                    val content = result.getOrNull()
+                    if (content != null) {
+                        recommendationCacheWriter.write(content)
+                        if (generation == recommendationGeneration) {
+                            dispatch(Msg.Loaded(content))
+                        }
+                    } else {
+                        val error = result.exceptionOrNull()
                         AppLog.warning(
                             category = "feature.home",
                             event = "recommendations_load_failed",
                             message = "Home recommendations failed to load",
-                            throwable = it,
+                            throwable = error,
                         )
-                        dispatch(Msg.Failed(it.toUserMessage("推荐内容加载失败")))
+                        dispatch(Msg.Failed(RECOMMENDATIONS_UNAVAILABLE_MESSAGE))
                     }
+                } finally {
+                    if (generation == recommendationGeneration) recommendationJob = null
+                }
             }
         }
 
@@ -172,22 +242,46 @@ class HomeStoreFactory(
          * empty rather than failing the whole screen. The reducer has already dropped the
          * previous server's items, so a failure leaves nothing stale behind either.
          */
-        private fun loadResume(server: SavedServer?) {
-            if (server == null) return
-            scope.launch {
-                emby.homeContent(server)
-                    .onSuccess { dispatch(Msg.ResumeLoaded(it.resume)) }
-                    .onFailure {
-                        AppLog.warning(
-                            category = "feature.home",
-                            event = "resume_load_failed",
-                            message = "Continue-watching row failed to load",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id),
-                        )
-                    }
+        private fun loadResume(server: SavedServer?, force: Boolean = false) {
+            val connection = server?.homeConnection()
+            if (!force && connection == resumeConnection) return
+            resumeConnection = connection
+            resumeJob?.cancel()
+            val generation = ++resumeGeneration
+            if (server == null || connection == null) {
+                resumeJob = null
+                return
+            }
+            resumeJob = scope.launch {
+                try {
+                    emby.homeContent(server)
+                        .onSuccess {
+                            if (!ownsResumeLoad(generation, connection)) return@onSuccess
+                            dispatch(Msg.ResumeLoaded(it.resume))
+                        }
+                        .onFailure { error ->
+                            if (!ownsResumeLoad(generation, connection)) return@onFailure
+                            AppLog.warning(
+                                category = "feature.home",
+                                event = "resume_load_failed",
+                                message = "Continue-watching row failed to load",
+                                throwable = error,
+                                attributes = mapOf("serverId" to server.id),
+                            )
+                        }
+                } finally {
+                    if (generation == resumeGeneration) resumeJob = null
+                }
             }
         }
+
+        private fun ownsResumeLoad(
+            generation: Long,
+            connection: HomeServerConnection,
+        ): Boolean =
+            generation == resumeGeneration &&
+                resumeConnection == connection &&
+                state().server?.homeConnection() == connection
 
         private fun open(item: TmdbItem) {
             if (state().resolving) return
@@ -260,11 +354,21 @@ class HomeStoreFactory(
 
     private object ReducerImpl : Reducer<HomeState, Msg> {
         override fun HomeState.reduce(msg: Msg): HomeState = when (msg) {
-            Msg.Loading -> copy(loading = true, error = null)
+            Msg.Loading -> copy(
+                loading = true,
+                error = null,
+                recommendationNotice = null,
+            )
+            is Msg.Cached -> copy(
+                content = msg.content,
+                today = currentIsoDate(),
+            )
             is Msg.Loaded -> copy(
                 loading = false,
                 content = msg.content,
                 today = currentIsoDate(),
+                error = null,
+                recommendationNotice = null,
             )
             is Msg.ResumeLoaded -> copy(resume = msg.items)
             // Items and the server they are addressed against move together: anything the
@@ -273,7 +377,19 @@ class HomeStoreFactory(
                 server = msg.value,
                 resume = if (msg.value?.id == server?.id) resume else emptyList(),
             )
-            is Msg.Failed -> copy(loading = false, error = msg.message)
+            is Msg.Failed -> if (content.isEmpty) {
+                copy(
+                    loading = false,
+                    error = msg.message,
+                    recommendationNotice = null,
+                )
+            } else {
+                copy(
+                    loading = false,
+                    error = null,
+                    recommendationNotice = "推荐内容刷新失败，正在显示最近缓存",
+                )
+            }
             is Msg.Resolving -> copy(resolving = msg.value)
             is Msg.ActionMessage -> copy(actionMessage = msg.value)
         }

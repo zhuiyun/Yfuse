@@ -1275,6 +1275,11 @@ private fun BottomBar(
     var scrubbed by remember { mutableStateOf<Float?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
     val fraction = scrubbed ?: (state.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+    val bufferedFraction = if (state.durationMs > 0L) {
+        (state.bufferedPositionMs.toFloat() / duration).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
     val shownPosition = scrubbed?.let { scrubPositionMs(it, state.durationMs) } ?: state.positionMs
 
     Column(
@@ -1297,6 +1302,7 @@ private fun BottomBar(
             Text(formatTime(shownPosition), style = mr(11f, 400), color = PlayerTokens.timeTextLandscape)
             SeekBar(
                 fraction = fraction,
+                bufferedFraction = bufferedFraction,
                 enabled = !seekLocked && state.durationMs > 0L,
                 onScrubTo = {
                     scrubbed = it
@@ -1404,6 +1410,7 @@ private fun BottomBar(
 @Composable
 private fun SeekBar(
     fraction: Float,
+    bufferedFraction: Float,
     onScrubTo: (Float) -> Unit,
     onCommit: (Float) -> Unit,
     onCancel: () -> Unit,
@@ -1461,6 +1468,13 @@ private fun SeekBar(
                 .clip(RoundedCornerShape(2.dp))
                 .background(PlayerTokens.trackFillLandscape),
         ) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(bufferedFraction.coerceIn(0f, 1f))
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.44f)),
+            )
             Box(
                 Modifier
                     .fillMaxHeight()

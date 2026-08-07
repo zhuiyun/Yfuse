@@ -134,6 +134,35 @@ fun HomeScreen(component: HomeComponent) {
                 }
             }
 
+            state.recommendationNotice?.let { notice ->
+                item(key = "recommendations-cache-notice") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Dimens.pageHorizontal)
+                            .glass(GlassShapes.chip, palette.card2, palette.border)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = notice,
+                            style = sc(11.5f, 550),
+                            color = palette.sub,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = "重新刷新",
+                            style = sc(11.5f, 700),
+                            color = Brand.Primary,
+                            modifier = Modifier.clickable {
+                                component.store.accept(HomeIntent.Retry)
+                            },
+                        )
+                    }
+                }
+            }
+
             state.actionMessage?.let { message ->
                 item {
                     Text(

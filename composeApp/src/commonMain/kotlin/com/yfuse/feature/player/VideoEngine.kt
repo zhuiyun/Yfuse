@@ -34,6 +34,8 @@ data class PlaybackState(
     val buffering: Boolean = true,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
+    /** Absolute media position reached by the active engine's forward buffer. */
+    val bufferedPositionMs: Long = 0L,
     val speed: Float = 1f,
     /** Decoded picture height, for the "1080P" badge; 0 until the first frame. */
     val videoHeight: Int = 0,
@@ -68,6 +70,18 @@ data class PlaybackState(
 
     /** Milliseconds left in the current entry; 0 while the duration is unknown. */
     val remainingMs: Long get() = (durationMs - positionMs).coerceAtLeast(0L)
+}
+
+/** Converts an engine's forward-buffer duration into a safe absolute media position. */
+internal fun bufferedEndPositionMs(
+    positionMs: Long,
+    durationMs: Long,
+    bufferedDurationMs: Long,
+): Long {
+    val position = positionMs.coerceAtLeast(0L)
+    val ahead = bufferedDurationMs.coerceAtLeast(0L)
+    val end = if (ahead > Long.MAX_VALUE - position) Long.MAX_VALUE else position + ahead
+    return if (durationMs > 0L) end.coerceAtMost(durationMs) else end
 }
 
 /**

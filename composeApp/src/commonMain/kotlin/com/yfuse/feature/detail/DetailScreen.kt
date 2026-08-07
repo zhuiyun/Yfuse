@@ -70,6 +70,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
@@ -105,8 +106,8 @@ private val TopBarHeight = 52.dp
 /** The sheet's own rhythm — above the title block, and between it and everything after. */
 private val SheetGap = 18.dp
 
-/** The smaller primary key leaves room for 收藏 and 稍后观看 on the same row. */
-private val DetailPlayButtonHeight = 48.dp
+/** The hero overlap is measured through the premium primary play key. */
+private val DetailPlayButtonHeight = 52.dp
 
 /** Keep the hero artwork visible for 20dp below the primary play button. */
 private val PlayButtonHeroOverlap = SheetGap + DetailPlayButtonHeight + 20.dp
@@ -129,20 +130,22 @@ internal fun shouldApplyPlaybackSelection(
     appliedSelection: PlaybackSelectionState?,
     detailReady: Boolean,
     playServerId: String?,
+    currentRootItemId: String?,
     playTargetReady: Boolean,
     sources: List<ServerSource>,
 ): Boolean {
     if (!detailReady || selection == appliedSelection) return false
     val serverId = selection.serverId ?: return false
-    if (selection.itemId == null) return false
+    val selectionItemId = selection.itemId ?: return false
+    val selectionRootItemId = selection.seriesId ?: selectionItemId
     return if (playServerId == serverId) {
-        playTargetReady
+        playTargetReady && currentRootItemId == selectionRootItemId
     } else {
         sources.any { source ->
             source.serverId == serverId &&
+                (source.itemId == selectionRootItemId || source.itemId == selectionItemId) &&
                 source.reachable &&
-                source.source != null &&
-                source.itemId != null
+                source.source != null
         }
     }
 }
@@ -232,14 +235,18 @@ fun DetailScreen(component: DetailComponent) {
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
 
-    // Mirroring the player's last selection is a one-shot per selection, not a standing rule.
+    // Mirroring the player's selection is a one-shot per *new* selection, not a standing
+    // rule. The value already present when this page is created belongs to an older player
+    // session and must not override the server from the navigation request. Keeping it as
+    // the initial applied value still lets the player update this existing page while it is
+    // covered, including episode/version changes made before the user returns.
     //
     // `state.playTarget?.versions` used to be a key, and selecting an episode is precisely
     // what changes it — so every manual switch re-ran this effect, which pushed the episode
     // the *player* had last played straight back over the one just tapped. Returning from
     // the player therefore froze the episode list on that episode: the selection was applied,
     // reverted, and applied again on every attempt.
-    var appliedSelection by remember { mutableStateOf<PlaybackSelectionState?>(null) }
+    var appliedSelection by remember { mutableStateOf<PlaybackSelectionState?>(playbackSelection) }
     LaunchedEffect(
         playbackSelection,
         state.detail,
@@ -258,6 +265,9 @@ fun DetailScreen(component: DetailComponent) {
                 appliedSelection = appliedSelection,
                 detailReady = state.detail != null,
                 playServerId = state.playServer?.id,
+                currentRootItemId = state.playSourceDetail?.let { source ->
+                    if (source.type == "Episode") source.seriesId ?: source.id else source.id
+                },
                 playTargetReady = state.playTarget != null,
                 sources = state.sources,
             )
@@ -401,6 +411,43 @@ fun DetailScreen(component: DetailComponent) {
                     }
                 }
 
+                // Episodes are the next decision after reading the synopsis. Keeping the
+                // rail here avoids making a series viewer cross file metadata, artwork and
+                // external links before they can choose what to watch.
+                if (state.episodes.isNotEmpty()) {
+                    item(key = "episodes") {
+                        EpisodeSection(
+                            baseUrl = playBaseUrl,
+                            accessToken = playAccessToken,
+                            episodes = state.episodes,
+                            selectedEpisodeId = state.selectedEpisodeId,
+                            accent = Brand.Primary,
+                            seasonLabel = state.seasons
+                                .firstOrNull { it.id == state.selectedSeasonId }
+                                ?.name
+                                ?: "剧集",
+                            episodeCount = state.episodes.size,
+                            seasons = state.seasons.map { it.id to it.name },
+                            selectedSeasonId = state.selectedSeasonId,
+                            pickerOpen = seasonPickerOpen,
+                            onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
+                            onSelectSeason = {
+                                seasonPickerOpen = false
+                                component.store.accept(DetailIntent.SelectSeason(it))
+                            },
+                            onPlayEpisode = { episode ->
+                                component.store.accept(
+                                    DetailIntent.SelectEpisode(
+                                        episode.id,
+                                        episode.resumePositionTicks ?: 0L,
+                                    ),
+                                )
+                            },
+                            onSeeAll = { allEpisodesOpen = true },
+                        )
+                    }
+                }
+
                 if (playableVersions.isNotEmpty()) {
                     item(key = "versions") {
                         VersionSection(
@@ -480,40 +527,6 @@ fun DetailScreen(component: DetailComponent) {
                 if (externalLinks(detail.providerIds).isNotEmpty()) {
                     item(key = "links") {
                         ExternalLinksSection(detail.providerIds, Modifier.sectionPadding())
-                    }
-                }
-
-                if (state.episodes.isNotEmpty()) {
-                    item(key = "episodes") {
-                        EpisodeSection(
-                            baseUrl = playBaseUrl,
-                            accessToken = playAccessToken,
-                            episodes = state.episodes,
-                            selectedEpisodeId = state.selectedEpisodeId,
-                            accent = Brand.Primary,
-                            seasonLabel = state.seasons
-                                .firstOrNull { it.id == state.selectedSeasonId }
-                                ?.name
-                                ?: "剧集",
-                            episodeCount = state.episodes.size,
-                            seasons = state.seasons.map { it.id to it.name },
-                            selectedSeasonId = state.selectedSeasonId,
-                            pickerOpen = seasonPickerOpen,
-                            onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
-                            onSelectSeason = {
-                                seasonPickerOpen = false
-                                component.store.accept(DetailIntent.SelectSeason(it))
-                            },
-                            onPlayEpisode = { episode ->
-                                component.store.accept(
-                                    DetailIntent.SelectEpisode(
-                                        episode.id,
-                                        episode.resumePositionTicks ?: 0L,
-                                    ),
-                                )
-                            },
-                            onSeeAll = { allEpisodesOpen = true },
-                        )
                     }
                 }
 
@@ -1117,140 +1130,187 @@ private fun DetailActionDock(
     onWatchLater: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    Row(
+    Column(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Top,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // A white key over the artwork's own colour, as the reference has it. The accent is
-        // not spent here: it is the page's one highlight colour and is worth more on 收藏
-        // and the selected version, where it distinguishes a *state*, than on the
-        // button whose position and size already make it unmistakable.
-        //
-        // White glass on the light theme's white page has no edge of its own, so the key
-        // leans on the two cues [liquidGlass] adds — the cool shade along its lower half and
-        // the luminous rim — plus the lift beneath it.
-        val playInk = Color(0xFF141A26)
-        Column(
-            Modifier.weight(1f),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        // One confident primary key, with a translucent icon well inside the branded body.
+        // The two material layers and the lifted shadow keep it dimensional in both themes,
+        // while the established brand gradient preserves the rest of the page's palette.
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(DetailPlayButtonHeight)
+                .pressable(enabled = !resolving, onClick = onPlay)
+                .shadow(GlassLift.key, GlassShapes.card)
+                .clip(GlassShapes.card)
+                .background(PrimaryGradient)
+                .border(
+                    Dimens.hairline,
+                    Color.White.copy(alpha = 0.34f),
+                    GlassShapes.card,
+                )
+                .padding(horizontal = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
+            Box(
                 Modifier
-                    .fillMaxWidth()
-                    .height(DetailPlayButtonHeight)
-                    .pressable(enabled = !resolving, onClick = onPlay)
-                    .shadow(GlassLift.key, CircleShape)
-                    .liquidGlass(
-                        shape = CircleShape,
-                        fill = Color.White.copy(alpha = 0.90f),
-                        border = Color(0xFFC9D6E8),
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.16f))
+                    .border(
+                        Dimens.hairline,
+                        Color.White.copy(alpha = 0.22f),
+                        CircleShape,
                     ),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
+                contentAlignment = Alignment.Center,
             ) {
                 if (resolving) {
                     CircularProgressIndicator(
                         Modifier.size(15.dp),
-                        color = playInk,
+                        color = Color.White,
                         strokeWidth = 2.dp,
                     )
                 } else {
-                    Icon(AppIcons.Play, null, tint = playInk, modifier = Modifier.size(15.dp))
-                }
-                Spacer(Modifier.width(8.dp))
-                if (detailLine == null) {
-                    Text(label, style = sc(14f, 750), color = playInk)
-                } else {
-                    Column(horizontalAlignment = Alignment.Start) {
-                        Text(label, style = sc(13f, 750), color = playInk, maxLines = 1)
-                        Text(
-                            detailLine,
-                            style = mr(9.5f, 500),
-                            color = playInk.copy(alpha = 0.62f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    Icon(
+                        AppIcons.Play,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp),
+                    )
                 }
             }
-            if (canPlayFromStart) {
-                Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.width(11.dp))
+            Column(Modifier.weight(1f)) {
                 Text(
-                    "从头播放",
-                    style = sc(11.5f, 600),
-                    color = palette.sub,
-                    modifier = Modifier
-                        .pressable(onClick = onPlayFromStart)
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    label,
+                    style = sc(if (detailLine == null) 14f else 13.5f, 750),
+                    color = Color.White,
+                    maxLines = 1,
                 )
+                detailLine?.let {
+                    Text(
+                        it,
+                        style = mr(9.5f, 500),
+                        color = Color.White.copy(alpha = 0.76f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
+            Icon(
+                AppIcons.ChevronRight,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.72f),
+                modifier = Modifier.size(14.dp),
+            )
         }
-        RoundAction(
-            icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
-            label = "收藏",
-            active = favorite,
-            accent = accent,
-            onClick = onFavorite,
-        )
-        RoundAction(
-            icon = AppIcons.Bookmark,
-            label = "稍后观看",
-            active = false,
-            accent = accent,
-            onClick = onWatchLater,
-        )
+
+        if (canPlayFromStart) {
+            Text(
+                "从头播放",
+                style = sc(11.5f, 600),
+                color = palette.sub,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .pressable(onClick = onPlayFromStart)
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
+            )
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            GlassActionButton(
+                icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
+                label = if (favorite) "已收藏" else "收藏",
+                active = favorite,
+                accent = accent,
+                onClick = onFavorite,
+                modifier = Modifier.weight(1f),
+            )
+            GlassActionButton(
+                icon = AppIcons.Bookmark,
+                label = "稍后观看",
+                active = false,
+                accent = accent,
+                onClick = onWatchLater,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
-/** A compact circular action with its name beneath, placed beside the primary play key. */
+/** A layered secondary key: glass body, inset icon well and a visible selected state. */
 @Composable
-private fun RoundAction(
+private fun GlassActionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     active: Boolean,
     accent: Color,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = if (active) accent else palette.body,
-            modifier = Modifier
-                .size(46.dp)
-                .pressable(onClick = onClick)
-                .shadow(GlassLift.control, CircleShape)
-                .liquidGlass(
-                    shape = CircleShape,
-                    fill = if (active) {
-                        accent.copy(alpha = if (palette.isDark) 0.20f else 0.12f)
-                    } else if (palette.isDark) {
-                        Color.White.copy(alpha = 0.075f)
-                    } else {
-                        Color.White.copy(alpha = 0.72f)
-                    },
-                    border = if (active) {
-                        accent.copy(alpha = 0.32f)
-                    } else if (palette.isDark) {
-                        Color.White.copy(alpha = 0.19f)
-                    } else {
-                        Color(0xFFE4E9F2)
-                    },
-                    // 46dp of glass: a full-strength specular covers a third of the circle
-                    // and reads as a blown highlight rather than a curved surface.
-                    sheen = 0.7f,
+    val fill = when {
+        active -> accent.copy(alpha = if (palette.isDark) 0.20f else 0.12f)
+        palette.isDark -> Color.White.copy(alpha = 0.075f)
+        else -> Color.White.copy(alpha = 0.72f)
+    }
+    val edge = when {
+        active -> accent.copy(alpha = 0.38f)
+        palette.isDark -> Color.White.copy(alpha = 0.19f)
+        else -> Color(0xFFE0E7F1)
+    }
+    Row(
+        modifier
+            .height(46.dp)
+            .pressable(onClick = onClick)
+            .shadow(GlassLift.control, GlassShapes.card)
+            .liquidGlass(
+                shape = GlassShapes.card,
+                fill = fill,
+                border = edge,
+                sheen = 0.72f,
+            )
+            .padding(horizontal = 11.dp),
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(
+                    if (active) accent.copy(alpha = 0.14f)
+                    else palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f),
                 )
-                .padding(14.dp),
-        )
-        Spacer(Modifier.height(7.dp))
+                .border(
+                    Dimens.hairline,
+                    if (active) accent.copy(alpha = 0.20f) else palette.border,
+                    CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = if (active) accent else palette.body,
+                modifier = Modifier.size(14.dp),
+            )
+        }
         Text(
             label,
-            style = sc(11f, 500),
-            color = if (active) accent else palette.sub,
+            style = sc(12f, if (active) 700 else 600),
+            color = if (active) accent else palette.text,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
+        if (active) {
+            Box(Modifier.size(5.dp).clip(CircleShape).background(accent))
+        }
     }
 }
 

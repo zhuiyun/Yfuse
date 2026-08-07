@@ -85,4 +85,17 @@ class LibraryCache(private val settings: Settings) {
     fun clear(serverId: String) {
         settings.remove(KEY_PREFIX + serverId)
     }
+
+    /**
+     * Removes snapshots whose canonical server no longer exists. Alias ids intentionally do
+     * not count: they resolve routes, but their cached home belongs to an obsolete connection.
+     */
+    internal fun clearOrphans(validServerIds: Set<String>): Int {
+        val orphanKeys = settings.keys.filter { key ->
+            key.startsWith(KEY_PREFIX) &&
+                key.removePrefix(KEY_PREFIX).let { it.isNotEmpty() && it !in validServerIds }
+        }
+        orphanKeys.forEach(settings::remove)
+        return orphanKeys.size
+    }
 }

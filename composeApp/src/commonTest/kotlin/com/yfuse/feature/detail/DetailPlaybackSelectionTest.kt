@@ -24,6 +24,7 @@ class DetailPlaybackSelectionTest {
                 appliedSelection = null,
                 detailReady = true,
                 playServerId = "local",
+                currentRootItemId = "series",
                 playTargetReady = true,
                 sources = emptyList(),
             ),
@@ -34,6 +35,7 @@ class DetailPlaybackSelectionTest {
                 appliedSelection = null,
                 detailReady = true,
                 playServerId = "local",
+                currentRootItemId = "series",
                 playTargetReady = true,
                 sources = listOf(remoteSource().copy(source = null)),
             ),
@@ -45,6 +47,7 @@ class DetailPlaybackSelectionTest {
                 appliedSelection = null,
                 detailReady = true,
                 playServerId = "local",
+                currentRootItemId = "series",
                 playTargetReady = true,
                 sources = listOf(remoteSource()),
             ),
@@ -59,6 +62,7 @@ class DetailPlaybackSelectionTest {
                 appliedSelection = null,
                 detailReady = true,
                 playServerId = "remote",
+                currentRootItemId = "series",
                 playTargetReady = false,
                 sources = emptyList(),
             ),
@@ -69,6 +73,7 @@ class DetailPlaybackSelectionTest {
                 appliedSelection = null,
                 detailReady = true,
                 playServerId = "remote",
+                currentRootItemId = "series",
                 playTargetReady = true,
                 sources = emptyList(),
             ),
@@ -79,6 +84,33 @@ class DetailPlaybackSelectionTest {
                 appliedSelection = selection,
                 detailReady = true,
                 playServerId = "remote",
+                currentRootItemId = "series",
+                playTargetReady = true,
+                sources = emptyList(),
+            ),
+        )
+    }
+
+    @Test
+    fun stale_player_selection_from_another_title_cannot_switch_this_detail() {
+        assertFalse(
+            shouldApplyPlaybackSelection(
+                selection = selection.copy(seriesId = "other-series"),
+                appliedSelection = null,
+                detailReady = true,
+                playServerId = "local",
+                currentRootItemId = "series",
+                playTargetReady = true,
+                sources = listOf(remoteSource()),
+            ),
+        )
+        assertFalse(
+            shouldApplyPlaybackSelection(
+                selection = selection.copy(serverId = "remote", seriesId = "other-series"),
+                appliedSelection = null,
+                detailReady = true,
+                playServerId = "remote",
+                currentRootItemId = "series",
                 playTargetReady = true,
                 sources = emptyList(),
             ),
