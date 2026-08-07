@@ -36,6 +36,7 @@ actual fun AppUpdateTools() {
 
         val state by manager.state.collectAsState()
         val value = when (val current = state) {
+            UpdateState.Idle -> "检测升级 ›"
             UpdateState.Checking -> "正在检查…"
             UpdateState.Current -> "已是最新版本 ›"
             is UpdateState.Available -> "发现 ${current.manifest.versionName} ›"

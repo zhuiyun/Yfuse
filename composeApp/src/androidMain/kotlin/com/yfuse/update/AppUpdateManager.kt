@@ -5,9 +5,10 @@ import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.provider.Settings
+import android.provider.Settings as AndroidSettings
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.FileProvider
+import com.russhwolf.settings.Settings
 import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
 import java.io.ByteArrayOutputStream
@@ -19,6 +20,7 @@ import java.net.URL
 import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,10 +33,41 @@ import kotlinx.serialization.json.Json
 private const val UPDATE_MANIFEST = "https://47.112.219.60/yfuse/update-v2.json"
 internal const val UPDATE_STORAGE_RESERVE_BYTES = 256L * 1024L * 1024L
 internal const val UPDATE_MANIFEST_MAX_BYTES = 64 * 1024
+internal const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
+private const val KEY_LAST_AUTOMATIC_UPDATE_CHECK_EPOCH_MS =
+    "update.lastAutomaticCheckEpochMs"
 private val updateCacheFileNamePattern =
     Regex("""Yfuse-[A-Za-z0-9][A-Za-z0-9._+-]{0,79}\.apk(?:\.part)?""")
 
 val LocalAppUpdateManager = staticCompositionLocalOf<AppUpdateManager?> { null }
+
+internal fun isAutomaticUpdateCheckDue(
+    lastCheckEpochMs: Long,
+    nowEpochMs: Long,
+    intervalMs: Long = AUTOMATIC_UPDATE_CHECK_INTERVAL_MS,
+): Boolean {
+    require(intervalMs > 0L) { "升级检查间隔无效" }
+    val last = lastCheckEpochMs.coerceAtLeast(0L)
+    val now = nowEpochMs.coerceAtLeast(0L)
+    return last == 0L || now < last || now - last >= intervalMs
+}
+
+/** Persists automatic-check attempts so activity and process recreation cannot bypass the limit. */
+internal class AutomaticUpdateCheckGate(
+    private val settings: Settings,
+    private val nowEpochMs: () -> Long = System::currentTimeMillis,
+) {
+    @Synchronized
+    fun tryAcquire(): Boolean {
+        val now = nowEpochMs().coerceAtLeast(0L)
+        val lastCheck = settings.getLong(KEY_LAST_AUTOMATIC_UPDATE_CHECK_EPOCH_MS, 0L)
+        if (!isAutomaticUpdateCheckDue(lastCheck, now)) return false
+        // Record the attempt before starting I/O. A failing endpoint must not be hammered again
+        // every time Android recreates MainActivity; the profile screen still offers manual retry.
+        settings.putLong(KEY_LAST_AUTOMATIC_UPDATE_CHECK_EPOCH_MS, now)
+        return true
+    }
+}
 
 @Serializable
 data class UpdateManifest(
@@ -233,6 +266,7 @@ internal fun writeVerifiedUpdatePackage(
 }
 
 sealed interface UpdateState {
+    data object Idle : UpdateState
     data object Checking : UpdateState
     data object Current : UpdateState
     data class Available(val manifest: UpdateManifest) : UpdateState
@@ -241,16 +275,36 @@ sealed interface UpdateState {
     data class Error(val message: String, val manifest: UpdateManifest? = null) : UpdateState
 }
 
-class AppUpdateManager(private val activity: Activity) {
+class AppUpdateManager(
+    private val activity: Activity,
+    settings: Settings,
+) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val json = Json { ignoreUnknownKeys = true }
     private val downloadGate = UpdateDownloadGate()
-    private val _state = MutableStateFlow<UpdateState>(UpdateState.Checking)
+    private val automaticCheckGate = AutomaticUpdateCheckGate(settings)
+    private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val state = _state.asStateFlow()
     private var pendingInstall: File? = null
+    private var checkJob: Job? = null
 
+    /** Startup check. Unlike [check], repeated activity/process creation is limited to once a day. */
+    fun checkIfDue() {
+        if (!automaticCheckGate.tryAcquire()) {
+            AppLog.info(
+                category = "update",
+                event = "automatic_check_skipped",
+                message = "Automatic update check skipped within the daily interval",
+            )
+            return
+        }
+        check()
+    }
+
+    /** Explicit user checks always bypass the daily automatic-check interval. */
     fun check() {
-        scope.launch {
+        if (checkJob?.isActive == true) return
+        checkJob = scope.launch {
             _state.value = UpdateState.Checking
             AppLog.info(
                 category = "update",
@@ -429,7 +483,7 @@ class AppUpdateManager(private val activity: Activity) {
             runCatching {
                 activity.startActivity(
                     Intent(
-                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        AndroidSettings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                         Uri.parse("package:${activity.packageName}"),
                     ),
                 )

@@ -5,6 +5,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
@@ -20,6 +21,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -95,6 +97,39 @@ class HomeStoreTest {
         joinAll(oldWrite, newWrite)
 
         assertEquals(2, lastWrittenId)
+    }
+
+    @Test
+    fun known_unavailable_default_server_does_not_start_home_requests() = runTest {
+        val baseUrl = "http://gy.emby.yun:8096"
+        val registry = testRegistry().apply {
+            addOrUpdate(
+                SavedServer(
+                    id = SavedServer.idOf(baseUrl, "user"),
+                    baseUrl = baseUrl,
+                    serverName = "Retired Emby",
+                    userId = "user",
+                    userName = "User",
+                    accessToken = "token",
+                ),
+            )
+        }
+        var embyRequests = 0
+        val store = HomeStoreFactory(
+            storeFactory = DefaultStoreFactory(),
+            tmdb = unavailableTmdb(),
+            emby = testRepo {
+                embyRequests++
+                homeRoutes(it)
+            },
+            registry = registry,
+            cache = TmdbHomeCache(MapSettings()),
+        ).create()
+
+        advanceUntilIdle()
+
+        assertEquals(0, embyRequests)
+        store.dispose()
     }
 
     private fun homeStore(cache: TmdbHomeCache) = HomeStoreFactory(

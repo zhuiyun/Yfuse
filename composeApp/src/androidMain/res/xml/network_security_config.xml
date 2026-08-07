@@ -3,12 +3,14 @@
     <!--
       Users may explicitly connect to arbitrary self-hosted HTTP Emby servers, including LAN
       hosts that cannot be enumerated here. Keep cleartext explicit for those user-managed
-      services, while requiring HTTPS for Yfuse's public services and TMDB.
+      services. Network security config matches hosts but cannot distinguish ports, so the
+      shared 47.112.219.60 host must inherit this policy: it is both Yfuse's HTTPS origin and a
+      user-managed HTTP Emby server on port 19001. Yfuse's own URLs enforce HTTPS in application
+      code. Hostnames that are not shared with user servers remain HTTPS-only below.
     -->
     <base-config cleartextTrafficPermitted="true" />
 
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="false">47.112.219.60</domain>
         <domain includeSubdomains="true">yfuse.zhuiyun.site</domain>
         <domain includeSubdomains="true">themoviedb.org</domain>
     </domain-config>

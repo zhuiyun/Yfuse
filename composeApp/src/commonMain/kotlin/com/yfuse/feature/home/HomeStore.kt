@@ -14,9 +14,10 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.network.knownUnavailableEndpointReason
+import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.pickForDay
-import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -250,6 +251,19 @@ class HomeStoreFactory(
             val generation = ++resumeGeneration
             if (server == null || connection == null) {
                 resumeJob = null
+                return
+            }
+            server.knownUnavailableEndpointReason()?.let { reason ->
+                resumeJob = null
+                AppLog.warning(
+                    category = "feature.home",
+                    event = "resume_load_skipped_unavailable_endpoint",
+                    message = "Continue-watching load skipped for a known unavailable endpoint",
+                    attributes = mapOf(
+                        "serverId" to server.id,
+                        "reason" to reason,
+                    ),
+                )
                 return
             }
             resumeJob = scope.launch {

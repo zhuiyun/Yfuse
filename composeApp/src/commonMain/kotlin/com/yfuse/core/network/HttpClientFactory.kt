@@ -11,7 +11,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
-/** Platform HTTP engine (CIO on Android). */
+/** Platform HTTP engine (OkHttp on Android for platform TLS and WebSocket support). */
 expect fun embyHttpEngine(): HttpClientEngine
 
 /**

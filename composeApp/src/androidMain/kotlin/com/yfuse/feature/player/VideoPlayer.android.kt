@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
@@ -30,24 +31,23 @@ actual fun PlayerLauncher(
             )
         }
         val preferences = preferencesResult.getOrNull()
+        var pendingLaunch: Intent? = null
         runCatching {
-            context.startActivity(
-                PlayerActivity.intent(
-                    context = context,
-                    items = items,
-                    startIndex = startIndex,
-                    startPositionMs = startPositionMs,
-                    engine = preferences?.engine?.value ?: PlayerEngine.Exo,
-                    decoder = preferences?.decoder?.value ?: com.yfuse.core.model.DecoderMode.Hardware,
-                    autoNext = preferences?.autoNext?.value ?: true,
-                    // Quality switching is intentionally disabled: these servers
-                    // cannot sustain per-session resolution transcoding.
-                    quality = com.yfuse.core.model.PlaybackQuality.Auto,
-                ).addFlags(
-                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                        android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK,
-                ),
-            )
+            PlayerActivity.intent(
+                context = context,
+                items = items,
+                startIndex = startIndex,
+                startPositionMs = startPositionMs,
+                engine = preferences?.engine?.value ?: PlayerEngine.Exo,
+                decoder = preferences?.decoder?.value ?: com.yfuse.core.model.DecoderMode.Hardware,
+                autoNext = preferences?.autoNext?.value ?: true,
+                // Quality switching is intentionally disabled: these servers
+                // cannot sustain per-session resolution transcoding.
+                quality = com.yfuse.core.model.PlaybackQuality.Auto,
+            ).also { launchIntent ->
+                pendingLaunch = launchIntent
+                context.startActivity(launchIntent)
+            }
         }.onSuccess {
             AppLog.info(
                 category = "feature.player",
@@ -57,6 +57,7 @@ actual fun PlayerLauncher(
             )
             onLaunched()
         }.onFailure {
+            pendingLaunch?.let(PlayerActivity::discardLaunch)
             AppLog.error(
                 category = "feature.player",
                 event = "activity_launch_failed",
