@@ -1,8 +1,46 @@
 package com.yfuse.update
 
+import com.russhwolf.settings.MapSettings
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
+
+class AutomaticUpdateCheckGateTest {
+
+    @Test
+    fun a_successful_check_holds_the_gate_for_a_day() {
+        val settings = MapSettings()
+        var now = 1_000_000_000_000L
+        val gate = AutomaticUpdateCheckGate(settings) { now }
+
+        assertTrue(gate.tryAcquire())
+        assertFalse(gate.tryAcquire())
+
+        now += AUTOMATIC_UPDATE_CHECK_INTERVAL_MS - 1
+        assertFalse(gate.tryAcquire())
+
+        now += 1
+        assertTrue(gate.tryAcquire())
+    }
+
+    @Test
+    fun a_failed_check_retries_within_the_hour_instead_of_the_next_day() {
+        val settings = MapSettings()
+        var now = 1_000_000_000_000L
+        val gate = AutomaticUpdateCheckGate(settings) { now }
+
+        assertTrue(gate.tryAcquire())
+        gate.releaseForRetry()
+
+        now += FAILED_CHECK_RETRY_INTERVAL_MS - 1
+        assertFalse(gate.tryAcquire())
+
+        now += 1
+        assertTrue(gate.tryAcquire())
+    }
+}
 
 class UpdateManifestPolicyTest {
 

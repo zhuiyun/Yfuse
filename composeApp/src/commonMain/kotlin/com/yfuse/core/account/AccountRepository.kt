@@ -333,7 +333,15 @@ class AccountRepository(
                 val remote = authorized { api.getSync(it) }
                 val localVaultKey = secureStore.get(KEY_VAULT_KEY)
                 if (localVaultKey == null) {
-                    clearLocalAccountState()
+                    // The session itself is still good; only the sync key is missing, which is
+                    // what a registration that failed to finish its vault leaves behind. Signing
+                    // out here looked to the user like the login had never been saved.
+                    _state.value = requireSignedIn().copy(
+                        syncVersion = remote.version,
+                        cloudHasData = remote.payload != null,
+                        syncing = false,
+                        message = "本机同步密钥缺失，请重新登录一次以恢复同步",
+                    )
                     return@runCatching
                 }
                 try {
@@ -394,7 +402,9 @@ class AccountRepository(
         require(recovery != null || remotePayload?.keyVersion == KEY_VERSION) {
             "本机缺少同步密钥信息，请重新登录后再上传"
         }
-        _state.value = signedIn.copy(syncing = true, message = null)
+        // Keep the previous message in place. Dropping it here and restoring it a moment later
+        // collapses and re-expands the card, which reads as the whole screen flashing.
+        _state.value = signedIn.copy(syncing = true)
         val plaintext = capturePlaintext()
         require(plaintext.encodeToByteArray().size <= MAX_SYNC_PLAINTEXT_BYTES) {
             "同步数据过大，请减少弹幕绑定或服务器数量"
@@ -616,8 +626,13 @@ class AccountRepository(
         ).forEach { secureStore.remove(it) }
     }
 
-    private suspend fun capturePlaintext(): String = withContext(mutationDispatcher) {
-        capturePlaintextOnMutationDispatcher()
+    private suspend fun capturePlaintext(): String {
+        // Only the snapshot read has to share the UI's serial dispatcher. Serializing it there
+        // too would block the main thread for the whole encode, which janks the sync screen.
+        val snapshot = withContext(mutationDispatcher) {
+            captureCloudSyncSnapshot(registry, theme, watch, danmaku, skip, serverSync)
+        }
+        return withContext(cryptoDispatcher) { json.encodeToString(snapshot) }
     }
 
     private fun capturePlaintextOnMutationDispatcher(): String = json.encodeToString(
@@ -675,11 +690,6 @@ class AccountRepository(
             }
         }
         return vaultKey
-    }
-
-    private fun clearLocalAccountState() {
-        runCatching { secureStore.clear() }
-        _state.value = AccountState.SignedOut
     }
 
     private fun recordFailure(error: Throwable) {

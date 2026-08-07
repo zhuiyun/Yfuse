@@ -34,6 +34,7 @@ private const val UPDATE_MANIFEST = "https://47.112.219.60/yfuse/update-v2.json"
 internal const val UPDATE_STORAGE_RESERVE_BYTES = 256L * 1024L * 1024L
 internal const val UPDATE_MANIFEST_MAX_BYTES = 64 * 1024
 internal const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
+internal const val FAILED_CHECK_RETRY_INTERVAL_MS = 60L * 60L * 1_000L
 private const val KEY_LAST_AUTOMATIC_UPDATE_CHECK_EPOCH_MS =
     "update.lastAutomaticCheckEpochMs"
 private val updateCacheFileNamePattern =
@@ -66,6 +67,19 @@ internal class AutomaticUpdateCheckGate(
         // every time Android recreates MainActivity; the profile screen still offers manual retry.
         settings.putLong(KEY_LAST_AUTOMATIC_UPDATE_CHECK_EPOCH_MS, now)
         return true
+    }
+
+    /**
+     * Shortens the wait after a failed attempt.
+     *
+     * The daily budget is spent before the request is made, so without this a single offline
+     * moment at startup hides a published update for a whole day.
+     */
+    @Synchronized
+    fun releaseForRetry() {
+        val now = nowEpochMs().coerceAtLeast(0L)
+        val backdated = now - (AUTOMATIC_UPDATE_CHECK_INTERVAL_MS - FAILED_CHECK_RETRY_INTERVAL_MS)
+        settings.putLong(KEY_LAST_AUTOMATIC_UPDATE_CHECK_EPOCH_MS, backdated.coerceAtLeast(0L))
     }
 }
 
@@ -368,6 +382,7 @@ class AppUpdateManager(
                     message = "Update check failed",
                     throwable = error,
                 )
+                automaticCheckGate.releaseForRetry()
                 _state.value = UpdateState.Error("暂时无法连接升级服务器")
             }
         }

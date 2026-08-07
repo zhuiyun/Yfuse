@@ -57,6 +57,9 @@ import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import kotlinx.coroutines.launch
 
+/** Mirrors the minimum the repository and the account service both enforce. */
+private const val MIN_PASSWORD_LENGTH = 8
+
 @Composable
 internal fun AccountSettingsScreen(
     account: AccountRepository,
@@ -165,7 +168,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
             value = password,
             onValueChange = { password = it.take(128) },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("密码（至少 8 位）") },
+            label = { Text("密码（至少 $MIN_PASSWORD_LENGTH 位）") },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -213,7 +216,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !busy && username.isNotBlank() && password.length >= 10,
+            enabled = !busy && username.isNotBlank() && password.length >= MIN_PASSWORD_LENGTH,
         ) {
             if (busy) {
                 CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
@@ -325,7 +328,7 @@ private fun SignedInAccountCard(
                 value = newPassword,
                 onValueChange = { newPassword = it.take(128) },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("新密码（至少 8 位）") },
+                label = { Text("新密码（至少 $MIN_PASSWORD_LENGTH 位）") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -364,8 +367,9 @@ private fun SignedInAccountCard(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !busy && currentPassword.isNotEmpty() && newPassword.length >= 10 &&
-                    confirmPassword.length >= 10,
+                enabled = !busy && currentPassword.isNotEmpty() &&
+                    newPassword.length >= MIN_PASSWORD_LENGTH &&
+                    confirmPassword.length >= MIN_PASSWORD_LENGTH,
             ) { Text("确认修改密码") }
         }
     }
