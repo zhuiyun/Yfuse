@@ -1,8 +1,9 @@
 # Android release workflow
 
 Yfuse production APKs are built, signed, and uploaded by
-`.github/workflows/publish-android.yml`. The workflow is manual and runs in the
-`production` environment.
+`.github/workflows/publish-android.yml`. A version change on the default branch
+publishes automatically; a manual dispatch remains available as a fallback. Both
+paths run in the `production` environment.
 
 ## One-time GitHub setup
 
@@ -18,7 +19,7 @@ workflow dispatch is the release gate. Add these environment secrets:
 | `ANDROID_KEY_ALIAS` | Release signing alias |
 | `ANDROID_KEY_PASSWORD` | Release key password |
 | `DEPLOY_SSH_PRIVATE_KEY` | Private key for the restricted deployment account |
-| `DEPLOY_KNOWN_HOSTS` | Verified `known_hosts` entry for the deployment server on port 443 |
+| `DEPLOY_KNOWN_HOSTS` | Verified `known_hosts` entry for the deployment server on SSH port 22 |
 
 The public signing-certificate SHA-256 fingerprint is pinned directly in the
 workflow and must match the currently published APK. Changing it requires an
@@ -31,9 +32,20 @@ environment variables can override it:
 | --- | --- |
 | `DEPLOY_HOST` | `47.112.219.60` |
 | `DEPLOY_USER` | `yfuse-deploy` |
-| `DEPLOY_PORT` | `443` |
+| `DEPLOY_PORT` | `22` |
 | `DEPLOY_REMOTE_DIR` | `/srv/yfuse-update/yfuse` |
-| `UPDATE_BASE_URL` | `http://47.112.219.60/yfuse` |
+| `UPDATE_BASE_URL` | `https://47.112.219.60/yfuse` |
+| `WATCH_BASE_URL` | `https://47.112.219.60` |
+
+`UPDATE_BASE_URL` and `WATCH_BASE_URL` must remain HTTPS URLs; the workflow rejects
+an insecure production override. SSH deliberately continues to use the origin IP so
+deployment does not depend on public DNS or a future CDN; its pinned host key is a
+separate trust decision from the domain's TLS certificate.
+
+The legacy update origin is intentionally not configurable. Existing clients keep
+reading `http://47.112.219.60/yfuse/update.json`, whose `apkUrl` points to the APK on
+that same HTTP origin. New clients read
+`https://47.112.219.60/yfuse/update-v2.json`, whose `apkUrl` is HTTPS.
 
 On Windows PowerShell, copy the keystore as Base64 without writing a temporary
 text file:
@@ -54,14 +66,64 @@ Generate the host-key entry, then compare its fingerprint with the fingerprint
 shown by the server administrator before saving it as `DEPLOY_KNOWN_HOSTS`:
 
 ```powershell
-ssh-keyscan -p 443 47.112.219.60 | ssh-keygen -lf -
-ssh-keyscan -p 443 47.112.219.60
+ssh-keyscan -p 22 47.112.219.60 | ssh-keygen -lf -
+ssh-keyscan -p 22 47.112.219.60
 ```
+
+During the one-time move from SSH port 443 to 22, the workflow also accepts the
+previous verified line beginning with `[47.112.219.60]:443`. Only when the configured
+target is exactly `47.112.219.60:22`, the runner rewrites that host token to
+`47.112.219.60` while preserving the key type and public-key bytes. The two ports'
+host keys were compared out of band before enabling this compatibility path; the
+workflow never calls `ssh-keyscan` or learns a replacement key from the live network.
+Regenerate the secret in the port-22 form above when convenient, after which the
+compatibility branch becomes a no-op.
 
 Use a deployment-only SSH key for the unprivileged `yfuse-deploy` account. The
 account must own the update directory, must not have sudo access, and its
 authorized key should disable forwarding and interactive terminals. Do not
 reuse a personal SSH key.
+
+## One-time HTTPS deployment
+
+The production templates are:
+
+- `watchTogetherServer/deploy/Caddyfile`: TLS termination and reverse proxy on
+  `yfuse.zhuiyun.site`.
+- `watchTogetherServer/deploy/yfuse-watch.service`: combined Ktor watch/update
+  backend on port 8080.
+
+Install both templates, point the domain's A record at the origin, and expose only
+22, 80, and 443 publicly. Port 8080 must be blocked from the public Internet because
+the backend trusts Caddy's forwarded client address. Validate the deployment before
+publishing:
+
+The current production origin is an Alibaba Cloud mainland-China server. Complete
+ICP filing (or Alibaba Cloud access filing if the domain was filed through another
+provider) before publishing the DNS cutover. Otherwise Alibaba Cloud blocks domain
+traffic on ports 80/443, commonly returning a filing 403 page or resetting the TLS
+handshake even when Caddy already has a valid certificate.
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile
+curl --fail https://47.112.219.60/health
+curl --fail https://47.112.219.60/watch/version
+curl --fail --output /dev/null http://47.112.219.60/yfuse/update.json
+# Run this after the first dual-manifest publication creates v2:
+curl --fail --output /dev/null https://47.112.219.60/yfuse/update-v2.json
+```
+
+The initial HSTS policy is intentionally limited to `max-age=86400` and does not
+cover subdomains. After DNS, certificate renewal, and release traffic have remained
+stable, it can be raised to one year (`31536000`).
+
+The Caddyfile temporarily proxies `http://47.112.219.60` to the same backend so
+already-installed builds can still check for updates and reconnect to watch rooms.
+`update.json` deliberately keeps its APK URL on that unencrypted origin, while
+`update-v2.json` is the HTTPS contract for all new builds. The workflow verifies both
+origins on every release. Remove the compatibility block and stop producing the old
+manifest only after affected app versions have aged out; never send account
+credentials over the legacy origin.
 
 ## Publishing
 
@@ -77,7 +139,10 @@ The normal release path is a push to the default branch that changes
 
 Ordinary pushes that do not change `version.properties` do not publish an APK.
 The workflow still rejects a duplicate or older `VERSION_CODE`, so every release
-must advance the code stored in the repository.
+must advance the code stored in the repository. It reads `update-v2.json` first for
+this version gate. A 404 is treated as the one-time migration case and falls back to
+the legacy `update.json`; other v2 errors fail the gate instead of silently using an
+older source.
 
 ### Manual fallback
 
@@ -91,11 +156,16 @@ must advance the code stored in the repository.
 
 The workflow refuses duplicate or older versions when the current update
 manifest is reachable. It verifies the APK metadata, signing certificate,
-server-side SHA-256, public APK SHA-256, and public update manifest before
-reporting success.
+server-side SHA-256, public APK SHA-256, and both update manifests before reporting
+success. The APK, `update.json`, and `update-v2.json` are uploaded to temporary names
+first. Only after all three files are present are they installed and atomically
+renamed on the same filesystem, with both manifests activated last. Each manifest is
+then checked independently for version, APK SHA-256, and its exact HTTP or HTTPS
+`apkUrl`; the legacy HTTP APK download is also checked against the expected SHA-256.
 
-The generated APK and `update.json` are also retained as a GitHub Actions
-artifact for 30 days.
+The generated APK, `update.json`, and `update-v2.json` are also retained as a GitHub
+Actions artifact for 30 days. Both manifests describe the same release metadata;
+only their `apkUrl` values differ.
 
 ## APK size
 

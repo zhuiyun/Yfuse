@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class WatchTogetherPreferences(private val settings: Settings) {
     companion object {
         private const val ENDPOINT_KEY = "watchTogether.endpoint"
+        private const val HTTPS_ENDPOINT_MIGRATION_KEY = "watchTogether.endpointHttpsMigration.v2"
         private const val CLIENT_ID_KEY = "watchTogether.clientId"
         private const val NICKNAME_KEY = "watchTogether.nickname"
         private const val AVATAR_ID_KEY = "watchTogether.avatarId"
@@ -23,14 +24,18 @@ class WatchTogetherPreferences(private val settings: Settings) {
          * carries an `e=` parameter (and only then warns the recipient) when the host is on
          * a relay the recipient might not expect.
          */
-        const val DEFAULT_ENDPOINT = "http://47.112.219.60"
+        private val FORMER_OFFICIAL_ENDPOINTS = setOf(
+            "http://47.112.219.60",
+            "https://yfuse.zhuiyun.site",
+        )
+        const val DEFAULT_ENDPOINT = "https://47.112.219.60"
         const val DEFAULT_NICKNAME = "影友"
         const val AVATAR_COUNT = 8
         const val MAX_NICKNAME_GRAPHEMES = 24
         const val MAX_NICKNAME_BYTES = 128
     }
 
-    private val _endpoint = MutableStateFlow(settings.getString(ENDPOINT_KEY, DEFAULT_ENDPOINT))
+    private val _endpoint = MutableStateFlow(loadEndpoint())
     val endpoint: StateFlow<String> = _endpoint.asStateFlow()
 
     val clientId: String = settings.getStringOrNull(CLIENT_ID_KEY) ?: buildString {
@@ -79,6 +84,24 @@ class WatchTogetherPreferences(private val settings: Settings) {
     fun setChatDanmakuEnabled(enabled: Boolean) {
         _chatDanmakuEnabled.value = enabled
         settings.putBoolean(CHAT_DANMAKU_KEY, enabled)
+    }
+
+    /**
+     * Moves only the former built-in relay to HTTPS. A migration marker makes this a one-time
+     * compatibility step, so a user can still deliberately select the legacy address later and
+     * custom HTTP/self-hosted endpoints are never rewritten.
+     */
+    private fun loadEndpoint(): String {
+        val stored = settings.getString(ENDPOINT_KEY, DEFAULT_ENDPOINT)
+        if (settings.getBoolean(HTTPS_ENDPOINT_MIGRATION_KEY, false)) return stored
+
+        settings.putBoolean(HTTPS_ENDPOINT_MIGRATION_KEY, true)
+        return if (stored in FORMER_OFFICIAL_ENDPOINTS) {
+            settings.putString(ENDPOINT_KEY, DEFAULT_ENDPOINT)
+            DEFAULT_ENDPOINT
+        } else {
+            stored
+        }
     }
 
     private fun String.normalizedWatchNickname(): String = replace('\r', ' ')

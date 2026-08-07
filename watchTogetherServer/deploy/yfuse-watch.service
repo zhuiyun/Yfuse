@@ -1,5 +1,5 @@
 [Unit]
-Description=Yfuse update and watch-together server
+Description=Yfuse Ktor update and watch-together backend
 After=network-online.target
 Wants=network-online.target
 
@@ -8,16 +8,16 @@ Type=simple
 User=nobody
 Group=nobody
 WorkingDirectory=/srv/yfuse-update
-Environment=PORT=80
+Environment=PORT=8080
 Environment=UPDATE_ROOT=/srv/yfuse-update/yfuse
+Environment=WATCH_TRUST_PROXY_HEADERS=true
 Environment="JAVA_OPTS=-Xms32m -Xmx128m"
 ExecStart=/opt/yfuse-watch/current/bin/watchTogetherServer
 Restart=on-failure
 RestartSec=3
 SuccessExitStatus=143
 NoNewPrivileges=true
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict

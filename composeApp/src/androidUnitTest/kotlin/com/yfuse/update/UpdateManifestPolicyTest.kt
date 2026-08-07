@@ -7,12 +7,12 @@ import kotlin.test.assertSame
 class UpdateManifestPolicyTest {
 
     @Test
-    fun same_origin_legacy_http_download_is_accepted() {
-        val manifest = manifest("http://47.112.219.60/yfuse/Yfuse-latest.apk")
+    fun same_origin_production_https_download_is_accepted() {
+        val manifest = manifest("https://47.112.219.60/yfuse/Yfuse-latest.apk")
 
         assertSame(
             manifest,
-            manifest.validateForUpdateSource("http://47.112.219.60/yfuse/update.json"),
+            manifest.validateForUpdateSource("https://47.112.219.60/yfuse/update-v2.json"),
         )
     }
 

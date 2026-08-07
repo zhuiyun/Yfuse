@@ -68,15 +68,62 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 .\gradlew.bat :watchTogetherServer:run
 ```
 
-播放器默认连接 `http://47.112.219.60`，客户端会自动转换为 WebSocket 并连接
-`/watch`。自建服务时也可以在「我的 → 一起看服务器」填写 `ws://服务器地址:8080`。
+当前生产入口统一为 `https://47.112.219.60`，客户端会自动转换为 WSS 并连接
+`/watch`。自建服务时也可以在「我的 → 一起看服务器」填写自己的 HTTPS/WSS 入口。
+已经发布的旧客户端仍可能访问 `http://47.112.219.60`；仓库里的 Caddy 模板暂时保留
+这个明文入口作为迁移兼容，不能用于账号凭据或新的客户端配置。
 
 服务同时会把 `UPDATE_ROOT` 指向的目录挂载到 `/yfuse`，默认目录为
 `/srv/yfuse-update/yfuse`。因此 production 可以在同一个端口提供：
 
 - `/watch`：一起看 WebSocket
 - `/health`：健康检查
-- `/yfuse/Yfuse-latest.apk` 与 `/yfuse/update.json`：应用更新
+- `/yfuse/Yfuse-latest.apk`：两代客户端共用的 APK
+- `/yfuse/update.json`：旧客户端清单，`apkUrl` 固定为
+  `http://47.112.219.60/yfuse/Yfuse-latest.apk`
+- `/yfuse/update-v2.json`：新客户端清单，`apkUrl` 为
+  `https://47.112.219.60/yfuse/Yfuse-latest.apk`
+
+两份清单的版本、SHA-256、文件大小和发布说明完全相同，只有 `apkUrl` 不同。发布脚本会先把
+APK 和两份清单全部暂存，再通过同文件系统重命名分别原子替换；版本门禁优先读取 v2，只有
+v2 返回 404（首次启用尚未生成）时才回退旧清单。
+
+## 生产部署（Caddy）
+
+生产拓扑是 `Caddy :80/:443 → Ktor 127.0.0.1:8080`。Caddy 为
+裸 IP 使用 Let's Encrypt 的 shortlived 配置自动申请和续期 160 小时证书，并原生处理
+`/watch` 的 WebSocket Upgrade；`yfuse.zhuiyun.site` 在完成 ICP/接入备案后仍可继续使用。
+Ktor 不再直接占用公网 80 端口。
+
+当前生产服务器位于中国内地。域名必须先完成 ICP 备案；若已在其他服务商备案，还需完成
+阿里云接入备案。否则阿里云会在 Caddy 之前拦截 80/443，表现为备案 403 页面或 TLS 握手
+被重置。若不备案，应将生产服务部署到中国香港或海外节点，不能用明文 IP 承载账号凭据。
+
+1. 确保公网 80、443 可达；IP 证书续期需要持续通过 HTTP-01 或 TLS-ALPN-01 验证。
+2. 安装 `deploy/yfuse-watch.service` 到 `/etc/systemd/system/`，安装
+   `deploy/Caddyfile` 到 `/etc/caddy/Caddyfile`。
+3. 关闭公网 8080，只允许本机 Caddy 访问；SSH 使用标准 22 端口。
+4. 校验配置后启动服务：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now yfuse-watch.service
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy.service
+curl --fail https://47.112.219.60/health
+curl --fail https://47.112.219.60/watch/version
+curl --fail http://47.112.219.60/yfuse/update.json
+# 首次双清单发布完成后再校验 v2：
+curl --fail https://47.112.219.60/yfuse/update-v2.json
+```
+
+首次切换的 HSTS 仅设为 `max-age=86400` 且不包含子域；确认 DNS、证书自动续期和发布链路
+稳定后，再提升到一年（`31536000`）。
+
+模板中的 `http://47.112.219.60` 站点只为历史版本保留，仍然反代同一个 8080 后端，
+因此旧更新地址和旧 `ws://` 房间入口在切换后不会立即失效。`update.json` 仍刻意返回该
+HTTP 源的同源 APK 地址；新的 `update-v2.json` 和新客户端只使用 HTTPS。该连接没有传输
+加密；确认旧版本退出使用，并停止发布旧清单后，才应删除这个站点块。
 
 建房保护可通过以下环境变量调整：
 
@@ -86,8 +133,9 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
   `Forwarded`）识别来源 IP；默认 `false`，防止直连客户端伪造转发头绕过限制。
 
 反向代理部署通常需要开启 `WATCH_TRUST_PROXY_HEADERS=true`，否则 Ktor 看到的来源均为
-代理 IP，所有公网用户会共用默认的 8 个房间额度。**只有在 Caddy/Nginx 会覆盖而不是
-保留客户端传入的转发头时才能开启**；否则攻击者仍可伪造 IP 绕过额度。
+代理 IP，所有公网用户会共用默认的 8 个房间额度。生产 service 模板已经启用它；其
+安全前提是 Caddy 是唯一公网入口且 8080 不可从公网直连。若换用其他代理，必须确认它
+会清理客户端伪造的转发头后再开启。
 
 ## Docker
 
@@ -95,20 +143,21 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 .\gradlew.bat :watchTogetherServer:installDist
 docker build -t yfuse-watch .\watchTogetherServer
 docker run -d --restart unless-stopped \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
   -e UPDATE_ROOT=/updates \
+  -e WATCH_TRUST_PROXY_HEADERS=true \
   -v /srv/yfuse-update/yfuse:/updates:ro \
   --name yfuse-watch \
   yfuse-watch
 ```
 
 > ⚠️ 本服务本身没有账号鉴权。容量、帧大小和消息频率限制只用于防止资源耗尽，
-> **不能代替认证或传输加密**。公网部署必须由 Caddy 或 Nginx 提供 HTTPS/WSS，
-> 并在反向代理层增加访问控制，再把 `/watch` 升级转发到本服务。不要把 Ktor 的
-> 明文 WebSocket 端口直接暴露到公网。
+> **不能代替认证或传输加密**。公网部署必须使用 HTTPS/WSS，且不能把 Ktor 的 8080
+> 明文端口直接暴露到公网。旧 IPv4 HTTP 入口只是有限期迁移措施。
 
 房间仅驻留内存；最后一名成员退出后保留 5 分钟供重连，随后回收。
 
-仓库内的 `deploy/yfuse-watch.service` 是直连 Ktor 的开发/内网部署模板；若用于公网，
-必须按上一段在前面加 TLS 和访问控制。运行目录采用
-`/opt/yfuse-watch/current`，静态文件继续放在 `/srv/yfuse-update/yfuse`。
+仓库内的 `deploy/yfuse-watch.service` 是 Caddy 后端模板：Ktor 使用 8080，运行目录采用
+`/opt/yfuse-watch/current`，静态文件继续放在 `/srv/yfuse-update/yfuse`。旧的
+`scripts/yfuse-update.service` 仅供仍将静态更新服务拆开的安装使用，现已限制为
+`127.0.0.1:8081`，默认组合部署不需要启用它。

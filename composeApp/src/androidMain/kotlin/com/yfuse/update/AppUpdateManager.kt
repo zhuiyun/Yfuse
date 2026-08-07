@@ -10,7 +10,10 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.FileProvider
 import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -24,12 +27,12 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/*
- * The deployment host currently has no TLS listener on 443. Keep this one legacy cleartext
- * origin until the service can move to HTTPS; [validateForUpdateSource] prevents a manifest
- * from redirecting the APK download to another origin or downgrading a future HTTPS source.
- */
-private const val UPDATE_MANIFEST = "http://47.112.219.60/yfuse/update.json"
+/** The production update origin is TLS-only; [validateForUpdateSource] also rejects downgrades. */
+private const val UPDATE_MANIFEST = "https://47.112.219.60/yfuse/update-v2.json"
+internal const val UPDATE_STORAGE_RESERVE_BYTES = 256L * 1024L * 1024L
+internal const val UPDATE_MANIFEST_MAX_BYTES = 64 * 1024
+private val updateCacheFileNamePattern =
+    Regex("""Yfuse-[A-Za-z0-9][A-Za-z0-9._+-]{0,79}\.apk(?:\.part)?""")
 
 val LocalAppUpdateManager = staticCompositionLocalOf<AppUpdateManager?> { null }
 
@@ -83,6 +86,152 @@ internal fun UpdateManifest.validateForUpdateSource(sourceUrl: String): UpdateMa
     return this
 }
 
+internal fun InputStream.readUpdateManifestText(
+    maxBytes: Int = UPDATE_MANIFEST_MAX_BYTES,
+): String {
+    require(maxBytes in 1 until Int.MAX_VALUE) { "升级信息大小限制无效" }
+    val output = ByteArrayOutputStream(minOf(maxBytes, 8 * 1024))
+    val buffer = ByteArray(8 * 1024)
+    var readBytes = 0
+    while (true) {
+        val count = read(buffer, 0, minOf(buffer.size, maxBytes - readBytes + 1))
+        if (count < 0) break
+        if (count == 0) continue
+        readBytes += count
+        check(readBytes <= maxBytes) { "升级信息过大" }
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray().toString(Charsets.UTF_8)
+}
+
+internal fun updatePackageFileName(versionCode: Int): String {
+    require(versionCode > 0) { "升级信息不完整" }
+    return "Yfuse-$versionCode.apk"
+}
+
+internal fun cleanupStaleUpdateFiles(
+    directory: File,
+    keepFileNames: Set<String>,
+): Int {
+    require(directory.isDirectory) { "升级缓存目录无效" }
+    require(keepFileNames.all(updateCacheFileNamePattern::matches)) { "保留文件名无效" }
+    val canonicalDirectory = directory.canonicalFile
+    val candidates = directory.listFiles() ?: error("无法读取升级缓存目录")
+    var deleted = 0
+    candidates.forEach { candidate ->
+        if (!candidate.isFile ||
+            !updateCacheFileNamePattern.matches(candidate.name) ||
+            candidate.name in keepFileNames ||
+            candidate.canonicalFile.parentFile != canonicalDirectory
+        ) {
+            return@forEach
+        }
+        check(candidate.delete()) { "无法清理旧的升级缓存" }
+        deleted += 1
+    }
+    return deleted
+}
+
+internal class UpdateDownloadGate {
+    internal class Lease internal constructor()
+
+    private var activeLease: Lease? = null
+
+    @Synchronized
+    fun tryAcquire(): Lease? {
+        if (activeLease != null) return null
+        return Lease().also { activeLease = it }
+    }
+
+    @Synchronized
+    fun runIfActive(lease: Lease, action: () -> Unit): Boolean {
+        if (activeLease !== lease) return false
+        action()
+        return true
+    }
+
+    @Synchronized
+    fun release(lease: Lease): Boolean {
+        if (activeLease !== lease) return false
+        activeLease = null
+        return true
+    }
+}
+
+internal fun hasSufficientUpdateStorage(
+    usableSpace: Long,
+    requiredBytes: Long,
+    reserveBytes: Long = UPDATE_STORAGE_RESERVE_BYTES,
+): Boolean {
+    val usable = usableSpace.coerceAtLeast(0L)
+    val required = requiredBytes.coerceAtLeast(0L)
+    val reserve = reserveBytes.coerceAtLeast(0L)
+    return usable >= reserve && required <= usable - reserve
+}
+
+internal fun missingUpdateStorageBytes(
+    usableSpace: Long,
+    requiredBytes: Long,
+    reserveBytes: Long = UPDATE_STORAGE_RESERVE_BYTES,
+): Long {
+    val usable = usableSpace.coerceAtLeast(0L)
+    val required = requiredBytes.coerceAtLeast(0L)
+    val reserve = reserveBytes.coerceAtLeast(0L)
+    if (required > Long.MAX_VALUE - reserve) return Long.MAX_VALUE
+    return (required + reserve - usable).coerceAtLeast(0L)
+}
+
+internal fun validateUpdateContentLength(contentLength: Long, expectedBytes: Long) {
+    require(expectedBytes > 0L) { "安装包大小无效" }
+    if (contentLength >= 0L) {
+        require(contentLength == expectedBytes) { "安装包大小与升级信息不一致" }
+    }
+}
+
+internal fun copyUpdatePackage(
+    input: InputStream,
+    output: OutputStream,
+    expectedBytes: Long,
+    onProgress: (Long) -> Unit = {},
+): Long {
+    require(expectedBytes > 0L) { "安装包大小无效" }
+    val buffer = ByteArray(64 * 1024)
+    var copied = 0L
+    while (true) {
+        val count = input.read(buffer)
+        if (count < 0) break
+        if (count == 0) continue
+        check(count.toLong() <= expectedBytes - copied) { "安装包大小超出预期" }
+        output.write(buffer, 0, count)
+        copied += count
+        onProgress(copied)
+    }
+    check(copied == expectedBytes) { "安装包下载不完整" }
+    return copied
+}
+
+internal fun writeVerifiedUpdatePackage(
+    input: InputStream,
+    partialFile: File,
+    expectedBytes: Long,
+    expectedSha256: String,
+    onProgress: (Long) -> Unit = {},
+): File {
+    try {
+        partialFile.outputStream().use { output ->
+            copyUpdatePackage(input, output, expectedBytes, onProgress)
+        }
+        check(partialFile.length() == expectedBytes) { "安装包下载不完整" }
+        check(partialFile.sha256().equals(expectedSha256, ignoreCase = true)) {
+            "安装包校验失败"
+        }
+        return partialFile
+    } catch (error: Throwable) {
+        partialFile.delete()
+        throw error
+    }
+}
+
 sealed interface UpdateState {
     data object Checking : UpdateState
     data object Current : UpdateState
@@ -95,6 +244,7 @@ sealed interface UpdateState {
 class AppUpdateManager(private val activity: Activity) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val json = Json { ignoreUnknownKeys = true }
+    private val downloadGate = UpdateDownloadGate()
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Checking)
     val state = _state.asStateFlow()
     private var pendingInstall: File? = null
@@ -118,9 +268,18 @@ class AppUpdateManager(private val activity: Activity) {
                         readTimeout = 8_000
                         useCaches = false
                     }
-                    connection.inputStream.bufferedReader().use {
-                        json.decodeFromString<UpdateManifest>(it.readText())
-                            .validateForUpdateSource(UPDATE_MANIFEST)
+                    try {
+                        check(connection.contentLengthLong < 0L ||
+                            connection.contentLengthLong <= UPDATE_MANIFEST_MAX_BYTES
+                        ) {
+                            "升级信息过大"
+                        }
+                        connection.inputStream.use { input ->
+                            json.decodeFromString<UpdateManifest>(input.readUpdateManifestText())
+                                .validateForUpdateSource(UPDATE_MANIFEST)
+                        }
+                    } finally {
+                        connection.disconnect()
                     }
                 }
             }.onSuccess {
@@ -161,66 +320,98 @@ class AppUpdateManager(private val activity: Activity) {
     }
 
     fun download(manifest: UpdateManifest) {
+        val lease = downloadGate.tryAcquire() ?: return
+        _state.value = UpdateState.Downloading(manifest, progress = 0f)
         scope.launch {
-            AppLog.info(
-                category = "update",
-                event = "download_started",
-                message = "Application update download started",
-                attributes = mapOf(
-                    "targetVersionName" to manifest.versionName,
-                    "targetVersionCode" to manifest.versionCode.toString(),
-                    "expectedBytes" to manifest.size.toString(),
-                ),
-            )
-            runCatching {
-                manifest.validateForUpdateSource(UPDATE_MANIFEST)
-                withContext(Dispatchers.IO) {
-                    val dir = File(activity.cacheDir, "updates").apply { mkdirs() }
-                    val target = File(dir, "Yfuse-${manifest.versionName}.apk")
-                    val connection = (URL(manifest.apkUrl).openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 15_000
-                        readTimeout = 30_000
-                    }
-                    val total = connection.contentLengthLong.takeIf { it > 0 } ?: manifest.size
-                    connection.inputStream.use { input ->
-                        target.outputStream().use { output ->
-                            val buffer = ByteArray(64 * 1024)
-                            var copied = 0L
-                            while (true) {
-                                val count = input.read(buffer)
-                                if (count < 0) break
-                                output.write(buffer, 0, count)
-                                copied += count
-                                _state.value = UpdateState.Downloading(
-                                    manifest,
-                                    if (total > 0) copied.toFloat() / total else 0f,
-                                )
-                            }
-                        }
-                    }
-                    require(target.sha256().equals(manifest.sha256, ignoreCase = true)) {
-                        "安装包校验失败"
-                    }
-                    target
-                }
-            }.onSuccess {
+            try {
                 AppLog.info(
                     category = "update",
-                    event = "download_verified",
-                    message = "Application update downloaded and verified",
-                    attributes = mapOf("targetVersionName" to manifest.versionName),
+                    event = "download_started",
+                    message = "Application update download started",
+                    attributes = mapOf(
+                        "targetVersionName" to manifest.versionName,
+                        "targetVersionCode" to manifest.versionCode.toString(),
+                        "expectedBytes" to manifest.size.toString(),
+                    ),
                 )
-                _state.value = UpdateState.Ready(manifest, it)
-                install(it)
-            }.onFailure { error ->
-                AppLog.error(
-                    category = "update",
-                    event = "download_failed",
-                    message = "Update package download failed",
-                    throwable = error,
-                    attributes = mapOf("targetVersion" to manifest.versionName),
-                )
-                _state.value = UpdateState.Error(error.message ?: "下载失败", manifest)
+                runCatching {
+                    manifest.validateForUpdateSource(UPDATE_MANIFEST)
+                    withContext(Dispatchers.IO) {
+                        val dir = File(activity.cacheDir, "updates")
+                        check(dir.isDirectory || dir.mkdirs()) { "无法创建升级缓存目录" }
+                        val target = File(dir, updatePackageFileName(manifest.versionCode))
+                        val partial = File(dir, "${target.name}.part")
+                        cleanupStaleUpdateFiles(dir, keepFileNames = setOf(target.name))
+                        check(!partial.exists() || partial.delete()) { "无法清理旧的升级缓存" }
+                        val usableSpace = dir.usableSpace
+                        if (!hasSufficientUpdateStorage(usableSpace, manifest.size)) {
+                            val missingBytes = missingUpdateStorageBytes(usableSpace, manifest.size)
+                                .coerceAtLeast(1L)
+                            val bytesPerMb = 1024L * 1024L
+                            val missingMb = ((missingBytes - 1L) / bytesPerMb) + 1L
+                            error("存储空间不足，至少还需 $missingMb MB 可用空间")
+                        }
+                        val connection = (URL(manifest.apkUrl).openConnection() as HttpURLConnection).apply {
+                            connectTimeout = 15_000
+                            readTimeout = 30_000
+                            useCaches = false
+                        }
+                        try {
+                            validateUpdateContentLength(connection.contentLengthLong, manifest.size)
+                            connection.inputStream.use { input ->
+                                writeVerifiedUpdatePackage(
+                                    input = input,
+                                    partialFile = partial,
+                                    expectedBytes = manifest.size,
+                                    expectedSha256 = manifest.sha256,
+                                ) { copied ->
+                                    downloadGate.runIfActive(lease) {
+                                        _state.value = UpdateState.Downloading(
+                                            manifest,
+                                            (copied.toFloat() / manifest.size).coerceIn(0f, 1f),
+                                        )
+                                    }
+                                }
+                            }
+                            check(!target.exists() || target.delete()) { "无法替换旧的安装包" }
+                            check(partial.renameTo(target)) { "无法保存安装包" }
+                            target
+                        } catch (error: Throwable) {
+                            partial.delete()
+                            throw error
+                        } finally {
+                            connection.disconnect()
+                        }
+                    }
+                }.onSuccess { apk ->
+                    if (downloadGate.runIfActive(lease) {
+                            _state.value = UpdateState.Ready(manifest, apk)
+                        }
+                    ) {
+                        AppLog.info(
+                            category = "update",
+                            event = "download_verified",
+                            message = "Application update downloaded and verified",
+                            attributes = mapOf("targetVersionName" to manifest.versionName),
+                        )
+                        install(apk)
+                    }
+                }.onFailure { error ->
+                    if (downloadGate.runIfActive(lease) {
+                            _state.value = UpdateState.Error(error.message ?: "下载失败", manifest)
+                        }
+                    ) {
+                        AppLog.error(
+                            category = "update",
+                            event = "download_failed",
+                            message = "Update package download failed",
+                            throwable = error,
+                            attributes = mapOf("targetVersion" to manifest.versionName),
+                        )
+                    }
+                }
+            } finally {
+                downloadGate.release(lease)
             }
         }
     }

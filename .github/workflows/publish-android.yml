@@ -51,10 +51,12 @@ jobs:
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST || '47.112.219.60' }}
       DEPLOY_USER: ${{ vars.DEPLOY_USER || 'yfuse-deploy' }}
-      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '443' }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
       DEPLOY_REMOTE_DIR: ${{ vars.DEPLOY_REMOTE_DIR || '/srv/yfuse-update/yfuse' }}
-      UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL || 'http://47.112.219.60/yfuse' }}
-      WATCH_BASE_URL: ${{ vars.WATCH_BASE_URL || 'http://47.112.219.60' }}
+      # Fixed compatibility origin used by already-installed HTTP-only clients.
+      LEGACY_UPDATE_BASE_URL: http://47.112.219.60/yfuse
+      UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL || 'https://47.112.219.60/yfuse' }}
+      WATCH_BASE_URL: ${{ vars.WATCH_BASE_URL || 'https://47.112.219.60' }}
       EXPECTED_WATCH_PROTOCOL: "3"
 
     steps:
@@ -126,7 +128,8 @@ jobs:
             echo "::error::DEPLOY_USER contains unsupported characters"
             exit 1
           fi
-          if [[ ! "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]] || (( DEPLOY_PORT > 65535 )); then
+          if [[ ! "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]] ||
+            (( DEPLOY_PORT < 1 || DEPLOY_PORT > 65535 )); then
             echo "::error::DEPLOY_PORT must be a valid TCP port"
             exit 1
           fi
@@ -134,12 +137,12 @@ jobs:
             echo "::error::DEPLOY_REMOTE_DIR must stay inside /srv/yfuse-update"
             exit 1
           fi
-          if [[ ! "$UPDATE_BASE_URL" =~ ^https?://[^[:space:]]+$ ]]; then
-            echo "::error::UPDATE_BASE_URL must be an HTTP(S) URL"
+          if [[ ! "$UPDATE_BASE_URL" =~ ^https://[^[:space:]]+$ ]]; then
+            echo "::error::UPDATE_BASE_URL must be an HTTPS URL"
             exit 1
           fi
-          if [[ ! "$WATCH_BASE_URL" =~ ^https?://[^[:space:]]+$ ]]; then
-            echo "::error::WATCH_BASE_URL must be an HTTP(S) URL"
+          if [[ ! "$WATCH_BASE_URL" =~ ^https://[^[:space:]]+$ ]]; then
+            echo "::error::WATCH_BASE_URL must be an HTTPS URL"
             exit 1
           fi
 
@@ -153,7 +156,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          protocol_payload="$(curl -fsSL --retry 3 "$WATCH_BASE_URL/watch/version")"
+          protocol_payload="$(
+            curl -fsSL --retry 3 \
+              --proto '=https' \
+              --proto-redir '=https' \
+              "$WATCH_BASE_URL/watch/version"
+          )"
           actual_protocol="$(jq -r '.protocolVersion // empty' <<<"$protocol_payload")"
           if [[ "$actual_protocol" != "$EXPECTED_WATCH_PROTOCOL" ]]; then
             echo "::error::Watch server protocol is ${actual_protocol:-missing}; expected $EXPECTED_WATCH_PROTOCOL. Deploy the watch server before publishing the app."
@@ -165,14 +173,45 @@ jobs:
         run: |
           set -euo pipefail
 
-          if current_manifest="$(curl -fsSL --connect-timeout 10 "$UPDATE_BASE_URL/update.json")"; then
-            current_version="$(jq -r '.versionCode // 0' <<<"$current_manifest")"
-            if [[ "$current_version" =~ ^[0-9]+$ ]] && (( VERSION_CODE <= current_version )); then
-              echo "::error::version_code $VERSION_CODE is not newer than published version $current_version"
-              exit 1
+          mkdir -p build
+          v2_status="$(
+            curl -sS --connect-timeout 10 \
+              --proto '=https' \
+              --proto-redir '=https' \
+              --output build/current-update-v2.json \
+              --write-out '%{http_code}' \
+              "$UPDATE_BASE_URL/update-v2.json" || true
+          )"
+
+          current_manifest=""
+          current_manifest_source=""
+          if [[ "$v2_status" == "200" ]]; then
+            current_manifest="$(<build/current-update-v2.json)"
+            current_manifest_source="$UPDATE_BASE_URL/update-v2.json"
+          elif [[ "$v2_status" == "404" ]]; then
+            echo "::notice::update-v2.json is not published yet; checking the legacy manifest"
+            if current_manifest="$(
+              curl -fsSL --connect-timeout 10 \
+                --proto '=http' \
+                --proto-redir '=http' \
+                "$LEGACY_UPDATE_BASE_URL/update.json"
+            )"; then
+              current_manifest_source="$LEGACY_UPDATE_BASE_URL/update.json"
+            else
+              current_manifest=""
+              echo "::warning::Neither update-v2.json nor the legacy update.json is available; treating this as the first release"
             fi
           else
-            echo "::warning::Current update manifest was unavailable; final verification will still be required"
+            echo "::error::Unable to check update-v2.json (HTTP status ${v2_status:-unknown})"
+            exit 1
+          fi
+
+          if [[ -n "$current_manifest" ]]; then
+            current_version="$(jq -r '.versionCode // 0' <<<"$current_manifest")"
+            if [[ "$current_version" =~ ^[0-9]+$ ]] && (( VERSION_CODE <= current_version )); then
+              echo "::error::version_code $VERSION_CODE is not newer than published version $current_version from $current_manifest_source"
+              exit 1
+            fi
           fi
 
       - name: Set up Java
@@ -330,21 +369,33 @@ jobs:
           set -euo pipefail
           mkdir -p build/update
           cp "$APK_PATH" build/update/Yfuse-latest.apk
-          jq -n \
-            --argjson versionCode "$VERSION_CODE" \
-            --arg versionName "$VERSION_NAME" \
-            --arg apkUrl "$UPDATE_BASE_URL/Yfuse-latest.apk" \
-            --arg sha256 "$APK_SHA256" \
-            --argjson size "$APK_SIZE" \
-            --arg notes "$RELEASE_NOTES" \
-            '{
-              versionCode: $versionCode,
-              versionName: $versionName,
-              apkUrl: $apkUrl,
-              sha256: $sha256,
-              size: $size,
-              notes: $notes
-            }' > build/update/update.json
+
+          create_manifest() {
+            local apk_url="$1"
+            local output="$2"
+            jq -n \
+              --argjson versionCode "$VERSION_CODE" \
+              --arg versionName "$VERSION_NAME" \
+              --arg apkUrl "$apk_url" \
+              --arg sha256 "$APK_SHA256" \
+              --argjson size "$APK_SIZE" \
+              --arg notes "$RELEASE_NOTES" \
+              '{
+                versionCode: $versionCode,
+                versionName: $versionName,
+                apkUrl: $apkUrl,
+                sha256: $sha256,
+                size: $size,
+                notes: $notes
+              }' > "$output"
+          }
+
+          create_manifest \
+            "$LEGACY_UPDATE_BASE_URL/Yfuse-latest.apk" \
+            build/update/update.json
+          create_manifest \
+            "$UPDATE_BASE_URL/Yfuse-latest.apk" \
+            build/update/update-v2.json
 
       - name: Save release artifact
         uses: actions/upload-artifact@v7
@@ -361,7 +412,24 @@ jobs:
           set -euo pipefail
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_deploy"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          known_hosts_source="$HOME/.ssh/known_hosts.source"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$known_hosts_source"
+
+          # The production SSH daemon previously listened on 443. Its host key was
+          # independently verified to be identical on 22, so migrate only that exact
+          # legacy host token while preserving the pinned key bytes. Never use
+          # ssh-keyscan here: deployment must not learn trust from the live network.
+          if [[ "$DEPLOY_HOST" == "47.112.219.60" && "$DEPLOY_PORT" == "22" ]] &&
+            grep -qE '^\[47\.112\.219\.60\]:443[[:space:]]+' "$known_hosts_source"; then
+            sed -E \
+              's/^\[47\.112\.219\.60\]:443[[:space:]]+/47.112.219.60 /' \
+              "$known_hosts_source" > "$HOME/.ssh/known_hosts"
+            echo "::notice::Reused the verified deployment host key for the SSH port 22 migration"
+          else
+            cp "$known_hosts_source" "$HOME/.ssh/known_hosts"
+          fi
+
+          rm -f "$known_hosts_source"
           chmod 600 "$HOME/.ssh/id_deploy" "$HOME/.ssh/known_hosts"
 
       - name: Publish update atomically
@@ -380,18 +448,33 @@ jobs:
           target="$DEPLOY_USER@$DEPLOY_HOST"
           remote_prefix="/tmp/yfuse-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           remote_apk="$remote_prefix.apk"
-          remote_manifest="$remote_prefix.json"
+          remote_legacy_manifest="$remote_prefix-v1.json"
+          remote_v2_manifest="$remote_prefix-v2.json"
 
           scp "${ssh_options[@]}" build/update/Yfuse-latest.apk "$target:$remote_apk"
-          scp "${ssh_options[@]}" build/update/update.json "$target:$remote_manifest"
+          scp "${ssh_options[@]}" build/update/update.json "$target:$remote_legacy_manifest"
+          scp "${ssh_options[@]}" build/update/update-v2.json "$target:$remote_v2_manifest"
 
           ssh "${ssh_options[@]}" "$target" bash -s -- \
-            "$DEPLOY_REMOTE_DIR" "$remote_apk" "$remote_manifest" <<'REMOTE_SCRIPT'
+            "$DEPLOY_REMOTE_DIR" \
+            "$remote_apk" \
+            "$remote_legacy_manifest" \
+            "$remote_v2_manifest" <<'REMOTE_SCRIPT'
           set -euo pipefail
           remote_dir="$1"
           apk_tmp="$2"
-          manifest_tmp="$3"
-          trap 'rm -f "$apk_tmp" "$manifest_tmp"' EXIT
+          legacy_manifest_tmp="$3"
+          v2_manifest_tmp="$4"
+          apk_next="$remote_dir/Yfuse-latest.apk.new"
+          legacy_manifest_next="$remote_dir/update.json.new"
+          v2_manifest_next="$remote_dir/update-v2.json.new"
+          trap 'rm -f \
+            "$apk_tmp" \
+            "$legacy_manifest_tmp" \
+            "$v2_manifest_tmp" \
+            "$apk_next" \
+            "$legacy_manifest_next" \
+            "$v2_manifest_next"' EXIT
 
           case "$remote_dir" in
             /srv/yfuse-update/*) ;;
@@ -400,10 +483,18 @@ jobs:
 
           test -d "$remote_dir"
           test -w "$remote_dir"
-          install -m 0644 "$apk_tmp" "$remote_dir/Yfuse-latest.apk.new"
-          install -m 0644 "$manifest_tmp" "$remote_dir/update.json.new"
-          mv -f "$remote_dir/Yfuse-latest.apk.new" "$remote_dir/Yfuse-latest.apk"
-          mv -f "$remote_dir/update.json.new" "$remote_dir/update.json"
+          test -s "$apk_tmp"
+          test -s "$legacy_manifest_tmp"
+          test -s "$v2_manifest_tmp"
+
+          # Stage the complete release before any public path changes. Each rename is
+          # atomic on this filesystem; the two manifests are switched last as a pair.
+          install -m 0644 "$apk_tmp" "$apk_next"
+          install -m 0644 "$legacy_manifest_tmp" "$legacy_manifest_next"
+          install -m 0644 "$v2_manifest_tmp" "$v2_manifest_next"
+          mv -f "$apk_next" "$remote_dir/Yfuse-latest.apk"
+          mv -f "$legacy_manifest_next" "$remote_dir/update.json"
+          mv -f "$v2_manifest_next" "$remote_dir/update-v2.json"
           find "$remote_dir" \
             -maxdepth 1 \
             -type f \
@@ -436,19 +527,86 @@ jobs:
           [[ "$remote_sha" == "$EXPECTED_SHA256" ]]
 
           curl -fL --retry 3 \
+            --proto '=https' \
+            --proto-redir '=https' \
             "$UPDATE_BASE_URL/Yfuse-latest.apk" \
             -o build/update/Yfuse-public.apk
           public_sha="$(sha256sum build/update/Yfuse-public.apk | awk '{print $1}')"
           [[ "$public_sha" == "$EXPECTED_SHA256" ]]
 
-          public_manifest="$(curl -fsSL --retry 3 "$UPDATE_BASE_URL/update.json")"
-          [[ "$(jq -r '.versionCode' <<<"$public_manifest")" == "$VERSION_CODE" ]]
-          [[ "$(jq -r '.sha256' <<<"$public_manifest")" == "$EXPECTED_SHA256" ]]
+          verify_manifest() {
+            local label="$1"
+            local payload="$2"
+            local expected_apk_url="$3"
+
+            [[ "$(jq -r '.versionCode' <<<"$payload")" == "$VERSION_CODE" ]] || {
+              echo "::error::$label has an unexpected versionCode"
+              return 1
+            }
+            [[ "$(jq -r '.sha256' <<<"$payload")" == "$EXPECTED_SHA256" ]] || {
+              echo "::error::$label has an unexpected APK SHA-256"
+              return 1
+            }
+            [[ "$(jq -r '.apkUrl' <<<"$payload")" == "$expected_apk_url" ]] || {
+              echo "::error::$label has an unexpected apkUrl"
+              return 1
+            }
+          }
+
+          remote_legacy_manifest="$(
+            ssh "${ssh_options[@]}" "$target" \
+              cat "$DEPLOY_REMOTE_DIR/update.json"
+          )"
+          remote_v2_manifest="$(
+            ssh "${ssh_options[@]}" "$target" \
+              cat "$DEPLOY_REMOTE_DIR/update-v2.json"
+          )"
+          verify_manifest \
+            "remote update.json" \
+            "$remote_legacy_manifest" \
+            "$LEGACY_UPDATE_BASE_URL/Yfuse-latest.apk"
+          verify_manifest \
+            "remote update-v2.json" \
+            "$remote_v2_manifest" \
+            "$UPDATE_BASE_URL/Yfuse-latest.apk"
+
+          public_legacy_manifest="$(
+            curl -fsSL --retry 3 \
+              --proto '=http' \
+              --proto-redir '=http' \
+              "$LEGACY_UPDATE_BASE_URL/update.json"
+          )"
+          public_v2_manifest="$(
+            curl -fsSL --retry 3 \
+              --proto '=https' \
+              --proto-redir '=https' \
+              "$UPDATE_BASE_URL/update-v2.json"
+          )"
+          verify_manifest \
+            "public legacy update.json" \
+            "$public_legacy_manifest" \
+            "$LEGACY_UPDATE_BASE_URL/Yfuse-latest.apk"
+          verify_manifest \
+            "public update-v2.json" \
+            "$public_v2_manifest" \
+            "$UPDATE_BASE_URL/Yfuse-latest.apk"
+
+          curl -fL --retry 3 \
+            --proto '=http' \
+            --proto-redir '=http' \
+            "$LEGACY_UPDATE_BASE_URL/Yfuse-latest.apk" \
+            -o build/update/Yfuse-public-legacy.apk
+          legacy_public_sha="$(
+            sha256sum build/update/Yfuse-public-legacy.apk | awk '{print $1}'
+          )"
+          [[ "$legacy_public_sha" == "$EXPECTED_SHA256" ]]
 
           {
             echo "## Android update published"
             echo
             echo "- Version: \`$VERSION_NAME ($VERSION_CODE)\`"
             echo "- APK: $UPDATE_BASE_URL/Yfuse-latest.apk"
+            echo "- Legacy manifest: $LEGACY_UPDATE_BASE_URL/update.json"
+            echo "- HTTPS manifest: $UPDATE_BASE_URL/update-v2.json"
             echo "- SHA-256: \`$EXPECTED_SHA256\`"
           } >> "$GITHUB_STEP_SUMMARY"
