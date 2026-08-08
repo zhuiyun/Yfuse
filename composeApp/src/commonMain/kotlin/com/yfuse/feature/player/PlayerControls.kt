@@ -416,9 +416,10 @@ internal fun PlayerControls(
                 roomCode = watch.roomCode,
                 messages = watch.chatMessages,
                 enabled = watch.chatDanmakuEnabled,
-                // The panel covers the picture, so nothing flies while it is up — but it is
-                // held, not dropped. Sending is done from inside that panel, and 弹幕 that
-                // skips the sender is 弹幕 the sender cannot tell they sent.
+                // While the panel is up it is already listing what the room is saying, so
+                // other people's lines wait for it to close — held, not dropped. Your own
+                // never waits: sending only happens from inside this panel, so anything that
+                // suppressed 弹幕 while it was open suppressed every message you ever sent.
                 held = watchChatOpen,
             )
             // Above the danmaku and below the controls: a reaction is meant to be seen
