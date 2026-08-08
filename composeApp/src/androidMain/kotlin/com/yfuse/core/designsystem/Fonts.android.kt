@@ -1,5 +1,11 @@
+// The `Font(resId, weight, style, variationSettings)` overload is @ExperimentalTextApi in
+// Compose 1.7 — the variable-font path is the experimental part, not the resource one.
+// Opting in per file rather than per call keeps the annotation next to the reason.
+@file:OptIn(ExperimentalTextApi::class)
+
 package com.yfuse.core.designsystem
 
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
