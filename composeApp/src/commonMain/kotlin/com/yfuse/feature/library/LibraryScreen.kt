@@ -14,6 +14,7 @@ fun LibraryScreen(component: LibraryComponent) {
     SharedElementTransitionContainer(
         targetState = stack.active.instance,
         routeKey = ::routeKey,
+        depth = stack.items.size,
     ) { instance ->
         when (instance) {
             is LibraryComponent.Child.Home -> LibraryHomeScreen(instance.component)

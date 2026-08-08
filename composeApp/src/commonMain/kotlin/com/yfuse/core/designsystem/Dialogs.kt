@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -134,7 +135,11 @@ fun GlassDialog(
         ReportOverlayVisible()
         val palette = LocalPalette.current
         val solidSurface = if (palette.isDark) Color(0xFF111A29) else Color.White
-        val progress = rememberOverlayEntrance(Motion.TAB)
+        val modalOffset = with(LocalDensity.current) { Motion.modalOffset.toPx() }
+        // 覆盖（播放器 / 菜单）— 下方 46px 上滑, §3.1. The overlay used to borrow the tab
+        // switch's 260ms and a 0.94 scale, which is the one transition in the spec that is
+        // explicitly *not* for things that cover the page.
+        val progress = rememberOverlayEntrance(Motion.MODAL)
         Box(
             Modifier
                 .fillMaxSize()
@@ -149,9 +154,9 @@ fun GlassDialog(
                     .padding(horizontal = 26.dp)
                     .imePadding()
                     .graphicsLayer {
-                        val scale = 0.94f + 0.06f * progress()
-                        scaleX = scale
-                        scaleY = scale
+                        val entered = progress()
+                        alpha = entered
+                        translationY = modalOffset * (1f - entered)
                     }
                     .shadow(Shadows.sheet, OverlayShape)
                     .clip(OverlayShape)

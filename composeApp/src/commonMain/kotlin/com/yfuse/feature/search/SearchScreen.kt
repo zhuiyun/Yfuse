@@ -77,6 +77,7 @@ fun SearchScreen(component: SearchComponent) {
     SharedElementTransitionContainer(
         targetState = stack.active.instance,
         routeKey = ::routeKey,
+        depth = stack.items.size,
     ) { instance ->
         when (instance) {
             is SearchComponent.Child.Home -> SearchHomeScreen(instance.component, focusRequest)

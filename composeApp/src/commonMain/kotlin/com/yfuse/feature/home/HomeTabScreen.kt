@@ -14,6 +14,7 @@ fun HomeTabScreen(component: HomeTabComponent) {
     SharedElementTransitionContainer(
         targetState = stack.active.instance,
         routeKey = ::routeKey,
+        depth = stack.items.size,
     ) { instance ->
         when (instance) {
             is HomeTabComponent.Child.Home -> HomeScreen(instance.component)

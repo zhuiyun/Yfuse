@@ -7,15 +7,18 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 private val LocalSharedTransitionScope =
@@ -40,27 +43,50 @@ private val LocalSharedAnimatedVisibilityScope =
  * therefore one saved scroll offset. Giving those a per-item key would keep a registry
  * entry alive for every item ever visited, which costs more than the wart is worth.
  */
+@Immutable
+private data class Route<T : Any>(val value: T, val depth: Int)
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun <T : Any> SharedElementTransitionContainer(
     targetState: T,
     routeKey: (T) -> String,
+    /**
+     * How deep the navigation stack is right now — pushing grows it, popping shrinks it.
+     *
+     * It is the only thing that tells the two apart. Without it every route change used
+     * one transition in one direction, so 返回 played the same 推进 animation as the push
+     * that had opened the page, and §3.1's [Motion.POP] was referenced nowhere in the app.
+     */
+    depth: Int,
     content: @Composable (T) -> Unit,
 ) {
     val accessibility = LocalAccessibilityOptions.current
-    val duration = if (accessibility.reduceMotion) 0 else Motion.PUSH
     val stateHolder = rememberSaveableStateHolder()
+    val density = LocalDensity.current
+    // 推进 — 右侧 30px 滑入; 返回 — 左侧 22px 滑入.
+    val pushOffset = with(density) { Motion.pushOffset.roundToPx() }
+    val popOffset = with(density) { Motion.popOffset.roundToPx() }
 
     SharedTransitionLayout sharedTransition@{
         AnimatedContent(
-            targetState = targetState,
+            targetState = Route(targetState, depth),
             transitionSpec = {
+                val popping = this.targetState.depth < initialState.depth
+                val duration = when {
+                    accessibility.reduceMotion -> 0
+                    popping -> Motion.POP
+                    else -> Motion.PUSH
+                }
+                val fade = tween<Float>(duration, easing = Motion.Curve)
+                val slide = tween<IntOffset>(duration, easing = Motion.Curve)
+                val entering = if (popping) -popOffset else pushOffset
                 ((
-                    fadeIn(tween(duration)) +
-                        scaleIn(tween(duration), initialScale = 0.985f)
+                    fadeIn(fade) + slideInHorizontally(slide) { entering }
                     ) togetherWith (
-                    fadeOut(tween(duration)) +
-                        scaleOut(tween(duration), targetScale = 1.01f)
+                    // The outgoing page drifts the other way at half the distance, so the
+                    // two are clearly one movement rather than two pages passing.
+                    fadeOut(fade) + slideOutHorizontally(slide) { -entering / 2 }
                     )).apply {
                     // The destination owns all non-shared chrome. On a pop this keeps the
                     // outgoing detail buttons behind the library page instead of letting
@@ -68,15 +94,15 @@ fun <T : Any> SharedElementTransitionContainer(
                     targetContentZIndex = 1f
                 }
             },
-            contentKey = routeKey,
+            contentKey = { routeKey(it.value) },
             label = "shared-media-route",
         ) animatedContent@{ child ->
             CompositionLocalProvider(
                 LocalSharedTransitionScope provides this@sharedTransition,
                 LocalSharedAnimatedVisibilityScope provides this@animatedContent,
             ) {
-                stateHolder.SaveableStateProvider(routeKey(child)) {
-                    content(child)
+                stateHolder.SaveableStateProvider(routeKey(child.value)) {
+                    content(child.value)
                 }
             }
         }
