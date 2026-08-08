@@ -19,8 +19,10 @@ import com.yfuse.core.network.imageCacheKeyForUrl
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.core.offline.offlineApplicationContext
 import com.yfuse.di.appModule
+import com.yfuse.update.AppUpdateManager
 import okio.Path.Companion.toOkioPath
 import org.koin.core.context.startKoin
+import org.koin.dsl.module
 
 class YfuseApp : Application(), SingletonImageLoader.Factory {
 
@@ -44,9 +46,17 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
                     appVersion = BuildConfig.VERSION_NAME,
                     diagnosticPreferences = diagnosticPreferences,
                 ),
+                module {
+                    // Application-scoped so an update download survives the activity that
+                    // started it, and so UpdateDownloadService can reach the same instance.
+                    single { AppUpdateManager(this@YfuseApp, settings) }
+                },
             )
         }
         koinApplication.koin.get<AccountRepository>().start()
+        // Built eagerly: it restores an interrupted download and starts watching the
+        // foreground, both of which have to happen before the first screen appears.
+        koinApplication.koin.get<AppUpdateManager>()
     }
 
     // Keep decoded images hot in memory and original responses on disk. This is

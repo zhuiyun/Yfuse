@@ -9,8 +9,6 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class UpdateDownloadBoundaryTest {
@@ -28,33 +26,13 @@ class UpdateDownloadBoundaryTest {
     }
 
     @Test
-    fun a_second_download_is_rejected_and_a_stale_lease_cannot_touch_the_next_one() {
-        val gate = UpdateDownloadGate()
-        val first = assertNotNull(gate.tryAcquire())
-        var state = "initial"
-
-        assertNull(gate.tryAcquire())
-        assertTrue(gate.runIfActive(first) { state = "first" })
-        assertTrue(gate.release(first))
-
-        val second = assertNotNull(gate.tryAcquire())
-        assertFalse(gate.runIfActive(first) { state = "stale" })
-        assertFalse(gate.release(first))
-        assertNull(gate.tryAcquire())
-        assertEquals("first", state)
-
-        assertTrue(gate.runIfActive(second) { state = "second" })
-        assertTrue(gate.release(second))
-        assertEquals("second", state)
-        assertNotNull(gate.tryAcquire())
-    }
-
-    @Test
     fun stale_update_files_are_cleaned_without_touching_the_current_or_unrelated_files() {
         val directory = Files.createTempDirectory("yfuse-updates-").toFile()
         val current = File(directory, updatePackageFileName(versionCode = 72)).apply {
             writeText("current")
         }
+        // The partial file of the version being fetched is the resume checkpoint, so the
+        // sweep is asked to keep it.
         val currentPartial = File(directory, "${current.name}.part").apply {
             writeText("partial")
         }
@@ -70,11 +48,14 @@ class UpdateDownloadBoundaryTest {
 
         try {
             assertEquals(
-                4,
-                cleanupStaleUpdateFiles(directory, keepFileNames = setOf(current.name)),
+                3,
+                cleanupStaleUpdateFiles(
+                    directory,
+                    keepFileNames = setOf(current.name, currentPartial.name),
+                ),
             )
             assertTrue(current.exists())
-            assertFalse(currentPartial.exists())
+            assertTrue(currentPartial.exists())
             assertFalse(staleApk.exists())
             assertFalse(legacyApk.exists())
             assertFalse(stalePartial.exists())
@@ -115,56 +96,63 @@ class UpdateDownloadBoundaryTest {
     }
 
     @Test
-    fun truncated_download_removes_the_partial_file() {
-        val partial = File.createTempFile("yfuse-update-", ".part")
-
-        try {
-            assertFailsWith<IllegalStateException> {
-                writeVerifiedUpdatePackage(
-                    input = ByteArrayInputStream("ab".encodeToByteArray()),
-                    partialFile = partial,
-                    expectedBytes = 3L,
-                    expectedSha256 = SHA256_ABC,
-                )
-            }
-            assertFalse(partial.exists())
-        } finally {
-            partial.delete()
-        }
-    }
-
-    @Test
-    fun digest_failure_removes_the_partial_file() {
-        val partial = File.createTempFile("yfuse-update-", ".part")
-
-        try {
-            assertFailsWith<IllegalStateException> {
-                writeVerifiedUpdatePackage(
-                    input = ByteArrayInputStream("abc".encodeToByteArray()),
-                    partialFile = partial,
-                    expectedBytes = 3L,
-                    expectedSha256 = "0".repeat(64),
-                )
-            }
-            assertFalse(partial.exists())
-        } finally {
-            partial.delete()
-        }
-    }
-
-    @Test
-    fun exact_verified_download_keeps_the_partial_file() {
+    fun a_truncated_download_keeps_the_partial_file_for_the_next_attempt() {
         val partial = File.createTempFile("yfuse-update-", ".part")
 
         try {
             assertEquals(
-                partial,
-                writeVerifiedUpdatePackage(
+                2L,
+                appendUpdatePackage(
+                    input = ByteArrayInputStream("ab".encodeToByteArray()),
+                    partialFile = partial,
+                    startBytes = 0L,
+                    expectedBytes = 3L,
+                ),
+            )
+            assertTrue(partial.exists())
+            assertEquals("ab", partial.readText())
+
+            assertFailsWith<IllegalStateException> {
+                verifyUpdatePackage(partial, expectedBytes = 3L, expectedSha256 = SHA256_ABC)
+            }
+            assertFalse(partial.exists())
+        } finally {
+            partial.delete()
+        }
+    }
+
+    @Test
+    fun digest_failure_removes_the_completed_file() {
+        val partial = File.createTempFile("yfuse-update-", ".part")
+
+        try {
+            partial.writeText("abc")
+            assertFailsWith<IllegalStateException> {
+                verifyUpdatePackage(partial, expectedBytes = 3L, expectedSha256 = "0".repeat(64))
+            }
+            assertFalse(partial.exists())
+        } finally {
+            partial.delete()
+        }
+    }
+
+    @Test
+    fun exact_verified_download_keeps_the_file() {
+        val partial = File.createTempFile("yfuse-update-", ".part")
+
+        try {
+            assertEquals(
+                3L,
+                appendUpdatePackage(
                     input = ByteArrayInputStream("abc".encodeToByteArray()),
                     partialFile = partial,
+                    startBytes = 0L,
                     expectedBytes = 3L,
-                    expectedSha256 = SHA256_ABC,
                 ),
+            )
+            assertEquals(
+                partial,
+                verifyUpdatePackage(partial, expectedBytes = 3L, expectedSha256 = SHA256_ABC),
             )
             assertTrue(partial.exists())
             assertEquals(3L, partial.length())

@@ -10,7 +10,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.toArgb
 import com.arkivanov.decompose.retainedComponent
 import com.arkivanov.mvikotlin.core.store.StoreFactory
-import com.russhwolf.settings.Settings
 import com.yfuse.app.AnimatedSplashApp
 import com.yfuse.app.RootComponent
 import com.yfuse.app.isNightMode
@@ -59,15 +58,17 @@ class MainActivity : ComponentActivity() {
 
         rootComponent = root
 
-        updateManager = AppUpdateManager(this, koin.get<Settings>())
+        // Application-scoped: a download started here has to survive this activity, so the
+        // update check that starts one is triggered from the UI (see AppUpdateOverlay) rather
+        // than from onCreate.
+        updateManager = koin.get<AppUpdateManager>()
         setContent {
             CompositionLocalProvider(LocalAppUpdateManager provides updateManager) {
                 AnimatedSplashApp(root) {
-                    AppUpdateOverlay(updateManager)
+                    AppUpdateOverlay(updateManager, root)
                 }
             }
         }
-        updateManager.checkIfDue()
 
         // A cold start from a shared link arrives here rather than in onNewIntent.
         consumeInviteIntent(intent)

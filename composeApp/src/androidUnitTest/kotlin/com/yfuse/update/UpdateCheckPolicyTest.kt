@@ -35,7 +35,10 @@ class UpdateCheckPolicyTest {
     }
 
     @Test
-    fun startup_is_throttled_but_profile_check_remains_manual() {
+    fun entering_home_checks_automatically_while_the_profile_check_stays_manual() {
+        val overlaySource = projectFile(
+            "src/androidMain/kotlin/com/yfuse/update/AppUpdateOverlay.kt",
+        ).readText()
         val mainSource = projectFile(
             "src/androidMain/kotlin/com/yfuse/MainActivity.kt",
         ).readText()
@@ -43,9 +46,31 @@ class UpdateCheckPolicyTest {
             "src/androidMain/kotlin/com/yfuse/feature/profile/AppUpdateTools.android.kt",
         ).readText()
 
-        assertTrue("updateManager.checkIfDue()" in mainSource)
+        assertTrue("RootComponent.Tab.Home) manager.checkIfDue()" in overlaySource)
+        // Nothing may run the unthrottled check on the way in.
+        assertFalse("manager.check()" in overlaySource)
         assertFalse("updateManager.check()" in mainSource)
         assertTrue("else -> manager::check" in profileSource)
+    }
+
+    @Test
+    fun the_dialog_opens_automatically_once_a_day_for_a_version() {
+        val settings = MapSettings()
+        var today = 20_000L
+        val gate = AutomaticUpdatePromptGate(settings) { today }
+
+        assertTrue(gate.tryAcquire(versionCode = 80))
+        assertFalse(gate.tryAcquire(versionCode = 80))
+        // A check that runs many times a day may not re-open the dialog.
+        assertFalse(AutomaticUpdatePromptGate(settings) { today }.tryAcquire(versionCode = 80))
+
+        // A release published later the same day gets its own prompt.
+        assertTrue(gate.tryAcquire(versionCode = 81))
+        assertFalse(gate.tryAcquire(versionCode = 81))
+
+        today += 1L
+        assertTrue(AutomaticUpdatePromptGate(settings) { today }.tryAcquire(versionCode = 81))
+        assertFalse(AutomaticUpdatePromptGate(settings) { today }.tryAcquire(versionCode = 81))
     }
 
     private fun projectFile(moduleRelativePath: String): File =

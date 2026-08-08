@@ -41,12 +41,16 @@ actual fun AppUpdateTools() {
             UpdateState.Current -> "已是最新版本 ›"
             is UpdateState.Available -> "发现 ${current.manifest.versionName} ›"
             is UpdateState.Downloading ->
-                "正在下载 ${(current.progress.coerceIn(0f, 1f) * 100).toInt()}%"
+                "后台下载 ${(current.progress * 100).toInt()}% ›"
+            is UpdateState.Paused -> "已暂停 ${(current.progress * 100).toInt()}%，继续 ›"
             is UpdateState.Ready -> "立即安装 ›"
             is UpdateState.Error -> "检查失败，点击重试 ›"
         }
-        val onClick: (() -> Unit)? = when (val current = state) {
-            is UpdateState.Downloading -> null
+        // A download in flight belongs to the dialog, which shows its progress and can pause
+        // it; only an idle row starts a fresh check.
+        val onClick: (() -> Unit) = when (val current = state) {
+            is UpdateState.Available, is UpdateState.Downloading, is UpdateState.Paused ->
+                manager::showPrompt
             is UpdateState.Ready -> {
                 { manager.install(current.apk) }
             }
