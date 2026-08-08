@@ -2281,6 +2281,7 @@ private fun PlayerRoot(
                     participants = watchState.participants,
                     chatMessages = watchState.chatMessages,
                     chatError = watchState.chatError,
+                    reactions = watchState.reactions,
                     chatPreviewEnabled = watchChatPreview,
                     chatDanmakuEnabled = watchChatDanmaku,
                     error = watchState.error ?: watchState.syncWarning,
@@ -2315,6 +2316,8 @@ private fun PlayerRoot(
                     onToggleChatDanmaku = {
                         watchTogetherPreferences.setChatDanmakuEnabled(!watchChatDanmaku)
                     },
+                    onReact = { watchTogether.sendReaction(it) },
+                    onReactionFinished = watchTogether::clearReaction,
                 ),
             )
         }

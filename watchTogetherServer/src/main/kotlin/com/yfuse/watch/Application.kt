@@ -88,6 +88,8 @@ private data class WireMessage(
     val targetClientId: String? = null,
     // room chat
     val text: String? = null,
+    /** 一起看 reaction — one of [REACTIONS], broadcast and never kept. */
+    val reaction: String? = null,
     val clientMessageId: String? = null,
     val chat: WireChatMessage? = null,
     val chatHistory: List<WireChatMessage>? = null,
@@ -251,6 +253,20 @@ private const val MAX_CHAT_BYTES = 768
 private const val MAX_CHAT_HISTORY = 50
 private const val MAX_CHAT_MESSAGES_PER_WINDOW = 3
 private const val CHAT_RATE_WINDOW_MS = 3_000L
+
+/**
+ * The reactions a client may send.
+ *
+ * A closed set rather than arbitrary text: a reaction is broadcast to everyone in the
+ * room without moderation and never stored, so the only safe thing to relay is something
+ * the server itself chose. It also keeps the wire tiny — reactions are the one message
+ * that can arrive several times a second.
+ */
+private val REACTIONS = setOf("😂", "😮", "😍", "😭", "👏", "🔥", "🤔", "💀")
+
+/** Bursts are the point, so this is looser than chat — but still bounded. */
+private const val MAX_REACTIONS_PER_WINDOW = 6
+private const val REACTION_RATE_WINDOW_MS = 3_000L
 private const val PROFILE_UPDATE_COOLDOWN_MS = 1_000L
 private const val MAX_CLIENT_MESSAGE_ID_BYTES = 128
 private val graphemeRegex = Regex("\\X")
@@ -343,6 +359,7 @@ fun Application.watchTogetherModule(
             var windowStartedAtMs = System.currentTimeMillis()
             var messagesInWindow = 0
             val recentChatAtMs = ArrayDeque<Long>()
+            val recentReactionAtMs = ArrayDeque<Long>()
             var lastProfileUpdateAtMs = 0L
             try {
                 incoming.consumeEach { frame ->
@@ -753,6 +770,35 @@ fun Application.watchTogetherModule(
                             broadcastChat(room, chat)
                         }
 
+                        "reaction" -> {
+                            val room = joinedRoom ?: return@consumeEach
+                            val clientId = joinedClientId ?: return@consumeEach
+                            val reaction = message.reaction?.takeIf { it in REACTIONS }
+                                ?: return@consumeEach sendError(
+                                    "不支持这个表情",
+                                    "reaction_invalid",
+                                )
+
+                            val now = System.currentTimeMillis()
+                            while (
+                                recentReactionAtMs.isNotEmpty() &&
+                                now - recentReactionAtMs.first() >= REACTION_RATE_WINDOW_MS
+                            ) {
+                                recentReactionAtMs.removeFirst()
+                            }
+                            // Dropped rather than reported: a reaction is a flourish, and an
+                            // error toast for tapping one too fast is worse than nothing
+                            // happening.
+                            if (recentReactionAtMs.size >= MAX_REACTIONS_PER_WINDOW) {
+                                return@consumeEach
+                            }
+                            recentReactionAtMs.addLast(now)
+
+                            val sender = synchronized(room) { room.participants[clientId] }
+                                ?: return@consumeEach
+                            broadcastReaction(room, clientId, sender.name, reaction)
+                        }
+
                         "ping" -> {
                             val sentAt = message.clientSentAtMs ?: return@consumeEach
                             sendMessage(WireMessage(type = "pong", clientSentAtMs = sentAt))
@@ -1068,6 +1114,31 @@ private suspend fun broadcastChat(room: Room, chat: WireChatMessage) {
     val members = synchronized(room) { room.participants.values.toList() }
     members.forEach { member ->
         runCatching { member.session.sendMessage(WireMessage(type = "chat", chat = chat)) }
+    }
+}
+
+/**
+ * Reactions are not kept anywhere: no history, no replay on join. Someone who was not in
+ * the room when it happened has missed it, which is the whole idea.
+ */
+private suspend fun broadcastReaction(
+    room: Room,
+    clientId: String,
+    name: String,
+    reaction: String,
+) {
+    val members = synchronized(room) { room.participants.values.toList() }
+    members.forEach { member ->
+        runCatching {
+            member.session.sendMessage(
+                WireMessage(
+                    type = "reaction",
+                    clientId = clientId,
+                    name = name,
+                    reaction = reaction,
+                ),
+            )
+        }
     }
 }
 

@@ -347,6 +347,12 @@ internal fun PlayerControls(
                 messages = watch.chatMessages,
                 enabled = watch.chatDanmakuEnabled && !watchChatOpen,
             )
+            // Above the danmaku and below the controls: a reaction is meant to be seen
+            // over the picture, never to swallow a tap aimed at 播放.
+            WatchReactionOverlay(
+                reactions = watch.reactions,
+                onFinished = watchActions.onReactionFinished,
+            )
         }
 
         // Tap catcher sits below the controls, so buttons win the gesture.
@@ -690,6 +696,7 @@ internal fun PlayerControls(
                 onRetry = watchActions.onRetryChat,
                 onClearError = watchActions.onClearChatError,
                 onToggleDanmaku = watchActions.onToggleChatDanmaku,
+                onReact = watchActions.onReact,
                 onDismiss = {
                     watchChatOpen = false
                     lastReadChatId = watch.chatMessages.lastOrNull()?.id

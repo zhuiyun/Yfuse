@@ -4,6 +4,8 @@ import com.yfuse.core.data.SkipMode
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchParticipant
+import com.yfuse.core.sync.WatchReactionBurst
+import com.yfuse.core.sync.WatchReaction
 
 /**
  * The 一起看 room, as the player chrome sees it.
@@ -33,6 +35,8 @@ data class WatchRoomState(
     val participants: List<WatchParticipant> = emptyList(),
     val chatMessages: List<WatchChatMessage> = emptyList(),
     val chatError: String? = null,
+    /** Reactions still floating up the screen — see [WatchReactionOverlay]. */
+    val reactions: List<WatchReactionBurst> = emptyList(),
     val chatPreviewEnabled: Boolean = true,
     val chatDanmakuEnabled: Boolean = true,
     val error: String? = null,
@@ -62,6 +66,9 @@ data class WatchRoomActions(
     val onRetryChat: (String) -> Unit = {},
     val onClearChatError: () -> Unit = {},
     val onToggleChatDanmaku: () -> Unit = {},
+    val onReact: (WatchReaction) -> Unit = {},
+    /** The bubble has floated off; drop it from the room state. */
+    val onReactionFinished: (Long) -> Unit = {},
     val onSetControlMode: (WatchControlMode) -> Unit = {},
     val onSetModerator: (String, Boolean) -> Unit = { _, _ -> },
     val onKickParticipant: (String) -> Unit = {},

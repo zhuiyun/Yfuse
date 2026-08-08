@@ -64,6 +64,7 @@ private data class WatchWireMessage(
     val clientSentAtMs: Long? = null,
     val targetClientId: String? = null,
     val text: String? = null,
+    val reaction: String? = null,
     val clientMessageId: String? = null,
     val chat: WatchWireChatMessage? = null,
     val chatHistory: List<WatchWireChatMessage>? = null,
@@ -96,6 +97,38 @@ private data class WatchWireChatMessage(
     val text: String,
     val sentAtMs: Long,
     val clientMessageId: String? = null,
+)
+
+/**
+ * One reaction, alive only long enough to float up the screen.
+ *
+ * The set is closed and mirrored on the server, which relays nothing it did not choose:
+ * reactions are broadcast to a whole room unmoderated, so arbitrary text has no business
+ * on this channel.
+ */
+enum class WatchReaction(val emoji: String) {
+    Laugh("😂"),
+    Wow("😮"),
+    Love("😍"),
+    Cry("😭"),
+    Clap("👏"),
+    Fire("🔥"),
+    Think("🤔"),
+    Dead("💀"),
+    ;
+
+    companion object {
+        fun fromWire(value: String?): WatchReaction? = entries.firstOrNull { it.emoji == value }
+    }
+}
+
+/** A reaction that has arrived and not yet drifted off the top of the screen. */
+data class WatchReactionBurst(
+    /** Monotonic per-client, so the overlay can key each bubble. */
+    val id: Long,
+    val reaction: WatchReaction,
+    val name: String,
+    val isMine: Boolean,
 )
 
 /** A guest asking the host for the timeline. Surfaced to the host so it can answer. */
@@ -221,6 +254,12 @@ data class WatchTogetherState(
     val participants: List<WatchParticipant> = emptyList(),
     val chatMessages: List<WatchChatMessage> = emptyList(),
     val chatError: String? = null,
+    /**
+     * Reactions still in flight up the screen. Bounded because a room that spams them
+     * must not be able to grow this without limit; the overlay drops each one itself once
+     * its bubble has finished.
+     */
+    val reactions: List<WatchReactionBurst> = emptyList(),
     val mediaKey: String? = null,
     val error: String? = null,
     /**
@@ -350,6 +389,9 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
     private val client = HttpClient(embyHttpEngine()) { install(WebSockets) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sendMutex = Mutex()
+
+    /** Local, monotonic; only ever used to key a bubble in the overlay. */
+    private var reactionSequence = 0L
     private val clock = ClockSync()
 
     private var connectionJob: Job? = null
@@ -472,6 +514,44 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         pendingAvatarId = avatarId
         if (_state.value.connected) {
             send(WatchWireMessage(type = "updateProfile", name = name, avatarId = avatarId))
+        }
+    }
+
+    /**
+     * Sends one reaction and shows it locally straight away.
+     *
+     * The server echoes it back like everyone else's, and that echo is ignored for our own
+     * client id — a reaction that waited for a round trip would lag the tap that caused it,
+     * which is the one thing this feature cannot afford.
+     */
+    fun sendReaction(reaction: WatchReaction): Boolean {
+        val state = _state.value
+        if (!state.connected || state.reconnecting) return false
+        val myName = state.participants.firstOrNull { it.isSelf }?.name.orEmpty()
+        pushReaction(reaction, myName, isMine = true)
+        send(WatchWireMessage(type = "reaction", reaction = reaction.emoji))
+        return true
+    }
+
+    /** Drops a bubble once it has floated off, so [WatchTogetherState.reactions] stays small. */
+    fun clearReaction(id: Long) {
+        _state.update { current ->
+            if (current.reactions.none { it.id == id }) current
+            else current.copy(reactions = current.reactions.filterNot { it.id == id })
+        }
+    }
+
+    private fun pushReaction(reaction: WatchReaction, name: String, isMine: Boolean) {
+        val burst = WatchReactionBurst(
+            id = ++reactionSequence,
+            reaction = reaction,
+            name = name,
+            isMine = isMine,
+        )
+        _state.update { current ->
+            current.copy(
+                reactions = (current.reactions + burst).takeLast(MAX_LIVE_REACTIONS),
+            )
         }
     }
 
@@ -878,6 +958,23 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                                     }
                                 }
                             }
+                            "reaction" -> {
+                                val reaction = WatchReaction.fromWire(wire.reaction)
+                                    ?: continue
+                                // Our own reaction was already shown when it was tapped;
+                                // the echo would double it.
+                                val mine = wire.clientId != null &&
+                                    _state.value.participants
+                                        .firstOrNull { it.isSelf }
+                                        ?.clientId == wire.clientId
+                                if (!mine) {
+                                    pushReaction(
+                                        reaction = reaction,
+                                        name = wire.name.orEmpty(),
+                                        isMine = false,
+                                    )
+                                }
+                            }
                             "error" -> {
                                 AppLog.warning(
                                     category = "watch_together",
@@ -1111,6 +1208,9 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         const val MAX_CHAT_GRAPHEMES = 30
         const val MAX_CHAT_BYTES = 768
         const val MAX_CHAT_HISTORY = 50
+
+        /** Bubbles on screen at once. A room cannot grow this by reacting harder. */
+        const val MAX_LIVE_REACTIONS = 12
         const val WATCH_PROTOCOL_VERSION = 3
         const val CHAT_ACK_TIMEOUT_MS = 8_000L
 

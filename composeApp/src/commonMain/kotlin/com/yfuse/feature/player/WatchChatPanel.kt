@@ -49,6 +49,7 @@ import com.yfuse.core.designsystem.sc
 import com.yfuse.core.sync.ChatDeliveryState
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchParticipant
+import com.yfuse.core.sync.WatchReaction
 import com.yfuse.core.util.graphemeCount
 import com.yfuse.core.util.takeGraphemes
 import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
@@ -65,6 +66,7 @@ internal fun WatchChatPanel(
     onRetry: (String) -> Unit,
     onClearError: () -> Unit,
     onToggleDanmaku: () -> Unit,
+    onReact: (WatchReaction) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -179,6 +181,16 @@ internal fun WatchChatPanel(
                 }
             }
         }
+
+        Spacer(Modifier.height(12.dp))
+        // Reactions live above the transcript rather than beside the input: they are not
+        // messages, they leave no history, and they are the one thing here worth tapping
+        // without reading anything first.
+        WatchReactionBar(
+            enabled = sendingEnabled,
+            onReact = onReact,
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         Spacer(Modifier.height(10.dp))
         if (messages.isEmpty()) {

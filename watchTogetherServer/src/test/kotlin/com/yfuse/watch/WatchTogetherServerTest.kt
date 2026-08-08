@@ -442,6 +442,55 @@ class WatchTogetherServerTest {
     }
 
     @Test
+    fun reaction_relays_only_the_known_set_and_never_stores_it() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+        val roomCode = CompletableDeferred<String>()
+        val reactionSeen = CompletableDeferred<Unit>()
+        val testScope = CoroutineScope(currentCoroutineContext())
+
+        val host = testScope.launch {
+            socketClient.webSocket("/watch") {
+                send("""{"type":"hello","clientId":"host","name":"房主","avatarId":0,"mediaKey":"tmdb:9"}""")
+                val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
+
+                // Anything outside the server's own set is refused rather than relayed.
+                send("""{"type":"reaction","reaction":"🙈"}""")
+                val refusal = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("error", refusal["type"]?.jsonPrimitive?.content)
+                assertEquals("reaction_invalid", refusal["errorCode"]?.jsonPrimitive?.content)
+
+                send("""{"type":"reaction","reaction":"😂","name":"伪造昵称"}""")
+                while (true) {
+                    val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                    if (payload["type"]?.jsonPrimitive?.content == "reaction") {
+                        assertEquals("😂", payload["reaction"]?.jsonPrimitive?.content)
+                        // The name comes from the joined profile, not from the message.
+                        assertEquals("房主", payload["name"]?.jsonPrimitive?.content)
+                        reactionSeen.complete(Unit)
+                        break
+                    }
+                }
+            }
+        }
+
+        val guest = testScope.launch {
+            val code = roomCode.await()
+            reactionSeen.await()
+            socketClient.webSocket("/watch") {
+                send("""{"type":"hello","roomCode":"$code","clientId":"guest","name":"访客","avatarId":1}""")
+                val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                // Reactions leave no history: joining after one has happened shows nothing.
+                assertEquals(0, welcome["chatHistory"]?.jsonArray?.size ?: 0)
+            }
+        }
+
+        guest.join()
+        host.join()
+    }
+
+    @Test
     fun chat_enforces_grapheme_length_and_its_own_rate_limit() = testApplication {
         application { watchTogetherModule() }
         val socketClient = createClient { install(WebSockets) }
