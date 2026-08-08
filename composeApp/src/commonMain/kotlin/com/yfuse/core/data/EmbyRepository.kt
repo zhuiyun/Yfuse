@@ -29,6 +29,7 @@ import com.yfuse.core.model.LibraryPage
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
+import com.yfuse.core.model.Person
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.SourceInfo
@@ -98,6 +99,12 @@ const val LIBRARY_PAGE_SIZE = 60
 
 /** Genre facets are a filter row, not a catalogue; nobody scrolls past this many. */
 private const val LIBRARY_GENRE_LIMIT = 60
+
+/** 演员 is one chip row above the titles, not a directory. */
+private const val PERSON_SEARCH_LIMIT = 8
+
+/** One person's filmography, as much of it as this server holds. */
+private const val PERSON_ITEMS_LIMIT = 60
 
 private const val SOURCE_DISCOVERY_MAX_ATTEMPTS = 3
 private const val SOURCE_DISCOVERY_RETRY_DELAY_MS = 250L
@@ -604,6 +611,65 @@ class EmbyRepository(private val client: HttpClient) {
             .take(limit)
             .map { it.toMediaItem() }
             .toList()
+    }
+
+    /**
+     * People whose name matches the query, for the search tab's 演员 row.
+     *
+     * A title search never returns these: `/Items` matches item names, so searching an
+     * actor found only titles that happen to contain their name. Failure is not fatal —
+     * the row simply does not appear, and the title results stand on their own.
+     */
+    suspend fun searchPeople(
+        server: SavedServer,
+        query: String,
+        limit: Int = PERSON_SEARCH_LIMIT,
+    ): List<Person> = runCatching {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Persons") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("UserId", server.userId)
+            parameter("SearchTerm", query)
+            parameter("EnableImageTypes", "Primary")
+            parameter("ImageTypeLimit", 1)
+            parameter("Limit", limit)
+        }.body()
+        dto.Items
+            .filter { !it.Name.isNullOrBlank() }
+            .map { Person(it.Id, it.Name.orEmpty(), null, it.ImageTags?.get("Primary")) }
+    }.onFailure {
+        if (it is CancellationException) throw it
+        AppLog.warning(
+            category = "emby",
+            event = "person_search_unavailable",
+            message = "Person search is unavailable; the 演员 row stays hidden",
+            throwable = it,
+            attributes = mapOf("serverId" to server.id),
+        )
+    }.getOrDefault(emptyList())
+
+    /** Everything on this server that credits one person, newest first. */
+    suspend fun itemsByPerson(
+        server: SavedServer,
+        personId: String,
+        limit: Int = PERSON_ITEMS_LIMIT,
+    ): Result<List<MediaItem>> = call("items_by_person") {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("PersonIds", personId)
+            parameter("Recursive", true)
+            parameter("IncludeItemTypes", "Movie,Series")
+            parameter("SortBy", "ProductionYear,SortName")
+            parameter("SortOrder", "Descending")
+            parameter(
+                "Fields",
+                "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
+                    "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag",
+            )
+            parameter("EnableImageTypes", "Primary,Backdrop")
+            parameter("ImageTypeLimit", 2)
+            parameter("Limit", limit)
+        }.body()
+        dto.Items.map { it.toMediaItem() }
     }
 
     /**

@@ -2,6 +2,7 @@ package com.yfuse.feature.search
 
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
@@ -68,6 +69,58 @@ class SearchStoreTest {
     }
 
     @Test
+    fun type_filter_narrows_the_groups_and_the_heading_count() {
+        val state = SearchState(
+            groups = listOf(
+                ServerSearchGroup(
+                    serverId = "id1",
+                    serverName = "甲",
+                    items = listOf(mediaItem("m1", "Movie"), mediaItem("s1", "Series")),
+                ),
+                ServerSearchGroup(
+                    serverId = "id2",
+                    serverName = "乙",
+                    items = listOf(mediaItem("s2", "Series")),
+                ),
+            ),
+        )
+
+        assertEquals(3, state.visibleCount)
+        assertEquals(listOf(SearchType.All, SearchType.Movie, SearchType.Series), state.availableTypes)
+
+        val movies = state.copy(type = SearchType.Movie)
+        // 乙 held no movies, so it drops out entirely rather than showing an empty heading.
+        assertEquals(listOf("甲"), movies.visibleGroups.map { it.serverName })
+        assertEquals(1, movies.visibleCount)
+    }
+
+    @Test
+    fun type_filter_is_not_offered_for_a_kind_nothing_matched() {
+        val state = SearchState(
+            groups = listOf(
+                ServerSearchGroup("id1", "甲", items = listOf(mediaItem("m1", "Movie"))),
+            ),
+        )
+
+        assertEquals(listOf(SearchType.All, SearchType.Movie), state.availableTypes)
+    }
+
+    @Test
+    fun a_failed_server_survives_the_type_filter() {
+        val state = SearchState(
+            groups = listOf(
+                ServerSearchGroup("id1", "甲", items = listOf(mediaItem("m1", "Movie"))),
+                ServerSearchGroup("id2", "乙", error = "连接失败"),
+            ),
+            type = SearchType.Movie,
+        )
+
+        assertEquals(listOf("甲", "乙"), state.visibleGroups.map { it.serverName })
+        // The failed group contributes no titles, so it does not inflate the count.
+        assertEquals(1, state.visibleCount)
+    }
+
+    @Test
     fun clear_resets_query_results_and_error() = runTest {
         val registry = testRegistry()
         registry.addOrUpdate(
@@ -85,4 +138,16 @@ class SearchStoreTest {
         assertEquals(SearchState(), store.state)
         store.dispose()
     }
+
+    private fun mediaItem(id: String, type: String) = MediaItem(
+        id = id,
+        title = id,
+        subtitle = null,
+        type = type,
+        posterItemId = id,
+        posterTag = null,
+        backdropItemId = null,
+        backdropTag = null,
+        playedPercentage = null,
+    )
 }
