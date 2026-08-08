@@ -42,9 +42,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -70,8 +72,8 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.Poster
-import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
@@ -362,7 +364,7 @@ fun DetailScreen(component: DetailComponent) {
                             },
                         )
                         DetailActionDock(
-                            accent = Brand.Primary,
+                            accent = accent,
                             label = if (state.playPositionTicks > 0L) "继续观看" else "播放",
                             detailLine = playDetailLine,
                             resolving = state.resolvingPlay || state.selectionLoading,
@@ -1067,6 +1069,29 @@ private fun runtimeLabel(minutes: Int): String {
 }
 
 /**
+ * Body of the primary key, derived from the same artwork accent the rest of the page is tinted
+ * by. A fixed brand gradient made the one saturated element on the page the one element that
+ * ignored the poster it sits under.
+ *
+ * A poster's vibrant swatch lands anywhere on the lightness scale and this key carries white
+ * copy, so the hue is kept while lightness is pulled into a band white stays legible on.
+ */
+private fun actionKeyBrush(accent: Color): Brush {
+    val body = accent.forWhiteInk()
+    return cssLinearGradient(135f, 0f to lerp(body, Color.White, 0.22f), 1f to body)
+}
+
+private fun Color.forWhiteInk(): Color {
+    val luminance = luminance()
+    if (luminance <= MaxActionKeyLuminance) return this
+    // Straight toward black keeps the hue and spends only lightness.
+    val excess = ((luminance - MaxActionKeyLuminance) / luminance).coerceIn(0f, 1f)
+    return lerp(this, Color.Black, excess)
+}
+
+private const val MaxActionKeyLuminance = 0.22f
+
+/**
  * The title block's inks.
  *
  * It sits on the artwork now, not on the page, so it cannot take the palette: the page
@@ -1144,7 +1169,7 @@ private fun DetailActionDock(
                 .pressable(enabled = !resolving, onClick = onPlay)
                 .shadow(GlassLift.key, GlassShapes.card)
                 .clip(GlassShapes.card)
-                .background(PrimaryGradient)
+                .background(actionKeyBrush(accent))
                 .border(
                     Dimens.hairline,
                     Color.White.copy(alpha = 0.34f),
