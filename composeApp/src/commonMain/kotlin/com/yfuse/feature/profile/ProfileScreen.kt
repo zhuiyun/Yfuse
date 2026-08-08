@@ -52,6 +52,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.Brand
@@ -61,6 +62,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccent
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.PlatformBackHandler
@@ -160,6 +162,7 @@ fun ProfileScreen(component: ProfileComponent) {
     }
     val palette = LocalPalette.current
     val mainListState = rememberLazyListState()
+    ScrollToTopOnReselect(mainListState)
     val screenScope = rememberCoroutineScope()
     val page = pageStack.lastOrNull()?.let { ProfilePage.valueOf(it) }
 
@@ -918,7 +921,7 @@ private fun SettingsPageHeader(
             Modifier
                 .size(34.dp)
                 .pressable(onClick = onBack)
-                .glass(RoundedCornerShape(12.dp), palette.card3, palette.border),
+                .glass(continuousRounded(12.dp), palette.card3, palette.border),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -974,7 +977,7 @@ private fun CollapsibleSummaryRow(
             Modifier
                 .size(34.dp)
                 .glass(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = continuousRounded(10.dp),
                     fill = Brand.Primary.copy(alpha = 0.10f),
                     border = Brand.Primary.copy(alpha = 0.20f),
                 ),
@@ -1082,7 +1085,7 @@ private fun ServerRow(
         Box(
             Modifier
                 .size(34.dp)
-                .clip(RoundedCornerShape(9.dp))
+                .clip(continuousRounded(9.dp))
                 .background(serverColor(server.id)),
             contentAlignment = Alignment.Center,
         ) {
@@ -1151,7 +1154,7 @@ internal fun SettingRow(
             .fillMaxWidth()
             .let {
                 if (embedded) it else {
-                    it.glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                    it.glass(continuousRounded(13.dp), palette.card2, palette.border)
                 }
             }
             .let { if (onClick != null) it.pressable(onClick = onClick) else it }
@@ -1172,7 +1175,7 @@ private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () ->
             .fillMaxWidth()
             .let {
                 if (embedded) it else {
-                    it.glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                    it.glass(continuousRounded(13.dp), palette.card2, palette.border)
                 }
             }
             .pressable(onClick = onClick)
@@ -1230,7 +1233,7 @@ private fun SplashSettingsScreen(
                     Modifier
                         .size(34.dp)
                         .pressable(onClick = onBack)
-                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border),
+                        .glass(continuousRounded(12.dp), palette.card3, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -1260,12 +1263,12 @@ private fun SplashSettingsScreen(
                     Modifier
                         .fillMaxWidth()
                         .pressable { prefs.setSplashVariant(variant) }
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(continuousRounded(18.dp))
                         .background(palette.card2)
                         .border(
                             width = if (active) 2.dp else 1.dp,
                             color = if (active) accent.color else palette.border,
-                            shape = RoundedCornerShape(18.dp),
+                            shape = continuousRounded(18.dp),
                         )
                         .padding(horizontal = 14.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1318,7 +1321,7 @@ private fun SwitchRow(
             .fillMaxWidth()
             .let {
                 if (embedded) it else {
-                    it.glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                    it.glass(continuousRounded(13.dp), palette.card2, palette.border)
                 }
             }
             .pressable { onChange(!checked) }
@@ -1357,7 +1360,7 @@ private fun DescribedSwitchRow(
         Modifier
             .fillMaxWidth()
             .pressable { onChange(!checked) }
-            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+            .glass(continuousRounded(13.dp), palette.card2, palette.border)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1423,7 +1426,7 @@ private fun ProfileUtilityScreen(
                     Modifier
                         .size(34.dp)
                         .pressable(onClick = onBack)
-                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border),
+                        .glass(continuousRounded(12.dp), palette.card3, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -1446,7 +1449,7 @@ private fun ProfileUtilityScreen(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .glass(RoundedCornerShape(18.dp), palette.card, palette.border)
+                        .glass(continuousRounded(18.dp), palette.card, palette.border)
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
                     Row(
@@ -1465,7 +1468,7 @@ private fun ProfileUtilityScreen(
             }
 
             item {
-                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))) {
+                Box(Modifier.fillMaxWidth().clip(continuousRounded(18.dp))) {
                     DescribedSwitchRow(
                         "仅在 Wi-Fi 下下载",
                         "避免占用蜂窝流量",
@@ -1547,7 +1550,7 @@ private fun RecoveryCenterScreen(
                     Modifier
                         .size(34.dp)
                         .pressable(onClick = onBack)
-                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border),
+                        .glass(continuousRounded(12.dp), palette.card3, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -1830,7 +1833,7 @@ private fun OfflineDownloadRow(
                 Modifier
                     .fillMaxWidth()
                     .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .clip(continuousRounded(2.dp))
                     .background(palette.border),
             ) {
                 Box(
@@ -1859,7 +1862,7 @@ private fun formatOfflineBytes(value: Long): String = when {
 @Composable
 private fun PillSwitch(checked: Boolean) {
     val palette = LocalPalette.current
-    val shape = RoundedCornerShape(11.dp)
+    val shape = continuousRounded(11.dp)
     Box(
         Modifier
             .width(38.dp)

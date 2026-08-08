@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -48,6 +49,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -59,9 +68,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.BackdropState
+import com.yfuse.core.designsystem.backdropBlur
+import com.yfuse.core.designsystem.backdropSource
+import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.HapticSignal
@@ -107,6 +121,7 @@ import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.feature.player.PlaybackSelectionState
 import com.yfuse.feature.watch.WatchInviteShareSheet
 import org.koin.core.context.GlobalContext
+import kotlinx.coroutines.launch
 
 /** Height of the collapsing top bar's content row, above the status bar inset. */
 private val TopBarHeight = 52.dp
@@ -317,7 +332,11 @@ fun DetailScreen(component: DetailComponent) {
         }
 
         val listState = rememberLazyListState()
-        val heroScroll = rememberHeroScroll(listState, heroHeightPx)
+        val detailBackdrop = rememberBackdropState()
+        val (overscrollPull, overscrollConnection) = rememberOverscrollPull(
+            LocalAccessibilityOptions.current.reduceMotion,
+        )
+        val heroScroll = rememberHeroScroll(listState, heroHeightPx, overscrollPull)
         val topBarProgress = rememberTopBarProgress(listState, heroHeightPx, density)
         val barSolid by remember(topBarProgress) { derivedStateOf { topBarProgress.value > 0.5f } }
 
@@ -335,7 +354,12 @@ fun DetailScreen(component: DetailComponent) {
             )
 
             else -> LazyColumn(
-                Modifier.fillMaxSize(),
+                Modifier
+                    .fillMaxSize()
+                    .nestedScroll(overscrollConnection)
+                    // What the collapsed top bar blurs. The bar is a sibling drawn after
+                    // this, which is what keeps it out of its own backdrop.
+                    .backdropSource(detailBackdrop),
                 state = listState,
                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
             ) {
@@ -566,6 +590,7 @@ fun DetailScreen(component: DetailComponent) {
 
         DetailTopBar(
             title = displayTitle,
+            backdrop = detailBackdrop,
             progress = topBarProgress,
             surfaceColor = detailSurface,
             accent = accent,
@@ -778,16 +803,68 @@ private fun Modifier.sectionPadding(): Modifier =
 
 /** Pixels of the hero that have scrolled past the top edge. */
 @Composable
-private fun rememberHeroScroll(listState: LazyListState, heroHeightPx: Float): State<Float> =
-    remember(listState, heroHeightPx) {
+private fun rememberHeroScroll(
+    listState: LazyListState,
+    heroHeightPx: Float,
+    /**
+     * How far past the top the list is being dragged, negative-going.
+     *
+     * `firstVisibleItemScrollOffset` bottoms out at 0 and knows nothing about over-scroll, so
+     * on its own it can never describe a pull downward — which is why the hero had no
+     * rubber band to ignore in the first place. The over-drag comes from the nested-scroll
+     * connection instead; see [rememberOverscrollPull].
+     */
+    pull: State<Float>,
+): State<Float> =
+    remember(listState, heroHeightPx, pull) {
         derivedStateOf {
-            if (listState.firstVisibleItemIndex > 0) {
-                heroHeightPx
-            } else {
-                listState.firstVisibleItemScrollOffset.toFloat()
+            when {
+                listState.firstVisibleItemIndex > 0 -> heroHeightPx
+                pull.value > 0f -> -pull.value
+                else -> listState.firstVisibleItemScrollOffset.toFloat()
             }
         }
     }
+
+/**
+ * Distance the user is currently dragging the list past its top, in pixels.
+ *
+ * Taken from the scroll the list itself could not consume, damped so the artwork trails the
+ * finger rather than matching it — the resistance is what says "this is as far as it goes"
+ * without stopping the gesture dead. Released, it returns on the settle spring so the
+ * artwork comes home with the same weight it went out with.
+ */
+@Composable
+private fun rememberOverscrollPull(reduceMotion: Boolean): Pair<State<Float>, NestedScrollConnection> {
+    val raw = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val connection = remember(reduceMotion) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (reduceMotion) return Offset.Zero
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                if (available.y <= 0f) return Offset.Zero
+                scope.launch { raw.snapTo((raw.value + available.y * OVERSCROLL_DAMPING)) }
+                // Not consumed: the list's own overscroll effect should still play, and
+                // claiming it here would fight the pull-to-refresh above it.
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (raw.value != 0f) raw.animateTo(0f, Motion.settle<Float>())
+                return Velocity.Zero
+            }
+        }
+    }
+    return remember(raw, connection) { raw.asState() to connection }
+}
+
+/** How much of an over-drag the artwork actually takes. */
+private const val OVERSCROLL_DAMPING = 0.5f
 
 /** 0 while the artwork owns the top edge, 1 once the glass bar has taken over. */
 @Composable
@@ -840,9 +917,26 @@ private fun Hero(
             .fillMaxWidth()
             .height(height)
             .graphicsLayer {
-                // Keep a restrained upward parallax, but never move or stretch
-                // the artwork downward when the list is over-scrolled.
-                translationY = scroll.value * 0.35f
+                // Upward, a restrained parallax: the artwork lags the page so the two read
+                // as separate planes.
+                //
+                // Downward, the artwork stretches to meet the finger. [scroll] goes negative
+                // on over-drag, and the hero used to ignore that entirely — the page rubber-
+                // banded away and left a gap of backdrop above a picture that stayed exactly
+                // where it was. Growing it from the top edge instead is the oldest gesture on
+                // the platform and the reason a large-artwork page feels attached to the
+                // hand: pull, and the thing you are pulling gives.
+                val over = (-scroll.value).coerceAtLeast(0f)
+                if (over > 0f) {
+                    val grow = 1f + over / size.height
+                    scaleX = grow
+                    scaleY = grow
+                    // Anchored to the top edge so the stretch fills the gap the over-drag
+                    // opened rather than pushing the artwork further down it.
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                } else {
+                    translationY = scroll.value * 0.35f
+                }
             },
     ) {
         FallbackImage(
@@ -879,6 +973,7 @@ private fun Hero(
 @Composable
 private fun DetailTopBar(
     title: String,
+    backdrop: BackdropState,
     progress: State<Float>,
     surfaceColor: Color,
     accent: Color,
@@ -890,12 +985,17 @@ private fun DetailTopBar(
     onMore: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val plateFill = surfaceColor.copy(alpha = 0.94f)
+    // 0.94 was very nearly opaque, and it had to be: with nothing blurred behind it, any
+    // less and the poster underneath read straight through the title. Now that §8.1's blur
+    // is actually under the plate, the fill can go back to being a fill — this bar was the
+    // last chrome in the app still compensating for a missing material with alpha.
+    val plateFill = surfaceColor.copy(alpha = 0.72f)
     Box(Modifier.fillMaxWidth()) {
         Box(
             Modifier
                 .matchParentSize()
                 .graphicsLayer { alpha = progress.value }
+                .backdropBlur(backdrop, RectangleShape)
                 .background(plateFill),
         )
         Box(
@@ -1154,7 +1254,7 @@ private fun CertificationBadge(label: String) {
         color = ArtworkInkSub,
         modifier = Modifier
             .solidGlass(
-                shape = RoundedCornerShape(6.dp),
+                shape = continuousRounded(6.dp),
                 fill = Color.Transparent,
                 border = ArtworkInkSub.copy(alpha = 0.42f),
             )

@@ -31,6 +31,7 @@ import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.SkipMode
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
@@ -80,7 +81,7 @@ internal fun UserAgentDialog(
         Column(
             Modifier
                 .fillMaxWidth()
-                .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                .glass(continuousRounded(13.dp), palette.card2, palette.border)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
             Box(contentAlignment = Alignment.CenterStart) {
@@ -318,7 +319,7 @@ internal fun DanmakuBlockedDialog(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                            .glass(continuousRounded(13.dp), palette.card2, palette.border)
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -377,7 +378,7 @@ private fun DanmakuSourceRow(
             .fillMaxWidth()
             .pressable(onClick = onSelect)
             .glass(
-                RoundedCornerShape(13.dp),
+                continuousRounded(13.dp),
                 if (selected) Brand.Primary.copy(alpha = 0.12f) else palette.card2,
                 if (selected) Brand.Primary.copy(alpha = 0.35f) else palette.border,
             )
@@ -431,7 +432,7 @@ private fun DanmakuField(
     Box(
         Modifier
             .fillMaxWidth()
-            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+            .glass(continuousRounded(13.dp), palette.card2, palette.border)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -533,7 +534,7 @@ internal fun WatchJoinDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                    .glass(continuousRounded(13.dp), palette.card2, palette.border)
                     .padding(vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -576,7 +577,7 @@ internal fun WatchJoinDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                    .glass(continuousRounded(13.dp), palette.card2, palette.border)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
                 Box(contentAlignment = Alignment.CenterStart) {
@@ -651,7 +652,7 @@ internal fun WatchEndpointDialog(
         Column(
             Modifier
                 .fillMaxWidth()
-                .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                .glass(continuousRounded(13.dp), palette.card2, palette.border)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
             Box(contentAlignment = Alignment.CenterStart) {
@@ -735,7 +736,7 @@ internal fun WatchProfileDialog(
             Column(
                 Modifier
                     .weight(1f)
-                    .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+                    .glass(continuousRounded(13.dp), palette.card2, palette.border)
                     .padding(horizontal = 14.dp, vertical = 11.dp),
             ) {
                 Box(contentAlignment = Alignment.CenterStart) {

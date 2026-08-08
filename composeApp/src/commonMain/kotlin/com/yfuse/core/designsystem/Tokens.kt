@@ -1,5 +1,11 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -87,13 +93,32 @@ data class Palette(
     val isDark: Boolean,
 )
 
+/**
+ * The greys were transcribed from the prototype and never measured against the page they
+ * landed on. On [background] (`#F3F5F8`): `sub2` was 2.80:1 and `hint` 1.93:1 — and `sub2`
+ * carries 年份, 条目数 and every card's second line, at the smallest sizes in the app.
+ * `sub` was 4.47:1, missing 4.5:1 by a hair.
+ *
+ * All three now clear 4.5:1. `hint` is not decoration — it is placeholder copy, 「正在读取
+ * 服务器状态…」 and empty-state text — so it takes the same floor as the rest.
+ *
+ * That floor compresses the quiet end: `sub2` and `hint` land within a couple of units of
+ * each other, because on a background this light there is simply no room for two more steps
+ * below `sub` that are still legible. The four-step hierarchy survives in the three above
+ * them; between those last two, size and weight carry the difference, which is what they
+ * were already doing.
+ */
 val LightPalette = Palette(
     background = Color(0xFFF3F5F8),
     text = Color(0xFF151A22),
-    sub = Color(0xFF68717F),
-    sub2 = Color(0xFF8A93A3),
+    // 4.47:1 → 5.10:1
+    sub = Color(0xFF5F6876),
+    // 2.80:1 → 4.65:1
+    sub2 = Color(0xFF666E7C),
+    // 5.43:1 — already passed.
     body = Color(0xFF5A6472),
-    hint = Color(0xFFB0B8C4),
+    // 1.93:1 → 4.57:1
+    hint = Color(0xFF686F7D),
     card = Color.White.copy(alpha = 0.62f),
     card2 = Color.White.copy(alpha = 0.46f),
     card3 = Color.White.copy(alpha = 0.72f),
@@ -111,7 +136,9 @@ val DarkPalette = Palette(
     sub = Color(0xFF9AA4B4),
     sub2 = Color(0xFF9199A8),
     body = Color(0xFFB7BFCB),
-    hint = Color(0xFF6B7280),
+    // 4.02:1 on this background → 4.76:1. The dark palette's other greys already cleared
+    // 4.5:1 by a wide margin; this was the one that did not.
+    hint = Color(0xFF767E8C),
     card = Color(0xFF182235).copy(alpha = 0.62f),
     card2 = Color(0xFF111A2A).copy(alpha = 0.48f),
     card3 = Color(0xFF202D43).copy(alpha = 0.70f),
@@ -251,6 +278,42 @@ object Motion {
     /** `cubic-bezier(.32,.72,0,1)` — the single easing used by every transition. */
     val Curve = androidx.compose.animation.core.CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
 
+    // ------------------------------------------------------------ 弹簧
+    //
+    // Durations belong to transitions — a page arriving takes as long as it takes, and the
+    // user is not steering it. They are the wrong model for anything the user can interrupt,
+    // because a `tween` restarts from wherever it had got to and runs the full duration
+    // again: press the same key twice quickly and the second answer is slower and shallower
+    // than the first. A spring carries the current velocity into the new animation instead,
+    // which is why every direct-manipulation surface on iOS is one.
+
+    /** 按下 — 90ms，无回弹. The finger is already there; anything slower reads as lag. */
+    const val PRESS_IN = 90
+
+    /** How much overshoot the release carries. Low enough to feel taut, not springy. */
+    private const val PRESS_DAMPING = 0.6f
+
+    /**
+     * The two halves of a press. Down is a short ease, up is a spring — see [PRESS_IN].
+     * Instant under 减弱动态效果, in both directions.
+     */
+    fun pressSpec(pressed: Boolean, reduceMotion: Boolean): AnimationSpec<Float> = when {
+        reduceMotion -> snap()
+        pressed -> tween(PRESS_IN, easing = Curve)
+        else -> spring(dampingRatio = PRESS_DAMPING, stiffness = Spring.StiffnessMedium)
+    }
+
+    /**
+     * Moving between two resting states — the tab pill, a chip, an indicator. Barely
+     * overshoots; the point is interruptibility rather than bounce.
+     */
+    fun <T> settle(): SpringSpec<T> =
+        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+
+    /** [settle], or an instant cut under 减弱动态效果. */
+    fun <T> settle(reduceMotion: Boolean): AnimationSpec<T> =
+        if (reduceMotion) snap() else settle<T>()
+
     /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */
     const val PUSH = 360
     val pushOffset = 30.dp
@@ -301,21 +364,58 @@ object Motion {
 private val SansSc = FontFamily.Default
 private val Manrope = NumericFontFamily
 
-/** `font: <weight> <size>px 'Noto Sans SC'` */
-fun sc(size: Float, weight: Int, lineHeight: Float? = null) = TextStyle(
-    fontFamily = SansSc,
-    fontSize = size.sp,
-    fontWeight = FontWeight(weight),
-    lineHeight = (lineHeight ?: (size * 1.35f)).sp,
-)
+/**
+ * The smallest type the app is allowed to set, and the smallest it is allowed to set for
+ * running copy.
+ *
+ * [Dimens] explains why the spec's ×1.31 canvas→pt factor is not applied: it inflates the
+ * layout on a 360dp phone. The side effect nobody costed is that the *type* came over at
+ * canvas scale too, so 年份 and 条目数 were being set at 9.5sp and card titles at 11sp.
+ * Apple's floor for a caption is 11pt and for running text 17pt; Android's Material scale
+ * bottoms out at 11sp for labels and 14sp for body.
+ *
+ * These two floors lift the bottom of the ladder without touching its top, so the four-step
+ * hierarchy and every relative relationship in the spec survive — 9.5 and 10 both become
+ * 11, and the 11.5/12.5/13 body sizes become 12.5/13/13. Sizes already above the floor are
+ * passed through untouched.
+ */
+private const val MIN_TYPE_SP = 11f
+private const val MIN_BODY_SP = 12.5f
 
-/** `font: <weight> <size>px Manrope` */
-fun mr(size: Float, weight: Int, lineHeight: Float? = null) = TextStyle(
-    fontFamily = Manrope,
-    fontSize = size.sp,
-    fontWeight = FontWeight(weight),
-    lineHeight = (lineHeight ?: (size * 1.35f)).sp,
-)
+/**
+ * `font: <weight> <size>px 'Noto Sans SC'`
+ *
+ * Chinese glyphs carry far more detail per em than Latin, so this is the one that has to
+ * clear [MIN_BODY_SP] rather than [MIN_TYPE_SP] — a 9.5sp 宋体-weight glyph is not small,
+ * it is unreadable.
+ */
+fun sc(size: Float, weight: Int, lineHeight: Float? = null): TextStyle {
+    val resolved = size.coerceAtLeast(MIN_BODY_SP)
+    return TextStyle(
+        fontFamily = SansSc,
+        fontSize = resolved.sp,
+        fontWeight = FontWeight(weight),
+        // Scaled from the requested size so a lifted size keeps the caller's intended ratio
+        // rather than inheriting a line height tuned for smaller type.
+        lineHeight = (lineHeight?.let { it * resolved / size } ?: (resolved * 1.35f)).sp,
+    )
+}
+
+/**
+ * `font: <weight> <size>px Manrope`
+ *
+ * Numerals and short Latin labels — years, counts, durations, badges. Manrope's figures are
+ * open enough to hold together at [MIN_TYPE_SP], which Chinese is not.
+ */
+fun mr(size: Float, weight: Int, lineHeight: Float? = null): TextStyle {
+    val resolved = size.coerceAtLeast(MIN_TYPE_SP)
+    return TextStyle(
+        fontFamily = Manrope,
+        fontSize = resolved.sp,
+        fontWeight = FontWeight(weight),
+        lineHeight = (lineHeight?.let { it * resolved / size } ?: (resolved * 1.35f)).sp,
+    )
+}
 
 /**
  * 设计说明文档 §8.3 字体四级体系 — 四级层次，不新增字号. Sizes are the spec's canvas px

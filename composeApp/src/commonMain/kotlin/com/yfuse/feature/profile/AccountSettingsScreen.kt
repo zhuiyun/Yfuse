@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -38,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -47,12 +47,16 @@ import com.yfuse.app.TabBarInset
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
@@ -257,6 +261,14 @@ private fun SignedInAccountCard(
     var newPassword by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var confirmClearRemote by remember { mutableStateOf(false) }
+    var confirmUpload by remember { mutableStateOf(false) }
+    var confirmDownload by remember { mutableStateOf(false) }
+    // Which of the two is running, so the button that was pressed carries the spinner and
+    // the other merely dims. `busy` alone disabled the whole form at once, which recoloured
+    // every control on the card for the length of a fast request — the other half of the
+    // flashing.
+    var uploading by remember { mutableStateOf(false) }
+    var downloading by remember { mutableStateOf(false) }
 
     LaunchedEffect(user.updatedAtEpochMs) {
         nickname = user.nickname
@@ -265,13 +277,34 @@ private fun SignedInAccountCard(
 
     AccountCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AccountAvatar(user.nickname, user.avatarId)
+            // The *edited* nickname and avatar, not the saved ones.
+            //
+            // These two showed `user.…`, which is what the server last confirmed, while the
+            // picker below edited local state — so choosing an avatar moved the selection
+            // ring and left the avatar beside the name on the old one until 保存资料 came
+            // back. It read as the tap not registering. A picker and its preview have to be
+            // the same value; 保存资料 is what makes that value permanent, not what makes it
+            // visible.
+            AccountAvatar(nickname.ifBlank { user.nickname }, avatarId)
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)) {
-                Text(user.nickname, style = sc(15f, 700), color = palette.text)
+                Text(
+                    nickname.ifBlank { user.nickname },
+                    style = sc(15f, 700),
+                    color = palette.text,
+                    maxLines = 1,
+                )
                 Text("@${user.username}", style = mr(10.5f, 400), color = palette.sub2)
             }
-            Text("已登录", style = mr(10.5f, 600), color = Brand.Online)
+            Text(
+                if (nickname != user.nickname || avatarId != user.avatarId) "未保存" else "已登录",
+                style = mr(10.5f, 600),
+                color = if (nickname != user.nickname || avatarId != user.avatarId) {
+                    Brand.Primary
+                } else {
+                    Brand.Online
+                },
+            )
         }
         Spacer(Modifier.height(14.dp))
         OutlinedTextField(
@@ -386,53 +419,57 @@ private fun SignedInAccountCard(
             style = mr(10.5f, 400),
             color = palette.sub2,
         )
-        state.message?.let {
-            Spacer(Modifier.height(7.dp))
-            Text(it, style = mr(10.5f, 500), color = Brand.Primary)
-        }
-        localError?.let {
-            Spacer(Modifier.height(7.dp))
-            Text(it, style = mr(10.5f, 500), color = Brand.Danger)
-        }
+        // One status line that is always here.
+        //
+        // This was two conditional `Text`s — a success message and an error — each of which
+        // appeared with its own spacer and disappeared again. Every action grew the card,
+        // and the next one shrank it, which shifted the two buttons and everything below
+        // them: that is the flashing. The slot is now reserved whether or not it has
+        // anything to say, so pressing a button changes what the card *says* and never how
+        // tall it is.
+        Spacer(Modifier.height(7.dp))
+        Text(
+            text = localError ?: state.message ?: syncIdleHint,
+            style = mr(10.5f, 500),
+            color = when {
+                localError != null -> Brand.Danger
+                state.message != null -> Brand.Primary
+                else -> palette.sub2
+            },
+            minLines = 2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
         Spacer(Modifier.height(11.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = {
-                    busy = true
-                    scope.launch {
-                        // Failures already surface through the repository's status message.
-                        account.uploadNow()
-                        busy = false
-                    }
-                },
+            // 上传 and 恢复 each overwrite one whole side with the other, and both used to do
+            // it on a single tap sitting inside a two-button row. The warning was printed
+            // under them, which is exactly the place a warning is not read. Neither is
+            // reversible and neither is urgent, so both now ask.
+            OverlayButton(
+                label = "上传本机",
+                onClick = { confirmUpload = true },
                 modifier = Modifier.weight(1f),
+                tone = OverlayButtonTone.Primary,
                 enabled = !busy && !state.syncing,
-            ) { Text("上传本机") }
-            Button(
-                onClick = {
-                    busy = true
-                    scope.launch {
-                        account.downloadNow()
-                        busy = false
-                    }
-                },
+                loading = uploading,
+            )
+            OverlayButton(
+                label = "恢复云端",
+                onClick = { confirmDownload = true },
                 modifier = Modifier.weight(1f),
+                tone = OverlayButtonTone.Primary,
                 enabled = !busy && !state.syncing && state.cloudHasData,
-            ) { Text("恢复云端") }
+                loading = downloading,
+            )
         }
-        Text(
-            "不会自动上传或恢复。上传会用本机数据覆盖云端；恢复会用云端数据覆盖本机。",
-            style = mr(9.5f, 400),
-            color = palette.sub2,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        TextButton(
+        OverlayButton(
+            label = "清空服务器数据",
             onClick = { confirmClearRemote = true },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            tone = OverlayButtonTone.Destructive,
             enabled = !busy && !state.syncing && state.cloudHasData,
-        ) {
-            Text("清空服务器数据", color = Brand.Danger)
-        }
+        )
     }
 
     Spacer(Modifier.height(16.dp))
@@ -452,34 +489,84 @@ private fun SignedInAccountCard(
         }
     }
 
-    if (confirmClearRemote) {
-        AlertDialog(
-            onDismissRequest = { if (!busy) confirmClearRemote = false },
-            title = { Text("清空服务器数据？") },
-            text = { Text("只删除这个账号的云端同步密文；账号、昵称头像和本机数据都会保留。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        busy = true
-                        localError = null
-                        scope.launch {
-                            val result = account.clearRemoteSync()
-                            result.exceptionOrNull()?.let { localError = it.message ?: "清空失败" }
-                            if (result.isSuccess) confirmClearRemote = false
-                            busy = false
-                        }
-                    },
-                    enabled = !busy,
-                ) { Text("确认清空", color = Brand.Danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmClearRemote = false }, enabled = !busy) {
-                    Text("取消")
+    if (confirmUpload) {
+        ConfirmDialog(
+            title = "用本机数据覆盖云端？",
+            message = "云端当前的同步数据会被这台设备上的服务器、弹幕绑定和同步设置替换，" +
+                "不能撤销。",
+            confirmLabel = "上传",
+            onConfirm = {
+                confirmUpload = false
+                busy = true
+                uploading = true
+                localError = null
+                scope.launch {
+                    // Failures already surface through the repository's status message.
+                    account.uploadNow()
+                    uploading = false
+                    busy = false
                 }
             },
+            onDismiss = { confirmUpload = false },
+        )
+    }
+
+    if (confirmDownload) {
+        ConfirmDialog(
+            title = "用云端数据覆盖本机？",
+            message = "这台设备上的服务器、弹幕绑定和同步设置会被云端版本 " +
+                "${state.syncVersion} 替换，不能撤销。",
+            confirmLabel = "恢复",
+            onConfirm = {
+                confirmDownload = false
+                busy = true
+                downloading = true
+                localError = null
+                scope.launch {
+                    account.downloadNow()
+                    downloading = false
+                    busy = false
+                }
+            },
+            onDismiss = { confirmDownload = false },
+        )
+    }
+
+    if (confirmClearRemote) {
+        // Was the app's last stock Material `AlertDialog` — an opaque M3 surface with M3
+        // typography and radii, in the middle of a glass app. Same question, same two ways
+        // out, in the one overlay material everything else uses.
+        ConfirmDialog(
+            title = "清空服务器数据？",
+            message = "只删除这个账号的云端同步密文；账号、昵称头像和本机数据都会保留。",
+            confirmLabel = "确认清空",
+            destructive = true,
+            onConfirm = {
+                confirmClearRemote = false
+                busy = true
+                localError = null
+                scope.launch {
+                    val result = account.clearRemoteSync()
+                    result.exceptionOrNull()?.let { localError = it.message ?: "清空失败" }
+                    busy = false
+                }
+            },
+            onDismiss = { confirmClearRemote = false },
         )
     }
 }
+
+/**
+ * What the sync card's status line says when it has no news.
+ *
+ * It is the warning that used to sit *under* the two buttons, which is where a warning about
+ * what a button does goes unread. Standing it in the slot the buttons report into means it is
+ * the thing you are already looking at when you reach for them, and it keeps that slot from
+ * being empty — see the card for why the height has to be constant.
+ */
+private const val syncIdleHint =
+    "不会自动上传或恢复。上传会用本机数据覆盖云端；恢复会用云端数据覆盖本机。"
+
 
 @Composable
 private fun AccountHeader(onBack: () -> Unit) {
@@ -489,7 +576,7 @@ private fun AccountHeader(onBack: () -> Unit) {
             Modifier
                 .size(34.dp)
                 .pressable(onClick = onBack)
-                .glass(RoundedCornerShape(12.dp), palette.card3, palette.border),
+                .glass(continuousRounded(12.dp), palette.card3, palette.border),
             contentAlignment = Alignment.Center,
         ) {
             Icon(AppIcons.ChevronLeft, "返回", tint = palette.text, modifier = Modifier.size(17.dp))
@@ -507,7 +594,7 @@ private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glass(RoundedCornerShape(18.dp), palette.card, palette.border)
+            .glass(continuousRounded(18.dp), palette.card, palette.border)
             .padding(horizontal = 16.dp, vertical = 15.dp),
         content = content,
     )

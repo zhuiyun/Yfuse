@@ -8,7 +8,6 @@ import coil3.disk.DiskCache
 import coil3.intercept.Interceptor
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
-import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.account.AccountRepository
@@ -106,6 +105,9 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
                     .maxSizeBytes(256L * 1024L * 1024L)
                     .build()
             }
-            .crossfade(true)
+            // Deliberately no `crossfade`. 图片渐进加载 (§3.1) is owned by [FallbackImage],
+            // which fades, unblurs and unscales as one movement and knows to skip all three
+            // for a memory-cache hit. Coil's own crossfade ran underneath that as a second,
+            // shorter fade on a different clock, and fired on cached images too.
             .build()
 }

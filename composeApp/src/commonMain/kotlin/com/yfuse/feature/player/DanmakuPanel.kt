@@ -46,6 +46,7 @@ import com.yfuse.core.data.DanmakuEpisode
 import com.yfuse.core.data.DanmakuSearchResult
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.activeOr
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
@@ -465,7 +466,7 @@ private fun SearchField(
         Modifier
             .fillMaxWidth()
             .glass(
-                shape = RoundedCornerShape(12.dp),
+                shape = continuousRounded(12.dp),
                 fill = Color.White.copy(alpha = 0.08f),
                 border = Color.White.copy(alpha = 0.20f),
             )

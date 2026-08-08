@@ -41,6 +41,7 @@ import com.yfuse.app.TabBarInset
 import com.yfuse.core.data.isPast
 import com.yfuse.core.data.isToday
 import com.yfuse.core.data.missingCount
+import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
@@ -286,7 +287,7 @@ private fun DayStrip(days: List<CalendarDay>, today: String, onSelect: (Int) -> 
             Column(
                 Modifier
                     // The strip is rebuilt whenever the filter changes.
-                    .animateItem()
+                    .then(motionAwareItem())
                     .pressable { onSelect(index) }
                     .clip(GlassShapes.chip)
                     .background(if (isToday) Brand.Primary else Color.Transparent)

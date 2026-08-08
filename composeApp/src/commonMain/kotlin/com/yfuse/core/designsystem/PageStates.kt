@@ -1,5 +1,6 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,17 +10,24 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.PI
+import kotlin.math.cos
 
 /**
  * The two things a page shows instead of content: a message it can do nothing about, and
@@ -61,6 +69,12 @@ fun ErrorState(
  * [actionLabel] turns it into somewhere to go. An empty 我的收藏 or 稍后观看 is the state a
  * new user is in most often, and without the chip those pages are a dead end: the text
  * names what is missing and offers no way to fix it.
+ *
+ * [icon] gives the state a shape. A single line of grey text centred in an empty page is
+ * indistinguishable from a page that failed to render — the eye has nothing to land on and
+ * no signal that this *is* the content. A quiet glyph above the copy is what turns "nothing
+ * here" from an absence into a statement, which is the whole of Apple's
+ * `ContentUnavailableView`: symbol, then sentence, then the one thing to do about it.
  */
 @Composable
 fun PageHint(
@@ -68,16 +82,27 @@ fun PageHint(
     modifier: Modifier = Modifier,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
+    icon: ImageVector? = AppIcons.Info,
 ) {
+    val palette = LocalPalette.current
     Column(
         modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (icon != null) {
+            Icon(
+                icon,
+                contentDescription = null,
+                // Quieter than the copy it introduces: it is orientation, not information.
+                tint = palette.sub2.copy(alpha = 0.55f),
+                modifier = Modifier.size(34.dp),
+            )
+        }
         Text(
             text,
             style = sc(13f, 400, lineHeight = 13f * 1.6f),
-            color = LocalPalette.current.sub,
+            color = palette.sub,
             textAlign = TextAlign.Center,
         )
         if (actionLabel != null && onAction != null) {
@@ -114,10 +139,53 @@ private fun AccentChipButton(label: String, onClick: () -> Unit) {
 fun skeletonFill(): Color =
     if (LocalPalette.current.isDark) Color.White.copy(alpha = 0.08f) else Color(0x2996A0B4)
 
+/** A full breath of the skeleton pulse, in milliseconds. */
+private const val SKELETON_PULSE_MS = 1_600f
+
+/** How far down the breath goes. Perceptible as motion, quiet enough not to flash. */
+private const val SKELETON_PULSE_FLOOR = 0.45f
+
+/**
+ * The breath every placeholder shares.
+ *
+ * A static skeleton is the thing worth avoiding: a screen of motionless grey blocks is
+ * exactly what a page that has failed to load looks like, and the user has no way to tell
+ * the two apart. The pulse is the part that says the app is still working.
+ *
+ * Phase comes from the animation clock's absolute time rather than from a per-block
+ * animation, so every placeholder breathes together no matter when it was composed. Blocks
+ * that each started their own transition would drift apart within seconds and the page would
+ * shimmer at random, which reads as noise rather than as waiting.
+ *
+ * `withInfiniteAnimationFrameMillis` also honours the platform's animator scale, so a device
+ * with animations turned off in developer options gets a still skeleton for free; 减弱动态
+ * 效果 is handled explicitly above it.
+ */
+@Composable
+private fun skeletonPulse(): Float {
+    if (LocalAccessibilityOptions.current.reduceMotion) return 1f
+    val millis by produceState(0L) {
+        while (true) {
+            withInfiniteAnimationFrameMillis { value = it }
+        }
+    }
+    // A cosine is its own easing — smooth at both ends, no curve to apply and no reversal
+    // to schedule.
+    val phase = (millis % SKELETON_PULSE_MS.toLong()) / SKELETON_PULSE_MS
+    val wave = (1f - cos(phase * 2f * PI.toFloat())) / 2f
+    return SKELETON_PULSE_FLOOR + (1f - SKELETON_PULSE_FLOOR) * wave
+}
+
 /** One rounded placeholder block. Sized by the caller so it matches what it replaces. */
 @Composable
 fun SkeletonBlock(modifier: Modifier, radius: Dp = 6.dp) {
-    Box(modifier.clip(RoundedCornerShape(radius)).background(skeletonFill()))
+    val pulse = skeletonPulse()
+    Box(
+        modifier
+            .clip(continuousRounded(radius))
+            .graphicsLayer { alpha = pulse }
+            .background(skeletonFill()),
+    )
 }
 
 /**

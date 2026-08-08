@@ -1,8 +1,14 @@
 package com.yfuse.app
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +21,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -38,7 +46,11 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
@@ -58,9 +70,12 @@ import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalOverlayVisibility
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalTabReselected
+import com.yfuse.core.designsystem.MinTouchTarget
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.OverlayVisibility
-import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.pressable
@@ -206,7 +221,7 @@ fun App(root: RootComponent) {
         // library's grid, and to slide away under scroll, which left "is the bar there?"
         // depending on where the user happened to have scrolled to.
         val showBottomBar = atRoot
-        PlatformBackHandler(enabled = childCanGoBack || active != Tab.Home) {
+        val goBack: () -> Unit = {
             if (childCanGoBack) {
                 when (active) {
                     Tab.Home -> root.home.navigateBack()
@@ -218,6 +233,32 @@ fun App(root: RootComponent) {
                 root.selectTab(Tab.Home)
             }
         }
+
+        // 返回 is now something you can start, look at, and abandon.
+        //
+        // The page follows the finger while the gesture is live — see [backPeek] — and 返回
+        // itself still runs through the same [goBack] as the button, so there is exactly one
+        // definition of what back means. Only a page with somewhere to go back *to* peeks;
+        // dropping from a tab to 首页 is a jump, not a pop, and animating it as one would say
+        // something untrue about where the user is.
+        var backPeek by remember { mutableStateOf(0f) }
+        val peek by animateFloatAsState(
+            targetValue = backPeek,
+            // Straight through while the finger is driving it — an animation between reported
+            // positions is lag, not smoothing — and a spring on the way home when it lets go.
+            animationSpec = if (backPeek > 0f) snap<Float>() else Motion.settle<Float>(reduceMotion),
+            label = "backPeek",
+        )
+        LaunchedEffect(active, childCanGoBack) { backPeek = 0f }
+        PlatformPredictiveBackHandler(
+            enabled = childCanGoBack || active != Tab.Home,
+            onProgress = { backPeek = if (childCanGoBack) it else 0f },
+            onCancel = { backPeek = 0f },
+            onBack = {
+                backPeek = 0f
+                goBack()
+            },
+        )
 
         // An overlay owned by one of the tab screens composes below this shell's floating
         // furniture, so the bar has to be told to get out of its way — see [OverlayVisibility].
@@ -240,17 +281,70 @@ fun App(root: RootComponent) {
         // is a sibling drawn after it, which is the arrangement that keeps the bar out of
         // its own backdrop — see [backdropSource].
         val backdrop = rememberBackdropState()
-        CompositionLocalProvider(LocalOverlayVisibility provides overlays) {
+        CompositionLocalProvider(
+            LocalOverlayVisibility provides overlays,
+            LocalTabReselected provides root.tabReselected,
+        ) {
             AppBackdrop {
-                Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
-                    // The name rather than the enum: the key has to survive a Bundle round
-                    // trip, and a String is the one thing guaranteed to.
-                    tabStates.SaveableStateProvider(active.name) {
-                        when (active) {
-                            Tab.Home -> HomeTabScreen(root.home)
-                            Tab.Browse -> LibraryScreen(root.browse)
-                            Tab.Search -> SearchScreen(root.search)
-                            Tab.Profile -> ProfileTabScreen(root.profile)
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        // The peek. Scale and inset are the shape Android 14's own predictive
+                        // back draws, which is also — not by accident — the shape iOS's
+                        // interactive pop has always had: the page you are leaving lifts off
+                        // the surface and starts to move aside, and the corners round as it
+                        // stops being the whole screen. Rounding matters as much as the
+                        // movement; a full-bleed rectangle sliding sideways reads as a bug.
+                        .graphicsLayer {
+                            if (peek <= 0f) return@graphicsLayer
+                            val eased = Motion.Curve.transform(peek.coerceIn(0f, 1f))
+                            val inset = 1f - 0.08f * eased
+                            scaleX = inset
+                            scaleY = inset
+                            translationX = size.width * 0.06f * eased
+                            alpha = 1f - 0.2f * eased
+                            shape = GlassShapes.sheet
+                            clip = true
+                        }
+                        .backdropSource(backdrop),
+                ) {
+                    // 平级切 tab — 0.986 缩放淡入, §3.1.
+                    //
+                    // This was a bare `when (active)`, so the one transition the spec writes
+                    // out for switching tabs did not exist and `Motion.TAB_SCALE_FROM` was
+                    // referenced nowhere in the app. The pill and the tint crossfaded over
+                    // 260ms while the content they frame was replaced between two frames,
+                    // which made the cut more obvious rather than less.
+                    //
+                    // No slide and almost no scale: tabs are siblings, not a stack, and
+                    // anything with direction in it would imply one tab is "after" another.
+                    AnimatedContent(
+                        targetState = active,
+                        modifier = Modifier.fillMaxSize(),
+                        transitionSpec = {
+                            val duration = if (reduceMotion) 0 else Motion.TAB
+                            val fade = tween<Float>(duration, easing = Motion.Curve)
+                            val zoom = tween<Float>(duration, easing = Motion.Curve)
+                            (
+                                fadeIn(fade) +
+                                    scaleIn(zoom, initialScale = Motion.TAB_SCALE_FROM)
+                                ) togetherWith fadeOut(fade) using
+                                // Every tab fills the same screen, so there is no size to
+                                // transition — and the default one clips to an animating
+                                // box, which would crop the incoming page for 260ms.
+                                null
+                        },
+                        label = "tab",
+                    ) { tab ->
+                        // The name rather than the enum: the key has to survive a Bundle
+                        // round trip, and a String is the one thing guaranteed to.
+                        tabStates.SaveableStateProvider(tab.name) {
+                            when (tab) {
+                                Tab.Home -> HomeTabScreen(root.home)
+                                Tab.Browse -> LibraryScreen(root.browse)
+                                Tab.Search -> SearchScreen(root.search)
+                                Tab.Profile -> ProfileTabScreen(root.profile)
+                            }
                         }
                     }
                 }
@@ -258,7 +352,11 @@ fun App(root: RootComponent) {
                 if (showBottomBar && !overlays.any) {
                     GlassTabBar(
                         active = active,
-                        onSelect = root::selectTab,
+                        onSelect = { tab ->
+                            // Tapping the tab you are already on is not a no-op — see
+                            // [RootComponent.reselectTab].
+                            if (tab == active) root.reselectTab(tab, atRoot) else root.selectTab(tab)
+                        },
                         backdrop = backdrop,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -408,6 +506,7 @@ private fun WatchRoomBar(
             maxLines = 1,
             modifier = Modifier
                 .pressable(onClick = onView)
+                .touchTarget()
                 .clip(GlassShapes.chip)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         )
@@ -417,6 +516,9 @@ private fun WatchRoomBar(
             tint = Color.White.copy(alpha = 0.72f),
             modifier = Modifier
                 .pressable(onClick = onClose)
+                // 12dp glyph in 6dp of padding came to a 24dp target sitting right beside
+                // 查看 — the two smallest controls in the app, adjacent, in a 44dp bar.
+                .touchTarget()
                 .clip(CircleShape)
                 .padding(6.dp)
                 .size(12.dp),
@@ -444,17 +546,22 @@ private fun GlassTabBar(
     // The pill travels between cells rather than appearing under the new one. Tabs are
     // equal-weight quarters of the bar, so its position is the animated index and nothing
     // has to be measured.
+    //
+    // A spring rather than the 260ms tween it used to run on: this is the one control a
+    // session touches most, and impatient taps across three tabs used to restart a fixed ramp
+    // each time, so the pill fell further behind the finger the faster you moved. A spring
+    // carries its velocity into the next target and arrives with it.
     val indicator by animateFloatAsState(
         targetValue = selectedIndex.toFloat(),
-        animationSpec = tween(
-            durationMillis = if (reduceMotion) 0 else Motion.TAB,
-            easing = Motion.Curve,
-        ),
+        animationSpec = Motion.settle<Float>(reduceMotion),
         label = "tabIndicator",
     )
     Row(
         modifier
             .fillMaxWidth()
+            // One group of four, so a screen reader announces "第 2 项，共 4 项" rather than
+            // reading four unrelated controls.
+            .selectableGroup()
             .padding(horizontal = Dimens.tabBarInset)
             .padding(bottom = Dimens.tabBarInset)
             .height(Dimens.tabBarHeight)
@@ -494,15 +601,12 @@ private fun GlassTabBar(
 @Composable
 private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> Unit) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val spec = tween<Color>(
-        durationMillis = if (reduceMotion) 0 else Motion.TAB,
-        easing = Motion.Curve,
-    )
     // The tint used to cut straight from grey to accent while the pill slid underneath it;
-    // crossfading them puts the two halves of the same transition on the same clock.
+    // crossfading them puts the two halves of the same transition on the same clock — which
+    // now means the same spring, so the tint tracks the pill even through rapid taps.
     val tint by animateColorAsState(
         targetValue = if (selected) Brand.Primary else TabInactive,
-        animationSpec = spec,
+        animationSpec = Motion.settle<Color>(reduceMotion),
         label = "tabTint",
     )
 
@@ -510,14 +614,21 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
+            .heightIn(min = MinTouchTarget)
             .clip(GlassShapes.tabBar)
             // This was `clickable(indication = null)` with nothing put back, so the one
             // control every session touches most had no press feedback at all.
             .pressable(
                 pressedScale = 0.92f,
                 haptic = HapticSignal.Select,
+                // Without this every tab was announced as an unlabelled clickable region.
+                role = Role.Tab,
                 onClick = onClick,
-            ),
+            )
+            // The icon already carries [item.label] as its description; merging the cell
+            // means the tab is read once, as one control, with its state attached rather
+            // than as an icon and a caption that happen to sit together.
+            .semantics(mergeDescendants = true) { this.selected = selected },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {

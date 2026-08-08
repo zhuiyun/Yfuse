@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
+import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
@@ -65,6 +67,7 @@ import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.skeletonFill
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.feature.detail.DetailScreen
@@ -230,7 +233,7 @@ private fun SearchField(
     focusRequester: FocusRequester,
 ) {
     val palette = LocalPalette.current
-    val shape = RoundedCornerShape(25.dp)
+    val shape = continuousRounded(25.dp)
     Row(
         Modifier
             .fillMaxWidth()
@@ -263,7 +266,12 @@ private fun SearchField(
                 AppIcons.Close,
                 contentDescription = "清空搜索",
                 tint = palette.sub2,
-                modifier = Modifier.size(13.dp).pressable(onClick = onClear),
+                // 13dp was the smallest control in the app, and it sits at the end of a
+                // text field the user is actively typing in.
+                modifier = Modifier
+                    .pressable(onClick = onClear)
+                    .touchTarget()
+                    .size(13.dp),
             )
         }
     }
@@ -346,7 +354,7 @@ private fun PeopleRow(
             items(people, key = { "${it.serverId}-${it.personId}" }) { person ->
                 Column(
                     // Cast lands after the titles do, so the row grows into place.
-                    Modifier.width(64.dp).animateItem().pressable { onSelect(person) },
+                    Modifier.width(64.dp).then(motionAwareItem()).pressable { onSelect(person) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // The image draws nothing when the server has no headshot, so the
@@ -470,7 +478,7 @@ private fun ServerGroup(
                         serverId = group.serverId,
                         item = item,
                         onClick = { onOpenItem(item.id) },
-                        modifier = Modifier.width(270.dp).animateItem(),
+                        modifier = Modifier.width(270.dp).then(motionAwareItem()),
                     )
                 }
             }
@@ -599,7 +607,7 @@ private fun ResultRow(
             color = Brand.Primary,
             modifier = Modifier
                 .align(Alignment.CenterVertically)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(continuousRounded(8.dp))
                 .background(Brand.Primary.copy(alpha = 0.12f))
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         )

@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Modifier
@@ -27,23 +26,31 @@ import androidx.compose.ui.unit.dp
  *
  * The names say where a radius is used, but all of them resolve to one of the three
  * steps; adding a fourth value is a spec violation, not a tweak.
+ *
+ * All three are [ContinuousRoundedCornerShape] rather than `RoundedCornerShape`. The radii
+ * are unchanged — what changed is that the corner eases into the edge instead of meeting it
+ * at a curvature step. It matters most at the 大 step, which is where the app's largest
+ * surfaces live: the tab bar, sheets and the hero.
  */
 object GlassShapes {
     /** 小 10px — 缩略图、内嵌小块. */
-    val thumb = RoundedCornerShape(Dimens.small)
+    val thumb: Shape = ContinuousRoundedCornerShape(Dimens.small)
 
     /** 中 16px — 海报、按钮、胶囊、菜单. */
-    val poster = RoundedCornerShape(Dimens.medium)
-    val chip = RoundedCornerShape(Dimens.medium)
-    val card = RoundedCornerShape(Dimens.medium)
-    val menu = RoundedCornerShape(Dimens.medium)
+    val poster: Shape = ContinuousRoundedCornerShape(Dimens.medium)
+    val chip: Shape = ContinuousRoundedCornerShape(Dimens.medium)
+    val card: Shape = ContinuousRoundedCornerShape(Dimens.medium)
+    val menu: Shape = ContinuousRoundedCornerShape(Dimens.medium)
 
     /** 大 26px — sheet、迷你播放器、tab bar. */
-    val sheet = RoundedCornerShape(Dimens.large)
-    val hero = RoundedCornerShape(Dimens.large)
-    val tabBar = RoundedCornerShape(Dimens.large)
+    val sheet: Shape = ContinuousRoundedCornerShape(Dimens.large)
+    val hero: Shape = ContinuousRoundedCornerShape(Dimens.large)
+    val tabBar: Shape = ContinuousRoundedCornerShape(Dimens.large)
 
-    val circle = CircleShape
+    /** The app mark and other square art that has to read as an icon. */
+    val appIcon: Shape = ContinuousIconShape()
+
+    val circle: Shape = CircleShape
 }
 
 /**

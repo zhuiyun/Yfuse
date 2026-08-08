@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,7 +47,19 @@ fun BoxScope.ActionToast(
     // The exit animation outlives the state that caused it, so the last text is kept to
     // draw during the fade — otherwise the toast blanks a frame before it leaves.
     var lastMessage by remember { mutableStateOf(message.orEmpty()) }
+    /**
+     * Bumped every time a message is posted, and part of the timer's key.
+     *
+     * Keying the countdown on the text alone meant the same message twice in a row was one
+     * toast: 「已加入收藏」 posted while the first 「已加入收藏」 was still on screen did not
+     * restart the effect, so the second confirmation inherited whatever was left of the
+     * first one's four seconds and could vanish almost immediately.
+     */
+    var posting by remember { mutableIntStateOf(0) }
     LaunchedEffect(message) {
+        if (message != null) posting++
+    }
+    LaunchedEffect(posting) {
         val current = message ?: return@LaunchedEffect
         lastMessage = current
         delay(TOAST_MS)
@@ -69,6 +82,11 @@ fun BoxScope.ActionToast(
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .padding(horizontal = Dimens.pageHorizontal)
+                // A notice the user has already read should go when they say so, not when
+                // its timer says so. It sits over the bottom of the page — the busiest part
+                // of the screen — so waiting out the full 2.6s to reach what is underneath
+                // was the one thing it could get wrong.
+                .pressable(onClickLabel = "关闭提示", onClick = onDismiss)
                 .shadow(Shadows.tabBar, GlassShapes.chip)
                 .solidGlass(
                     shape = GlassShapes.chip,

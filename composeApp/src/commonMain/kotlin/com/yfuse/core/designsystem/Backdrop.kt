@@ -12,8 +12,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -36,6 +41,18 @@ expect val supportsBackdropBlur: Boolean
 
 /** 设计说明文档 §8.1 — `blur(20-22px)`. */
 val BackdropBlurRadius: Dp = 20.dp
+
+/**
+ * 设计说明文档 §8.1 — the `saturate(180%)` that goes with the blur, and the half that was
+ * missing.
+ *
+ * Blur alone averages a picture towards its mean, and the mean of almost any frame is grey.
+ * That is why an unsaturated blur under a translucent fill reads as dirty glass rather than
+ * as the colour of what is behind it. Pushing saturation back up is what makes the material
+ * pick up a poster's colour, and it is the whole reason Apple's materials feel like they are
+ * *made of* the content underneath instead of merely covering it.
+ */
+private const val BACKDROP_SATURATION = 1.8f
 
 /**
  * The page content, captured so the floating chrome above it can blur what it covers.
@@ -144,6 +161,15 @@ fun Modifier.backdropBlur(
 ): Modifier {
     val blurLayer = rememberGraphicsLayer()
     val radiusPx = with(LocalDensity.current) { radius.toPx() }
+    // The saturation is a property of the material, not of this surface, so it is built once
+    // rather than per frame.
+    val vibrancy = remember {
+        Paint().apply {
+            colorFilter = ColorFilter.colorMatrix(
+                ColorMatrix().apply { setToSaturation(BACKDROP_SATURATION) },
+            )
+        }
+    }
     var origin by remember { mutableStateOf(Offset.Zero) }
     if (!state.enabled) return this
     return this
@@ -161,6 +187,12 @@ fun Modifier.backdropBlur(
                     drawLayer(source)
                 }
             }
-            drawLayer(blurLayer)
+            // Saturation is applied as the blurred copy is composited down, so it lifts the
+            // backdrop and leaves the fill, hairline and content above it alone.
+            drawIntoCanvas { canvas ->
+                canvas.saveLayer(Rect(Offset.Zero, size), vibrancy)
+                drawLayer(blurLayer)
+                canvas.restore()
+            }
         }
 }

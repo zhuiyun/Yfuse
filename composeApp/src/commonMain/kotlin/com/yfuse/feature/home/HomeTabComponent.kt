@@ -6,6 +6,7 @@ import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
 import com.arkivanov.decompose.router.stack.pop
+import com.arkivanov.decompose.router.stack.popTo
 import com.arkivanov.decompose.router.stack.push
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
@@ -73,6 +74,16 @@ class HomeTabComponent(
 
     fun navigateBack() {
         navigation.pop()
+    }
+
+    /**
+     * Back to this tab's own root in one step — what tapping the current tab means.
+     *
+     * Popping one level at a time would land the user somewhere in the middle of the
+     * stack they were trying to leave.
+     */
+    fun popToRoot() {
+        navigation.popTo(index = 0)
     }
 
     private fun child(config: Config, context: ComponentContext): Child = when (config) {

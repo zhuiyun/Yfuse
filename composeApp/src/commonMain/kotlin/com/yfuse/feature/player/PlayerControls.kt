@@ -1,5 +1,16 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,20 +54,24 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalHaptics
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.PlatformBackHandler
@@ -68,6 +83,20 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 import kotlin.math.abs
 import kotlinx.coroutines.delay
+
+/**
+ * How long the player's own chrome takes to arrive or leave.
+ *
+ * Shorter than [Motion.MODAL]: this is the most-repeated animation in the app — a two-hour
+ * film is dozens of taps — and the one thing it must never do is stand between the user and
+ * the picture. Long enough to read as a movement, short enough that nobody waits for it.
+ *
+ * None of this existed. `if (visible) { TopBar(); BottomBar() }` was a bare conditional, and
+ * so were the settings panel, the episode drawer and both 弹幕 panels: every surface in the
+ * player appeared and vanished between two frames, in the one part of the app where chrome
+ * is *supposed* to come and go politely over content the user is watching.
+ */
+private const val CHROME_MS = 220
 
 /** Controls fade out after this long without interaction, while playing. */
 private const val AUTO_HIDE_MS = 4_000L
@@ -203,7 +232,11 @@ internal fun PlayerControls(
     // is held. [holdSeekTarget] is where the timeline has run to, committed on release.
     var holdSeekDirection by remember { mutableIntStateOf(0) }
     var holdSeekTarget by remember { mutableLongStateOf(0L) }
-    val haptics = LocalHapticFeedback.current
+    // The app's own vocabulary, not Compose's two-constant one. These two call sites were
+    // the last `HapticFeedbackType.LongPress` standing in for something it is not — a
+    // confirmed scrub and a refused one, played identically. [HapticSignal.Reject] existed
+    // for exactly the locked case and had never been called from anywhere.
+    val haptics = LocalHaptics.current
     // Bumped by every interaction so the auto-hide timer restarts.
     var interactions by remember { mutableIntStateOf(0) }
     val latestPosition by rememberUpdatedState(state.positionMs)
@@ -393,6 +426,7 @@ internal fun PlayerControls(
                         onDoubleTap = { offset ->
                             if (latestWatchLocked) {
                                 gestureHud = "房主控制播放"
+                                haptics.play(HapticSignal.Reject)
                             } else {
                                 when {
                                     offset.x < size.width / 3f -> {
@@ -414,7 +448,7 @@ internal fun PlayerControls(
                                         gestureHud = if (state.playing) "暂停" else "播放"
                                     }
                                 }
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                haptics.play(HapticSignal.Confirm)
                             }
                             poke()
                         },
@@ -422,12 +456,17 @@ internal fun PlayerControls(
                             // Left half rewinds, right half fast-forwards — the same split
                             // the double tap already uses, so one gesture explains the other.
                             when {
-                                latestWatchLocked -> gestureHud = "房主控制播放"
+                                latestWatchLocked -> {
+                                    gestureHud = "房主控制播放"
+                                    haptics.play(HapticSignal.Reject)
+                                }
                                 latestDuration <= 0L -> Unit
                                 else -> {
                                     holdSeekTarget = latestPosition
                                     holdSeekDirection = if (offset.x < size.width / 2f) -1 else 1
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    // A hold that has taken hold — the same signal a long
+                                    // press gets everywhere else in the app.
+                                    haptics.play(HapticSignal.Confirm)
                                 }
                             }
                             poke()
@@ -513,7 +552,13 @@ internal fun PlayerControls(
             return@Box
         }
 
-        if (visible) {
+        // 播放器 chrome — the top bar drops from the top edge, the transport row rises from
+        // the bottom, and both crossfade. See [ChromeVisibility].
+        ChromeVisibility(
+            visible = visible,
+            edge = ChromeEdge.Top,
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
             TopBar(
                 title = episodes.getOrNull(state.currentIndex)?.title.orEmpty(),
                 subtitle = state.readoutLine(sourceLabel, containerLabel),
@@ -534,9 +579,14 @@ internal fun PlayerControls(
                     lastReadChatId?.let { latest > it } ?: true
                 } ?: false,
                 onOpenChat = ::openWatchChat,
-                modifier = Modifier.align(Alignment.TopCenter),
             )
+        }
 
+        ChromeVisibility(
+            visible = visible,
+            edge = ChromeEdge.Bottom,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
             BottomBar(
                 state = state,
                 seekLocked = watchLocked,
@@ -563,7 +613,6 @@ internal fun PlayerControls(
                     settingsTab = Tab.Cast
                     if (castDevices.isEmpty()) onDiscoverCast()
                 },
-                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
 
@@ -605,7 +654,12 @@ internal fun PlayerControls(
             )
         }
 
-        settingsTab?.let { tab ->
+        // The panel outlives `settingsTab` by one animation, so the tab it was showing has to
+        // outlive it too — otherwise the content blanks on the frame the exit begins.
+        var lastSettingsTab by remember { mutableStateOf<Tab?>(null) }
+        LaunchedEffect(settingsTab) { settingsTab?.let { lastSettingsTab = it } }
+        ChromeVisibility(visible = settingsTab != null) {
+            lastSettingsTab?.let { tab ->
             SettingsPanel(
                 tab = tab,
                 state = state,
@@ -656,6 +710,7 @@ internal fun PlayerControls(
                 skipActions = skipActions,
                 onDismiss = { settingsTab = null },
             )
+            }
         }
 
         if (watchDialogOpen) {
@@ -685,7 +740,11 @@ internal fun PlayerControls(
             )
         }
 
-        if (watchChatOpen && watch.connected) {
+        ChromeVisibility(
+            visible = watchChatOpen && watch.connected,
+            edge = ChromeEdge.End,
+            modifier = Modifier.align(Alignment.CenterEnd),
+        ) {
             WatchChatPanel(
                 participants = watch.participants,
                 messages = watch.chatMessages,
@@ -701,15 +760,22 @@ internal fun PlayerControls(
                     watchChatOpen = false
                     lastReadChatId = watch.chatMessages.lastOrNull()?.id
                 },
-                modifier = Modifier.align(Alignment.CenterEnd),
             )
-        } else if (chatPreviewVisible && watch.chatMessages.isNotEmpty()) {
+        }
+
+        // The preview is what the panel replaces, so it is gated on the panel being shut
+        // rather than chained to it — an `else` here would have torn the preview down on the
+        // frame the panel started opening, before either had moved.
+        ChromeVisibility(
+            visible = !watchChatOpen && chatPreviewVisible && watch.chatMessages.isNotEmpty(),
+            edge = ChromeEdge.Top,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = if (visible) 70.dp else 18.dp, end = 22.dp),
+        ) {
             WatchChatPreview(
                 messages = watch.chatMessages,
                 onOpen = ::openWatchChat,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = if (visible) 70.dp else 18.dp, end = 22.dp),
             )
         }
 
@@ -726,7 +792,11 @@ internal fun PlayerControls(
             )
         }
 
-        if (drawerOpen) {
+        ChromeVisibility(
+            visible = drawerOpen,
+            edge = ChromeEdge.Bottom,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
             EpisodeStrip(
                 episodes = episodes,
                 currentIndex = state.currentIndex,
@@ -738,11 +808,14 @@ internal fun PlayerControls(
                     { onSelectItem(it); drawerOpen = false }
                 },
                 onDismiss = { drawerOpen = false },
-                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
 
-        if (danmakuSearchOpen) {
+        ChromeVisibility(
+            visible = danmakuSearchOpen,
+            edge = ChromeEdge.End,
+            modifier = Modifier.align(Alignment.CenterEnd),
+        ) {
             DanmakuSearchPanel(
                 state = danmaku,
                 // Picking closes the sheet: the choice is made, and the result of it is
@@ -754,7 +827,6 @@ internal fun PlayerControls(
                     },
                 ),
                 onDismiss = { danmakuSearchOpen = false },
-                modifier = Modifier.align(Alignment.CenterEnd),
             )
         }
 
@@ -852,7 +924,7 @@ internal fun PlayerControls(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .glass(
-                        shape = RoundedCornerShape(22.dp),
+                        shape = continuousRounded(22.dp),
                         fill = Color.Black.copy(alpha = 0.56f),
                         border = Color.White.copy(alpha = 0.24f),
                     )
@@ -1021,7 +1093,7 @@ private fun PlaybackErrorOverlay(
                     color = Color.White.copy(alpha = 0.82f),
                     modifier = Modifier
                         .glass(
-                            shape = RoundedCornerShape(18.dp),
+                            shape = continuousRounded(18.dp),
                             fill = Color.White.copy(alpha = 0.10f),
                             border = Color.White.copy(alpha = 0.28f),
                         )
@@ -1034,7 +1106,7 @@ private fun PlaybackErrorOverlay(
                     color = Color(0xFF1B2436),
                     modifier = Modifier
                         .glass(
-                            shape = RoundedCornerShape(18.dp),
+                            shape = continuousRounded(18.dp),
                             fill = Color.White.copy(alpha = 0.68f),
                             border = Color.White.copy(alpha = 0.88f),
                         )
@@ -1263,7 +1335,7 @@ private fun VolumeSlider(volume: Float, onVolume: (Float) -> Unit, modifier: Mod
     Column(
         modifier
             .glass(
-                shape = RoundedCornerShape(22.dp),
+                shape = continuousRounded(22.dp),
                 fill = Color.Black.copy(alpha = 0.56f),
                 border = Color.White.copy(alpha = 0.24f),
             )
@@ -1276,7 +1348,7 @@ private fun VolumeSlider(volume: Float, onVolume: (Float) -> Unit, modifier: Mod
             Modifier
                 .width(6.dp)
                 .height(140.dp)
-                .clip(RoundedCornerShape(3.dp))
+                .clip(continuousRounded(3.dp))
                 .background(Color.White.copy(alpha = 0.22f))
                 .onSizeChanged { height = it.height.coerceAtLeast(1) }
                 .pointerInput(Unit) {
@@ -1299,7 +1371,7 @@ private fun VolumeSlider(volume: Float, onVolume: (Float) -> Unit, modifier: Mod
                     Modifier
                         .fillMaxWidth()
                         .fillMaxHeight(fraction)
-                        .clip(RoundedCornerShape(3.dp))
+                        .clip(continuousRounded(3.dp))
                         .background(Color.White),
                 )
             }
@@ -1324,7 +1396,7 @@ private fun SkipPill(label: String, onClick: () -> Unit, modifier: Modifier = Mo
         color = Color.White,
         modifier = modifier
             .glass(
-                shape = RoundedCornerShape(18.dp),
+                shape = continuousRounded(18.dp),
                 fill = Color.Black.copy(alpha = 0.64f),
                 border = Color.White.copy(alpha = 0.28f),
             )
@@ -1571,21 +1643,21 @@ private fun SeekBar(
             Modifier
                 .fillMaxHeight()
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(2.dp))
+                .clip(continuousRounded(2.dp))
                 .background(PlayerTokens.trackFillLandscape),
         ) {
             Box(
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(bufferedFraction.coerceIn(0f, 1f))
-                    .clip(RoundedCornerShape(2.dp))
+                    .clip(continuousRounded(2.dp))
                     .background(Color.White.copy(alpha = 0.44f)),
             )
             Box(
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                    .clip(RoundedCornerShape(2.dp))
+                    .clip(continuousRounded(2.dp))
                     .background(PlayerTokens.progress),
             )
         }
@@ -1609,7 +1681,7 @@ internal fun scrubPositionMs(
  */
 private val ChipHeight = 40.dp
 private val ChipMinWidth = 46.dp
-private val ChipShape = RoundedCornerShape(14.dp)
+private val ChipShape = continuousRounded(14.dp)
 
 /** Labelled chip — `radius:14px`, `600 11.5px Manrope`, `rgba(255,255,255,.92)`. */
 @Composable
@@ -1758,7 +1830,7 @@ private fun LockedOverlay(onUnlock: () -> Unit) {
                 .align(Alignment.BottomEnd)
                 .padding(end = 22.dp, bottom = 40.dp)
                 .glass(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = continuousRounded(20.dp),
                     fill = Color.White.copy(alpha = 0.10f),
                     border = Color.White.copy(alpha = 0.28f),
                 )
@@ -1994,4 +2066,74 @@ private fun formatTime(ms: Long): String {
     val mm = minutes.toString().padStart(2, '0')
     val ss = seconds.toString().padStart(2, '0')
     return if (hours > 0) "$hours:$mm:$ss" else "$mm:$ss"
+}
+
+// ---------------------------------------------------------------- chrome transitions
+
+/**
+ * Which edge a piece of player chrome belongs to, and therefore where it comes from.
+ *
+ * Chrome that is anchored to an edge should arrive from that edge — it is the difference
+ * between a panel that slid in from where it lives and one that materialised on top of the
+ * film. [None] is for surfaces that own the whole screen and have no edge of their own.
+ */
+internal enum class ChromeEdge { Top, Bottom, End, None }
+
+/**
+ * Entrance and exit for one piece of player chrome.
+ *
+ * The travel is deliberately a fraction of the surface rather than a fixed distance: the top
+ * bar, the transport row and the episode drawer are wildly different heights, and a shared
+ * dp would read as a nudge on one and a lurch on another. A sixth of the surface's own size
+ * looks like the same gesture on all of them.
+ *
+ * Under 减弱动态效果 the movement goes and the crossfade stays: chrome appearing instantly
+ * over a moving picture is harder to follow than chrome that fades, and a fade is not the
+ * kind of motion that setting is there to suppress.
+ */
+@Composable
+internal fun ChromeVisibility(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    edge: ChromeEdge = ChromeEdge.None,
+    content: @Composable AnimatedVisibilityScope.() -> Unit,
+) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val fade = tween<Float>(CHROME_MS, easing = Motion.Curve)
+    val slide = tween<IntOffset>(CHROME_MS, easing = Motion.Curve)
+    val travel: (Int) -> Int = { full -> full / 6 }
+    val moving = !reduceMotion
+
+    val enter = when {
+        !moving -> fadeIn(fade)
+        edge == ChromeEdge.Top -> fadeIn(fade) + slideInVertically(slide) { -travel(it) }
+        edge == ChromeEdge.Bottom -> fadeIn(fade) + slideInVertically(slide) { travel(it) }
+        edge == ChromeEdge.End -> fadeIn(fade) + slideInHorizontally(slide) { travel(it) }
+        // Anchored inside its own full-screen box, so it grows out of the corner it sits in
+        // rather than sliding the invisible dismiss catcher around with it.
+        else -> fadeIn(fade) + scaleIn(
+            tween(CHROME_MS, easing = Motion.Curve),
+            initialScale = 0.94f,
+            transformOrigin = TransformOrigin(1f, 1f),
+        )
+    }
+    val exit = when {
+        !moving -> fadeOut(fade)
+        edge == ChromeEdge.Top -> fadeOut(fade) + slideOutVertically(slide) { -travel(it) }
+        edge == ChromeEdge.Bottom -> fadeOut(fade) + slideOutVertically(slide) { travel(it) }
+        edge == ChromeEdge.End -> fadeOut(fade) + slideOutHorizontally(slide) { travel(it) }
+        else -> fadeOut(fade) + scaleOut(
+            tween(CHROME_MS, easing = Motion.Curve),
+            targetScale = 0.94f,
+            transformOrigin = TransformOrigin(1f, 1f),
+        )
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = enter,
+        exit = exit,
+        content = content,
+    )
 }

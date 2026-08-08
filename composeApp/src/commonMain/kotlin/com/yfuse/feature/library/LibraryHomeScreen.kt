@@ -57,6 +57,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.data.FAVORITES_COLLECTION_ID
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.HapticSignal
@@ -67,7 +68,9 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
@@ -147,13 +150,17 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     LaunchedEffect(slides.map { it.id }) {
         pagerState.scrollToPage(loopingCarouselStartPage(slides.size))
     }
-    LaunchedEffect(slides.size, carouselDragging) {
-        if (slides.size <= 1 || carouselDragging) return@LaunchedEffect
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    LaunchedEffect(slides.size, carouselDragging, reduceMotion) {
+        // Same reasoning as 首页's reel: the largest moving thing on the page, and the one
+        // 减弱动态效果 was not reaching.
+        if (slides.size <= 1 || carouselDragging || reduceMotion) return@LaunchedEffect
         while (true) {
             delay(6_000)
             pagerState.animateScrollToPage(pagerState.currentPage + 1)
         }
     }
+    ScrollToTopOnReselect(listState)
 
     Box(Modifier.fillMaxSize()) {
         when {
@@ -418,7 +425,7 @@ private fun HeroCarousel(
                 color = Color.White,
                 modifier = Modifier
                     .glass(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = continuousRounded(20.dp),
                         fill = accent.copy(alpha = 0.38f),
                         border = Color.White.copy(alpha = 0.30f),
                     )
@@ -558,7 +565,7 @@ private fun HeroCarousel(
                         .height(6.dp)
                         .pressable { onSelectSlide(index) }
                         .glass(
-                            shape = RoundedCornerShape(3.dp),
+                            shape = continuousRounded(3.dp),
                             fill = if (active) {
                                 Color.White.copy(alpha = 0.88f)
                             } else {
@@ -641,7 +648,7 @@ private fun ServerSheet(
                     Box(
                         Modifier
                             .size(34.dp)
-                            .clip(RoundedCornerShape(9.dp))
+                            .clip(continuousRounded(9.dp))
                             .background(serverTileColor(server.id)),
                         contentAlignment = Alignment.Center,
                     ) {
