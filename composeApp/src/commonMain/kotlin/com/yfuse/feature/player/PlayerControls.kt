@@ -415,12 +415,12 @@ internal fun PlayerControls(
             WatchChatDanmakuOverlay(
                 roomCode = watch.roomCode,
                 messages = watch.chatMessages,
+                // 弹幕 fly whether or not the chat panel is open. It used to be
+                // `chatDanmakuEnabled && !watchChatOpen`, which suppressed every message the
+                // sender ever wrote — sending is only possible from inside that panel — and
+                // held back the rest of the room's while it was up. The panel is a drawer down
+                // one edge; 弹幕 cross the width above it. They were never in each other's way.
                 enabled = watch.chatDanmakuEnabled,
-                // While the panel is up it is already listing what the room is saying, so
-                // other people's lines wait for it to close — held, not dropped. Your own
-                // never waits: sending only happens from inside this panel, so anything that
-                // suppressed 弹幕 while it was open suppressed every message you ever sent.
-                held = watchChatOpen,
             )
             // Above the danmaku and below the controls: a reaction is meant to be seen
             // over the picture, never to swallow a tap aimed at 播放.

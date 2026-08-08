@@ -78,23 +78,20 @@ internal fun watchChatMessagesNotSeen(
 /**
  * What is owed a flight right now.
  *
- * [held] is the chat panel being open over the picture. It holds back what other people say,
- * because the panel is already listing it — but never what *you* said. Sending is only
- * possible from inside that panel, so a rule that suppresses 弹幕 while it is open suppresses
- * every message you will ever send, which is the whole of what "自己发的消息看不到" was.
+ * Everything said in the room, by anyone, whether or not the chat panel happens to be open
+ * over the picture. The panel used to suppress 弹幕 while it was up, on the reasoning that it
+ * was already listing the same messages — but the panel is a 340dp drawer and 弹幕 cross the
+ * whole width above it, so the two were never competing for the same space, and the room's
+ * chat is worth seeing whether or not you are currently reading the transcript of it.
  *
- * @param limit at most one lane each, so a released backlog does not stack several messages
- *   at the same x in the same lane.
+ * @param limit at most one lane each, so a burst does not stack several messages at the same
+ *   x in the same lane.
  */
 internal fun watchChatDanmakuArrivals(
     messages: List<WatchChatMessage>,
     seenKeys: Set<WatchChatAnimationKey>,
-    held: Boolean,
     limit: Int,
-): List<WatchChatMessage> = watchChatMessagesNotSeen(
-    messages = if (held) messages.filter { it.isMine } else messages,
-    seenKeys = seenKeys,
-).takeLast(limit)
+): List<WatchChatMessage> = watchChatMessagesNotSeen(messages, seenKeys).takeLast(limit)
 
 /**
  * Real-time room chat overlay. Unlike media danmaku it uses wall-clock animation, so chat
@@ -105,19 +102,6 @@ internal fun WatchChatDanmakuOverlay(
     roomCode: String?,
     messages: List<WatchChatMessage>,
     enabled: Boolean,
-    /**
-     * The chat panel is open over the picture.
-     *
-     * It holds back what *other people* say — the panel is already showing them to you as a
-     * list, and flying the same line past the top of the screen at the same time is noise.
-     * Your own messages are never held: see the effect below.
-     *
-     * Holding used to be done by switching [enabled] off, which marks everything arriving as
-     * already animated. That is what made a message you sent vanish: sending is only possible
-     * from inside this panel, so every message you ever wrote was written while the thing
-     * suppressing 弹幕 was open. The rest of the room saw it; you never did.
-     */
-    held: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val messageKeys = messages.map { it.animationKey() }
@@ -133,7 +117,7 @@ internal fun WatchChatDanmakuOverlay(
     ) {
         val laneCount = (maxHeight / CHAT_LANE_HEIGHT).toInt().coerceIn(1, MAX_LANES)
 
-        LaunchedEffect(enabled, held, roomCode, messageKeys, laneCount) {
+        LaunchedEffect(enabled, roomCode, messageKeys, laneCount) {
             if (!enabled || roomCode == null) {
                 // Off by the viewer's own choice, or no room to belong to: nothing is owed a
                 // flight, now or later.
@@ -141,15 +125,8 @@ internal fun WatchChatDanmakuOverlay(
                 active = emptyList()
                 return@LaunchedEffect
             }
-            val arrivals = watchChatDanmakuArrivals(messages, seenKeys, held, laneCount)
-            // Held messages wait rather than being spent: [seenKeys] gains only what actually
-            // flew, so the backlog goes out when the panel comes down instead of having been
-            // animated behind a scrim nobody can see through.
-            if (held) {
-                if (arrivals.isNotEmpty()) seenKeys = seenKeys + arrivals.map { it.animationKey() }
-            } else {
-                seenKeys = messageKeys.toSet()
-            }
+            val arrivals = watchChatDanmakuArrivals(messages, seenKeys, laneCount)
+            seenKeys = messageKeys.toSet()
             if (arrivals.isEmpty()) return@LaunchedEffect
             val flights = arrivals.mapIndexed { index, message ->
                 WatchChatFlight(message, (nextLane + index) % laneCount)
