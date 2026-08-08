@@ -28,8 +28,10 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -59,6 +61,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.PrimaryGradient
+import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.glass
@@ -82,6 +85,7 @@ import kotlinx.coroutines.launch
  * 首页 — the prototype's `isHome` screen:
  * `padding:52px 18px 100px; gap:22px`, greeting, search entry, hero, 继续观看, 为你推荐.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(component: HomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
@@ -99,113 +103,122 @@ fun HomeScreen(component: HomeComponent) {
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
+        PullToRefreshBox(
+            isRefreshing = state.refreshing,
+            onRefresh = { component.store.accept(HomeIntent.Refresh) },
             modifier = Modifier.fillMaxSize(),
-            state = listState,
-            contentPadding = PaddingValues(bottom = TabBarInset),
-            verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
         ) {
-            // Navigation in the hero header must remain available even when the remote
-            // recommendation feed is loading or unavailable.
-            item {
-                HomeHeroCarousel(
-                    items = state.featuredSlides.take(5),
-                    onOpenProfile = component.onOpenProfile,
-                    onOpenSearch = component.onOpenSearch,
-                    onOpenCalendar = component.onOpenCalendar,
-                    onPlay = { component.store.accept(HomeIntent.Open(it)) },
-                    onFavorite = { component.store.accept(HomeIntent.Favorite(it)) },
-                )
-            }
-
-            if (state.loading && state.content.isEmpty) {
-                item(key = "recommendations-loading") {
-                    Box(Modifier.fillMaxWidth().height(96.dp)) {
-                        CircularProgressIndicator(Modifier.align(Alignment.Center))
-                    }
-                }
-            } else if (state.error != null && state.content.isEmpty) {
-                item(key = "recommendations-error") {
-                    ErrorState(
-                        message = state.error!!,
-                        onRetry = { component.store.accept(HomeIntent.Retry) },
-                        modifier = Modifier.fillMaxWidth(),
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(bottom = TabBarInset),
+                verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
+            ) {
+                // Navigation in the hero header must remain available even when the remote
+                // recommendation feed is loading or unavailable.
+                item {
+                    HomeHeroCarousel(
+                        items = state.featuredSlides.take(5),
+                        onOpenProfile = component.onOpenProfile,
+                        onOpenSearch = component.onOpenSearch,
+                        onOpenCalendar = component.onOpenCalendar,
+                        onPlay = { component.store.accept(HomeIntent.Open(it)) },
+                        onFavorite = { component.store.accept(HomeIntent.Favorite(it)) },
                     )
                 }
-            }
 
-            state.recommendationNotice?.let { notice ->
-                item(key = "recommendations-cache-notice") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = Dimens.pageHorizontal)
-                            .glass(GlassShapes.chip, palette.card2, palette.border)
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(
-                            text = notice,
-                            style = sc(11.5f, 550),
-                            color = palette.sub,
-                            modifier = Modifier.weight(1f),
+                if (state.loading && state.content.isEmpty) {
+                    // Two shelves' worth of placeholders rather than one spinner: the page
+                    // this becomes is a stack of rails, and a skeleton that is the wrong
+                    // shape moves the content once it arrives.
+                    items(2, key = { "recommendations-loading-$it" }) {
+                        SkeletonRail(
+                            modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
                         )
+                    }
+                } else if (state.error != null && state.content.isEmpty) {
+                    item(key = "recommendations-error") {
+                        ErrorState(
+                            message = state.error!!,
+                            onRetry = { component.store.accept(HomeIntent.Retry) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                state.recommendationNotice?.let { notice ->
+                    item(key = "recommendations-cache-notice") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Dimens.pageHorizontal)
+                                .glass(GlassShapes.chip, palette.card2, palette.border)
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                text = notice,
+                                style = sc(11.5f, 550),
+                                color = palette.sub,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = "重新刷新",
+                                style = sc(11.5f, 700),
+                                color = Brand.Primary,
+                                modifier = Modifier.clickable {
+                                    component.store.accept(HomeIntent.Retry)
+                                },
+                            )
+                        }
+                    }
+                }
+
+                state.actionMessage?.let { message ->
+                    item {
                         Text(
-                            text = "重新刷新",
-                            style = sc(11.5f, 700),
+                            message,
+                            style = sc(11.5f, 650),
                             color = Brand.Primary,
-                            modifier = Modifier.clickable {
-                                component.store.accept(HomeIntent.Retry)
-                            },
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Dimens.pageHorizontal)
+                                .glass(GlassShapes.chip)
+                                .padding(10.dp),
                         )
                     }
                 }
-            }
 
-            state.actionMessage?.let { message ->
-                item {
-                    Text(
-                        message,
-                        style = sc(11.5f, 650),
-                        color = Brand.Primary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = Dimens.pageHorizontal)
-                            .glass(GlassShapes.chip)
-                            .padding(10.dp),
-                    )
-                }
-            }
-
-            if (state.resume.isNotEmpty()) {
-                item {
-                    ContinueWatching(
-                        // From the same state as the items themselves — see
-                        // [HomeState.server].
-                        baseUrl = state.server?.baseUrl.orEmpty(),
-                        accessToken = state.server?.accessToken.orEmpty(),
-                        items = state.resume,
-                        onSeeAll = component.onOpenLibrary,
-                        onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
-                    )
-                }
-            }
-
-            state.content.rows.forEach { row ->
-                if (row.items.isNotEmpty()) {
-                    item(key = "tmdb-${row.title}") {
-                        Recommended(
-                            title = row.title,
-                            items = row.items,
-                            showReleaseDate = row.title == "即将上映" || row.title == "最新上线",
-                            // Opens this shelf, not the 库 tab. These come from TMDB and
-                            // most are not in the library at all, so the old destination
-                            // showed none of what the chip had just offered.
-                            onSeeAll = { expandedRow = row },
-                            onClick = { component.store.accept(HomeIntent.Open(it)) },
+                if (state.resume.isNotEmpty()) {
+                    item {
+                        ContinueWatching(
+                            // From the same state as the items themselves — see
+                            // [HomeState.server].
+                            baseUrl = state.server?.baseUrl.orEmpty(),
+                            accessToken = state.server?.accessToken.orEmpty(),
+                            items = state.resume,
+                            onSeeAll = component.onOpenLibrary,
+                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
                         )
+                    }
+                }
+
+                state.content.rows.forEach { row ->
+                    if (row.items.isNotEmpty()) {
+                        item(key = "tmdb-${row.title}") {
+                            Recommended(
+                                title = row.title,
+                                items = row.items,
+                                showReleaseDate = row.title == "即将上映" || row.title == "最新上线",
+                                // Opens this shelf, not the 库 tab. These come from TMDB and
+                                // most are not in the library at all, so the old destination
+                                // showed none of what the chip had just offered.
+                                onSeeAll = { expandedRow = row },
+                                onClick = { component.store.accept(HomeIntent.Open(it)) },
+                            )
+                        }
                     }
                 }
             }

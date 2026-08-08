@@ -32,6 +32,14 @@ import kotlinx.coroutines.withContext
 
 data class HomeState(
     val loading: Boolean = true,
+    /**
+     * A refresh the user asked for by pulling the page down.
+     *
+     * Separate from [loading] because the two want different chrome: the first load has
+     * nothing on screen and shows skeletons, while a pull already has the page under it
+     * and only needs the indicator it dragged into view.
+     */
+    val refreshing: Boolean = false,
     val content: TmdbHome = TmdbHome(),
     /**
      * Recomputed on every load: the app can outlive midnight, and 今日精选 that is still
@@ -79,6 +87,9 @@ data class HomeState(
 sealed interface HomeIntent {
     data object Retry : HomeIntent
 
+    /** The same reload as [Retry], reported as a pull rather than as a first load. */
+    data object Refresh : HomeIntent
+
     /** Tapping a TMDB pick: play it if the library has it, else show its info. */
     data class Open(val item: TmdbItem) : HomeIntent
     data class Favorite(val item: TmdbItem) : HomeIntent
@@ -101,7 +112,7 @@ private sealed interface Action {
 }
 
 private sealed interface Msg {
-    data object Loading : Msg
+    data class Loading(val refresh: Boolean) : Msg
     data class Cached(val content: TmdbHome) : Msg
     data class Loaded(val content: TmdbHome) : Msg
     data class ResumeLoaded(val items: List<MediaItem>) : Msg
@@ -195,16 +206,20 @@ class HomeStoreFactory(
                     loadRecommendations()
                     loadResume(state().server, force = true)
                 }
+                HomeIntent.Refresh -> {
+                    loadRecommendations(refresh = true)
+                    loadResume(state().server, force = true)
+                }
                 is HomeIntent.Open -> open(intent.item)
                 is HomeIntent.Favorite -> favorite(intent.item)
                 is HomeIntent.OpenResume -> publish(HomeLabel.OpenEmbyItem(intent.item.id))
             }
         }
 
-        private fun loadRecommendations() {
+        private fun loadRecommendations(refresh: Boolean = false) {
             recommendationJob?.cancel()
             val generation = ++recommendationGeneration
-            dispatch(Msg.Loading)
+            dispatch(Msg.Loading(refresh))
             val shouldReadCache = state().content.isEmpty
             recommendationJob = scope.launch {
                 try {
@@ -368,8 +383,9 @@ class HomeStoreFactory(
 
     private object ReducerImpl : Reducer<HomeState, Msg> {
         override fun HomeState.reduce(msg: Msg): HomeState = when (msg) {
-            Msg.Loading -> copy(
+            is Msg.Loading -> copy(
                 loading = true,
+                refreshing = msg.refresh,
                 error = null,
                 recommendationNotice = null,
             )
@@ -379,6 +395,7 @@ class HomeStoreFactory(
             )
             is Msg.Loaded -> copy(
                 loading = false,
+                refreshing = false,
                 content = msg.content,
                 today = currentIsoDate(),
                 error = null,
@@ -394,12 +411,14 @@ class HomeStoreFactory(
             is Msg.Failed -> if (content.isEmpty) {
                 copy(
                     loading = false,
+                    refreshing = false,
                     error = msg.message,
                     recommendationNotice = null,
                 )
             } else {
                 copy(
                     loading = false,
+                    refreshing = false,
                     error = null,
                     recommendationNotice = "推荐内容刷新失败，正在显示最近缓存",
                 )

@@ -38,6 +38,14 @@ import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.TmdbImages
 
 /**
+ * Smallest poster column this grid will draw.
+ *
+ * Chosen so a 360dp phone still lays out three across, while a tablet or an unfolded
+ * device spends its extra width on more posters instead of three stretched ones.
+ */
+private val PosterMinWidth = 94.dp
+
+/**
  * 全部 — one home shelf, opened out into a grid.
  *
  * The chip beside every shelf used to navigate to the 库 tab. For 继续观看 that is at least
@@ -90,7 +98,8 @@ internal fun TmdbRowPage(
             }
 
             LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
+                // Three across on a phone, more on anything wider — see [PosterMinWidth].
+                columns = GridCells.Adaptive(PosterMinWidth),
                 contentPadding = PaddingValues(
                     start = Dimens.pageHorizontal,
                     end = Dimens.pageHorizontal,
