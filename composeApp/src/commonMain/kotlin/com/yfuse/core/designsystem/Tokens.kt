@@ -275,6 +275,14 @@ object Motion {
     /** 顶栏材质切换 — 滚动超过 280px 后转为玻璃底（§4.2）. */
     const val TOP_BAR = 280
 
+    /**
+     * 作品主色跟随切换 — the artwork accent easing from one title's colour to the next.
+     *
+     * Slower than a tab switch and faster than the image it belongs to: the wash is
+     * background, and a page that recolours as fast as it redraws reads as a flicker.
+     */
+    const val ACCENT = 420
+
     /** 图片渐进加载：占位主色渐变 → 12px 模糊放大 1.05 → 清晰归位. */
     const val IMAGE_IN = 550
     val imageBlur = 12.dp

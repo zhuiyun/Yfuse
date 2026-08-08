@@ -90,6 +90,9 @@ sealed interface HomeIntent {
     /** The same reload as [Retry], reported as a pull rather than as a first load. */
     data object Refresh : HomeIntent
 
+    /** The one-shot 提示 has been on screen long enough — see [ActionToast]. */
+    data object DismissMessage : HomeIntent
+
     /** Tapping a TMDB pick: play it if the library has it, else show its info. */
     data class Open(val item: TmdbItem) : HomeIntent
     data class Favorite(val item: TmdbItem) : HomeIntent
@@ -210,6 +213,7 @@ class HomeStoreFactory(
                     loadRecommendations(refresh = true)
                     loadResume(state().server, force = true)
                 }
+                HomeIntent.DismissMessage -> dispatch(Msg.ActionMessage(null))
                 is HomeIntent.Open -> open(intent.item)
                 is HomeIntent.Favorite -> favorite(intent.item)
                 is HomeIntent.OpenResume -> publish(HomeLabel.OpenEmbyItem(intent.item.id))

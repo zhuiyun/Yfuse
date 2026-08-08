@@ -81,6 +81,9 @@ data class DetailState(
 
 sealed interface DetailIntent {
     data object Retry : DetailIntent
+
+    /** The one-shot 提示 has been on screen long enough — see [ActionToast]. */
+    data object DismissMessage : DetailIntent
     data object Play : DetailIntent
     data object ToggleFavorite : DetailIntent
     data object TogglePlayed : DetailIntent
@@ -230,6 +233,7 @@ class DetailStoreFactory(
         override fun executeIntent(intent: DetailIntent) {
             when (intent) {
                 DetailIntent.Retry -> load()
+                DetailIntent.DismissMessage -> dispatch(DetailMsg.ActionMessage(null))
                 DetailIntent.Play -> play(fromStart = false)
                 DetailIntent.PlayFromStart -> play(fromStart = true)
                 DetailIntent.ToggleFavorite -> toggleFavorite()

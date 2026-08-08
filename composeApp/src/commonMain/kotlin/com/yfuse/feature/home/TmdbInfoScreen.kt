@@ -53,7 +53,7 @@ import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.rememberDominantColor
+import com.yfuse.core.designsystem.rememberAnimatedDominantColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
@@ -79,7 +79,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
         TmdbImages.media(item.posterPath, "w780"),
     )
     val heroUrl = heroUrls.firstOrNull { it != null }
-    val accent = rememberDominantColor(heroUrl, Brand.Primary)
+    val accent = rememberAnimatedDominantColor(heroUrl, Brand.Primary)
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = maxHeight * 0.34f

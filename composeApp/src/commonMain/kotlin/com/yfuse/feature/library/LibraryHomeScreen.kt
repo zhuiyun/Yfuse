@@ -58,6 +58,8 @@ import com.yfuse.core.data.FAVORITES_COLLECTION_ID
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.BurstIcon
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
@@ -77,7 +79,7 @@ import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberDominantColor
+import com.yfuse.core.designsystem.rememberAnimatedDominantColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.scrim
@@ -129,7 +131,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
         EmbyImages.backdrop(baseUrl, it, accessToken = accessToken)
             ?: EmbyImages.poster(baseUrl, it, accessToken = accessToken)
     }
-    val accent = rememberDominantColor(slideUrl, Brand.Primary)
+    val accent = rememberAnimatedDominantColor(slideUrl, Brand.Primary)
 
     var serverMenuOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -196,7 +198,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         accessToken = accessToken,
                                     ),
                                 )
-                                val animatedAccent = rememberDominantColor(
+                                val animatedAccent = rememberAnimatedDominantColor(
                                     animatedUrls.firstOrNull { it != null },
                                     Brand.Primary,
                                 )
@@ -521,6 +523,7 @@ private fun HeroCarousel(
                     Text("立即播放", style = sc(12f, 700), color = Color.White)
                 }
                 HeroCircleAction(
+                    active = item.isFavorite,
                     icon = if (item.isFavorite) AppIcons.HeartFilled else AppIcons.Heart,
                     description = if (item.isFavorite) "取消收藏" else "加入收藏",
                     onClick = onToggleFavorite,
@@ -984,11 +987,16 @@ private fun HeroCircleAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     onClick: () -> Unit,
+    /** Non-null for a toggle, so the glyph can answer being switched on. */
+    active: Boolean? = null,
 ) {
     Box(
         Modifier
             .size(34.dp)
-            .pressable(onClick = onClick)
+            .pressable(
+                haptic = if (active != null) HapticSignal.Confirm else null,
+                onClick = onClick,
+            )
             .glass(
                 shape = CircleShape,
                 fill = Color.White.copy(alpha = 0.14f),
@@ -996,6 +1004,16 @@ private fun HeroCircleAction(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, description, tint = Color.White, modifier = Modifier.size(14.dp))
+        if (active == null) {
+            Icon(icon, description, tint = Color.White, modifier = Modifier.size(14.dp))
+        } else {
+            BurstIcon(
+                icon = icon,
+                active = active,
+                contentDescription = description,
+                tint = Color.White,
+                burstColor = Color.White,
+            )
+        }
     }
 }

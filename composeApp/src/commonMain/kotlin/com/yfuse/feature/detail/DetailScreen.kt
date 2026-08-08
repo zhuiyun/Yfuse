@@ -59,7 +59,10 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.BurstIcon
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.ErrorState
@@ -81,7 +84,7 @@ import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberDominantColor
+import com.yfuse.core.designsystem.rememberAnimatedDominantColor
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaElement
@@ -183,7 +186,10 @@ fun DetailScreen(component: DetailComponent) {
             EmbyImages.poster(baseUrl, it, accessToken = accessToken),
         )
     }.orEmpty()
-    val accent = rememberDominantColor(heroUrls.firstOrNull { it != null }, Brand.Primary)
+    val accent = rememberAnimatedDominantColor(
+        heroUrls.firstOrNull { it != null },
+        Brand.Primary,
+    )
 
     var seasonPickerOpen by remember { mutableStateOf(false) }
     var overviewExpanded by remember { mutableStateOf(false) }
@@ -381,22 +387,6 @@ fun DetailScreen(component: DetailComponent) {
                                 component.store.accept(DetailIntent.AddToWatchLater)
                             },
                         )
-                        state.actionMessage?.let { message ->
-                            Text(
-                                message,
-                                style = sc(11.5f, 600),
-                                color = accent,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .solidGlass(
-                                        shape = GlassShapes.chip,
-                                        fill = accent.copy(alpha = 0.08f),
-                                        border = accent.copy(alpha = 0.20f),
-                                    )
-                                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                                textAlign = TextAlign.Center,
-                            )
-                        }
                     }
                 }
 
@@ -705,6 +695,16 @@ fun DetailScreen(component: DetailComponent) {
                 onDismiss = { shareSheetOpen = false },
             )
         }
+
+        // Over the page rather than inside it: as a row in the action column this
+        // pushed 简介 and everything under it down the moment a tap was confirmed,
+        // and it stayed there until some other action happened to replace it.
+        ActionToast(
+            message = state.actionMessage,
+            onDismiss = { component.store.accept(DetailIntent.DismissMessage) },
+            accent = accent,
+            modifier = Modifier.padding(bottom = 28.dp),
+        )
     }
 }
 
@@ -1291,7 +1291,9 @@ private fun GlassActionButton(
     Row(
         modifier
             .height(46.dp)
-            .pressable(onClick = onClick)
+            // 收藏 / 稍后观看 change state in place and navigate nowhere, so the tap needs
+            // to be felt as well as seen.
+            .pressable(haptic = HapticSignal.Confirm, onClick = onClick)
             .shadow(GlassLift.control, GlassShapes.card)
             .liquidGlass(
                 shape = GlassShapes.card,
@@ -1318,11 +1320,12 @@ private fun GlassActionButton(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                icon,
+            BurstIcon(
+                icon = icon,
+                active = active,
                 contentDescription = label,
                 tint = if (active) accent else palette.body,
-                modifier = Modifier.size(14.dp),
+                burstColor = accent,
             )
         }
         Text(

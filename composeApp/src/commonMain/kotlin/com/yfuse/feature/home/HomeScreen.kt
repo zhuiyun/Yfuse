@@ -45,12 +45,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
@@ -175,22 +175,6 @@ fun HomeScreen(component: HomeComponent) {
                     }
                 }
 
-                state.actionMessage?.let { message ->
-                    item {
-                        Text(
-                            message,
-                            style = sc(11.5f, 650),
-                            color = Brand.Primary,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = Dimens.pageHorizontal)
-                                .glass(GlassShapes.chip)
-                                .padding(10.dp),
-                        )
-                    }
-                }
-
                 if (state.resume.isNotEmpty()) {
                     item {
                         ContinueWatching(
@@ -223,6 +207,14 @@ fun HomeScreen(component: HomeComponent) {
                 }
             }
         }
+
+        // Floats over the page rather than sitting in it: as a list item this pushed the
+        // whole feed down and then let it snap back, and it never cleared itself.
+        ActionToast(
+            message = state.actionMessage,
+            onDismiss = { component.store.accept(HomeIntent.DismissMessage) },
+            modifier = Modifier.padding(bottom = TabBarInset),
+        )
 
         if (state.resolving) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
