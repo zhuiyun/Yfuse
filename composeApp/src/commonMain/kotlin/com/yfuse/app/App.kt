@@ -42,6 +42,10 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AccessibilityOptions
+import com.yfuse.core.designsystem.BackdropState
+import com.yfuse.core.designsystem.backdropBlur
+import com.yfuse.core.designsystem.backdropSource
+import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
@@ -223,16 +227,22 @@ fun App(root: RootComponent) {
         // its saved value once the branch left the tree, and every switch landed the user
         // back at the top of the page they had already scrolled through.
         val tabStates = rememberSaveableStateHolder()
+        // What the floating bottom furniture blurs. The page is captured here and the bar
+        // is a sibling drawn after it, which is the arrangement that keeps the bar out of
+        // its own backdrop — see [backdropSource].
+        val backdrop = rememberBackdropState()
         CompositionLocalProvider(LocalOverlayVisibility provides overlays) {
             AppBackdrop {
-                // The name rather than the enum: the key has to survive a Bundle round trip,
-                // and a String is the one thing guaranteed to.
-                tabStates.SaveableStateProvider(active.name) {
-                    when (active) {
-                        Tab.Home -> HomeTabScreen(root.home)
-                        Tab.Browse -> LibraryScreen(root.browse)
-                        Tab.Search -> SearchScreen(root.search)
-                        Tab.Profile -> ProfileTabScreen(root.profile)
+                Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
+                    // The name rather than the enum: the key has to survive a Bundle round
+                    // trip, and a String is the one thing guaranteed to.
+                    tabStates.SaveableStateProvider(active.name) {
+                        when (active) {
+                            Tab.Home -> HomeTabScreen(root.home)
+                            Tab.Browse -> LibraryScreen(root.browse)
+                            Tab.Search -> SearchScreen(root.search)
+                            Tab.Profile -> ProfileTabScreen(root.profile)
+                        }
                     }
                 }
 
@@ -240,6 +250,7 @@ fun App(root: RootComponent) {
                     GlassTabBar(
                         active = active,
                         onSelect = root::selectTab,
+                        backdrop = backdrop,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding(),
@@ -264,6 +275,7 @@ fun App(root: RootComponent) {
                             onEnter = root::enterWatchRoom,
                             onView = { roomInfoOpen = true },
                             onClose = { hiddenRoomCode = watchState.roomCode },
+                            backdrop = backdrop,
                             modifier = bottomStackSlot,
                         )
                     }
@@ -339,6 +351,7 @@ private fun WatchRoomBar(
     onEnter: () -> Unit,
     onView: () -> Unit,
     onClose: () -> Unit,
+    backdrop: BackdropState,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -346,6 +359,8 @@ private fun WatchRoomBar(
             .fillMaxWidth()
             .height(44.dp)
             .shadow(Shadows.tabBar, GlassShapes.card)
+            // Shares the tab bar's material, so it shares the blur under it — §3.
+            .backdropBlur(backdrop, GlassShapes.card)
             .overlayGlass(
                 GlassShapes.card,
                 MiniPlayerTokens.fill,
@@ -408,7 +423,12 @@ private fun WatchRoomBar(
  * this material, radius and horizontal inset so the two read as one continuous overlay.
  */
 @Composable
-private fun GlassTabBar(active: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
+private fun GlassTabBar(
+    active: Tab,
+    onSelect: (Tab) -> Unit,
+    backdrop: BackdropState,
+    modifier: Modifier = Modifier,
+) {
     val palette = LocalPalette.current
     Row(
         modifier
@@ -417,6 +437,9 @@ private fun GlassTabBar(active: Tab, onSelect: (Tab) -> Unit, modifier: Modifier
             .padding(bottom = Dimens.tabBarInset)
             .height(Dimens.tabBarHeight)
             .shadow(Shadows.tabBar, GlassShapes.tabBar)
+            // Before the fill, so the 0.72–0.76 glass sits on the blur rather than under
+            // it. §8.1's material is the two together; the bar has only ever had the fill.
+            .backdropBlur(backdrop, GlassShapes.tabBar)
             .overlayGlass(GlassShapes.tabBar, palette.glassStrong, palette.tabbarBorder),
         verticalAlignment = Alignment.CenterVertically,
     ) {

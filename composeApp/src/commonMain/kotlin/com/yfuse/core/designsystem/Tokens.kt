@@ -75,10 +75,11 @@ data class Palette(
      * The same material for overlays that sit directly over dense content — tab bar,
      * 迷你播放器, sheets.
      *
-     * §8.1 pairs its 0.74–0.82 fill with `blur(20-22px) saturate(180%)`; that blur is
-     * what keeps the bar legible over artwork. Compose Multiplatform has no common
-     * backdrop-blur, so at the annotated alpha posters read straight through and the
-     * tab labels blur out. Raising the alpha buys back the separation the blur provided.
+     * §8.1 pairs its 0.74–0.82 fill with `blur(20-22px)`; that blur is what keeps the bar
+     * legible over artwork, and for a long time it did not exist — Compose Multiplatform
+     * has no backdrop filter, so this alpha was raised until posters stopped reading
+     * through. [backdropBlur] supplies the blur now, and the fill is back to being an
+     * ordinary §8.1 fill rather than a compensation for a missing one.
      */
     val glassStrong: Color,
     /** `--pg-border` */ val border: Color,
@@ -283,13 +284,14 @@ object Motion {
 // ---------------------------------------------------------------- typography
 
 /**
- * The spec pairs Noto Sans SC (Chinese) with Manrope (Latin/numerals). Neither is
- * bundled, so both resolve through the platform default — on Android that is Noto
- * Sans CJK for Chinese glyphs and Roboto for Latin. Sizes, weights and line heights
- * below are the annotated values.
+ * The spec pairs Noto Sans SC (Chinese) with Manrope (Latin/numerals).
+ *
+ * Chinese resolves through the platform default, which on Android *is* Noto Sans CJK.
+ * Manrope is bundled — see [NumericFontFamily] for why it is worth the file. Sizes,
+ * weights and line heights below are the annotated values.
  */
 private val SansSc = FontFamily.Default
-private val Manrope = FontFamily.Default
+private val Manrope = NumericFontFamily
 
 /** `font: <weight> <size>px 'Noto Sans SC'` */
 fun sc(size: Float, weight: Int, lineHeight: Float? = null) = TextStyle(
