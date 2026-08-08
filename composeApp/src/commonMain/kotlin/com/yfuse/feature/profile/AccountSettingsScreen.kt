@@ -49,6 +49,8 @@ import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.WatchAvatar
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.flatGlass as glass
@@ -511,30 +513,47 @@ private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
     )
 }
 
+/**
+ * The eight avatars, drawn as the avatars they are.
+ *
+ * This used to render `id + 1` — eight grey circles reading 1 to 8 — while the very same
+ * ids are drawn as 🍿 🎬 🌙 🚀 🐱 🐼 🦊 ✨ everywhere 一起看 shows a participant. Picking
+ * one here therefore told the user nothing about what they had picked, and the number
+ * they were choosing between existed in no other part of the app.
+ */
 @Composable
 private fun AvatarPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(WatchTogetherPreferences.AVATAR_COUNT) { id ->
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .glass(
-                        CircleShape,
-                        if (id == selected) Brand.Primary.copy(alpha = 0.20f) else LocalPalette.current.card2,
-                        if (id == selected) Brand.Primary else LocalPalette.current.border,
-                    )
-                    .let { if (enabled) it.pressable { onSelect(id) } else it },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text((id + 1).toString(), style = sc(12f, 700), color = LocalPalette.current.text)
-            }
+            // WatchAvatar carries its own selected ring, so there is no glass layer here.
+            WatchAvatar(
+                avatarId = id,
+                size = 38.dp,
+                selected = id == selected,
+                modifier = Modifier.pressable(
+                    enabled = enabled,
+                    haptic = HapticSignal.Select,
+                    onClick = { onSelect(id) },
+                ),
+            )
         }
     }
 }
 
+/**
+ * The signed-in identity: the first character of the nickname, or the chosen avatar when
+ * there is no nickname to take one from.
+ *
+ * The fallback was `avatarId + 1`, which put a bare digit where every other surface in the
+ * app shows this account's actual avatar.
+ */
 @Composable
 private fun AccountAvatar(nickname: String, avatarId: Int) {
+    val initial = nickname.take(1)
+    if (initial.isBlank()) {
+        WatchAvatar(avatarId = avatarId, size = 44.dp)
+        return
+    }
     Box(
         modifier = Modifier
             .size(44.dp)
@@ -543,7 +562,7 @@ private fun AccountAvatar(nickname: String, avatarId: Int) {
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            nickname.take(1).ifBlank { (avatarId + 1).toString() },
+            initial,
             style = sc(16f, 700),
             color = Brand.Primary,
             textAlign = TextAlign.Center,
