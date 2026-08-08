@@ -155,6 +155,23 @@ class SearchStoreFactory(
         private var debounceJob: Job? = null
         private var personJob: Job? = null
 
+        /**
+         * The requests in flight for the current query.
+         *
+         * Held so a new query — or 清空 — can drop them. Without this a fast typist left one
+         * fan-out per keystroke running against every configured server, and the reducer's
+         * query guard was the only thing keeping their answers off the screen: the work
+         * still happened, and on a slow server it was the reason the tab felt heavy.
+         */
+        private var searchJob: Job? = null
+        private var peopleJob: Job? = null
+
+        private fun cancelInFlight() {
+            searchJob?.cancel()
+            peopleJob?.cancel()
+            personJob?.cancel()
+        }
+
         override fun executeIntent(intent: SearchIntent) {
             when (intent) {
                 is SearchIntent.QueryChanged -> {
@@ -165,7 +182,7 @@ class SearchStoreFactory(
                 SearchIntent.Retry -> search(state().searchedQuery.ifEmpty { state().query })
                 SearchIntent.Clear -> {
                     debounceJob?.cancel()
-                    personJob?.cancel()
+                    cancelInFlight()
                     dispatch(SearchMsg.Cleared)
                 }
                 is SearchIntent.ForgetRecent ->
@@ -180,6 +197,7 @@ class SearchStoreFactory(
         private fun debouncedSearch(rawQuery: String) {
             debounceJob?.cancel()
             if (rawQuery.isBlank()) {
+                cancelInFlight()
                 dispatch(SearchMsg.Cleared)
                 return
             }
@@ -198,8 +216,8 @@ class SearchStoreFactory(
          * state was the more expensive of the two mistakes to make.
          */
         private fun selectPerson(person: PersonHit?) {
-            personJob?.cancel()
             debounceJob?.cancel()
+            cancelInFlight()
             if (person == null) {
                 search(state().searchedQuery.ifEmpty { state().query })
                 return
@@ -245,6 +263,7 @@ class SearchStoreFactory(
             val query = rawQuery.trim()
             if (query.isEmpty()) {
                 debounceJob?.cancel()
+                cancelInFlight()
                 dispatch(SearchMsg.Cleared)
                 return
             }
@@ -261,9 +280,9 @@ class SearchStoreFactory(
             }
 
             debounceJob?.cancel()
-            personJob?.cancel()
+            cancelInFlight()
             dispatch(SearchMsg.Loading(query))
-            scope.launch {
+            searchJob = scope.launch {
                 val groups = coroutineScope {
                     servers.map { server ->
                         async {
@@ -327,7 +346,7 @@ class SearchStoreFactory(
             }
             // Cast runs beside the titles rather than gating them: it is an extra row, and
             // a server without the /Persons route should not hold up the results.
-            scope.launch {
+            peopleJob = scope.launch {
                 val people = coroutineScope {
                     servers.map { server ->
                         async {
