@@ -2,6 +2,7 @@ package com.yfuse.feature.detail
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -61,6 +62,8 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.BurstIcon
 import com.yfuse.core.designsystem.Dimens
@@ -819,6 +822,19 @@ private fun Hero(
     sharedKey: String,
     scroll: State<Float>,
 ) {
+    // 详情页顶图 1.14 → 1, §3.1. The parallax below has always been here; the entrance
+    // it belongs to was not, so the artwork simply appeared at rest.
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    var entered by remember(sharedKey) { mutableStateOf(false) }
+    LaunchedEffect(sharedKey) { entered = true }
+    val entrance by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (reduceMotion) 0 else Motion.EXPAND,
+            easing = Motion.Curve,
+        ),
+        label = "heroEntrance",
+    )
     Box(
         Modifier
             .fillMaxWidth()
@@ -832,7 +848,20 @@ private fun Hero(
         FallbackImage(
             urls = urls,
             contentDescription = title,
-            modifier = Modifier.fillMaxSize().sharedMediaElement(sharedKey),
+            // The hero settles out of its own entrance, so it does not also resolve out
+            // of the blur — 1.05 on top of 1.14 is two scales for one arrival.
+            progressive = false,
+            modifier = Modifier
+                .fillMaxSize()
+                .sharedMediaElement(sharedKey)
+                // Inside the shared element, not around it: scaling the bounds would
+                // fight the poster travelling in from the list it was tapped in.
+                .graphicsLayer {
+                    val scale = 1f +
+                        (Motion.DETAIL_HERO_SCALE_FROM - 1f) * (1f - entrance)
+                    scaleX = scale
+                    scaleY = scale
+                },
         )
         Box(
             Modifier
