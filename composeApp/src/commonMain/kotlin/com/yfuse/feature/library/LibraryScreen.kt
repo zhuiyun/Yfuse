@@ -15,6 +15,7 @@ fun LibraryScreen(component: LibraryComponent) {
         targetState = stack.active.instance,
         routeKey = ::routeKey,
         depth = stack.items.size,
+        previous = stack.backStack.lastOrNull()?.instance,
     ) { instance ->
         when (instance) {
             is LibraryComponent.Child.Home -> LibraryHomeScreen(instance.component)

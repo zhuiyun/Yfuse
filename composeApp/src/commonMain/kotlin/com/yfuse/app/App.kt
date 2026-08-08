@@ -3,7 +3,6 @@ package com.yfuse.app
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,7 +45,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -76,6 +74,8 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
+import com.yfuse.core.designsystem.LocalPredictiveBack
+import com.yfuse.core.designsystem.rememberPredictiveBackState
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.pressable
@@ -236,28 +236,23 @@ fun App(root: RootComponent) {
 
         // 返回 is now something you can start, look at, and abandon.
         //
-        // The page follows the finger while the gesture is live — see [backPeek] — and 返回
-        // itself still runs through the same [goBack] as the button, so there is exactly one
-        // definition of what back means. Only a page with somewhere to go back *to* peeks;
+        // The shell only receives the gesture; the page that follows the finger, and the page
+        // revealed behind it, are drawn by the tab's own navigation stack — see
+        // [PredictiveBackState]. That split is the whole point: the shell has no idea what is
+        // underneath the current page, so when it owned the animation the peek slid the entire
+        // app aside over the ambient backdrop and revealed a blank wash instead of the screen
+        // being returned to.
+        //
+        // 返回 itself still runs through the same [goBack] as the button, so there is exactly
+        // one definition of what back means. Only a page with somewhere to go back *to* peeks;
         // dropping from a tab to 首页 is a jump, not a pop, and animating it as one would say
         // something untrue about where the user is.
-        var backPeek by remember { mutableStateOf(0f) }
-        val peek by animateFloatAsState(
-            targetValue = backPeek,
-            // Straight through while the finger is driving it — an animation between reported
-            // positions is lag, not smoothing — and a spring on the way home when it lets go.
-            animationSpec = if (backPeek > 0f) snap<Float>() else Motion.settle<Float>(reduceMotion),
-            label = "backPeek",
-        )
-        LaunchedEffect(active, childCanGoBack) { backPeek = 0f }
+        val backGesture = rememberPredictiveBackState()
         PlatformPredictiveBackHandler(
             enabled = childCanGoBack || active != Tab.Home,
-            onProgress = { backPeek = if (childCanGoBack) it else 0f },
-            onCancel = { backPeek = 0f },
-            onBack = {
-                backPeek = 0f
-                goBack()
-            },
+            onProgress = { if (childCanGoBack) backGesture.onProgress(it) },
+            onCancel = { backGesture.onCancel() },
+            onBack = { backGesture.onCommit(goBack) },
         )
 
         // An overlay owned by one of the tab screens composes below this shell's floating
@@ -284,28 +279,12 @@ fun App(root: RootComponent) {
         CompositionLocalProvider(
             LocalOverlayVisibility provides overlays,
             LocalTabReselected provides root.tabReselected,
+            LocalPredictiveBack provides backGesture,
         ) {
             AppBackdrop {
                 Box(
                     Modifier
                         .fillMaxSize()
-                        // The peek. Scale and inset are the shape Android 14's own predictive
-                        // back draws, which is also — not by accident — the shape iOS's
-                        // interactive pop has always had: the page you are leaving lifts off
-                        // the surface and starts to move aside, and the corners round as it
-                        // stops being the whole screen. Rounding matters as much as the
-                        // movement; a full-bleed rectangle sliding sideways reads as a bug.
-                        .graphicsLayer {
-                            if (peek <= 0f) return@graphicsLayer
-                            val eased = Motion.Curve.transform(peek.coerceIn(0f, 1f))
-                            val inset = 1f - 0.08f * eased
-                            scaleX = inset
-                            scaleY = inset
-                            translationX = size.width * 0.06f * eased
-                            alpha = 1f - 0.2f * eased
-                            shape = GlassShapes.sheet
-                            clip = true
-                        }
                         .backdropSource(backdrop),
                 ) {
                     // 平级切 tab — 0.986 缩放淡入, §3.1.

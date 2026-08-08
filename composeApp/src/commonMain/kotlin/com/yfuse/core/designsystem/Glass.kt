@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -281,9 +282,16 @@ fun GlassCard(
     Box(modifier.glass(shape, fill, border), content = content)
 }
 
-/** Ambient colour field visible through every liquid-glass surface. */
+/**
+ * The layers of the ambient field, bottom first.
+ *
+ * Exposed separately from [AppBackdrop] because a page lifted off the shell by a back gesture
+ * has to carry its own copy — see [predictiveBackPeek]. Most pages are transparent over this,
+ * so one taken out of the stack and put in its own layer has nothing behind it.
+ */
 @Composable
-fun AppBackdrop(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+@ReadOnlyComposable
+fun appBackdropBrushes(): List<Brush> {
     val palette = LocalPalette.current
     val base = if (palette.isDark) {
         cssLinearGradient(
@@ -321,11 +329,19 @@ fun AppBackdrop(modifier: Modifier = Modifier, content: @Composable BoxScope.() 
             Color(0xFF9B7DE0).copy(alpha = 0.18f)
         },
     )
-    Box(modifier.fillMaxSize().background(base)) {
-        Box(Modifier.fillMaxSize().background(upperGlow))
-        Box(Modifier.fillMaxSize().background(lowerGlow))
-        content()
-    }
+    return listOf(base, upperGlow, lowerGlow)
+}
+
+/** Ambient colour field visible through every liquid-glass surface. */
+@Composable
+fun AppBackdrop(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    val layers = appBackdropBrushes()
+    Box(
+        modifier
+            .fillMaxSize()
+            .drawBehind { layers.forEach { drawRect(it) } },
+        content = content,
+    )
 }
 
 /** `rgba(0,0,0,.06)` divider used inside stacked form cards. */

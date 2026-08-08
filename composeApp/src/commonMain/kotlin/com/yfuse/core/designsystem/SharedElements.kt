@@ -11,14 +11,22 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 private val LocalSharedTransitionScope =
@@ -46,6 +54,9 @@ private val LocalSharedAnimatedVisibilityScope =
 @Immutable
 private data class Route<T : Any>(val value: T, val depth: Int)
 
+/** How long after a route change a back gesture may start peeking — see its use below. */
+private const val PEEK_GRACE = Motion.PUSH + 120L
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun <T : Any> SharedElementTransitionContainer(
@@ -59,6 +70,13 @@ fun <T : Any> SharedElementTransitionContainer(
      * that had opened the page, and §3.1's [Motion.POP] was referenced nowhere in the app.
      */
     depth: Int,
+    /**
+     * What 返回 would land on, or `null` at the root of the stack.
+     *
+     * Composed only while a back gesture is in flight, so the peek has the actual page to
+     * reveal rather than the ambient backdrop the shell happens to sit on.
+     */
+    previous: T? = null,
     content: @Composable (T) -> Unit,
 ) {
     val accessibility = LocalAccessibilityOptions.current
@@ -67,42 +85,82 @@ fun <T : Any> SharedElementTransitionContainer(
     // 推进 — 右侧 30px 滑入; 返回 — 左侧 22px 滑入.
     val pushOffset = with(density) { Motion.pushOffset.roundToPx() }
     val popOffset = with(density) { Motion.popOffset.roundToPx() }
+    val back = LocalPredictiveBack.current
+    // Claimed once per route change, while it is happening: a pop the user has already
+    // dragged all the way out has nothing left to animate. Asking during composition — not
+    // from an effect afterwards — is what makes the answer available to the transition being
+    // built right here.
+    val settledPop = remember(targetState) { back?.consumePendingCommit() == true }
 
-    SharedTransitionLayout sharedTransition@{
-        AnimatedContent(
-            targetState = Route(targetState, depth),
-            transitionSpec = {
-                val popping = this.targetState.depth < initialState.depth
-                val duration = when {
-                    accessibility.reduceMotion -> 0
-                    popping -> Motion.POP
-                    else -> Motion.PUSH
+    // A route change keeps the page below composed inside [AnimatedContent] until it finishes,
+    // and a saved-state key may only be claimed once — so a peek starting on top of one would
+    // claim the same key twice and take the app down with it. The wait is deliberately longer
+    // than the longest transition: a gesture in that window simply goes without its peek and
+    // 返回 behaves as it did before, which is a far better failure than a crash.
+    var settled by remember { mutableStateOf(false) }
+    LaunchedEffect(targetState) {
+        settled = false
+        delay(PEEK_GRACE)
+        settled = true
+    }
+    back?.canPeek = settled && previous != null
+
+    Box(Modifier.fillMaxSize()) {
+        if (back != null && back.peeking && previous != null) {
+            PredictiveBackReveal(back) {
+                // The route below keeps its own saved state — where it was scrolled to above
+                // all — so the peek shows the page the user actually left. The one case where
+                // both ends of the gesture are the same route (detail → related detail) has
+                // to go without: a [SaveableStateProvider] key may only be claimed once.
+                val previousKey = routeKey(previous)
+                if (previousKey == routeKey(targetState)) {
+                    content(previous)
+                } else {
+                    stateHolder.SaveableStateProvider(previousKey) { content(previous) }
                 }
-                val fade = tween<Float>(duration, easing = Motion.Curve)
-                val slide = tween<IntOffset>(duration, easing = Motion.Curve)
-                val entering = if (popping) -popOffset else pushOffset
-                ((
-                    fadeIn(fade) + slideInHorizontally(slide) { entering }
-                    ) togetherWith (
-                    // The outgoing page drifts the other way at half the distance, so the
-                    // two are clearly one movement rather than two pages passing.
-                    fadeOut(fade) + slideOutHorizontally(slide) { -entering / 2 }
-                    )).apply {
-                    // The destination owns all non-shared chrome. On a pop this keeps the
-                    // outgoing detail buttons behind the library page instead of letting
-                    // them float over it for the remainder of the exit animation.
-                    targetContentZIndex = 1f
-                }
-            },
-            contentKey = { routeKey(it.value) },
-            label = "shared-media-route",
-        ) animatedContent@{ child ->
-            CompositionLocalProvider(
-                LocalSharedTransitionScope provides this@sharedTransition,
-                LocalSharedAnimatedVisibilityScope provides this@animatedContent,
-            ) {
-                stateHolder.SaveableStateProvider(routeKey(child.value)) {
-                    content(child.value)
+            }
+        }
+
+        val peek = if (back != null) Modifier.predictiveBackPeek(back) else Modifier
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize().then(peek)) sharedTransition@{
+            AnimatedContent(
+                targetState = Route(targetState, depth),
+                transitionSpec = {
+                    val popping = this.targetState.depth < initialState.depth
+                    // A committed gesture has already played this transition under the
+                    // finger: both pages are where it would have put them, so animating
+                    // one now would move them a second time.
+                    val duration = when {
+                        (popping && settledPop) || accessibility.reduceMotion -> 0
+                        popping -> Motion.POP
+                        else -> Motion.PUSH
+                    }
+                    val fade = tween<Float>(duration, easing = Motion.Curve)
+                    val slide = tween<IntOffset>(duration, easing = Motion.Curve)
+                    val entering = if (popping) -popOffset else pushOffset
+                    ((
+                        fadeIn(fade) + slideInHorizontally(slide) { entering }
+                        ) togetherWith (
+                        // The outgoing page drifts the other way at half the distance, so the
+                        // two are clearly one movement rather than two pages passing.
+                        fadeOut(fade) + slideOutHorizontally(slide) { -entering / 2 }
+                        )).apply {
+                        // The destination owns all non-shared chrome. On a pop this keeps the
+                        // outgoing detail buttons behind the library page instead of letting
+                        // them float over it for the remainder of the exit animation.
+                        targetContentZIndex = 1f
+                    }
+                },
+                contentKey = { routeKey(it.value) },
+                label = "shared-media-route",
+            ) animatedContent@{ child ->
+                CompositionLocalProvider(
+                    LocalSharedTransitionScope provides this@sharedTransition,
+                    LocalSharedAnimatedVisibilityScope provides this@animatedContent,
+                ) {
+                    stateHolder.SaveableStateProvider(routeKey(child.value)) {
+                        content(child.value)
+                    }
                 }
             }
         }

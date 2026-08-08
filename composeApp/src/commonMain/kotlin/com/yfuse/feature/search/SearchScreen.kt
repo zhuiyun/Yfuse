@@ -81,6 +81,7 @@ fun SearchScreen(component: SearchComponent) {
         targetState = stack.active.instance,
         routeKey = ::routeKey,
         depth = stack.items.size,
+        previous = stack.backStack.lastOrNull()?.instance,
     ) { instance ->
         when (instance) {
             is SearchComponent.Child.Home -> SearchHomeScreen(instance.component, focusRequest)
