@@ -69,6 +69,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
@@ -942,31 +943,10 @@ private fun CategorySection(
  */
 @Composable
 private fun SkeletonRow() {
-    val palette = LocalPalette.current
-    val fill = if (palette.isDark) Color.White.copy(alpha = 0.08f) else Color(0x2996A0B4)
-    Column(
-        Modifier.padding(horizontal = Dimens.pageHorizontal),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Box(Modifier.width(90.dp).height(16.dp).clip(RoundedCornerShape(6.dp)).background(fill))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            repeat(3) {
-                Column(Modifier.width(PosterWidth)) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(150.dp)
-                            .clip(GlassShapes.poster)
-                            .background(fill),
-                    )
-                    Spacer(Modifier.height(7.dp))
-                    Box(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(4.dp)).background(fill))
-                    Spacer(Modifier.height(5.dp))
-                    Box(Modifier.width(42.dp).height(9.dp).clip(RoundedCornerShape(4.dp)).background(fill))
-                }
-            }
-        }
-    }
+    SkeletonRail(
+        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+        posterWidth = PosterWidth,
+    )
 }
 
 @Composable

@@ -1,5 +1,6 @@
 package com.yfuse.core.data
 
+import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
@@ -133,8 +134,67 @@ class EmbyRepositoryTest {
         val res = repo.libraryItems(server, "lib1")
 
         assertTrue(res.isSuccess, res.toString())
-        assertEquals(1, res.getOrThrow().size)
-        assertEquals("电影A", res.getOrThrow().first().title)
+        assertEquals(1, res.getOrThrow().items.size)
+        assertEquals("电影A", res.getOrThrow().items.first().title)
+    }
+
+    @Test
+    fun libraryItems_pushes_sort_genre_and_paging_to_the_server() = runTest {
+        val repo = testRepo { request ->
+            assertEquals("ProductionYear,PremiereDate", request.url.parameters["SortBy"])
+            assertEquals("Descending", request.url.parameters["SortOrder"])
+            assertEquals("科幻", request.url.parameters["Genres"])
+            assertEquals("60", request.url.parameters["StartIndex"])
+            assertEquals("60", request.url.parameters["Limit"])
+            json(
+                """{"Items":[{"Id":"m2","Name":"电影B","Type":"Movie",""" +
+                    """"ImageTags":{"Primary":"t"}}],"TotalRecordCount":300}""",
+            )
+        }
+
+        val res = repo.libraryItems(
+            server = server,
+            libraryId = "lib1",
+            sort = LibrarySort.Year,
+            genre = "科幻",
+            startIndex = 60,
+            limit = 60,
+        )
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals(300, res.getOrThrow().totalCount)
+        assertEquals(60, res.getOrThrow().startIndex)
+    }
+
+    @Test
+    fun libraryItems_totalCount_never_undercounts_what_is_already_loaded() = runTest {
+        // A server that omits TotalRecordCount would otherwise report a total of zero and
+        // stop the grid paging after its first page.
+        val repo = testRepo {
+            json("""{"Items":[{"Id":"m3","Name":"电影C","Type":"Movie"}]}""")
+        }
+
+        val res = repo.libraryItems(server, "lib1", startIndex = 60)
+
+        assertTrue(res.isSuccess, res.toString())
+        assertEquals(61, res.getOrThrow().totalCount)
+    }
+
+    @Test
+    fun libraryGenres_returns_empty_when_the_server_has_no_facet() = runTest {
+        val repo = testRepo { respond(content = "", status = HttpStatusCode.NotFound) }
+
+        assertEquals(emptyList(), repo.libraryGenres(server, "lib1"))
+    }
+
+    @Test
+    fun libraryGenres_parses_names() = runTest {
+        val repo = testRepo { request ->
+            assertEquals("lib1", request.url.parameters["ParentId"])
+            json("""{"Items":[{"Id":"g1","Name":"科幻"},{"Id":"g2","Name":"悬疑"}]}""")
+        }
+
+        assertEquals(listOf("科幻", "悬疑"), repo.libraryGenres(server, "lib1"))
     }
 
     @Test
@@ -152,8 +212,8 @@ class EmbyRepositoryTest {
         val result = repo.libraryItems(server, FAVORITES_COLLECTION_ID)
 
         assertTrue(result.isSuccess, result.toString())
-        assertEquals("收藏电影", result.getOrThrow().single().title)
-        assertTrue(result.getOrThrow().single().isFavorite)
+        assertEquals("收藏电影", result.getOrThrow().items.single().title)
+        assertTrue(result.getOrThrow().items.single().isFavorite)
     }
 
     @Test
@@ -178,7 +238,7 @@ class EmbyRepositoryTest {
         val result = repo.libraryItems(server, WATCH_LATER_COLLECTION_ID)
 
         assertTrue(result.isSuccess, result.toString())
-        assertEquals("稍后看的剧", result.getOrThrow().single().title)
+        assertEquals("稍后看的剧", result.getOrThrow().items.single().title)
     }
 
     @Test

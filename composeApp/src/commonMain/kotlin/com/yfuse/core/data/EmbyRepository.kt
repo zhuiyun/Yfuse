@@ -25,6 +25,8 @@ import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.LibraryCounts
+import com.yfuse.core.model.LibraryPage
+import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.SavedServer
@@ -87,7 +89,16 @@ internal const val FAVORITES_COLLECTION_ID = "__yfuse_favorites__"
 internal const val WATCH_LATER_COLLECTION_ID = "__yfuse_watch_later__"
 
 private const val PERSONAL_COLLECTION_PREVIEW_LIMIT = 16
-private const val PERSONAL_COLLECTION_GRID_LIMIT = 120
+
+/**
+ * How many titles one 「查看更多」 request asks for. Small enough that the first screenful
+ * arrives quickly on a slow remote server, large enough that a fast one rarely pages.
+ */
+const val LIBRARY_PAGE_SIZE = 60
+
+/** Genre facets are a filter row, not a catalogue; nobody scrolls past this many. */
+private const val LIBRARY_GENRE_LIMIT = 60
+
 private const val SOURCE_DISCOVERY_MAX_ATTEMPTS = 3
 private const val SOURCE_DISCOVERY_RETRY_DELAY_MS = 250L
 
@@ -408,22 +419,38 @@ class EmbyRepository(private val client: HttpClient) {
         }
     }
 
-    /** All movies/series in a library, for the "see all" grid. */
-    suspend fun libraryItems(server: SavedServer, libraryId: String): Result<List<MediaItem>> =
-        call("library_items") {
+    /**
+     * One page of a library, for the "see all" grid.
+     *
+     * Ordering, genre filtering and paging all run on the server. The previous version
+     * asked for a fixed first 120 rows ordered by name and reordered them on the device,
+     * so anything past those 120 had no route into the app at all, and 「最近添加」 was
+     * really "the first 120 titles alphabetically, left in that order".
+     */
+    suspend fun libraryItems(
+        server: SavedServer,
+        libraryId: String,
+        sort: LibrarySort = LibrarySort.RecentlyAdded,
+        genre: String? = null,
+        startIndex: Int = 0,
+        limit: Int = LIBRARY_PAGE_SIZE,
+    ): Result<LibraryPage> = call("library_items") {
         when (libraryId) {
             FAVORITES_COLLECTION_ID ->
-                return@call fetchFavorites(server, PERSONAL_COLLECTION_GRID_LIMIT).items
+                return@call fetchFavorites(server, limit, startIndex, sort).toLibraryPage(startIndex)
+            // The playlist's own order is the one the user arranged, so 稍后观看 ignores
+            // [sort] rather than overriding that with a column of its own choosing.
             WATCH_LATER_COLLECTION_ID ->
-                return@call fetchWatchLater(server, PERSONAL_COLLECTION_GRID_LIMIT).items
+                return@call fetchWatchLater(server, limit, startIndex).toLibraryPage(startIndex)
         }
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
             header("X-Emby-Token", server.accessToken)
             parameter("ParentId", libraryId)
             parameter("Recursive", true)
             parameter("IncludeItemTypes", "Movie,Series")
-            parameter("SortBy", "SortName")
-            parameter("SortOrder", "Ascending")
+            parameter("SortBy", sort.sortBy)
+            parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
+            if (!genre.isNullOrBlank()) parameter("Genres", genre)
             parameter(
                 "Fields",
                 "ProductionYear,BackdropImageTags,ParentBackdropItemId," +
@@ -431,9 +458,49 @@ class EmbyRepository(private val client: HttpClient) {
             )
             parameter("EnableImageTypes", "Primary,Backdrop")
             parameter("ImageTypeLimit", 2)
-            parameter("Limit", 120)
+            parameter("StartIndex", startIndex)
+            parameter("Limit", limit)
         }.body()
-        dto.Items.map { it.toMediaItem() }
+        LibraryPage(
+            items = dto.Items.map { it.toMediaItem() },
+            // A server that omits TotalRecordCount would otherwise report an empty library
+            // and stop paging after the first page.
+            totalCount = dto.TotalRecordCount.coerceAtLeast(startIndex + dto.Items.size),
+            startIndex = startIndex,
+        )
+    }
+
+    /**
+     * The genres present in one library, for the grid's filter row.
+     *
+     * Returns an empty list rather than failing: the filter is an enhancement, and a
+     * server that does not answer `/Genres` should still show its library.
+     */
+    suspend fun libraryGenres(server: SavedServer, libraryId: String): List<String> {
+        if (libraryId == FAVORITES_COLLECTION_ID || libraryId == WATCH_LATER_COLLECTION_ID) {
+            return emptyList()
+        }
+        return runCatching {
+            val dto: ItemsResponseDto = client.get("${server.baseUrl}/Genres") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("UserId", server.userId)
+                parameter("ParentId", libraryId)
+                parameter("IncludeItemTypes", "Movie,Series")
+                parameter("SortBy", "SortName")
+                parameter("SortOrder", "Ascending")
+                parameter("Limit", LIBRARY_GENRE_LIMIT)
+            }.body()
+            dto.Items.mapNotNull { it.Name?.takeIf(String::isNotBlank) }.distinct()
+        }.onFailure {
+            if (it is CancellationException) throw it
+            AppLog.warning(
+                category = "emby",
+                event = "library_genres_unavailable",
+                message = "Library genre facet is unavailable; the filter row stays hidden",
+                throwable = it,
+                attributes = mapOf("libraryId" to libraryId),
+            )
+        }.getOrDefault(emptyList())
     }
 
     /** Real Emby recommendations used by the detail page's compact poster rail. */
@@ -1004,34 +1071,40 @@ class EmbyRepository(private val client: HttpClient) {
     private suspend fun fetchFavorites(
         server: SavedServer,
         limit: Int,
+        startIndex: Int = 0,
+        sort: LibrarySort = LibrarySort.RecentlyAdded,
     ): PersonalCollection {
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
             header("X-Emby-Token", server.accessToken)
             parameter("Recursive", true)
             parameter("Filters", "IsFavorite")
             parameter("IncludeItemTypes", "Movie,Series")
-            parameter("SortBy", "DateCreated")
-            parameter("SortOrder", "Descending")
-            personalCollectionParameters(limit)
+            parameter("SortBy", sort.sortBy)
+            parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
+            personalCollectionParameters(limit, startIndex)
         }.body()
-        return dto.toPersonalCollection()
+        return dto.toPersonalCollection(startIndex)
     }
 
     private suspend fun fetchWatchLater(
         server: SavedServer,
         limit: Int,
+        startIndex: Int = 0,
     ): PersonalCollection {
         val playlistId = findWatchLaterPlaylistId(server)
             ?: return PersonalCollection(emptyList(), 0)
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Playlists/$playlistId/Items") {
             header("X-Emby-Token", server.accessToken)
             parameter("UserId", server.userId)
-            personalCollectionParameters(limit)
+            personalCollectionParameters(limit, startIndex)
         }.body()
-        return dto.toPersonalCollection()
+        return dto.toPersonalCollection(startIndex)
     }
 
-    private fun io.ktor.client.request.HttpRequestBuilder.personalCollectionParameters(limit: Int) {
+    private fun io.ktor.client.request.HttpRequestBuilder.personalCollectionParameters(
+        limit: Int,
+        startIndex: Int = 0,
+    ) {
         parameter(
             "Fields",
             "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
@@ -1039,13 +1112,23 @@ class EmbyRepository(private val client: HttpClient) {
         )
         parameter("EnableImageTypes", "Primary,Backdrop")
         parameter("ImageTypeLimit", 2)
+        if (startIndex > 0) parameter("StartIndex", startIndex)
         parameter("Limit", limit)
     }
 
-    private fun ItemsResponseDto.toPersonalCollection(): PersonalCollection = PersonalCollection(
-        items = Items.map { it.toMediaItem() },
-        // Some Emby-compatible servers omit TotalRecordCount on playlist routes.
-        totalCount = TotalRecordCount.coerceAtLeast(Items.size),
+    private fun ItemsResponseDto.toPersonalCollection(startIndex: Int = 0): PersonalCollection =
+        PersonalCollection(
+            items = Items.map { it.toMediaItem() },
+            // Some Emby-compatible servers omit TotalRecordCount on playlist routes. Without
+            // the floor a later page would report a total smaller than what is already on
+            // screen, and the grid would decide it had reached the end too early.
+            totalCount = TotalRecordCount.coerceAtLeast(startIndex + Items.size),
+        )
+
+    private fun PersonalCollection.toLibraryPage(startIndex: Int) = LibraryPage(
+        items = items,
+        totalCount = totalCount,
+        startIndex = startIndex,
     )
 
     private suspend fun fetchViews(server: SavedServer): List<MediaLibrary> {
