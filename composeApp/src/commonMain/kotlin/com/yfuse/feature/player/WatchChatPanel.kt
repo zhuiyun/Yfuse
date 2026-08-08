@@ -76,7 +76,19 @@ internal fun WatchChatPanel(
     val listState = rememberLazyListState()
 
     LaunchedEffect(messages.lastOrNull()?.id) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+        if (messages.isEmpty()) return@LaunchedEffect
+        // Follow the transcript only for someone already at the end of it. Scrolling back
+        // through what was said and being thrown to the bottom because somebody typed is not
+        // a list that scrolls badly — it is a list that undoes the scroll — and with a room
+        // that is talking it happens every few seconds.
+        //
+        // Nothing visible yet means the panel has just opened, which is exactly when the
+        // bottom is where the reader wants to be.
+        val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+        when {
+            last == null -> listState.scrollToItem(messages.lastIndex)
+            last.index >= messages.lastIndex - 1 -> listState.animateScrollToItem(messages.lastIndex)
+        }
     }
 
     fun submit() {

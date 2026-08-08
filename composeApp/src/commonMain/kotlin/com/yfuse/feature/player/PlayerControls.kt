@@ -254,6 +254,36 @@ internal fun PlayerControls(
     val watchLocked = watch.locked
     val latestWatchLocked by rememberUpdatedState(watchLocked)
 
+    // One instance of the room's callbacks for the whole session, forwarding to whatever the
+    // caller last passed.
+    //
+    // This chrome recomposes on every position tick — twice a second on mpv — and the caller
+    // builds a fresh [WatchRoomActions] each time, which is a fresh set of lambdas. Handed
+    // straight down they are never equal to last frame's, so nothing below could skip: the
+    // chat transcript rebuilt every visible bubble, and every gradient inside them, several
+    // times a second. That is exactly as often as scrolling it stuttered. The panels below
+    // now see the same callbacks they saw last frame and skip when nothing else changed.
+    val latestWatchActions by rememberUpdatedState(watchActions)
+    val room = remember {
+        WatchRoomActions(
+            onCreate = { latestWatchActions.onCreate(it) },
+            onJoin = { endpoint, code -> latestWatchActions.onJoin(endpoint, code) },
+            onLeave = { latestWatchActions.onLeave() },
+            onRequestControl = { latestWatchActions.onRequestControl() },
+            onGrantControl = { latestWatchActions.onGrantControl() },
+            onDenyControl = { latestWatchActions.onDenyControl() },
+            onSendChat = { latestWatchActions.onSendChat(it) },
+            onRetryChat = { latestWatchActions.onRetryChat(it) },
+            onClearChatError = { latestWatchActions.onClearChatError() },
+            onToggleChatDanmaku = { latestWatchActions.onToggleChatDanmaku() },
+            onReact = { latestWatchActions.onReact(it) },
+            onReactionFinished = { latestWatchActions.onReactionFinished(it) },
+            onSetControlMode = { latestWatchActions.onSetControlMode(it) },
+            onSetModerator = { id, on -> latestWatchActions.onSetModerator(id, on) },
+            onKickParticipant = { latestWatchActions.onKickParticipant(it) },
+        )
+    }
+
     fun poke() {
         interactions++
         visible = true
@@ -271,10 +301,17 @@ internal fun PlayerControls(
         poke()
     }
 
-    PlatformBackHandler(enabled = watchChatOpen) {
-        watchChatOpen = false
-        lastReadChatId = watch.chatMessages.lastOrNull()?.id
+    // Also stable for the life of the panel, and for the same reason: read through the
+    // transcript rather than closing over this frame's copy of it.
+    val latestChatMessages by rememberUpdatedState(watch.chatMessages)
+    val closeWatchChat = remember {
+        {
+            watchChatOpen = false
+            lastReadChatId = latestChatMessages.lastOrNull()?.id
+        }
     }
+
+    PlatformBackHandler(enabled = watchChatOpen, onBack = closeWatchChat)
 
     LaunchedEffect(
         visible,
@@ -388,7 +425,7 @@ internal fun PlayerControls(
             // over the picture, never to swallow a tap aimed at 播放.
             WatchReactionOverlay(
                 reactions = watch.reactions,
-                onFinished = watchActions.onReactionFinished,
+                onFinished = room.onReactionFinished,
             )
         }
 
@@ -730,16 +767,16 @@ internal fun PlayerControls(
                 participants = watch.participants,
                 error = watch.error,
                 controlRequested = watch.controlRequested,
-                onCreate = watchActions.onCreate,
-                onJoin = watchActions.onJoin,
+                onCreate = room.onCreate,
+                onJoin = room.onJoin,
                 onLeave = {
-                    watchActions.onLeave()
+                    room.onLeave()
                     watchDialogOpen = false
                 },
-                onRequestControl = watchActions.onRequestControl,
-                onSetControlMode = watchActions.onSetControlMode,
-                onSetModerator = watchActions.onSetModerator,
-                onKickParticipant = watchActions.onKickParticipant,
+                onRequestControl = room.onRequestControl,
+                onSetControlMode = room.onSetControlMode,
+                onSetModerator = room.onSetModerator,
+                onKickParticipant = room.onKickParticipant,
                 onDismiss = { watchDialogOpen = false },
             )
         }
@@ -755,15 +792,12 @@ internal fun PlayerControls(
                 error = watch.chatError,
                 sendingEnabled = !watch.reconnecting,
                 danmakuEnabled = watch.chatDanmakuEnabled,
-                onSend = watchActions.onSendChat,
-                onRetry = watchActions.onRetryChat,
-                onClearError = watchActions.onClearChatError,
-                onToggleDanmaku = watchActions.onToggleChatDanmaku,
-                onReact = watchActions.onReact,
-                onDismiss = {
-                    watchChatOpen = false
-                    lastReadChatId = watch.chatMessages.lastOrNull()?.id
-                },
+                onSend = room.onSendChat,
+                onRetry = room.onRetryChat,
+                onClearError = room.onClearChatError,
+                onToggleDanmaku = room.onToggleChatDanmaku,
+                onReact = room.onReact,
+                onDismiss = closeWatchChat,
             )
         }
 
@@ -789,10 +823,10 @@ internal fun PlayerControls(
         watch.controlRequesterName?.let { requester ->
             ControlRequestDialog(
                 requesterName = requester,
-                onGrant = watchActions.onGrantControl,
+                onGrant = room.onGrantControl,
                 // Dismissing is an answer too. Closing without one would leave the asker
                 // waiting indefinitely, which is what `denyControl` exists to avoid.
-                onDeny = watchActions.onDenyControl,
+                onDeny = room.onDenyControl,
             )
         }
 
