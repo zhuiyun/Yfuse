@@ -426,6 +426,9 @@ internal fun PlayerControls(
             WatchReactionOverlay(
                 reactions = watch.reactions,
                 onFinished = room.onReactionFinished,
+                // Reactions rise up the bottom-right corner, which is where the chat panel
+                // opens. Left where they were they played out entirely behind it.
+                insetEnd = if (watchChatOpen) WatchChatPanelWidth + 20.dp else 26.dp,
             )
         }
 
@@ -796,7 +799,6 @@ internal fun PlayerControls(
                 onRetry = room.onRetryChat,
                 onClearError = room.onClearChatError,
                 onToggleDanmaku = room.onToggleChatDanmaku,
-                onReact = room.onReact,
                 onDismiss = closeWatchChat,
             )
         }

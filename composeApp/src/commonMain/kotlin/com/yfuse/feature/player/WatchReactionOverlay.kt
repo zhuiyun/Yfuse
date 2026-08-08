@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,16 +19,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
-import com.yfuse.core.sync.WatchReaction
 import com.yfuse.core.sync.WatchReactionBurst
 import kotlinx.coroutines.delay
 
@@ -54,20 +51,32 @@ private val RiseDistance = 180.dp
 fun WatchReactionOverlay(
     reactions: List<WatchReactionBurst>,
     onFinished: (Long) -> Unit,
+    /**
+     * How far in from the right edge the bubbles rise.
+     *
+     * They float up the bottom-right corner, which is also where the chat panel opens — so
+     * with the panel up they rose entirely behind it and a room that was reacting looked like
+     * a room that had gone quiet. The caller moves them clear.
+     */
+    insetEnd: Dp = DefaultInsetEnd,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize()) {
         reactions.forEach { burst ->
             key(burst.id) {
-                ReactionBubble(burst = burst, onFinished = onFinished)
+                ReactionBubble(burst = burst, insetEnd = insetEnd, onFinished = onFinished)
             }
         }
     }
 }
 
+/** Clear of the right edge, when nothing else is in the way. */
+private val DefaultInsetEnd = 26.dp
+
 @Composable
 private fun BoxScope.ReactionBubble(
     burst: WatchReactionBurst,
+    insetEnd: Dp,
     onFinished: (Long) -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -90,7 +99,7 @@ private fun BoxScope.ReactionBubble(
     Row(
         Modifier
             .align(Alignment.BottomEnd)
-            .padding(end = 26.dp, bottom = 150.dp)
+            .padding(end = insetEnd, bottom = 150.dp)
             .graphicsLayer {
                 val progress = rise.value
                 translationY = -RiseDistance.toPx() * progress
@@ -117,50 +126,6 @@ private fun BoxScope.ReactionBubble(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(end = 2.dp),
             )
-        }
-    }
-}
-
-/**
- * The eight reactions, as a row of keys.
- *
- * Deliberately not a full emoji keyboard: the server relays a closed set, because a
- * reaction reaches a whole room unmoderated and is never stored, so the only safe payload
- * is one the server itself chose.
- */
-@Composable
-fun WatchReactionBar(
-    enabled: Boolean,
-    onReact: (WatchReaction) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        WatchReaction.entries.forEach { reaction ->
-            Box(
-                Modifier
-                    .size(32.dp)
-                    .pressable(
-                        enabled = enabled,
-                        haptic = HapticSignal.Confirm,
-                        onClick = { onReact(reaction) },
-                    )
-                    .glass(
-                        shape = GlassShapes.chip,
-                        fill = PlayerTokens.chipFill,
-                        border = PlayerTokens.chipBorder,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    reaction.emoji,
-                    style = sc(15f, 400),
-                    color = if (enabled) Color.White else Color.White.copy(alpha = 0.4f),
-                )
-            }
         }
     }
 }

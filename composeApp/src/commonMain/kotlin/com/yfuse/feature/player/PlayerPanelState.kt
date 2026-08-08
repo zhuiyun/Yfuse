@@ -66,6 +66,13 @@ data class WatchRoomActions(
     val onRetryChat: (String) -> Unit = {},
     val onClearChatError: () -> Unit = {},
     val onToggleChatDanmaku: () -> Unit = {},
+    /**
+     * Sends a floating reaction. Nothing in this app's chrome calls it any more — the sticker
+     * tray sends its picks as chat messages instead, which is what puts them in front of both
+     * ends of the room rather than behind whichever panel did the sending. It stays because
+     * the *receiving* half is still live: a room is a relay, and a client on an older build
+     * still sends `type=reaction`, which [WatchReactionOverlay] still draws.
+     */
     val onReact: (WatchReaction) -> Unit = {},
     /** The bubble has floated off; drop it from the room state. */
     val onReactionFinished: (Long) -> Unit = {},

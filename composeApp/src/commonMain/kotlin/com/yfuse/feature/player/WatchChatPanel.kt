@@ -51,11 +51,21 @@ import com.yfuse.core.designsystem.sc
 import com.yfuse.core.sync.ChatDeliveryState
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchParticipant
-import com.yfuse.core.sync.WatchReaction
+import com.yfuse.core.sync.WatchStickers
+import com.yfuse.core.sync.oneLineText
+import com.yfuse.core.sync.sticker
 import com.yfuse.core.util.graphemeCount
 import com.yfuse.core.util.takeGraphemes
 import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
 import com.yfuse.core.util.withoutControlCharacters
+
+/**
+ * How much of the right edge the panel takes.
+ *
+ * Named because the player has to know: anything that floats up that corner has to be moved
+ * clear of the panel while it is open, or it plays out behind it — see [WatchReactionOverlay].
+ */
+internal val WatchChatPanelWidth = 340.dp
 
 @Composable
 internal fun WatchChatPanel(
@@ -68,7 +78,6 @@ internal fun WatchChatPanel(
     onRetry: (String) -> Unit,
     onClearError: () -> Unit,
     onToggleDanmaku: () -> Unit,
-    onReact: (WatchReaction) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -101,7 +110,7 @@ internal fun WatchChatPanel(
     Column(
         modifier
             .fillMaxHeight()
-            .width(340.dp)
+            .width(WatchChatPanelWidth)
             .glass(
                 shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp),
                 fill = PlayerTokens.drawerFillLandscape,
@@ -197,12 +206,19 @@ internal fun WatchChatPanel(
         }
 
         Spacer(Modifier.height(12.dp))
-        // Reactions live above the transcript rather than beside the input: they are not
-        // messages, they leave no history, and they are the one thing here worth tapping
-        // without reading anything first.
-        WatchReactionBar(
+        // The tray sits above the transcript, where it can be tapped without reading
+        // anything first.
+        //
+        // A key sends an ordinary chat message whose text is the sticker's token — see
+        // [WatchStickers]. That is what fixed it: the keys used to fire a reaction that
+        // floated up the bottom-right corner of the player, which is precisely where this
+        // panel is, so tapping one from in here produced a bubble that rose entirely behind
+        // the panel that sent it. It looked like the key did not work. As a message it lands
+        // in the transcript and flies past as 弹幕, on both sides, like anything else said
+        // in the room.
+        WatchStickerTray(
             enabled = sendingEnabled,
-            onReact = onReact,
+            onPick = { onSend(WatchStickers.token(it)) },
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -331,22 +347,33 @@ private fun WatchChatBubble(
                     color = Color.White.copy(alpha = 0.48f),
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                 )
-                Text(
-                    message.text,
-                    style = mr(11f, 500),
-                    color = Color.White.copy(alpha = 0.94f),
-                    modifier = Modifier
-                        .glass(
-                            continuousRounded(12.dp),
-                            if (message.isMine) {
-                                Brand.Primary.copy(alpha = 0.48f)
-                            } else {
-                                Color.White.copy(alpha = 0.1f)
-                            },
-                            Color.White.copy(alpha = 0.16f),
-                        )
-                        .padding(horizontal = 11.dp, vertical = 8.dp),
-                )
+                val sticker = message.sticker
+                if (sticker != null) {
+                    // No bubble around it. A sticker is the whole message, and a tinted
+                    // capsule behind a 40sp glyph reads as a glyph that has been quoted.
+                    WatchStickerGlyph(
+                        sticker = sticker,
+                        sizeSp = 40f,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                    )
+                } else {
+                    Text(
+                        message.text,
+                        style = mr(11f, 500),
+                        color = Color.White.copy(alpha = 0.94f),
+                        modifier = Modifier
+                            .glass(
+                                continuousRounded(12.dp),
+                                if (message.isMine) {
+                                    Brand.Primary.copy(alpha = 0.48f)
+                                } else {
+                                    Color.White.copy(alpha = 0.1f)
+                                },
+                                Color.White.copy(alpha = 0.16f),
+                            )
+                            .padding(horizontal = 11.dp, vertical = 8.dp),
+                    )
+                }
                 if (message.deliveryState != ChatDeliveryState.Sent) {
                     Text(
                         if (message.deliveryState == ChatDeliveryState.Pending) {
@@ -399,7 +426,7 @@ internal fun WatchChatPreview(
             ) {
                 WatchAvatar(message.avatarId, 23.dp)
                 Text(
-                    "${if (message.isMine) "我" else message.name}  ${message.text}",
+                    "${if (message.isMine) "我" else message.name}  ${message.oneLineText}",
                     style = mr(10f, 500),
                     color = Color.White.copy(alpha = 0.9f),
                     maxLines = 1,

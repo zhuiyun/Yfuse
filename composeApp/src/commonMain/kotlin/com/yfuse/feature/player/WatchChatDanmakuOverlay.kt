@@ -36,6 +36,7 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.sync.WatchChatMessage
+import com.yfuse.core.sync.sticker
 import kotlin.math.roundToInt
 
 private const val MAX_LANES = 6
@@ -201,12 +202,20 @@ private fun WatchChatDanmakuItem(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         WatchAvatar(flight.message.avatarId, 22.dp)
+        val sticker = flight.message.sticker
         Text(
-            text = "${flight.message.name}：${flight.message.text}",
+            text = if (sticker == null) {
+                "${flight.message.name}：${flight.message.text}"
+            } else {
+                flight.message.name
+            },
             style = sc(11f, 650),
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Clip,
         )
+        // Drawn rather than spelled: a sticker crossing the picture is the point of sending
+        // one, and "张三：[sticker:party]" is the point being missed.
+        if (sticker != null) WatchStickerGlyph(sticker, sizeSp = 19f)
     }
 }
