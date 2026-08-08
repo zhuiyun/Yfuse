@@ -138,8 +138,8 @@ internal fun SeasonEpisodesPage(
                 .statusBarsPadding()
                 .padding(start = Dimens.pageHorizontal, top = 10.dp)
                 .size(34.dp)
-                .glass(CircleShape)
-                .pressable(onClick = onDismiss),
+                .pressable(onClick = onDismiss)
+                .glass(CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -166,6 +166,7 @@ private fun EpisodeRow(
     Row(
         modifier
             .fillMaxWidth()
+            .pressable(onClick = onPlay)
             .clip(GlassShapes.card)
             .then(
                 if (current) {
@@ -174,7 +175,6 @@ private fun EpisodeRow(
                     Modifier
                 }
             )
-            .pressable(onClick = onPlay)
             .padding(7.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

@@ -1,8 +1,9 @@
 package com.yfuse.app
 
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,12 +54,16 @@ import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalOverlayVisibility
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.overlayGlass
@@ -373,7 +382,7 @@ private fun WatchRoomBar(
         // The body carries 进入; only the two trailing buttons are cut out of it, so the
         // large easy target is still the one that does the common thing.
         Row(
-            Modifier.weight(1f).fillMaxHeight().clickable(onClick = onEnter),
+            Modifier.weight(1f).fillMaxHeight().pressable(onClick = onEnter),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp),
         ) {
@@ -398,8 +407,8 @@ private fun WatchRoomBar(
             color = Brand.Primary,
             maxLines = 1,
             modifier = Modifier
+                .pressable(onClick = onView)
                 .clip(GlassShapes.chip)
-                .clickable(onClick = onView)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         )
         Icon(
@@ -407,8 +416,8 @@ private fun WatchRoomBar(
             contentDescription = "隐藏一起看提示",
             tint = Color.White.copy(alpha = 0.72f),
             modifier = Modifier
+                .pressable(onClick = onClose)
                 .clip(CircleShape)
-                .clickable(onClick = onClose)
                 .padding(6.dp)
                 .size(12.dp),
         )
@@ -430,6 +439,19 @@ private fun GlassTabBar(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val selectedIndex = tabs.indexOfFirst { it.tab == active }.coerceAtLeast(0)
+    // The pill travels between cells rather than appearing under the new one. Tabs are
+    // equal-weight quarters of the bar, so its position is the animated index and nothing
+    // has to be measured.
+    val indicator by animateFloatAsState(
+        targetValue = selectedIndex.toFloat(),
+        animationSpec = tween(
+            durationMillis = if (reduceMotion) 0 else Motion.TAB,
+            easing = Motion.Curve,
+        ),
+        label = "tabIndicator",
+    )
     Row(
         modifier
             .fillMaxWidth()
@@ -440,7 +462,23 @@ private fun GlassTabBar(
             // Before the fill, so the 0.72–0.76 glass sits on the blur rather than under
             // it. §8.1's material is the two together; the bar has only ever had the fill.
             .backdropBlur(backdrop, GlassShapes.tabBar)
-            .overlayGlass(GlassShapes.tabBar, palette.glassStrong, palette.tabbarBorder),
+            .overlayGlass(GlassShapes.tabBar, palette.glassStrong, palette.tabbarBorder)
+            // After the fill and before the buttons: the pill belongs to the material, not
+            // over the icons.
+            .drawBehind {
+                val cell = size.width / tabs.size
+                val pillWidth = cell * 0.66f
+                val pillHeight = size.height * 0.68f
+                drawRoundRect(
+                    color = Brand.Primary.copy(alpha = 0.12f),
+                    topLeft = Offset(
+                        x = cell * indicator + (cell - pillWidth) / 2f,
+                        y = (size.height - pillHeight) / 2f,
+                    ),
+                    size = Size(pillWidth, pillHeight),
+                    cornerRadius = CornerRadius(pillHeight / 2f),
+                )
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tabs.forEach { item ->
@@ -455,17 +493,29 @@ private fun GlassTabBar(
  */
 @Composable
 private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> Unit) {
-    val tint = if (selected) Brand.Primary else TabInactive
-    val interaction = remember { MutableInteractionSource() }
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val spec = tween<Color>(
+        durationMillis = if (reduceMotion) 0 else Motion.TAB,
+        easing = Motion.Curve,
+    )
+    // The tint used to cut straight from grey to accent while the pill slid underneath it;
+    // crossfading them puts the two halves of the same transition on the same clock.
+    val tint by animateColorAsState(
+        targetValue = if (selected) Brand.Primary else TabInactive,
+        animationSpec = spec,
+        label = "tabTint",
+    )
 
     Column(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
             .clip(GlassShapes.tabBar)
-            .clickable(
-                interactionSource = interaction,
-                indication = null,
+            // This was `clickable(indication = null)` with nothing put back, so the one
+            // control every session touches most had no press feedback at all.
+            .pressable(
+                pressedScale = 0.92f,
+                haptic = HapticSignal.Select,
                 onClick = onClick,
             ),
         horizontalAlignment = Alignment.CenterHorizontally,

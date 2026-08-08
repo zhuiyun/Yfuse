@@ -4,7 +4,6 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +33,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStats
@@ -213,7 +213,7 @@ private fun DiagnosticToggleRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable { onChange(!checked) }
+            .pressable { onChange(!checked) }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -242,7 +242,7 @@ private fun DiagnosticActionRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
+            .pressable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,

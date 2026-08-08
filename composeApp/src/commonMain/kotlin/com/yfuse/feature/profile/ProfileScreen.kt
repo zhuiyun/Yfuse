@@ -2,8 +2,6 @@ package com.yfuse.feature.profile
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -73,6 +71,7 @@ import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.SavedServer
@@ -918,8 +917,8 @@ private fun SettingsPageHeader(
         Box(
             Modifier
                 .size(34.dp)
-                .glass(RoundedCornerShape(12.dp), palette.card3, palette.border)
-                .clickable(onClick = onBack),
+                .pressable(onClick = onBack)
+                .glass(RoundedCornerShape(12.dp), palette.card3, palette.border),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -961,12 +960,12 @@ private fun CollapsibleSummaryRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .pressable(onClick = onClick)
             .glass(
                 shape = GlassShapes.card,
                 fill = palette.card2,
                 border = palette.border,
             )
-            .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1038,12 +1037,12 @@ internal fun Section(
                     style = mr(11f, 600),
                     color = Brand.Primary,
                     modifier = Modifier
+                        .pressable(onClick = onAction)
                         .glass(
                             shape = GlassShapes.chip,
                             fill = palette.card2,
                             border = palette.border,
                         )
-                        .clickable(onClick = onAction)
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
@@ -1056,7 +1055,6 @@ internal fun Section(
  * Server row — `radius:14px`, `padding:11px 12px`, `gap:11px`; current uses
  * `rgba(61,100,201,.1)` over `rgba(61,100,201,.3)`, others `--pg-card2`-ish white.
  */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ServerRow(
     server: SavedServer,
@@ -1070,12 +1068,12 @@ private fun ServerRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .pressable(onLongClick = onLongClick, onClick = onClick)
             .glass(
                 shape = shape,
                 fill = if (isCurrent) Brand.Primary.copy(alpha = 0.1f) else palette.card2,
                 border = if (isCurrent) Brand.Primary.copy(alpha = 0.3f) else palette.border,
             )
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 12.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1130,8 +1128,8 @@ private fun ServerRow(
         Box(
             Modifier
                 .size(22.dp)
-                .clip(GlassShapes.chip)
-                .clickable(onClick = onEdit),
+                .pressable(onClick = onEdit)
+                .clip(GlassShapes.chip),
             contentAlignment = Alignment.Center,
         ) {
             Icon(AppIcons.Edit, "编辑服务器", tint = palette.sub, modifier = Modifier.size(13.dp))
@@ -1156,7 +1154,7 @@ internal fun SettingRow(
                     it.glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
                 }
             }
-            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .let { if (onClick != null) it.pressable(onClick = onClick) else it }
             .padding(horizontal = 16.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -1177,7 +1175,7 @@ private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () ->
                     it.glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
                 }
             }
-            .clickable(onClick = onClick)
+            .pressable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -1231,8 +1229,8 @@ private fun SplashSettingsScreen(
                 Box(
                     Modifier
                         .size(34.dp)
-                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border)
-                        .clickable(onClick = onBack),
+                        .pressable(onClick = onBack)
+                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -1261,6 +1259,7 @@ private fun SplashSettingsScreen(
                 Column(
                     Modifier
                         .fillMaxWidth()
+                        .pressable { prefs.setSplashVariant(variant) }
                         .clip(RoundedCornerShape(18.dp))
                         .background(palette.card2)
                         .border(
@@ -1268,7 +1267,6 @@ private fun SplashSettingsScreen(
                             color = if (active) accent.color else palette.border,
                             shape = RoundedCornerShape(18.dp),
                         )
-                        .clickable { prefs.setSplashVariant(variant) }
                         .padding(horizontal = 14.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -1323,7 +1321,7 @@ private fun SwitchRow(
                     it.glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
                 }
             }
-            .clickable { onChange(!checked) }
+            .pressable { onChange(!checked) }
             .padding(horizontal = 16.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -1358,8 +1356,8 @@ private fun DescribedSwitchRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .pressable { onChange(!checked) }
             .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
-            .clickable { onChange(!checked) }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1424,8 +1422,8 @@ private fun ProfileUtilityScreen(
                 Box(
                     Modifier
                         .size(34.dp)
-                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border)
-                        .clickable(onClick = onBack),
+                        .pressable(onClick = onBack)
+                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -1548,8 +1546,8 @@ private fun RecoveryCenterScreen(
                 Box(
                     Modifier
                         .size(34.dp)
-                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border)
-                        .clickable(onClick = onBack),
+                        .pressable(onClick = onBack)
+                        .glass(RoundedCornerShape(12.dp), palette.card3, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -1735,8 +1733,8 @@ private fun RecoveryAction(label: String, onClick: () -> Unit) {
         style = sc(10.5f, 700),
         color = Brand.Primary,
         modifier = Modifier
+            .pressable(onClick = onClick)
             .glass(GlassShapes.chip, palette.card2, palette.border)
-            .clickable(onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 7.dp),
     )
 }
@@ -1805,14 +1803,14 @@ private fun OfflineDownloadRow(
                 style = sc(11f, 700),
                 color = Brand.Primary,
                 modifier = Modifier
-                    .glass(GlassShapes.chip, palette.card2, palette.border)
-                    .clickable {
+                    .pressable {
                         when (item.status) {
                             DownloadStatus.Completed -> onPlay()
                             DownloadStatus.Downloading -> onPause()
                             else -> onResume()
                         }
                     }
+                    .glass(GlassShapes.chip, palette.card2, palette.border)
                     .padding(horizontal = 12.dp, vertical = 7.dp),
             )
             Spacer(Modifier.width(6.dp))
@@ -1822,8 +1820,8 @@ private fun OfflineDownloadRow(
                 tint = palette.sub2,
                 modifier = Modifier
                     .size(30.dp)
+                    .pressable(onClick = onRemove)
                     .glass(CircleShape, palette.card2, palette.border)
-                    .clickable(onClick = onRemove)
                     .padding(8.dp),
             )
         }

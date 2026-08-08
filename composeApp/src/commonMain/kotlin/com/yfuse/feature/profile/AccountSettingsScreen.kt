@@ -1,6 +1,5 @@
 package com.yfuse.feature.profile
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +54,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.pressable
 import kotlinx.coroutines.launch
 
 /** Mirrors the minimum the repository and the account service both enforce. */
@@ -486,8 +486,8 @@ private fun AccountHeader(onBack: () -> Unit) {
         Box(
             Modifier
                 .size(34.dp)
-                .glass(RoundedCornerShape(12.dp), palette.card3, palette.border)
-                .clickable(onClick = onBack),
+                .pressable(onClick = onBack)
+                .glass(RoundedCornerShape(12.dp), palette.card3, palette.border),
             contentAlignment = Alignment.Center,
         ) {
             Icon(AppIcons.ChevronLeft, "返回", tint = palette.text, modifier = Modifier.size(17.dp))
@@ -524,7 +524,7 @@ private fun AvatarPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Uni
                         if (id == selected) Brand.Primary.copy(alpha = 0.20f) else LocalPalette.current.card2,
                         if (id == selected) Brand.Primary else LocalPalette.current.border,
                     )
-                    .let { if (enabled) it.clickable { onSelect(id) } else it },
+                    .let { if (enabled) it.pressable { onSelect(id) } else it },
                 contentAlignment = Alignment.Center,
             ) {
                 Text((id + 1).toString(), style = sc(12f, 700), color = LocalPalette.current.text)

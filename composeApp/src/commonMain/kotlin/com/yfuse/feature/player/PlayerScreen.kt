@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.pressable
 
 @Composable
 fun PlayerScreen(component: PlayerComponent) {
@@ -53,12 +53,12 @@ fun PlayerScreen(component: PlayerComponent) {
                 .padding(8.dp)
                 .align(Alignment.TopStart)
                 .size(38.dp)
+                .pressable(onClick = component.onBack)
                 .glass(
                     shape = CircleShape,
                     fill = Color.Black.copy(alpha = 0.28f),
                     border = Color.White.copy(alpha = 0.32f),
-                )
-                .clickable(onClick = component.onBack),
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

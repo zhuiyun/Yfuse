@@ -13,7 +13,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,6 +60,7 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.logging.AppLog
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -384,6 +384,7 @@ private fun MigrationPrimaryAction(
     val palette = LocalPalette.current
     Row(
         modifier
+            .pressable(enabled = enabled, onClick = onClick)
             .glass(
                 RoundedCornerShape(16.dp),
                 if (primary) {
@@ -393,7 +394,6 @@ private fun MigrationPrimaryAction(
                 },
                 if (primary) Color.White.copy(alpha = 0.28f) else palette.border,
             )
-            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 13.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -425,7 +425,7 @@ private fun MigrationLink(
         style = mr(10.5f, 650),
         color = if (enabled) Brand.Primary else LocalPalette.current.sub2,
         modifier = modifier
-            .clickable(enabled = enabled, onClick = onClick)
+            .pressable(enabled = enabled, onClick = onClick)
             .padding(vertical = 11.dp),
         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
     )

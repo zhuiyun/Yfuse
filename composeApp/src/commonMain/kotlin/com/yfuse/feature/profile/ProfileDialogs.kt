@@ -375,12 +375,12 @@ private fun DanmakuSourceRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .pressable(onClick = onSelect)
             .glass(
                 RoundedCornerShape(13.dp),
                 if (selected) Brand.Primary.copy(alpha = 0.12f) else palette.card2,
                 if (selected) Brand.Primary.copy(alpha = 0.35f) else palette.border,
             )
-            .pressable(onClick = onSelect)
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),

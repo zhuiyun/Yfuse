@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -377,7 +376,7 @@ private fun HeroCarousel(
         Modifier
             .fillMaxWidth()
             .height(HeroHeight)
-            .clickable(onClick = onClick),
+            .pressable(onClick = onClick),
     ) {
         FallbackImage(
             urls = urls,
@@ -422,12 +421,12 @@ private fun HeroCarousel(
             // `radius:14px`, `padding:7px 12px`, `gap:6px`.
             Row(
                 Modifier
+                    .pressable(onClick = onToggleServerMenu)
                     .glass(
                         shape = GlassShapes.chip,
                         fill = Color(0xFF141826).copy(alpha = 0.36f),
                         border = Color.White.copy(alpha = 0.30f),
                     )
-                    .clickable(onClick = onToggleServerMenu)
                     .padding(horizontal = 12.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -492,12 +491,12 @@ private fun HeroCarousel(
                 Row(
                     Modifier
                         .height(42.dp)
+                        .pressable(onClick = onClick)
                         .glass(
                             shape = GlassShapes.chip,
                             fill = Color(0xFF101722).copy(alpha = 0.30f),
                             border = Color.White.copy(alpha = 0.40f),
                         )
-                        .clickable(onClick = onClick)
                         .padding(start = 4.dp, end = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -548,6 +547,7 @@ private fun HeroCarousel(
                     Modifier
                         .width(width.dp)
                         .height(6.dp)
+                        .pressable { onSelectSlide(index) }
                         .glass(
                             shape = RoundedCornerShape(3.dp),
                             fill = if (active) {
@@ -556,8 +556,7 @@ private fun HeroCarousel(
                                 Color.White.copy(alpha = 0.24f)
                             },
                             border = Color.White.copy(alpha = if (active) 0.84f else 0.28f),
-                        )
-                        .clickable { onSelectSlide(index) },
+                        ),
                 )
             }
         }
@@ -612,6 +611,7 @@ private fun ServerSheet(
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .pressable(enabled = !isCurrent) { onSelect(server.id) }
                         .glass(
                             shape = GlassShapes.chip,
                             fill = if (isCurrent) {
@@ -625,7 +625,6 @@ private fun ServerSheet(
                                 palette.border
                             },
                         )
-                        .pressable(enabled = !isCurrent) { onSelect(server.id) }
                         .padding(horizontal = 12.dp, vertical = 11.dp),
                     horizontalArrangement = Arrangement.spacedBy(11.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -739,12 +738,12 @@ private fun CategoryCards(
                 Modifier
                     .width(148.dp)
                     .height(88.dp)
+                    .pressable { onOpen(row) }
                     .clip(GlassShapes.poster)
                     .background(
                         if (coverUrl == null && personalIcon != null) Color(0xFF4C5F83)
                         else palette.card2,
-                    )
-                    .clickable { onOpen(row) },
+                    ),
             ) {
                 if (coverUrl != null) {
                     FallbackImage(
@@ -989,12 +988,12 @@ private fun HeroCircleAction(
     Box(
         Modifier
             .size(34.dp)
+            .pressable(onClick = onClick)
             .glass(
                 shape = CircleShape,
                 fill = Color.White.copy(alpha = 0.14f),
                 border = Color.White.copy(alpha = 0.34f),
-            )
-            .clickable(onClick = onClick),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, description, tint = Color.White, modifier = Modifier.size(14.dp))

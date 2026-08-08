@@ -1,7 +1,6 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -75,7 +74,6 @@ fun FallbackImage(
  * `.poster` — a rounded, cropped artwork tile, optionally captioned by
  * `.poster-title` and underlined by the 继续观看 progress bar.
  */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun Poster(
     url: String?,
@@ -104,16 +102,20 @@ fun Poster(
             .clip(shape)
             .background(if (palette.isDark) Color(0xFF232833) else Color(0xFFDDE2EA))
             .let {
+                // 触摸反馈全应用统一走 [pressable]：压缩 0.97、无涟漪、跟随
+                // 「减弱动态效果」。这里原来是裸 clickable，也就是 Material 涟漪，
+                // 于是同一个海报组件在首页/媒体库点下去是涟漪、在详情页（外层套了
+                // pressable）是缩放。长按现在也归 [pressable] 管，所以两条路径的
+                // 反馈终于一致了 —— 之前带长按的海报走 combinedClickable，压根没有反馈。
+                //
+                // 海报是全 app 唯一开 tilt 的地方：它足够大，倾斜看得出来，而且这是
+                // 用户唯一会盯着看的图像内容。
                 when {
-                    onLongClick != null -> it.combinedClickable(
-                        onClick = { onClick?.invoke() },
+                    onClick != null || onLongClick != null -> it.pressable(
+                        tilt = true,
                         onLongClick = onLongClick,
+                        onClick = { onClick?.invoke() },
                     )
-                    // 触摸反馈全应用统一走 [pressable]：压缩 0.97、无涟漪、跟随
-                    // 「减弱动态效果」。这里原来是裸 clickable，也就是 Material 涟漪，
-                    // 于是同一个海报组件在首页/媒体库点下去是涟漪、在详情页（外层套了
-                    // pressable）是缩放。长按那一支仍需 combinedClickable。
-                    onClick != null -> it.pressable(onClick = onClick)
                     else -> it
                 }
             },

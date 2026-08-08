@@ -2,7 +2,6 @@ package com.yfuse.feature.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -60,6 +59,7 @@ import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaElement
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.TmdbImages
 
@@ -123,12 +123,12 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             .statusBarsPadding()
                             .padding(start = 18.dp, top = 12.dp)
                             .size(38.dp)
+                            .pressable(onClick = component.onBack)
                             .solidGlass(
                                 shape = CircleShape,
                                 fill = Color(0xFF11151F).copy(alpha = 0.28f),
                                 border = Color.White.copy(alpha = 0.34f),
                             )
-                            .clickable(onClick = component.onBack)
                             .padding(10.dp),
                     )
                 }
@@ -251,8 +251,8 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             textAlign = TextAlign.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .pressable(onClick = component::dismissError)
                                 .solidGlass(GlassShapes.card)
-                                .clickable(onClick = component::dismissError)
                                 .padding(12.dp),
                         )
                     }
@@ -379,6 +379,9 @@ private fun TmdbSourceStrip(
                 Modifier
                     .width(168.dp)
                     .heightIn(min = 52.dp)
+                    .pressable {
+                        entry.itemId?.let { onSelect(entry.serverId, it) }
+                    }
                     .solidGlass(
                         shape = GlassShapes.thumb,
                         fill = if (palette.isDark) {
@@ -392,9 +395,6 @@ private fun TmdbSourceStrip(
                             Color(0xFFD7DDE9)
                         },
                     )
-                    .clickable {
-                        entry.itemId?.let { onSelect(entry.serverId, it) }
-                    }
                     .padding(horizontal = 10.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -459,10 +459,10 @@ private fun TmdbPlayDock(
                 Modifier
                     .fillMaxWidth()
                     .height(46.dp)
+                    .pressable(enabled = !resolving, onClick = onPlay)
                     .clip(GlassShapes.card)
                     .background(accent)
-                    .border(1.dp, Color.White.copy(alpha = 0.24f), GlassShapes.card)
-                    .clickable(enabled = !resolving, onClick = onPlay),
+                    .border(1.dp, Color.White.copy(alpha = 0.24f), GlassShapes.card),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {

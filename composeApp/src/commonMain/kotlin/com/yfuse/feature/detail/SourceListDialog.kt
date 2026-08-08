@@ -122,6 +122,7 @@ private fun SourceRow(
     Column(
         Modifier
             .fillMaxWidth()
+            .pressable(onClick = onSelect)
             .solidGlass(
                 shape = GlassShapes.card,
                 fill = if (palette.isDark) {
@@ -136,7 +137,6 @@ private fun SourceRow(
                 edge,
                 GlassShapes.card,
             )
-            .pressable(onClick = onSelect)
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {

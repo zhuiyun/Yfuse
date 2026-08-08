@@ -1,6 +1,5 @@
 package com.yfuse.feature.watch
 
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
@@ -20,11 +19,11 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.delay
 
 /** A consistent room-code affordance used anywhere the full code is presented. */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CopyableRoomCode(
     roomCode: String,
@@ -43,13 +42,13 @@ fun CopyableRoomCode(
 
     Column(
         modifier = modifier
-            .combinedClickable(
-                onClick = {},
+            .pressable(
                 onLongClickLabel = "复制房间码",
                 onLongClick = {
                     shareHandler.copyRoomCode(roomCode)
                     copied = true
                 },
+                onClick = {},
             )
             .padding(horizontal = 8.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

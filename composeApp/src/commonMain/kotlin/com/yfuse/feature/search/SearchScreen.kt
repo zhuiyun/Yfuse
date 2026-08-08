@@ -1,8 +1,6 @@
 package com.yfuse.feature.search
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,6 +64,7 @@ import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.skeletonFill
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.feature.detail.DetailScreen
@@ -263,7 +262,7 @@ private fun SearchField(
                 AppIcons.Close,
                 contentDescription = "清空搜索",
                 tint = palette.sub2,
-                modifier = Modifier.size(13.dp).clickable(onClick = onClear),
+                modifier = Modifier.size(13.dp).pressable(onClick = onClear),
             )
         }
     }
@@ -311,12 +310,12 @@ private fun TypeChip(label: String, selected: Boolean, onClick: () -> Unit) {
         style = sc(11f, if (selected) 700 else 500),
         color = if (selected) Brand.Primary else palette.body,
         modifier = Modifier
+            .pressable(onClick = onClick)
             .glass(
                 shape = GlassShapes.chip,
                 fill = if (selected) Brand.Primary.copy(alpha = 0.10f) else palette.card2,
                 border = if (selected) Brand.Primary.copy(alpha = 0.34f) else palette.border,
             )
-            .clickable(onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 5.dp),
     )
 }
@@ -345,7 +344,7 @@ private fun PeopleRow(
         ) {
             items(people, key = { "${it.serverId}-${it.personId}" }) { person ->
                 Column(
-                    Modifier.width(64.dp).clickable { onSelect(person) },
+                    Modifier.width(64.dp).pressable { onSelect(person) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // The image draws nothing when the server has no headshot, so the
@@ -410,7 +409,7 @@ private fun PersonBanner(person: PersonHit, onClear: () -> Unit) {
             "返回搜索结果",
             style = sc(11.5f, 700),
             color = Brand.Primary,
-            modifier = Modifier.clickable(onClick = onClear),
+            modifier = Modifier.pressable(onClick = onClear),
         )
     }
 }
@@ -557,8 +556,8 @@ private fun ResultRow(
     val palette = LocalPalette.current
     Row(
         modifier
+            .pressable(onClick = onClick)
             .glass(GlassShapes.card)
-            .clickable(onClick = onClick)
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
@@ -611,10 +610,7 @@ private fun ResultRow(
  * the row no space while it is not being used. The long-press is kept for anyone who
  * already knows it.
  */
-@OptIn(
-    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class,
-)
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun RecentSearches(
     title: String,
@@ -653,11 +649,11 @@ private fun RecentSearches(
             terms.forEach { term ->
                 Row(
                     Modifier
-                        .glass(GlassShapes.chip, palette.card2)
-                        .combinedClickable(
-                            onClick = { if (editing) onForget(term) else onSelect(term) },
+                        .pressable(
                             onLongClick = { if (canEdit) onForget(term) },
+                            onClick = { if (editing) onForget(term) else onSelect(term) },
                         )
+                        .glass(GlassShapes.chip, palette.card2)
                         .padding(horizontal = 13.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -691,12 +687,12 @@ private fun HistoryAction(label: String, accent: Boolean, onClick: () -> Unit) {
         style = mr(11f, 600),
         color = if (accent) Brand.Primary else palette.sub2,
         modifier = Modifier
+            .pressable(onClick = onClick)
             .glass(
                 shape = GlassShapes.chip,
                 fill = if (accent) Brand.Primary.copy(alpha = 0.10f) else palette.card2,
                 border = if (accent) Brand.Primary.copy(alpha = 0.30f) else palette.border,
             )
-            .clickable(onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 6.dp),
     )
 }

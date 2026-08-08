@@ -1,7 +1,6 @@
 package com.yfuse.feature.servers
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +53,7 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.pressable
 
 /**
  * 添加服务器 — `padding:52px 18px 24px; gap:20px`.
@@ -99,12 +99,12 @@ fun ServersScreen(component: ServersComponent) {
                     tint = palette.sub,
                     modifier = Modifier
                         .size(36.dp)
+                        .pressable(onClick = component.onBack)
                         .glass(
                             shape = CircleShape,
                             fill = palette.card,
                             border = palette.border,
                         )
-                        .clickable(onClick = component.onBack)
                         .padding(10.dp),
                 )
                 Text("添加服务器", style = sc(19f, 800), color = palette.text, maxLines = 1)
@@ -184,6 +184,7 @@ fun ServersScreen(component: ServersComponent) {
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = Dimens.pageHorizontal)
+                    .pressable(enabled = form.canSubmit) { store.accept(ServersIntent.Submit) }
                     .shadow(Shadows.primaryButton, shape)
                     .glass(
                         shape = shape,
@@ -194,7 +195,6 @@ fun ServersScreen(component: ServersComponent) {
                         },
                         border = Color.White.copy(alpha = if (form.canSubmit) 0.36f else 0.20f),
                     )
-                    .clickable(enabled = form.canSubmit) { store.accept(ServersIntent.Submit) }
                     .padding(14.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -260,8 +260,8 @@ private fun OnboardingScreen(
             Box(
                 Modifier
                     .size(34.dp)
-                    .glass(RoundedCornerShape(16.dp), palette.card, palette.border)
-                    .clickable(onClick = ::back),
+                    .pressable(onClick = ::back)
+                    .glass(RoundedCornerShape(16.dp), palette.card, palette.border),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -352,11 +352,11 @@ private fun OnboardingScreen(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .glass(RoundedCornerShape(18.dp), palette.card, palette.border)
-                                .clickable {
+                                .pressable {
                                     onIntent(ServersIntent.SelectDiscovered(server))
                                     step = 2
                                 }
+                                .glass(RoundedCornerShape(18.dp), palette.card, palette.border)
                                 .padding(horizontal = 14.dp, vertical = 13.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -404,12 +404,12 @@ private fun OnboardingScreen(
                     color = Brand.Primary,
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
+                        .pressable(onClick = onManual)
                         .glass(
                             shape = GlassShapes.chip,
                             fill = palette.card2,
                             border = palette.border,
                         )
-                        .clickable(onClick = onManual)
                         .padding(horizontal = 18.dp, vertical = 14.dp),
                 )
             }
@@ -466,6 +466,10 @@ private fun OnboardingScreen(
                         Column(
                             Modifier
                                 .weight(1f)
+                                .pressable {
+                                    selectedUser = index
+                                    onIntent(ServersIntent.SelectPublicUser(name))
+                                }
                                 .glass(
                                     shape = RoundedCornerShape(20.dp),
                                     fill = if (selectedUser == index) {
@@ -479,10 +483,6 @@ private fun OnboardingScreen(
                                         palette.border
                                     },
                                 )
-                                .clickable {
-                                    selectedUser = index
-                                    onIntent(ServersIntent.SelectPublicUser(name))
-                                }
                                 .padding(horizontal = 6.dp, vertical = 14.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
@@ -514,12 +514,7 @@ private fun OnboardingScreen(
             Modifier
                 .fillMaxWidth()
                 .height(50.dp)
-                .glass(
-                    shape = RoundedCornerShape(25.dp),
-                    fill = Brand.Primary.copy(alpha = if (enabled) 0.72f else 0.34f),
-                    border = Color.White.copy(alpha = if (enabled) 0.36f else 0.20f),
-                )
-                .clickable(enabled = enabled) {
+                .pressable(enabled = enabled) {
                     when (step) {
                         0 -> {
                             step = 1
@@ -528,7 +523,12 @@ private fun OnboardingScreen(
                         2 -> step = 3
                         else -> onIntent(ServersIntent.Submit)
                     }
-                },
+                }
+                .glass(
+                    shape = RoundedCornerShape(25.dp),
+                    fill = Brand.Primary.copy(alpha = if (enabled) 0.72f else 0.34f),
+                    border = Color.White.copy(alpha = if (enabled) 0.36f else 0.20f),
+                ),
             contentAlignment = Alignment.Center,
         ) {
             if (form.submitting) {
@@ -665,6 +665,7 @@ private fun ProtocolSegment(
     val palette = LocalPalette.current
     Box(
         modifier
+            .pressable(onClick = onClick)
             .glass(
                 shape = RoundedCornerShape(9.dp),
                 fill = if (selected) {
@@ -678,7 +679,6 @@ private fun ProtocolSegment(
                     palette.border.copy(alpha = 0.55f)
                 },
             )
-            .clickable(onClick = onClick)
             .padding(vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {

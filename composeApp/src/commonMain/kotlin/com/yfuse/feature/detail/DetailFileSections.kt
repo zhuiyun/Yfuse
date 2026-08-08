@@ -463,6 +463,7 @@ private fun TrackChipRow(
                 modifier = Modifier
                     // Match 外部链接: the same lifted liquid-glass body in both themes.
                     // Selection changes only the text and one solid-colour edge.
+                    .pressable(onClick = { onSelect(option.value) })
                     .shadow(GlassLift.control, GlassShapes.chip)
                     .liquidGlass(
                         shape = GlassShapes.chip,
@@ -474,7 +475,6 @@ private fun TrackChipRow(
                         border = if (active) accent.copy(alpha = 0.32f) else palette.border,
                         sheen = 0.7f,
                     )
-                    .pressable(onClick = { onSelect(option.value) })
                     .padding(horizontal = 12.dp, vertical = 7.dp),
             )
         }
@@ -497,6 +497,7 @@ private fun VersionCard(
     Column(
         Modifier
             .width(150.dp)
+            .pressable(onClick = onSelect)
             .solidGlass(
                 shape = GlassShapes.card,
                 fill = if (palette.isDark) {
@@ -507,7 +508,6 @@ private fun VersionCard(
                 border = null,
             )
             .border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
-            .pressable(onClick = onSelect)
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -642,6 +642,7 @@ private fun SourceCard(
     Column(
         Modifier
             .width(width)
+            .pressable(onClick = onSelect)
             .solidGlass(
                 shape = GlassShapes.card,
                 fill = if (palette.isDark) {
@@ -652,7 +653,6 @@ private fun SourceCard(
                 border = null,
             )
             .border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
-            .pressable(onClick = onSelect)
             .padding(horizontal = 11.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {

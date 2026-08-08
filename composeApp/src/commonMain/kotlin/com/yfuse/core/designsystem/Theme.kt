@@ -121,6 +121,7 @@ fun YfuseTheme(
         LocalAccent provides accent,
         LocalAccessibilityOptions provides accessibility,
         LocalDensity provides adjustedDensity,
+        LocalHaptics provides rememberHaptics(),
     ) {
         MaterialTheme(
             colorScheme = if (dark) darkScheme(accent.color) else lightScheme(accent.color),

@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +72,7 @@ import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.sharedMediaElement
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
@@ -167,7 +167,7 @@ fun HomeScreen(component: HomeComponent) {
                                 text = "重新刷新",
                                 style = sc(11.5f, 700),
                                 color = Brand.Primary,
-                                modifier = Modifier.clickable {
+                                modifier = Modifier.pressable {
                                     component.store.accept(HomeIntent.Retry)
                                 },
                             )
@@ -387,9 +387,9 @@ private fun HeroPageIndicator(
                 Modifier
                     .width(width.dp)
                     .height(6.dp)
+                    .pressable { onSelectSlide(index) }
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = if (index == slideIndex) 0.92f else 0.42f))
-                    .clickable { onSelectSlide(index) },
+                    .background(Color.White.copy(alpha = if (index == slideIndex) 0.92f else 0.42f)),
             )
         }
     }
@@ -433,7 +433,7 @@ private fun HeroHeader(
             }
         }
         Box(
-            Modifier.size(44.dp).clickable(onClick = onOpenCalendar),
+            Modifier.size(44.dp).pressable(onClick = onOpenCalendar),
             contentAlignment = Alignment.Center,
         ) {
             Box(
@@ -455,7 +455,7 @@ private fun HeroHeader(
             }
         }
         Box(
-            Modifier.size(44.dp).clickable(onClick = onOpenSearch),
+            Modifier.size(44.dp).pressable(onClick = onOpenSearch),
             contentAlignment = Alignment.Center,
         ) {
             Box(
@@ -472,7 +472,7 @@ private fun HeroHeader(
             }
         }
         Box(
-            Modifier.size(44.dp).clickable(onClick = onOpenProfile),
+            Modifier.size(44.dp).pressable(onClick = onOpenProfile),
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.size(36.dp).clip(CircleShape).background(PrimaryGradient))
@@ -532,12 +532,12 @@ private fun HeroCaption(
             Row(
                 Modifier
                     .height(44.dp)
+                    .pressable(onClick = onPlay)
                     .glass(
                         shape = GlassShapes.chip,
                         fill = Color(0xFF101722).copy(alpha = 0.30f),
                         border = Color.White.copy(alpha = 0.40f),
                     )
-                    .clickable(onClick = onPlay)
                     .padding(start = 5.dp, end = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -573,12 +573,12 @@ private fun HeroCircleButton(icon: ImageVector, label: String, onClick: () -> Un
     Box(
         Modifier
             .size(42.dp)
+            .pressable(onClick = onClick)
             .glass(
                 shape = CircleShape,
                 fill = Color(0xFF11151F).copy(alpha = 0.38f),
                 border = Color.White.copy(alpha = 0.34f),
-            )
-            .clickable(onClick = onClick),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, label, tint = Color.White, modifier = Modifier.size(15.dp))
@@ -610,8 +610,8 @@ private fun ContinueWatching(
                 style = mr(11f, 500),
                 color = palette.sub2,
                 modifier = Modifier
+                    .pressable(onClick = onSeeAll)
                     .glass(GlassShapes.chip, palette.card2, palette.border)
-                    .clickable(onClick = onSeeAll)
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }
@@ -667,8 +667,8 @@ private fun Recommended(
                 style = mr(11f, 500),
                 color = palette.sub2,
                 modifier = Modifier
+                    .pressable(onClick = onSeeAll)
                     .glass(GlassShapes.chip, palette.card2, palette.border)
-                    .clickable(onClick = onSeeAll)
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }
@@ -728,8 +728,8 @@ private fun RecentAdded(
                 style = mr(11f, 500),
                 color = palette.sub2,
                 modifier = Modifier
+                    .pressable(onClick = onSeeAll)
                     .glass(GlassShapes.chip, palette.card2, palette.border)
-                    .clickable(onClick = onSeeAll)
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }

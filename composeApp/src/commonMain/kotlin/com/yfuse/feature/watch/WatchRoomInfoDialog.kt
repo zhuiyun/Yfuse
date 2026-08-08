@@ -1,7 +1,6 @@
 package com.yfuse.feature.watch
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +38,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchParticipant
@@ -132,12 +132,12 @@ fun WatchRoomInfoDialog(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(GlassShapes.chip)
-                        .background(Brand.Primary.copy(alpha = 0.12f))
-                        .clickable {
+                        .pressable {
                             onDismiss()
                             onEnter()
                         }
+                        .clip(GlassShapes.chip)
+                        .background(Brand.Primary.copy(alpha = 0.12f))
                         .padding(vertical = 11.dp),
                 )
             }

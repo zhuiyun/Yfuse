@@ -1,6 +1,5 @@
 package com.yfuse.feature.library
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +50,7 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.LibrarySort
 
 /**
@@ -122,8 +122,8 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 Box(
                     Modifier
                         .size(34.dp)
-                        .glass(GlassShapes.chip)
-                        .clickable(onClick = component.onBack),
+                        .pressable(onClick = component.onBack)
+                        .glass(GlassShapes.chip),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -152,12 +152,12 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     Row(
                         Modifier
                             .height(34.dp)
+                            .pressable { sortOpen = true }
                             .glass(
                                 RoundedCornerShape(17.dp),
                                 palette.glassStrong,
                                 palette.tabbarBorder,
                             )
-                            .clickable { sortOpen = true }
                             .padding(horizontal = 13.dp),
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -291,12 +291,12 @@ private fun GenreChip(label: String, selected: Boolean, onClick: () -> Unit) {
         color = if (selected) Brand.Primary else palette.body,
         maxLines = 1,
         modifier = Modifier
+            .pressable(onClick = onClick)
             .glass(
                 shape = GlassShapes.chip,
                 fill = if (selected) Brand.Primary.copy(alpha = 0.10f) else palette.card2,
                 border = if (selected) Brand.Primary.copy(alpha = 0.34f) else palette.border,
             )
-            .clickable(onClick = onClick)
             .padding(horizontal = 13.dp, vertical = 7.dp),
     )
 }
@@ -341,12 +341,12 @@ private fun GridFooter(error: String?, onRetry: () -> Unit) {
                     style = sc(11.5f, 700),
                     color = Brand.Primary,
                     modifier = Modifier
+                        .pressable(onClick = onRetry)
                         .glass(
                             shape = GlassShapes.chip,
                             fill = Brand.Primary.copy(alpha = 0.08f),
                             border = Brand.Primary.copy(alpha = 0.28f),
                         )
-                        .clickable(onClick = onRetry)
                         .padding(horizontal = 14.dp, vertical = 7.dp),
                 )
             }
