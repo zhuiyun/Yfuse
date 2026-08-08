@@ -196,7 +196,8 @@ internal fun WatchChatPanel(
                 verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 items(messages, key = { it.id }) { message ->
-                    WatchChatBubble(message, onRetry)
+                    // Someone else's message arriving mid-film should not be a jump cut.
+                    WatchChatBubble(message, onRetry, Modifier.animateItem())
                 }
             }
         }
@@ -283,9 +284,13 @@ internal fun WatchChatPanel(
 }
 
 @Composable
-private fun WatchChatBubble(message: WatchChatMessage, onRetry: (String) -> Unit) {
+private fun WatchChatBubble(
+    message: WatchChatMessage,
+    onRetry: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
-        Modifier.fillMaxWidth(),
+        modifier.fillMaxWidth(),
         horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start,
     ) {
         Row(

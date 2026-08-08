@@ -34,6 +34,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -70,6 +71,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
@@ -133,6 +135,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     }
     val accent = rememberAnimatedDominantColor(slideUrl, Brand.Primary)
 
+    val pullState = rememberPullToRefreshState()
+    RefreshThresholdHaptics(pullState)
+
     var serverMenuOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -166,6 +171,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             else -> PullToRefreshBox(
                 isRefreshing = state.loading,
                 onRefresh = { store.accept(LibraryIntent.Retry) },
+                state = pullState,
                 modifier = Modifier.fillMaxSize(),
             ) {
                 LazyColumn(
@@ -970,6 +976,7 @@ internal fun PosterCard(
     item: MediaItem,
     showProgress: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     CaptionedPoster(
         url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
@@ -978,7 +985,7 @@ internal fun PosterCard(
         progress = if (showProgress) item.playedPercentage?.let { (it / 100.0).toFloat() } else null,
         sharedKey = "media-poster-${item.id}",
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     )
 }
 

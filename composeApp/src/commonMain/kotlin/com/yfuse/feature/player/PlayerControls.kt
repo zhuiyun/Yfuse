@@ -6,7 +6,6 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +57,7 @@ import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.pressable
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
@@ -1822,12 +1822,16 @@ internal fun OptionRow(
     }
 }
 
-/** Taps on the overlay shouldn't flash a ripple over the picture. */
+/**
+ * Taps on the overlay shouldn't flash a ripple over the picture.
+ *
+ * It suppressed the ripple and put nothing in its place, so thirty player controls
+ * answered a press with nothing at all. Delegating to [pressable] keeps the name's promise
+ * — still no ripple — and gives them the same dip every other control in the app has.
+ */
 @Composable
-internal fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier {
-    val interactionSource = remember { MutableInteractionSource() }
-    return clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-}
+internal fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier =
+    pressable(onClick = onClick)
 
 /**
  * `alphatv · 1080P · EXO · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.

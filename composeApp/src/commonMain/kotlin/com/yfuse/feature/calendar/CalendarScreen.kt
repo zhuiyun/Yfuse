@@ -285,6 +285,8 @@ private fun DayStrip(days: List<CalendarDay>, today: String, onSelect: (Int) -> 
             val isToday = day.isToday(today)
             Column(
                 Modifier
+                    // The strip is rebuilt whenever the filter changes.
+                    .animateItem()
                     .pressable { onSelect(index) }
                     .clip(GlassShapes.chip)
                     .background(if (isToday) Brand.Primary else Color.Transparent)

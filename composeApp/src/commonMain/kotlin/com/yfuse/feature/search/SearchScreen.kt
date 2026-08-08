@@ -344,7 +344,8 @@ private fun PeopleRow(
         ) {
             items(people, key = { "${it.serverId}-${it.personId}" }) { person ->
                 Column(
-                    Modifier.width(64.dp).pressable { onSelect(person) },
+                    // Cast lands after the titles do, so the row grows into place.
+                    Modifier.width(64.dp).animateItem().pressable { onSelect(person) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // The image draws nothing when the server has no headshot, so the
@@ -466,7 +467,7 @@ private fun ServerGroup(
                         serverId = group.serverId,
                         item = item,
                         onClick = { onOpenItem(item.id) },
-                        modifier = Modifier.width(270.dp),
+                        modifier = Modifier.width(270.dp).animateItem(),
                     )
                 }
             }

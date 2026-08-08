@@ -257,7 +257,13 @@ fun OverlayButton(
     Box(
         modifier
             .height(46.dp)
-            .pressable(enabled = enabled && !loading, onClick = onClick)
+            .pressable(
+                enabled = enabled && !loading,
+                // The key that commits — 发送, 确定, 删除 — is felt. 取消 is not: backing
+                // out of a dialog is not an event worth a buzz.
+                haptic = if (tone == OverlayButtonTone.Plain) null else HapticSignal.Confirm,
+                onClick = onClick,
+            )
             .flatGlass(shape, fill, border),
         contentAlignment = Alignment.Center,
     ) {
@@ -356,7 +362,11 @@ fun OverlayOptionRow(
     Row(
         modifier
             .fillMaxWidth()
-            .pressable(onClick = onClick)
+            // Every picker row in the app comes through here — 排序, 播放器内核, 标记已看.
+            .pressable(
+                haptic = if (destructive) HapticSignal.Confirm else HapticSignal.Select,
+                onClick = onClick,
+            )
             .background(fill)
             .padding(horizontal = 12.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.SpaceBetween,

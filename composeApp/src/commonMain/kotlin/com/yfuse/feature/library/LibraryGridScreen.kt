@@ -222,6 +222,10 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 item = item,
                                 showProgress = false,
                                 onClick = { component.onOpenItem(item.id) },
+                                // Appended pages fade in where they land rather than
+                                // appearing mid-scroll, and a sort change cross-dissolves
+                                // instead of swapping the grid between two frames.
+                                modifier = Modifier.animateItem(),
                             )
                         }
                         if (state.loadingMore || state.loadMoreError != null) {
@@ -277,20 +281,31 @@ private fun GenreFilterRow(
             GenreChip("全部", selected == null) { onSelect(null) }
         }
         items(genres, key = { it }) { genre ->
-            GenreChip(genre, selected == genre) { onSelect(genre) }
+            // The facet arrives after the first page, so the row grows under the header.
+            GenreChip(
+                label = genre,
+                selected = selected == genre,
+                modifier = Modifier.animateItem(),
+                onClick = { onSelect(genre) },
+            )
         }
     }
 }
 
 @Composable
-private fun GenreChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun GenreChip(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     Text(
         label,
         style = sc(11.5f, if (selected) 700 else 500),
         color = if (selected) Brand.Primary else palette.body,
         maxLines = 1,
-        modifier = Modifier
+        modifier = modifier
             .pressable(onClick = onClick)
             .glass(
                 shape = GlassShapes.chip,
