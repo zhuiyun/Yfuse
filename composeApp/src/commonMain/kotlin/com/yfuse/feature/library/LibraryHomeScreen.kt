@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -25,10 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -614,14 +611,10 @@ private fun ServerSheet(
             subtitle = "已登录 ${servers.size} 个 · 切换后重新载入媒体库",
             onClose = onDismiss,
         )
-        // A centred panel has no edge to grow against, so a long server list scrolls
-        // inside the dialog instead of running off both ends of the screen.
-        Column(
-            modifier = Modifier
-                .heightIn(max = 360.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        // A centred panel has no edge to grow against, so a long server list scrolls inside
+        // the dialog instead of running off both ends of the screen. [GlassDialog] does that
+        // itself now, against the screen it is actually on rather than a fixed maximum.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             servers.forEach { server ->
                 val isCurrent = server.id == currentId
                 Row(

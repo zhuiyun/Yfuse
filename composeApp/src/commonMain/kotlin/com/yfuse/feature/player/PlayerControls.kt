@@ -378,7 +378,11 @@ internal fun PlayerControls(
             WatchChatDanmakuOverlay(
                 roomCode = watch.roomCode,
                 messages = watch.chatMessages,
-                enabled = watch.chatDanmakuEnabled && !watchChatOpen,
+                enabled = watch.chatDanmakuEnabled,
+                // The panel covers the picture, so nothing flies while it is up — but it is
+                // held, not dropped. Sending is done from inside that panel, and 弹幕 that
+                // skips the sender is 弹幕 the sender cannot tell they sent.
+                held = watchChatOpen,
             )
             // Above the danmaku and below the controls: a reaction is meant to be seen
             // over the picture, never to swallow a tap aimed at 播放.

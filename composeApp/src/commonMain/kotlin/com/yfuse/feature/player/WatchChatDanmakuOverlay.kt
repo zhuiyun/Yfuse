@@ -83,6 +83,17 @@ internal fun WatchChatDanmakuOverlay(
     roomCode: String?,
     messages: List<WatchChatMessage>,
     enabled: Boolean,
+    /**
+     * Something is covering the picture — the chat panel and its scrim. Arrivals wait here
+     * instead of being spent behind it.
+     *
+     * This is the difference between a message you sent showing up as 弹幕 and not. Holding
+     * was previously done by switching [enabled] off, which marks everything that arrives as
+     * already animated: you opened the panel to type, sent, closed it, and the one message
+     * you had just written was the one message in the room that never flew — for you. The
+     * rest of the room, whose panels were shut, saw it.
+     */
+    held: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val messageKeys = messages.map { it.animationKey() }
@@ -98,13 +109,25 @@ internal fun WatchChatDanmakuOverlay(
     ) {
         val laneCount = (maxHeight / CHAT_LANE_HEIGHT).toInt().coerceIn(1, MAX_LANES)
 
-        LaunchedEffect(enabled, roomCode, messageKeys, laneCount) {
+        LaunchedEffect(enabled, held, roomCode, messageKeys, laneCount) {
             if (!enabled || roomCode == null) {
+                // Off by the viewer's own choice, or no room to belong to: nothing is owed a
+                // flight, now or later.
                 seenKeys = messageKeys.toSet()
                 active = emptyList()
                 return@LaunchedEffect
             }
-            val arrivals = watchChatMessagesNotSeen(messages, seenKeys)
+            if (held) {
+                // Deliberately leaves [seenKeys] alone. Whatever arrives while the panel is
+                // up flies when it comes down, rather than being animated behind a scrim
+                // nobody can see through — or, as before, thrown away.
+                active = emptyList()
+                return@LaunchedEffect
+            }
+            // One lane each at most. A gesture that releases a backlog — closing the panel
+            // after a busy minute — would otherwise stack several messages at the same x in
+            // the same lane, which is unreadable in exactly the moment it matters.
+            val arrivals = watchChatMessagesNotSeen(messages, seenKeys).takeLast(laneCount)
             seenKeys = messageKeys.toSet()
             if (arrivals.isEmpty()) return@LaunchedEffect
             val flights = arrivals.mapIndexed { index, message ->

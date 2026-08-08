@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -169,8 +171,17 @@ fun GlassDialog(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 26.dp)
-                        .imePadding()
+                        // The window is the whole display — system bars, cutout and all —
+                        // and in the player it is a short landscape one. Laid out against
+                        // the display rather than the part of it that can be seen, anything
+                        // with more than a few rows in it ran off the top and bottom edges:
+                        // 一起看 shows a room code, a control-mode switch and a card per
+                        // participant, and with the keyboard up there is barely a third of
+                        // a landscape screen left to put them in. [safeDrawingPadding]
+                        // covers the IME too, which is why there is no separate
+                        // `imePadding` here any more.
+                        .safeDrawingPadding()
+                        .padding(horizontal = 26.dp, vertical = 20.dp)
                         .graphicsLayer {
                             val entered = progress()
                             alpha = entered
@@ -199,7 +210,12 @@ fun GlassDialog(
                         // Swallow taps so the scrim's dismiss gesture stops at the panel edge.
                         .pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
-                        .padding(18.dp),
+                        .padding(18.dp)
+                        // The panel wraps its content until there is no more room, and then
+                        // scrolls instead of growing past the screen. Callers used to cap
+                        // themselves at a fixed height — 420dp, 460dp — which is a number
+                        // taller than the landscape screen those dialogs also open on.
+                        .verticalScroll(rememberScrollState()),
                     content = content,
                 )
             }

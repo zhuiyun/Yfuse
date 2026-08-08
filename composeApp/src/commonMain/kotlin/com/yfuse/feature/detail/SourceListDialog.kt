@@ -8,12 +8,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -77,12 +74,9 @@ internal fun SourceListDialog(
             subtitle = "${available.size} 个媒体库有这个片子 · 再点已选项即可播放",
             onClose = onDismiss,
         )
-        Column(
-            modifier = Modifier
-                .heightIn(max = 420.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        // No height cap of its own: [GlassDialog] scrolls whatever it cannot fit, and it is
+        // the only one that knows how much screen there actually is.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             available.forEach { entry ->
                 SourceRow(
                     entry = entry,

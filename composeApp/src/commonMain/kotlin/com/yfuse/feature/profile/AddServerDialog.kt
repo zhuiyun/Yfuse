@@ -8,14 +8,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -76,11 +73,10 @@ fun AddServerDialog(
             onClose = onDismiss,
         )
 
+        // No height cap of its own: [GlassDialog] scrolls whatever it cannot fit, and it is
+        // the only one that knows how much screen there actually is.
         Column(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(max = 400.dp)
-                .verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FieldLabel("局域网发现") {

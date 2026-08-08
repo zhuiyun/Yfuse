@@ -9,13 +9,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,12 +80,9 @@ fun WatchRoomInfoDialog(
             subtitle = state.roomCode?.let { "房间号 $it" } ?: "未在房间中",
             onClose = onDismiss,
         )
-        Column(
-            modifier = Modifier
-                .heightIn(max = 460.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
+        // No height cap of its own: [GlassDialog] scrolls whatever it cannot fit, and it is
+        // the only one that knows how much screen there actually is.
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             state.roomCode?.let { roomCode ->
                 CopyableRoomCode(
                     roomCode = roomCode,
