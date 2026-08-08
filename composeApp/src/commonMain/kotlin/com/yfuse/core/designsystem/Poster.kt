@@ -1,5 +1,7 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -21,6 +23,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
@@ -47,9 +52,25 @@ fun FallbackImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    /**
+     * 图片渐进加载 §3.1. Off for artwork small enough that the blur is only cost — a 20dp
+     * cast avatar has nothing to resolve into.
+     */
+    progressive: Boolean = true,
 ) {
     val candidates = remember(urls) { urls.filterNotNull().filter { it.isNotBlank() }.distinct() }
     var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
+    var loaded by remember(candidates, candidateIndex) { mutableStateOf(false) }
+    val animate = progressive && !LocalAccessibilityOptions.current.reduceMotion
+    // 0 while the picture is still arriving, 1 once it has settled into place.
+    val settle by animateFloatAsState(
+        targetValue = if (loaded || !animate) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (animate) Motion.IMAGE_IN else 0,
+            easing = Motion.Curve,
+        ),
+        label = "imageIn",
+    )
     candidates.getOrNull(candidateIndex)?.let { candidate ->
         val requestIndex = candidateIndex
         key(candidate) {
@@ -57,7 +78,23 @@ fun FallbackImage(
                 model = candidate,
                 contentDescription = contentDescription,
                 contentScale = contentScale,
-                modifier = modifier,
+                modifier = modifier.graphicsLayer {
+                    // 占位主色 → 12px 模糊放大 1.05 → 清晰归位. The placeholder underneath is
+                    // the caller's — [Poster] tints its own well — because nothing can know
+                    // the artwork's colour before the artwork has arrived.
+                    val remaining = 1f - settle
+                    val scale = 1f + (Motion.IMAGE_SCALE_FROM - 1f) * remaining
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = settle
+                    // Below API 31 renderEffect is ignored, so the load resolves as a
+                    // scale-and-fade on those devices rather than not at all.
+                    if (remaining > 0.01f) {
+                        val radius = Motion.imageBlur.toPx() * remaining
+                        renderEffect = BlurEffect(radius, radius)
+                    }
+                },
+                onSuccess = { loaded = true },
                 onError = {
                     // A disposed request can finish after its replacement. Only
                     // advance when the callback still belongs to the visible URL.
@@ -100,7 +137,17 @@ fun Poster(
         modifier
             .sharedMediaElement(sharedKey)
             .clip(shape)
-            .background(if (palette.isDark) Color(0xFF232833) else Color(0xFFDDE2EA))
+            // 占位主色渐变 §3.1. The artwork's own colour cannot be known before the
+            // artwork arrives, so this is the palette's placeholder tone with a slight
+            // vertical fall — enough that an unloaded tile reads as a surface rather than
+            // a grey block, and enough for the blur to resolve *out of* something.
+            .background(
+                if (palette.isDark) {
+                    cssLinearGradient(180f, 0f to Color(0xFF283040), 1f to Color(0xFF1D2430))
+                } else {
+                    cssLinearGradient(180f, 0f to Color(0xFFE4E9F1), 1f to Color(0xFFD3DAE5))
+                },
+            )
             .let {
                 // 触摸反馈全应用统一走 [pressable]：压缩 0.97、无涟漪、跟随
                 // 「减弱动态效果」。这里原来是裸 clickable，也就是 Material 涟漪，

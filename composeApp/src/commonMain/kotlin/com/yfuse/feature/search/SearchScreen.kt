@@ -367,6 +367,8 @@ private fun PeopleRow(
                                 ),
                             ),
                             contentDescription = person.name,
+                            // 56dp of face has nothing to resolve into.
+                            progressive = false,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
