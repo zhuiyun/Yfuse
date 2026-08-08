@@ -101,6 +101,39 @@ class RootComponent(
         _activeTab.value = tab
     }
 
+    /**
+     * Bumped when the user taps the tab they are already on, and that tab is already showing
+     * its root page. The root screens listen and go back to the top — see
+     * [com.yfuse.core.designsystem.ScrollToTopOnReselect].
+     *
+     * A counter rather than an event stream because the meaning is "this happened again",
+     * and a counter survives a subscriber that was not composed at the time.
+     */
+    private val _tabReselected = MutableStateFlow(0)
+    val tabReselected: StateFlow<Int> = _tabReselected.asStateFlow()
+
+    /**
+     * The active tab was tapped again.
+     *
+     * Deeper than its root, this goes back to the root; already there, it goes to the top of
+     * the page. Both are what the gesture has meant on iOS since tab bars existed, and until
+     * now it meant nothing at all — which is worst on 首页, whose search, calendar and
+     * account entries live in a hero that scrolls away, leaving no way back to them but a
+     * long drag.
+     */
+    fun reselectTab(tab: Tab, atRoot: Boolean) {
+        if (atRoot) {
+            _tabReselected.value++
+            return
+        }
+        when (tab) {
+            Tab.Home -> home.popToRoot()
+            Tab.Browse -> browse.popToRoot()
+            Tab.Search -> search.popToRoot()
+            Tab.Profile -> profile.popToRoot()
+        }
+    }
+
     private fun openSearch() {
         selectTab(Tab.Search)
         search.requestFocus()

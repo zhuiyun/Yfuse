@@ -33,6 +33,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.decode.DataSource
 
 /**
  * An image that is allowed a second (and third) guess.
@@ -61,7 +62,20 @@ fun FallbackImage(
     val candidates = remember(urls) { urls.filterNotNull().filter { it.isNotBlank() }.distinct() }
     var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
     var loaded by remember(candidates, candidateIndex) { mutableStateOf(false) }
-    val animate = progressive && !LocalAccessibilityOptions.current.reduceMotion
+    /**
+     * Whether this particular picture is allowed the entrance.
+     *
+     * The reveal exists to cover a wait. An image Coil already holds in memory has no wait
+     * to cover, so playing it there is not polish — it is 550ms of blur inserted in front of
+     * something that was ready to draw. It showed up worst in the grids: [loaded] restarts
+     * at false every time a tile is recycled into composition, so scrolling back over
+     * artwork already on screen a moment ago re-blurred every tile, every time.
+     *
+     * Set from the request's own data source, so the decision is per picture rather than a
+     * guess about the page.
+     */
+    var instant by remember(candidates, candidateIndex) { mutableStateOf(false) }
+    val animate = progressive && !LocalAccessibilityOptions.current.reduceMotion && !instant
     // 0 while the picture is still arriving, 1 once it has settled into place.
     val settle by animateFloatAsState(
         targetValue = if (loaded || !animate) 1f else 0f,
@@ -94,7 +108,12 @@ fun FallbackImage(
                         renderEffect = BlurEffect(radius, radius)
                     }
                 },
-                onSuccess = { loaded = true },
+                onSuccess = { success ->
+                    // Order matters: [instant] has to be true before [loaded] flips, or the
+                    // animation starts on this frame and the flag lands on the next one.
+                    if (success.result.dataSource == DataSource.MEMORY_CACHE) instant = true
+                    loaded = true
+                },
                 onError = {
                     // A disposed request can finish after its replacement. Only
                     // advance when the callback still belongs to the visible URL.
@@ -287,8 +306,10 @@ fun CaptionedPoster(
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
-            // Reserve the metadata line so cards align even when a year is absent.
-            Spacer(Modifier.height(13.dp))
+            // Reserve the metadata line so cards align even when a year is absent. Matches
+            // the year's own line box — `mr(10f)` resolves to the 11sp type floor, whose
+            // default line height is 11 × 1.35.
+            Spacer(Modifier.height(15.dp))
         }
     }
 }

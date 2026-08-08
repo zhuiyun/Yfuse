@@ -35,6 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
@@ -154,7 +156,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                             .height(34.dp)
                             .pressable { sortOpen = true }
                             .glass(
-                                RoundedCornerShape(17.dp),
+                                continuousRounded(17.dp),
                                 palette.glassStrong,
                                 palette.tabbarBorder,
                             )
@@ -225,7 +227,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 // Appended pages fade in where they land rather than
                                 // appearing mid-scroll, and a sort change cross-dissolves
                                 // instead of swapping the grid between two frames.
-                                modifier = Modifier.animateItem(),
+                                modifier = motionAwareItem(),
                             )
                         }
                         if (state.loadingMore || state.loadMoreError != null) {
@@ -285,7 +287,7 @@ private fun GenreFilterRow(
             GenreChip(
                 label = genre,
                 selected = selected == genre,
-                modifier = Modifier.animateItem(),
+                modifier = motionAwareItem(),
                 onClick = { onSelect(genre) },
             )
         }

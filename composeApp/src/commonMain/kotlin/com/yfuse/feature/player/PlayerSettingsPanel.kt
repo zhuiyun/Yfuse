@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.SkipMode
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.PlayerTokens
@@ -87,7 +88,7 @@ internal fun SettingsPanel(
         add(Tab.Diagnostics)
         add(Tab.More)
     }
-    val shape = RoundedCornerShape(20.dp)
+    val shape = continuousRounded(20.dp)
 
     // Dismiss catcher only — the old full-screen `rgba(0,0,0,.35)` scrim dimmed the film
     // itself every time a track list opened. The panel earns its separation from its own

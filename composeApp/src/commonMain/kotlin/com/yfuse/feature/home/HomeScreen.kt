@@ -46,6 +46,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
@@ -58,7 +61,11 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.PrimaryGradient
@@ -106,6 +113,9 @@ fun HomeScreen(component: HomeComponent) {
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState)
+    // 首页's search, calendar and account entries live inside a hero that scrolls away, so
+    // this tab is the one where tapping the tab again matters most.
+    ScrollToTopOnReselect(listState)
 
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
@@ -261,12 +271,23 @@ private fun HomeHeroCarousel(
     )
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // Tapping a dot is a statement that the user is choosing the slide, not watching a reel.
+    // Auto-advance stops for the session at that point and the dots become the only thing
+    // that moves it — the alternative is the carousel wandering off the slide they picked
+    // six seconds after they picked it.
+    var manuallySteered by remember { mutableStateOf(false) }
 
     LaunchedEffect(items.map { it.id }) {
         pagerState.scrollToPage(loopingCarouselStartPage(items.size))
     }
-    LaunchedEffect(items.size, carouselDragging) {
-        if (items.size <= 1 || carouselDragging) return@LaunchedEffect
+    LaunchedEffect(items.size, carouselDragging, reduceMotion, manuallySteered) {
+        // 390dp of artwork moving on its own is the largest single piece of motion in the
+        // app, and it was the one thing 减弱动态效果 did not switch off — the setting was
+        // honoured in fifteen places and not in the most conspicuous one.
+        if (items.size <= 1 || carouselDragging || reduceMotion || manuallySteered) {
+            return@LaunchedEffect
+        }
         while (true) {
             delay(6_000)
             pagerState.animateScrollToPage(pagerState.currentPage + 1)
@@ -304,6 +325,7 @@ private fun HomeHeroCarousel(
                 slideCount = items.size,
                 slideIndex = loopingCarouselItemIndex(pagerState.currentPage, items.size),
                 onSelectSlide = { targetIndex ->
+                    manuallySteered = true
                     carouselScope.launch {
                         pagerState.animateScrollToPage(
                             loopingCarouselTargetPage(
@@ -374,20 +396,32 @@ private fun HeroPageIndicator(
     onSelectSlide: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         repeat(slideCount) { index ->
+            val active = index == slideIndex
             val width by animateFloatAsState(
-                targetValue = if (index == slideIndex) 16f else 6f,
-                animationSpec = tween(250),
+                targetValue = if (active) 16f else 6f,
+                animationSpec = Motion.settle<Float>(reduceMotion),
                 label = "home-hero-dot",
             )
             Box(
                 Modifier
+                    .pressable(
+                        role = Role.Tab,
+                        onClickLabel = "第 ${index + 1} 张",
+                        onClick = { onSelectSlide(index) },
+                    )
+                    // A 16×6dp dot was the smallest target in the app by a wide margin, and
+                    // there are five of them in a row. The dots keep their size; the regions
+                    // that answer to them are 44dp and now supply the row's spacing too,
+                    // which is why the explicit 4dp gap is gone.
+                    .touchTarget()
+                    .semantics { selected = active }
                     .width(width.dp)
                     .height(6.dp)
-                    .pressable { onSelectSlide(index) }
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = if (index == slideIndex) 0.92f else 0.42f)),
+                    .background(Color.White.copy(alpha = if (active) 0.92f else 0.42f)),
             )
         }
     }
@@ -756,8 +790,16 @@ private fun RecentAdded(
     }
 }
 
-/** The app mark, sized to the prototype's 30px header slot. */
+/**
+ * The app mark, sized to the prototype's 30px header slot.
+ *
+ * The launcher art is a square raster, and the launcher is the only place it is ever seen
+ * masked. Dropped into the header unmasked it was the one hard-cornered square on a screen
+ * of rounded everything, and read as a sticker rather than as the app. [GlassShapes.appIcon]
+ * is the iOS icon curve — 22.37% of the side, continuous — so the mark in the header is the
+ * same silhouette as the mark on the home screen the user just tapped.
+ */
 @Composable
 private fun AppMark(modifier: Modifier = Modifier) {
-    CloudPlayerLogo(modifier)
+    CloudPlayerLogo(modifier.clip(GlassShapes.appIcon))
 }

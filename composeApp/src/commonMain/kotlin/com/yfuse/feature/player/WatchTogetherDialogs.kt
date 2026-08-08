@@ -28,6 +28,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassDialog
@@ -97,7 +98,7 @@ internal fun WatchTogetherDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .glass(RoundedCornerShape(14.dp), palette.card2, palette.border)
+                    .glass(continuousRounded(14.dp), palette.card2, palette.border)
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
@@ -340,7 +341,7 @@ private fun WatchInput(
     Box(
         Modifier
             .fillMaxWidth()
-            .glass(RoundedCornerShape(13.dp), palette.card2, palette.border)
+            .glass(continuousRounded(13.dp), palette.card2, palette.border)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         contentAlignment = Alignment.CenterStart,
     ) {

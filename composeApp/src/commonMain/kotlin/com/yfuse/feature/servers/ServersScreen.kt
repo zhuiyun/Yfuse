@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
@@ -179,7 +180,7 @@ fun ServersScreen(component: ServersComponent) {
         item {
             // `#3D64C9`, `radius:18px`, `padding:14px`, `700 14px`,
             // `0 10px 24px rgba(61,100,201,.3)`.
-            val shape = RoundedCornerShape(18.dp)
+            val shape = continuousRounded(18.dp)
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -261,7 +262,7 @@ private fun OnboardingScreen(
                 Modifier
                     .size(34.dp)
                     .pressable(onClick = ::back)
-                    .glass(RoundedCornerShape(16.dp), palette.card, palette.border),
+                    .glass(continuousRounded(16.dp), palette.card, palette.border),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -279,7 +280,7 @@ private fun OnboardingScreen(
                             .height(6.dp)
                             .background(
                                 if (index == step) Brand.Primary else Color(0x4D788CB4),
-                                RoundedCornerShape(3.dp),
+                                continuousRounded(3.dp),
                             ),
                     )
                 }
@@ -300,10 +301,10 @@ private fun OnboardingScreen(
                 Box(
                     Modifier
                         .size(76.dp)
-                        .shadow(Shadows.primaryButton, RoundedCornerShape(26.dp))
+                        .shadow(Shadows.primaryButton, continuousRounded(26.dp))
                         .background(
                             com.yfuse.core.designsystem.PrimaryGradient,
-                            RoundedCornerShape(26.dp),
+                            continuousRounded(26.dp),
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -343,7 +344,7 @@ private fun OnboardingScreen(
                                 .height(64.dp)
                                 .background(
                                     palette.card2,
-                                    RoundedCornerShape(18.dp),
+                                    continuousRounded(18.dp),
                                 ),
                         )
                     }
@@ -356,7 +357,7 @@ private fun OnboardingScreen(
                                     onIntent(ServersIntent.SelectDiscovered(server))
                                     step = 2
                                 }
-                                .glass(RoundedCornerShape(18.dp), palette.card, palette.border)
+                                .glass(continuousRounded(18.dp), palette.card, palette.border)
                                 .padding(horizontal = 14.dp, vertical = 13.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -366,7 +367,7 @@ private fun OnboardingScreen(
                                     .size(38.dp)
                                     .background(
                                         com.yfuse.core.designsystem.PrimaryGradient,
-                                        RoundedCornerShape(14.dp),
+                                        continuousRounded(14.dp),
                                     ),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -471,7 +472,7 @@ private fun OnboardingScreen(
                                     onIntent(ServersIntent.SelectPublicUser(name))
                                 }
                                 .glass(
-                                    shape = RoundedCornerShape(20.dp),
+                                    shape = continuousRounded(20.dp),
                                     fill = if (selectedUser == index) {
                                         Brand.Primary.copy(alpha = 0.09f)
                                     } else {
@@ -525,7 +526,7 @@ private fun OnboardingScreen(
                     }
                 }
                 .glass(
-                    shape = RoundedCornerShape(25.dp),
+                    shape = continuousRounded(25.dp),
                     fill = Brand.Primary.copy(alpha = if (enabled) 0.72f else 0.34f),
                     border = Color.White.copy(alpha = if (enabled) 0.36f else 0.20f),
                 ),
@@ -567,7 +568,7 @@ private fun OnboardInput(
             Modifier
                 .fillMaxWidth()
                 .height(44.dp)
-                .glass(RoundedCornerShape(16.dp), palette.card, palette.border)
+                .glass(continuousRounded(16.dp), palette.card, palette.border)
                 .padding(horizontal = 15.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
@@ -667,7 +668,7 @@ private fun ProtocolSegment(
         modifier
             .pressable(onClick = onClick)
             .glass(
-                shape = RoundedCornerShape(9.dp),
+                shape = continuousRounded(9.dp),
                 fill = if (selected) {
                     Brand.Primary.copy(alpha = 0.13f)
                 } else {

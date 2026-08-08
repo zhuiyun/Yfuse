@@ -31,6 +31,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.sc
@@ -170,7 +171,7 @@ private fun WatchChatDanmakuItem(
                 } else {
                     Color.Black.copy(alpha = 0.66f)
                 },
-                shape = RoundedCornerShape(18.dp),
+                shape = continuousRounded(18.dp),
             )
             .padding(start = 5.dp, end = 11.dp, top = 4.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp),

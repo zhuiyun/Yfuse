@@ -30,6 +30,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
@@ -122,7 +123,7 @@ fun AddServerDialog(
                         Box(
                             Modifier
                                 .size(30.dp)
-                                .background(Brand.Primary, RoundedCornerShape(9.dp)),
+                                .background(Brand.Primary, continuousRounded(9.dp)),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -386,7 +387,7 @@ private fun ProtocolSegment(
         modifier
             .pressable(onClick = onClick)
             .glass(
-                shape = RoundedCornerShape(9.dp),
+                shape = continuousRounded(9.dp),
                 fill = if (selected) Brand.Primary.copy(alpha = 0.13f) else palette.card3,
                 border = if (selected) {
                     Brand.Primary.copy(alpha = 0.24f)

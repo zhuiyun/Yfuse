@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.PlayerTokens
@@ -121,7 +123,7 @@ internal fun WatchChatPanel(
                     modifier = Modifier
                         .pressable(onClick = onToggleDanmaku)
                         .glass(
-                            RoundedCornerShape(10.dp),
+                            continuousRounded(10.dp),
                             if (danmakuEnabled) {
                                 Brand.Primary.copy(alpha = 0.45f)
                             } else {
@@ -209,7 +211,7 @@ internal fun WatchChatPanel(
             ) {
                 items(messages, key = { it.id }) { message ->
                     // Someone else's message arriving mid-film should not be a jump cut.
-                    WatchChatBubble(message, onRetry, Modifier.animateItem())
+                    WatchChatBubble(message, onRetry, motionAwareItem())
                 }
             }
         }
@@ -232,7 +234,7 @@ internal fun WatchChatPanel(
                 Modifier
                     .weight(1f)
                     .glass(
-                        RoundedCornerShape(14.dp),
+                        continuousRounded(14.dp),
                         Color.White.copy(alpha = 0.1f),
                         Color.White.copy(alpha = 0.18f),
                     )
@@ -283,7 +285,7 @@ internal fun WatchChatPanel(
                 modifier = Modifier
                     .pressable(enabled = draft.isNotBlank() && sendingEnabled, onClick = ::submit)
                     .glass(
-                        RoundedCornerShape(13.dp),
+                        continuousRounded(13.dp),
                         Brand.Primary.copy(
                             alpha = if (draft.isBlank() || !sendingEnabled) 0.16f else 0.55f,
                         ),
@@ -323,7 +325,7 @@ private fun WatchChatBubble(
                     color = Color.White.copy(alpha = 0.94f),
                     modifier = Modifier
                         .glass(
-                            RoundedCornerShape(12.dp),
+                            continuousRounded(12.dp),
                             if (message.isMine) {
                                 Brand.Primary.copy(alpha = 0.48f)
                             } else {
@@ -370,7 +372,7 @@ internal fun WatchChatPreview(
         modifier
             .width(260.dp)
             .glass(
-                RoundedCornerShape(16.dp),
+                continuousRounded(16.dp),
                 Color.Black.copy(alpha = 0.58f),
                 Color.White.copy(alpha = 0.2f),
             )
