@@ -3,6 +3,7 @@ package com.yfuse.core.designsystem
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import kotlin.coroutines.cancellation.CancellationException
 
