@@ -5,10 +5,10 @@ import com.arkivanov.mvikotlin.core.store.Store
 /**
  * A queue being prepared while the detail page is visible.
  *
- * The detail page and the transient PlayerComponent live in the same process, so handing the
- * actual Store across avoids rebuilding item detail, episode MediaSources and every stream URL
- * after the user has already pressed 播放. Resume position is part of the key because it lives in
- * PlayerState; 从头播放 therefore falls back to a fresh queue instead of inheriting resume state.
+ * The detail page and the transient PlayerComponent live in the same process, so sharing the
+ * actual Store avoids rebuilding item detail, episode MediaSources and every stream URL after the
+ * user has already pressed 播放. Resume position is part of the key because it lives in PlayerState;
+ * 从头播放 therefore falls back to a fresh queue instead of inheriting resume state.
  */
 internal data class PlaybackPreloadKey(
     val serverId: String?,
@@ -20,10 +20,11 @@ internal data class PlaybackPreloadKey(
 internal typealias PreparedPlayerStore = Store<PlayerIntent, PlayerState, Nothing>
 
 /**
- * Process-local handoff for a queue prepared by DetailComponent.
+ * Process-local cache for queues prepared by DetailComponent.
  *
- * A map rather than a single slot keeps a covered detail page's preparation intact while a
- * related detail page is pushed above it. All access is from component/main coroutines.
+ * The detail component remains the owner. PlayerComponent only borrows the Store long enough to
+ * launch PlayerActivity, which means returning from playback and pressing 播放 again is still an
+ * instant cache hit instead of rebuilding the queue.
  */
 internal object PreparedPlaybackRegistry {
     private val stores = mutableMapOf<PlaybackPreloadKey, PreparedPlayerStore>()
@@ -33,8 +34,7 @@ internal object PreparedPlaybackRegistry {
         store: PreparedPlayerStore,
     ): PreparedPlayerStore? = stores.put(key, store)
 
-    /** Transfers ownership to PlayerComponent. */
-    fun take(key: PlaybackPreloadKey): PreparedPlayerStore? = stores.remove(key)
+    fun get(key: PlaybackPreloadKey): PreparedPlayerStore? = stores[key]
 
     /** True only while the detail page still owns this exact Store. */
     fun owns(key: PlaybackPreloadKey, store: PreparedPlayerStore): Boolean = stores[key] === store
