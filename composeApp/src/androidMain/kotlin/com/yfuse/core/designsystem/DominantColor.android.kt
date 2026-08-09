@@ -14,7 +14,6 @@ import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
-import coil3.request.size
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -31,10 +30,6 @@ actual fun rememberDominantColor(url: String?, fallback: Color): Color {
                 val request = ImageRequest.Builder(context)
                     .data(url)
                     .allowHardware(false)
-                    // Palette does not gain useful information from decoding a full backdrop.
-                    // A small software bitmap is enough, avoids a large readback allocation,
-                    // and makes first-open colour extraction much less visible on low-end phones.
-                    .size(96, 96)
                     .build()
                 val image = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)?.image
                 val bitmap = (image as? BitmapImage)?.bitmap ?: return@runCatching null
