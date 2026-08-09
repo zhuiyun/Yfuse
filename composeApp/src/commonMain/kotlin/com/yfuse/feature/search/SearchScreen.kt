@@ -126,6 +126,7 @@ private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) 
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
+            state = component.listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
             verticalArrangement = Arrangement.spacedBy(20.dp),
