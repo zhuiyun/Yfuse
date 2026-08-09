@@ -62,12 +62,6 @@ import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
 import com.yfuse.core.util.withoutControlCharacters
 import kotlinx.coroutines.launch
 
-/**
- * How much of the right edge the panel takes.
- *
- * Named because the player has to know: anything that floats up that corner has to be moved
- * clear of the panel while it is open, or it plays out behind it — see [WatchReactionOverlay].
- */
 internal val WatchChatPanelWidth = 340.dp
 
 @Composable
@@ -94,9 +88,6 @@ internal fun WatchChatPanel(
             showJumpToLatest = false
             return@LaunchedEffect
         }
-
-        // Follow only when the reader is already at the end. If they are reading history,
-        // preserve the scroll position and surface a lightweight "回到最新" affordance.
         val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
         when {
             last == null -> {
@@ -111,7 +102,6 @@ internal fun WatchChatPanel(
         }
     }
 
-    // A manual scroll back to the end clears the affordance even if no new message arrives.
     LaunchedEffect(listState, messages.lastIndex) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
             .collect { index ->
@@ -166,11 +156,7 @@ internal fun WatchChatPanel(
                         .pressable(onClick = onToggleDanmaku)
                         .glass(
                             continuousRounded(10.dp),
-                            if (danmakuEnabled) {
-                                Brand.Primary.copy(alpha = 0.45f)
-                            } else {
-                                Color.White.copy(alpha = 0.08f)
-                            },
+                            if (danmakuEnabled) Brand.Primary.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f),
                             Color.White.copy(alpha = 0.16f),
                         )
                         .padding(horizontal = 9.dp, vertical = 6.dp),
@@ -268,12 +254,12 @@ internal fun WatchChatPanel(
                             fill = Brand.Primary.copy(alpha = 0.58f),
                             border = Color.White.copy(alpha = 0.22f),
                         )
-                        .pressable {
+                        .pressable(onClick = {
                             scope.launch {
                                 listState.animateScrollToItem(messages.lastIndex)
                                 showJumpToLatest = false
                             }
-                        }
+                        })
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
@@ -340,18 +326,12 @@ internal fun WatchChatPanel(
             Text(
                 "发送",
                 style = sc(10.5f, 700),
-                color = if (draft.isBlank() || !sendingEnabled) {
-                    Color.White.copy(alpha = 0.3f)
-                } else {
-                    Color.White
-                },
+                color = if (draft.isBlank() || !sendingEnabled) Color.White.copy(alpha = 0.3f) else Color.White,
                 modifier = Modifier
                     .pressable(enabled = draft.isNotBlank() && sendingEnabled, onClick = ::submit)
                     .glass(
                         continuousRounded(13.dp),
-                        Brand.Primary.copy(
-                            alpha = if (draft.isBlank() || !sendingEnabled) 0.16f else 0.55f,
-                        ),
+                        Brand.Primary.copy(alpha = if (draft.isBlank() || !sendingEnabled) 0.16f else 0.55f),
                         Color.White.copy(alpha = 0.2f),
                     )
                     .padding(horizontal = 13.dp, vertical = 13.dp),
@@ -397,11 +377,7 @@ private fun WatchChatBubble(
                         modifier = Modifier
                             .glass(
                                 continuousRounded(12.dp),
-                                if (message.isMine) {
-                                    Brand.Primary.copy(alpha = 0.48f)
-                                } else {
-                                    Color.White.copy(alpha = 0.1f)
-                                },
+                                if (message.isMine) Brand.Primary.copy(alpha = 0.48f) else Color.White.copy(alpha = 0.1f),
                                 Color.White.copy(alpha = 0.16f),
                             )
                             .padding(horizontal = 11.dp, vertical = 8.dp),
@@ -409,17 +385,9 @@ private fun WatchChatBubble(
                 }
                 if (message.deliveryState != ChatDeliveryState.Sent) {
                     Text(
-                        if (message.deliveryState == ChatDeliveryState.Pending) {
-                            "发送中…"
-                        } else {
-                            "发送失败 · 点击重试"
-                        },
+                        if (message.deliveryState == ChatDeliveryState.Pending) "发送中…" else "发送失败 · 点击重试",
                         style = mr(8f, 500),
-                        color = if (message.deliveryState == ChatDeliveryState.Failed) {
-                            Brand.Danger
-                        } else {
-                            Color.White.copy(alpha = 0.42f)
-                        },
+                        color = if (message.deliveryState == ChatDeliveryState.Failed) Brand.Danger else Color.White.copy(alpha = 0.42f),
                         modifier = Modifier
                             .padding(horizontal = 4.dp, vertical = 2.dp)
                             .noRippleClickable {
