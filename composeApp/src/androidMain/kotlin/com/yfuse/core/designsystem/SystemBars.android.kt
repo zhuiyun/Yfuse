@@ -11,10 +11,11 @@ import androidx.core.view.WindowCompat
 @Composable
 actual fun StatusBarIconStyle(darkIcons: Boolean) {
     val view = LocalView.current
+    val routeVisible = LocalRouteVisible.current
 
-    DisposableEffect(view, darkIcons) {
+    DisposableEffect(view, darkIcons, routeVisible) {
         val window = view.context.findActivity()?.window
-        if (window == null) {
+        if (!routeVisible || window == null) {
             onDispose {}
         } else {
             val controller = WindowCompat.getInsetsController(window, view)
