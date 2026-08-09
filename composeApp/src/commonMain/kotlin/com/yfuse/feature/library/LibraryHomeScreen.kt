@@ -38,7 +38,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +66,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
@@ -144,18 +144,17 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val lightPageReached by rememberScrolledPastHero(listState, HeroHeight)
     StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
 
-    var carouselInitialized by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(slides.map { it.id }) {
-        if (!carouselInitialized && slides.isNotEmpty()) {
-            pagerState.scrollToPage(loopingCarouselStartPage(slides.size))
-            carouselInitialized = true
-        }
+        pagerState.scrollToPage(loopingCarouselStartPage(slides.size))
     }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    LaunchedEffect(slides.size, carouselDragging, reduceMotion) {
+    val routeVisible = LocalRouteVisible.current
+    LaunchedEffect(slides.size, carouselDragging, reduceMotion, routeVisible) {
         // Same reasoning as 首页's reel: the largest moving thing on the page, and the one
         // 减弱动态效果 was not reaching.
-        if (slides.size <= 1 || carouselDragging || reduceMotion) return@LaunchedEffect
+        if (!routeVisible || slides.size <= 1 || carouselDragging || reduceMotion) {
+            return@LaunchedEffect
+        }
         while (true) {
             delay(6_000)
             pagerState.animateScrollToPage(pagerState.currentPage + 1)
