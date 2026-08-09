@@ -97,10 +97,10 @@ class DetailComponent(
         // detail page. For episodes this resolves the series queue and all MediaSources in one
         // pass, so the next episode already has concrete direct/transcode addresses as well.
         store.states
-            .onEach { state ->
-                val target = state.playTarget ?: return@onEach
-                val server = state.playServer ?: return@onEach
-                if (state.selectionLoading) return@onEach
+            .onEach detailState@{ state ->
+                val target = state.playTarget ?: return@detailState
+                val server = state.playServer ?: return@detailState
+                if (state.selectionLoading) return@detailState
 
                 val key = PlaybackPreloadKey(
                     serverId = server.id,
@@ -108,7 +108,7 @@ class DetailComponent(
                     startPositionTicks = state.playPositionTicks,
                     mediaSourceId = state.selectedVersionId,
                 )
-                if (key == preloadKey && preloadStore != null) return@onEach
+                if (key == preloadKey && preloadStore != null) return@detailState
 
                 releaseOwnedPreload()
                 val prepared = PlayerStoreFactory(
@@ -129,8 +129,8 @@ class DetailComponent(
                 // Metadata/URLs are useful to every engine. Android's preloader additionally
                 // puts the beginning of the selected direct stream into the shared Media3 cache.
                 preloadObserver = prepared.states
-                    .onEach { playback ->
-                        if (playback.loading) return@onEach
+                    .onEach playbackState@{ playback ->
+                        if (playback.loading) return@playbackState
                         val selected = playback.items.getOrNull(playback.startIndex)
                         if (playback.error == null && selected != null) {
                             sourcePreloader?.preload(selected.url)
@@ -149,9 +149,9 @@ class DetailComponent(
             // key has resolved. A series' top-level detail is not itself playable.
             var started = false
             store.states
-                .onEach { state ->
+                .onEach autoPlayState@{ state ->
                     if (started || state.playTarget == null || state.selectionLoading) {
-                        return@onEach
+                        return@autoPlayState
                     }
                     started = true
                     store.accept(DetailIntent.Play)
