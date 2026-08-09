@@ -33,6 +33,7 @@ class SearchComponent(
     private val navigation = StackNavigation<Config>()
     private val _focusRequest = MutableValue(0)
     val focusRequest: Value<Int> = _focusRequest
+    private var consumedFocusRequest = 0
 
     val stack: Value<ChildStack<Config, Child>> = childStack(
         source = navigation,
@@ -64,6 +65,16 @@ class SearchComponent(
 
     fun requestFocus() {
         _focusRequest.value += 1
+    }
+
+    /**
+     * UI composition can come and go when tabs switch; the request and its consumed counter
+     * live together here so rebuilding SearchScreen cannot replay an old keyboard request.
+     */
+    internal fun consumeFocusRequest(request: Int): Boolean {
+        if (request <= consumedFocusRequest) return false
+        consumedFocusRequest = request
+        return true
     }
 
     fun navigateBack() {
