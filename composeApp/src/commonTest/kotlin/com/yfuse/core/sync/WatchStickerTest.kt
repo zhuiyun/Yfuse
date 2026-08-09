@@ -7,11 +7,7 @@ import kotlin.test.assertTrue
 
 class WatchStickerTest {
 
-    /**
-     * What [WatchTogetherClient] will accept in one message. Its own copy is private, so this
-     * is a transcription — if that limit ever drops, this test is what notices that half the
-     * tray has quietly become unsendable.
-     */
+    /** What [WatchTogetherClient] accepts in one message. */
     private val maxChatGraphemes = 30
 
     private fun message(text: String) = WatchChatMessage(
@@ -25,21 +21,17 @@ class WatchStickerTest {
     )
 
     @Test
-    fun catalogue_keeps_the_promised_32_presets_and_motion_variety() {
-        assertEquals(32, WatchStickers.presets.size)
-        val motions = WatchStickers.presets.map { it.motion }.toSet()
-        assertTrue(WatchStickerMotion.Bounce in motions)
-        assertTrue(WatchStickerMotion.Shake in motions)
-        assertTrue(WatchStickerMotion.Spin in motions)
-        assertTrue(WatchStickerMotion.Pulse in motions)
-        assertTrue(WatchStickerMotion.Swing in motions)
-        assertTrue(WatchStickerMotion.Wobble in motions)
-    }
-
-    @Test
     fun every_preset_round_trips_through_the_wire_token() {
         WatchStickers.presets.forEach { sticker ->
             assertEquals(sticker, WatchStickers.parse(WatchStickers.token(sticker)))
+        }
+    }
+
+    @Test
+    fun expanded_catalogue_keeps_64_presets_across_every_category() {
+        assertEquals(64, WatchStickers.presets.size)
+        WatchStickerCategory.entries.forEach { category ->
+            assertTrue(WatchStickers.inCategory(category).isNotEmpty(), "$category must not be empty")
         }
     }
 
@@ -48,10 +40,15 @@ class WatchStickerTest {
         val ids = WatchStickers.presets.map { it.id }
         assertEquals(ids.size, ids.toSet().size, "sticker ids must be unique")
         WatchStickers.presets.forEach { sticker ->
-            // A token longer than a message is a sticker that cannot be sent, and the tray
-            // would offer it anyway — the failure would only show up on tap.
             val token = WatchStickers.token(sticker)
             assertTrue(token.length <= maxChatGraphemes, "token too long to send: $token")
+        }
+    }
+
+    @Test
+    fun legacy_ids_keep_resolving_after_catalogue_expansion() {
+        listOf("laugh", "wow", "love", "cry", "clap", "fire", "think", "dead").forEach { id ->
+            assertEquals(id, WatchStickers.byId(id)?.id)
         }
     }
 
@@ -61,7 +58,6 @@ class WatchStickerTest {
         assertNull(WatchStickers.parse("[sticker:laugh] 哈哈"))
         assertNull(WatchStickers.parse("[sticker:]"))
         assertNull(WatchStickers.parse("laugh"))
-        // An id this build has never heard of stays text rather than becoming a blank bubble.
         assertNull(WatchStickers.parse("[sticker:not-a-real-preset]"))
     }
 
