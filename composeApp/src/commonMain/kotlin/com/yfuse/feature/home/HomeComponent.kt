@@ -28,6 +28,11 @@ class HomeComponent(
     val onOpenCalendar: () -> Unit,
 ) : ComponentContext by componentContext {
 
+    // The component remains on the Decompose back stack while detail covers it. Keep the
+    // viewport here so returning restores the exact shelf instead of rebuilding at the hero.
+    internal var listIndex: Int = 0
+    internal var listScrollOffset: Int = 0
+
     val store = HomeStoreFactory(
         storeFactory = storeFactory,
         tmdb = tmdb,
