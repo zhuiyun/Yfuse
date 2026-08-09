@@ -24,6 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.delay
@@ -97,26 +98,53 @@ fun <T : Any> SharedElementTransitionContainer(
     // claim the same key twice and take the app down with it. The wait is deliberately longer
     // than the longest transition: a gesture in that window simply goes without its peek and
     // 返回 behaves as it did before, which is a far better failure than a crash.
-    var settled by remember { mutableStateOf(false) }
+    // Once the route transition has finished, keep the page directly underneath composed
+    // and hidden. Decompose keeps its component and store alive, but AnimatedContent normally
+    // disposes its Compose tree; recreating that tree only after pop made images and local UI
+    // state initialize on the first visible return frame. Warming it behind the detail page
+    // moves that work off-screen while preserving the existing navigation architecture.
+    //
+    // Remember which target completed the grace period rather than a Boolean. On pop,
+    // targetState changes during composition but LaunchedEffect has not run yet; a stale true
+    // would compose the same SaveableStateProvider key both here and in AnimatedContent.
+    var warmedTarget by remember { mutableStateOf<T?>(null) }
     LaunchedEffect(targetState) {
-        settled = false
+        warmedTarget = null
         delay(PEEK_GRACE)
-        settled = true
+        warmedTarget = targetState
     }
-    back?.canPeek = settled && previous != null
+    val keepPreviousWarm = previous != null && warmedTarget == targetState
+    back?.canPeek = keepPreviousWarm
 
     Box(Modifier.fillMaxSize()) {
-        if (back != null && back.peeking && previous != null) {
-            PredictiveBackReveal(back) {
-                // The route below keeps its own saved state — where it was scrolled to above
-                // all — so the peek shows the page the user actually left. The one case where
-                // both ends of the gesture are the same route (detail → related detail) has
-                // to go without: a [SaveableStateProvider] key may only be claimed once.
-                val previousKey = routeKey(previous)
-                if (previousKey == routeKey(targetState)) {
-                    content(previous)
+        if (keepPreviousWarm && previous != null) {
+            val previousKey = routeKey(previous)
+            // Related detail pages deliberately share a route key. They cannot claim the same
+            // SaveableStateProvider twice, so keep that existing exception cold.
+            if (previousKey != routeKey(targetState)) {
+                if (back != null) {
+                    // Keep the warm page invisible until a predictive gesture starts. Most
+                    // app pages are translucent over AppBackdrop; drawing the underlay at the
+                    // reveal's idle 0.82 alpha would otherwise create a double exposure.
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = if (back.peeking) 1f else 0f },
+                    ) {
+                        PredictiveBackReveal(back) {
+                            stateHolder.SaveableStateProvider(previousKey) {
+                                content(previous)
+                            }
+                        }
+                    }
                 } else {
-                    stateHolder.SaveableStateProvider(previousKey) { content(previous) }
+                    // Non-Android targets do not have predictive back, but still benefit from
+                    // keeping the previous route composed for an instant, reload-free pop.
+                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = 0f }) {
+                        stateHolder.SaveableStateProvider(previousKey) {
+                            content(previous)
+                        }
+                    }
                 }
             }
         }
