@@ -1,22 +1,35 @@
 package com.yfuse.core.designsystem
 
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import kotlin.coroutines.cancellation.CancellationException
 
+/**
+ * Fallback back handler for screens that only need to react after back commits.
+ *
+ * Use the predictive API even when the caller does not draw progress itself. This keeps every
+ * remaining local page/modal on Android's predictive-back dispatch path instead of registering
+ * a legacy commit-only Compose BackHandler. Screens that own a visual transition use
+ * [PlatformPredictiveBackHandler] below and consume progress explicitly.
+ */
 @Composable
 actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {
-    BackHandler(enabled = enabled, onBack = onBack)
+    val back by rememberUpdatedState(onBack)
+    PredictiveBackHandler(enabled = enabled) { events ->
+        // Collect the gesture so cancellation remains cancellation. The caller deliberately has
+        // no progress surface; completion is the only state change it asked for.
+        events.collect { }
+        back()
+    }
 }
 
 /**
  * `enableOnBackInvokedCallback` is set in the manifest, which is what makes the framework
  * deliver progress at all. Below Android 14 the flow completes without emitting and this
- * degrades to exactly what [PlatformBackHandler] already did — a single committed back —
- * which is the correct behaviour there, since those versions have no peek to show.
+ * degrades to a single committed back, which is the correct behaviour there because those
+ * versions have no in-app preview progress to show.
  */
 @Composable
 actual fun PlatformPredictiveBackHandler(
