@@ -705,6 +705,7 @@ fun DetailScreen(component: DetailComponent) {
                 heroUrls = heroUrls,
                 baseUrl = playBaseUrl,
                 accessToken = playAccessToken,
+                seriesPosterUrl = heroUrls.getOrNull(1),
                 accent = detailAccent,
                 currentEpisodeId = state.selectedEpisodeId,
                 onPlayEpisode = { episode ->
