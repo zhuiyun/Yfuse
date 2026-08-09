@@ -1,5 +1,6 @@
 package com.yfuse.feature.library
 
+import androidx.compose.foundation.lazy.LazyListState
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
@@ -16,6 +17,9 @@ class LibraryHomeComponent(
     val onSeeAll: (libraryId: String, title: String) -> Unit,
     val onOpenItem: (itemId: String) -> Unit,
 ) : ComponentContext by componentContext {
+
+    /** The library route stays in the Decompose back stack while detail covers it. */
+    internal val listState = LazyListState()
 
     val store = LibraryStoreFactory(
         storeFactory = storeFactory,
