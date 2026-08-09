@@ -353,7 +353,24 @@ private fun HeroSlide(
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize()) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .then(
+                if (item == null) {
+                    Modifier
+                } else {
+                    // The CTA and info key already opened this title, but the artwork — the
+                    // largest and most obvious target on the screen — did nothing. Keep its
+                    // bounds still so a tap does not fight the pager's drag animation.
+                    Modifier.pressable(
+                        pressedScale = 1f,
+                        onClickLabel = "查看${item.title}",
+                        onClick = onPlay,
+                    )
+                },
+            ),
+    ) {
         if (item != null) {
             // The shelves below already walk image.tmdb.org → media.themoviedb.org; the hero
             // was the one artwork on this page still betting everything on the first host,
