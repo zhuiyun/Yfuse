@@ -35,6 +35,20 @@ class UpdateCheckPolicyTest {
     }
 
     @Test
+    fun process_launch_can_force_one_manifest_check_inside_the_persisted_interval() {
+        val settings = MapSettings()
+        var now = 1_000_000L
+        val firstProcess = AutomaticUpdateCheckGate(settings) { now }
+        assertTrue(firstProcess.tryAcquire())
+
+        now += 5_000L
+        val reopenedProcess = AutomaticUpdateCheckGate(settings) { now }
+        assertFalse(reopenedProcess.tryAcquire())
+        assertTrue(reopenedProcess.tryAcquire(force = true))
+        assertFalse(reopenedProcess.tryAcquire())
+    }
+
+    @Test
     fun entering_home_checks_automatically_while_the_profile_check_stays_manual() {
         val overlaySource = projectFile(
             "src/androidMain/kotlin/com/yfuse/update/AppUpdateOverlay.kt",
@@ -46,6 +60,7 @@ class UpdateCheckPolicyTest {
             "src/androidMain/kotlin/com/yfuse/feature/profile/AppUpdateTools.android.kt",
         ).readText()
 
+        assertTrue("LaunchedEffect(Unit) { manager.checkOnLaunch() }" in overlaySource)
         assertTrue("RootComponent.Tab.Home) manager.checkIfDue()" in overlaySource)
         // Nothing may run the unthrottled check on the way in.
         assertFalse("manager.check()" in overlaySource)
