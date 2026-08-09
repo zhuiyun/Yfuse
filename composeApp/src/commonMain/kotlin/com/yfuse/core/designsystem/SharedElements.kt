@@ -136,6 +136,8 @@ fun <T : Any> SharedElementTransitionContainer(
             previousRouteKey != targetRouteKey
 
     Box(Modifier.fillMaxSize()) {
+        val peek = if (back != null) Modifier.predictiveBackPeek(back) else Modifier
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize().then(peek)) sharedTransition@{
         when {
             back?.peeking == true &&
                 transitionSettled &&
@@ -174,8 +176,6 @@ fun <T : Any> SharedElementTransitionContainer(
             }
         }
 
-        val peek = if (back != null) Modifier.predictiveBackPeek(back) else Modifier
-        SharedTransitionLayout(modifier = Modifier.fillMaxSize().then(peek)) sharedTransition@{
             transition.AnimatedContent(
                 transitionSpec = {
                     val popping = this.targetState.depth < initialState.depth
