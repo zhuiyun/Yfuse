@@ -322,12 +322,11 @@ fun DetailScreen(component: DetailComponent) {
         val heroHeight = maxHeight * 0.55f
         val heroHeightPx = with(density) { heroHeight.toPx() }
 
-        // Lift the measured caption and the primary action over the artwork. The backdrop
-        // continues 20dp below 播放, while the blend into the page still begins at the
-        // artwork's physical lower edge.
-        var captionLift by remember {
-            mutableStateOf(TypicalCaptionHeight + SheetGap + PlayButtonHeroOverlap)
-        }
+        // Keep the artwork-to-sheet join fixed from the first frame. Title metadata,
+        // badges and playable-version details arrive independently; measuring the caption
+        // after each arrival repeatedly moved this overlap and rebuilt the gradient, making
+        // the join flash several times while the page loaded.
+        val captionLift = TypicalCaptionHeight + SheetGap + PlayButtonHeroOverlap
 
         val detailSurface = remember(detailAccent, palette.isDark) {
             heroSurface(detailAccent, palette.isDark)
@@ -416,10 +415,7 @@ fun DetailScreen(component: DetailComponent) {
                             // the episode 继续观看 would open — which is the copy the badge
                             // would be describing anyway.
                             version = selectedVersion ?: state.playTarget?.versions?.firstOrNull(),
-                            modifier = Modifier.onSizeChanged {
-                                captionLift = with(density) { it.height.toDp() } +
-                                    SheetGap + PlayButtonHeroOverlap
-                            },
+                            modifier = Modifier,
                         )
                         DetailActionDock(
                             accent = detailAccent,
