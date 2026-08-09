@@ -54,9 +54,9 @@ import com.yfuse.core.network.EmbyImages
  * A layer over the detail page rather than a pushed route. The page it covers is the one
  * that owns this season, its artwork and its state; a route would mean the same
  * configuration threaded through three navigation stacks (库 / 首页 / 搜索 each own a
- * detail child) to show a list the detail store has already loaded. The detail page stays
- * composed underneath, so predictive back reveals the exact detail state while this page
- * follows the gesture instead of exposing the activity backdrop.
+ * detail child) to show a list the detail store has already loaded. The detail page remains
+ * composed underneath, so predictive back reveals that exact page while this page follows
+ * the gesture instead of exposing the activity background.
  */
 @Composable
 internal fun SeasonEpisodesPage(
@@ -179,89 +179,111 @@ private fun EpisodeRow(
                 } else {
                     Modifier
                 }
-            ),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .width(122.dp)
-                .height(69.dp)
-                .clip(GlassShapes.chip)
-                .background(palette.card2),
-        ) {
-            val episodeUrl = EmbyImages.primary(
-                baseUrl = baseUrl,
-                itemId = episode.id,
-                tag = episode.primaryTag,
-                maxHeight = 240,
-                accessToken = accessToken,
             )
-            val imageUrl = episodeUrl ?: seriesPosterUrl
-            if (imageUrl != null) {
-                FallbackImage(
-                    urls = listOf(episodeUrl, seriesPosterUrl),
-                    contentDescription = episode.name,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Poster(
-                    url = null,
-                    contentDescription = episode.name,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            if (current) {
+            .padding(7.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.width(148.dp).height(84.dp)) {
+            Poster(
+                url = EmbyImages.primary(
+                    baseUrl,
+                    episode.id,
+                    episode.primaryTag,
+                    maxHeight = 240,
+                    accessToken = accessToken,
+                ),
+                fallbackUrls = listOfNotNull(seriesPosterUrl),
+                shape = GlassShapes.thumb,
+                progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
+                modifier = Modifier.fillMaxSize(),
+            )
+            // Watched and part-watched are different states and only one of them has a
+            // number: a check for "done", the time left for "you stopped here".
+            if (episode.played) {
                 Box(
                     Modifier
-                        .align(Alignment.BottomStart)
+                        .align(Alignment.TopEnd)
                         .padding(6.dp)
+                        .size(18.dp)
                         .clip(CircleShape)
-                        .background(accent)
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                        .background(Brand.Online),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text("当前", style = sc(9f, 700), color = Color.White)
+                    Icon(
+                        AppIcons.Check,
+                        contentDescription = "已观看",
+                        tint = Color.White,
+                        modifier = Modifier.size(10.dp),
+                    )
+                }
+            } else {
+                episode.remainingLabel()?.let { remaining ->
+                    Row(
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(6.dp)
+                            .clip(GlassShapes.chip)
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            AppIcons.Play,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(8.dp),
+                        )
+                        Text(remaining, style = mr(9.5f, 600), color = Color.White, maxLines = 1)
+                    }
                 }
             }
         }
-
-        Column(
-            Modifier
-                .weight(1f)
-                .padding(vertical = 10.dp),
-        ) {
+        Column(Modifier.weight(1f)) {
             Text(
-                buildString {
-                    episode.indexNumber?.let { append("第 $it 集") }
-                    if (episode.name.isNotBlank()) {
-                        if (isNotEmpty()) append("  ")
-                        append(episode.name)
-                    }
-                }.ifBlank { "剧集" },
+                listOfNotNull(episode.indexNumber?.let { "E$it." }, episode.name)
+                    .joinToString(" "),
                 style = sc(13f, 700),
-                color = palette.text,
+                color = if (current) accent else palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
-                Spacer(Modifier.height(4.dp))
+            val facts = listOfNotNull(
+                episode.runtimeMinutes?.let { "$it 分钟" },
+                episode.premiereDate,
+            )
+            if (facts.isNotEmpty()) {
+                Spacer(Modifier.height(3.dp))
                 Text(
-                    overview,
-                    style = mr(10.5f, 400, lineHeight = 15f),
+                    facts.joinToString(" · "),
+                    style = mr(10f, 400),
+                    color = palette.sub2,
+                    maxLines = 1,
+                )
+            }
+            if (!episode.overview.isNullOrBlank()) {
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    episode.overview,
+                    style = mr(10.5f, 400, lineHeight = 10.5f * 1.55f),
                     color = palette.sub,
+                    // Three lines: enough to recognise an episode by, short enough that
+                    // ten of them still scan as a list.
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-
-        Icon(
-            AppIcons.Play,
-            contentDescription = "播放",
-            tint = if (current) accent else Brand.Primary,
-            modifier = Modifier
-                .padding(end = 10.dp)
-                .size(18.dp),
-        )
     }
+}
+
+/** `20:01` — how much of this episode is left, for something already started. */
+private fun Episode.remainingLabel(): String? {
+    val runtimeMs = runtimeMinutes?.takeIf { it > 0 }?.let { it * 60_000L } ?: return null
+    val watchedMs = resumePositionTicks?.takeIf { it > 0 }?.let { it / 10_000L } ?: return null
+    val leftMs = (runtimeMs - watchedMs).takeIf { it > 0 } ?: return null
+    val totalSeconds = leftMs / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "$minutes:${seconds.toString().padStart(2, '0')}"
 }
