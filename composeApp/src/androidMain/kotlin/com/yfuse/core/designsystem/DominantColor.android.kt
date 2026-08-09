@@ -3,10 +3,11 @@ package com.yfuse.core.designsystem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.palette.graphics.Palette
 import coil3.BitmapImage
@@ -20,7 +21,10 @@ import kotlinx.coroutines.withContext
 @Composable
 actual fun rememberDominantColor(url: String?, fallback: Color): Color {
     val context = LocalContext.current
-    var color by remember(url) { mutableStateOf(fallback) }
+    // This value lives under the route SaveableStateProvider. Returning from detail therefore
+    // starts with the already-extracted tint instead of repainting the page with the fallback
+    // and changing the large ambient wash again after Palette completes.
+    var colorArgb by rememberSaveable(url) { mutableIntStateOf(fallback.toArgb()) }
 
     LaunchedEffect(url) {
         if (url.isNullOrBlank()) return@LaunchedEffect
@@ -59,8 +63,8 @@ actual fun rememberDominantColor(url: String?, fallback: Color): Color {
                     ?: palette.mutedSwatch?.rgb
             }.getOrNull()
         }
-        if (extracted != null) color = Color(extracted)
+        if (extracted != null) colorArgb = extracted
     }
 
-    return color
+    return Color(colorArgb)
 }
