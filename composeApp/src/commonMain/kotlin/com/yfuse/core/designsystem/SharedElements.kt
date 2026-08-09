@@ -132,22 +132,25 @@ fun <T : Any> SharedElementTransitionContainer(
                     // one now would move them a second time.
                     val duration = when {
                         (popping && settledPop) || accessibility.reduceMotion -> 0
-                        // Predictive back already supplies a continuous gesture. A toolbar
-                        // back/pop swaps directly to the still-live previous route so Compose
-                        // never cross-fades through the app backdrop or a top-of-list frame.
-                        popping -> 0
+                        popping -> Motion.POP
                         else -> Motion.PUSH
                     }
                     val fade = tween<Float>(duration, easing = Motion.Curve)
                     val slide = tween<IntOffset>(duration, easing = Motion.Curve)
                     val entering = if (popping) -popOffset else pushOffset
-                    ((
-                        fadeIn(fade) + slideInHorizontally(slide) { entering }
-                        ) togetherWith (
-                        // The outgoing page drifts the other way at half the distance, so the
-                        // two are clearly one movement rather than two pages passing.
-                        fadeOut(fade) + slideOutHorizontally(slide) { -entering / 2 }
-                        )).apply {
+                    (
+                        if (popping) {
+                            // Keep both routes fully opaque during pop. Fading a transparent
+                            // Compose page exposes AppBackdrop for a frame and reads as a
+                            // full-screen flash; the short opposing slides provide continuity
+                            // without ever revealing the shell beneath them.
+                            slideInHorizontally(slide) { entering } togetherWith
+                                slideOutHorizontally(slide) { -entering / 2 }
+                        } else {
+                            (fadeIn(fade) + slideInHorizontally(slide) { entering }) togetherWith
+                                (fadeOut(fade) + slideOutHorizontally(slide) { -entering / 2 })
+                        }
+                    ).apply {
                         // The destination owns all non-shared chrome. On a pop this keeps the
                         // outgoing detail buttons behind the library page instead of letting
                         // them float over it for the remainder of the exit animation.
