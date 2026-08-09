@@ -132,7 +132,10 @@ fun <T : Any> SharedElementTransitionContainer(
                     // one now would move them a second time.
                     val duration = when {
                         (popping && settledPop) || accessibility.reduceMotion -> 0
-                        popping -> Motion.POP
+                        // Predictive back already supplies a continuous gesture. A toolbar
+                        // back/pop swaps directly to the still-live previous route so Compose
+                        // never cross-fades through the app backdrop or a top-of-list frame.
+                        popping -> 0
                         else -> Motion.PUSH
                     }
                     val fade = tween<Float>(duration, easing = Motion.Curve)
