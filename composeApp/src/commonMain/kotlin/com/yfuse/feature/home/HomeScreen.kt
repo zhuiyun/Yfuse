@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -71,6 +72,7 @@ import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.Type
 import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
@@ -117,7 +119,12 @@ fun HomeScreen(component: HomeComponent) {
     // this tab is the one where tapping the tab again matters most.
     ScrollToTopOnReselect(listState)
 
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Continue Watching is the highest-value shelf once it exists, so the hero gives it
+        // enough room to peek into the first viewport. Empty accounts keep the more cinematic
+        // treatment. Bounds protect compact phones and tablets from extreme proportions.
+        val heroHeight = (maxHeight * if (state.resume.isNotEmpty()) 0.43f else 0.48f)
+            .coerceIn(320.dp, 390.dp)
         PullToRefreshBox(
             isRefreshing = state.refreshing,
             onRefresh = { component.store.accept(HomeIntent.Refresh) },
@@ -135,6 +142,7 @@ fun HomeScreen(component: HomeComponent) {
                 item {
                     HomeHeroCarousel(
                         items = state.featuredSlides.take(5),
+                        height = heroHeight,
                         onOpenProfile = component.onOpenProfile,
                         onOpenSearch = component.onOpenSearch,
                         onOpenCalendar = component.onOpenCalendar,
@@ -260,6 +268,7 @@ fun HomeScreen(component: HomeComponent) {
 @Composable
 private fun HomeHeroCarousel(
     items: List<TmdbItem>,
+    height: androidx.compose.ui.unit.Dp,
     onOpenProfile: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenCalendar: () -> Unit,
@@ -290,11 +299,14 @@ private fun HomeHeroCarousel(
         }
         while (true) {
             delay(6_000)
-            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+            pagerState.animateScrollToPage(
+                page = pagerState.currentPage + 1,
+                animationSpec = tween(Motion.CAROUSEL, easing = Motion.Curve),
+            )
         }
     }
 
-    Box(Modifier.fillMaxWidth().height(390.dp)) {
+    Box(Modifier.fillMaxWidth().height(height)) {
         if (items.isEmpty()) {
             HeroSlide(item = null, onPlay = {}, onFavorite = {})
         } else {
@@ -328,11 +340,12 @@ private fun HomeHeroCarousel(
                     manuallySteered = true
                     carouselScope.launch {
                         pagerState.animateScrollToPage(
-                            loopingCarouselTargetPage(
+                            page = loopingCarouselTargetPage(
                                 currentPage = pagerState.currentPage,
                                 targetIndex = targetIndex,
                                 itemCount = items.size,
                             ),
+                            animationSpec = tween(Motion.EMPHASIZED, easing = Motion.Curve),
                         )
                     }
                 },
@@ -348,7 +361,24 @@ private fun HeroSlide(
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize()) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .then(
+                if (item == null) {
+                    Modifier
+                } else {
+                    // The CTA and info key already opened this title, but the artwork — the
+                    // largest and most obvious target on the screen — did nothing. Keep its
+                    // bounds still so a tap does not fight the pager's drag animation.
+                    Modifier.pressable(
+                        pressedScale = 1f,
+                        onClickLabel = "查看${item.title}",
+                        onClick = onPlay,
+                    )
+                },
+            ),
+    ) {
         if (item != null) {
             // The shelves below already walk image.tmdb.org → media.themoviedb.org; the hero
             // was the one artwork on this page still betting everything on the first host,
@@ -382,7 +412,6 @@ private fun HeroSlide(
                 item = item,
                 onPlay = onPlay,
                 onFavorite = onFavorite,
-                onInfo = onPlay,
                 modifier = Modifier.align(Alignment.BottomStart),
             )
         }
@@ -514,14 +543,14 @@ private fun HeroHeader(
 
 /**
  * Hero caption — ✦今日精选 badge, Display 片名, 类型 · 年份, then the action row:
- * 主按钮「立即播放」+ 两个次级玻璃圆钮（收藏 / 详情）, per §4.1.
+ * 主按钮「查看详情」+ 收藏。TMDB picks are resolved only after the tap, so promising
+ * immediate playback here was inaccurate whenever the title was not in the user's library.
  */
 @Composable
 private fun HeroCaption(
     item: TmdbItem,
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
-    onInfo: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -585,16 +614,15 @@ private fun HeroCaption(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        AppIcons.Play,
+                        AppIcons.Info,
                         null,
                         tint = Color.White,
                         modifier = Modifier.size(13.dp),
                     )
                 }
-                Text("立即播放", style = sc(13f, 700), color = Color.White)
+                Text("查看详情", style = Type.body(13f, 700), color = Color.White)
             }
             HeroCircleButton(AppIcons.Add, "加入收藏", onFavorite)
-            HeroCircleButton(AppIcons.Info, "查看详情", onInfo)
         }
     }
 }
@@ -636,15 +664,14 @@ private fun ContinueWatching(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("继续观看", style = sc(14f, 700), color = palette.text)
+            Text("继续观看", style = Type.section(16f), color = palette.text)
             Text(
                 "全部 ›",
                 style = mr(11f, 500),
                 color = palette.sub2,
                 modifier = Modifier
                     .pressable(onClick = onSeeAll)
-                    .glass(GlassShapes.chip, palette.card2, palette.border)
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
         LazyRow(
@@ -693,15 +720,14 @@ private fun Recommended(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, style = sc(14.5f, 700), color = palette.text)
+            Text(title, style = Type.section(16f), color = palette.text)
             Text(
                 "全部 ›",
                 style = mr(11f, 500),
                 color = palette.sub2,
                 modifier = Modifier
                     .pressable(onClick = onSeeAll)
-                    .glass(GlassShapes.chip, palette.card2, palette.border)
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
         LazyRow(
@@ -754,15 +780,14 @@ private fun RecentAdded(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("最近添加", style = sc(14.5f, 700), color = palette.text)
+            Text("最近添加", style = Type.section(16f), color = palette.text)
             Text(
                 "全部 ›",
                 style = mr(11f, 500),
                 color = palette.sub2,
                 modifier = Modifier
                     .pressable(onClick = onSeeAll)
-                    .glass(GlassShapes.chip, palette.card2, palette.border)
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
         items.chunked(3).forEach { row ->

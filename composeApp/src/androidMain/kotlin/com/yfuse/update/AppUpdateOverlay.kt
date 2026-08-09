@@ -34,7 +34,7 @@ import com.yfuse.core.designsystem.sc
 @Composable
 fun AppUpdateOverlay(manager: AppUpdateManager, root: RootComponent) {
     val activeTab by root.activeTab.subscribeAsState()
-    LaunchedEffect(Unit) { manager.checkIfDue() }
+    LaunchedEffect(Unit) { manager.checkOnLaunch() }
     LaunchedEffect(activeTab) {
         if (activeTab == RootComponent.Tab.Home) manager.checkIfDue()
     }

@@ -13,7 +13,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,6 +41,10 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sin
 
+/** One clock for every visible preset in the tray; standalone sent stickers may own one. */
+private val LocalStickerClock = compositionLocalOf<State<Float>?> { null }
+private const val SHARED_CLOCK_MS = 60_000
+
 /**
  * One sticker, moving.
  *
@@ -58,7 +66,16 @@ fun WatchStickerGlyph(
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val motion = if (animated && !reduceMotion) sticker.motion else WatchStickerMotion.Still
-    val phase = if (motion == WatchStickerMotion.Still) null else rememberMotionPhase(motion)
+    val sharedClock = LocalStickerClock.current
+    val phase = when {
+        motion == WatchStickerMotion.Still -> null
+        sharedClock == null -> rememberMotionPhase(motion)
+        else -> remember(motion, sharedClock) {
+            derivedStateOf {
+                ((sharedClock.value * SHARED_CLOCK_MS) % motion.periodMs) / motion.periodMs
+            }
+        }
+    }
 
     Text(
         sticker.glyph,
@@ -153,44 +170,53 @@ internal fun WatchStickerTray(
     onPick: (WatchSticker) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyRow(
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Lazy composition matters here: every visible animated sticker owns a graphics layer
-        // and a clock. The old horizontally-scrolling Row composed and animated all 32 keys,
-        // including the two dozen that were completely off-screen.
-        items(
-            items = WatchStickers.presets,
-            key = WatchSticker::id,
-        ) { sticker ->
+    val sharedClock = rememberInfiniteTransition(label = "sticker-tray-clock").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(SHARED_CLOCK_MS, easing = LinearEasing),
+        ),
+        label = "sticker-tray-phase",
+    )
+    CompositionLocalProvider(LocalStickerClock provides sharedClock) {
+        LazyRow(
+            modifier = modifier,
+            contentPadding = PaddingValues(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Lazy composition keeps off-screen glyph layers absent; LocalStickerClock means
+            // every visible glyph reads one phase source instead of owning an animation clock.
+            items(
+                items = WatchStickers.presets,
+                key = WatchSticker::id,
+            ) { sticker ->
             // Keep the visual chip compact, but give it the same 44dp minimum target as every
             // other control. A 34dp surface is pleasant to look at and too small to tap.
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
-                    .pressable(
-                        enabled = enabled,
-                        haptic = HapticSignal.Confirm,
-                        onClickLabel = sticker.label,
-                        onClick = { onPick(sticker) },
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
                 Box(
                     Modifier
-                        .size(34.dp)
-                        .glass(
-                            shape = GlassShapes.chip,
-                            fill = PlayerTokens.chipFill,
-                            border = PlayerTokens.chipBorder,
+                        .size(44.dp)
+                        .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
+                        .pressable(
+                            enabled = enabled,
+                            haptic = HapticSignal.Confirm,
+                            onClickLabel = sticker.label,
+                            onClick = { onPick(sticker) },
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    WatchStickerGlyph(sticker, sizeSp = 16f)
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .glass(
+                                shape = GlassShapes.chip,
+                                fill = PlayerTokens.chipFill,
+                                border = PlayerTokens.chipBorder,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        WatchStickerGlyph(sticker, sizeSp = 16f)
+                    }
                 }
             }
         }

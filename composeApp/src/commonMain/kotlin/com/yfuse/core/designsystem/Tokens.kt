@@ -278,6 +278,13 @@ object Motion {
     /** `cubic-bezier(.32,.72,0,1)` — the single easing used by every transition. */
     val Curve = androidx.compose.animation.core.CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
 
+    // Semantic durations. Feature code chooses the meaning of a transition instead of
+    // inventing another number; the named route constants below map onto this vocabulary.
+    const val QUICK = 120
+    const val STANDARD = 220
+    const val EMPHASIZED = 360
+    const val AMBIENT = 520
+
     // ------------------------------------------------------------ 弹簧
     //
     // Durations belong to transitions — a page arriving takes as long as it takes, and the
@@ -315,7 +322,7 @@ object Motion {
         if (reduceMotion) snap() else settle<T>()
 
     /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */
-    const val PUSH = 360
+    const val PUSH = EMPHASIZED
     val pushOffset = 30.dp
 
     /** 返回 — 左侧 22px 滑入 + 淡入. */
@@ -330,10 +337,13 @@ object Motion {
     const val MODAL = 400
     val modalOffset = 46.dp
 
-    /** 迷你播放器展开 — 从底部 0.8 缩放放大；详情页顶图 1.14 → 1. */
+    /** 迷你播放器展开 — 从底部 0.8 缩放放大；详情页顶图只做克制的 1.08 → 1. */
     const val EXPAND = 460
     const val MINI_SCALE_FROM = 0.8f
-    const val DETAIL_HERO_SCALE_FROM = 1.14f
+    const val DETAIL_HERO_SCALE_FROM = 1.08f
+
+    /** Detail content settles after the artwork; short enough to never queue behind a tap. */
+    const val DETAIL_CONTENT = 320
 
     /** 顶栏材质切换 — 滚动超过 280px 后转为玻璃底（§4.2）. */
     const val TOP_BAR = 280
@@ -344,7 +354,10 @@ object Motion {
      * Slower than a tab switch and faster than the image it belongs to: the wash is
      * background, and a page that recolours as fast as it redraws reads as a flicker.
      */
-    const val ACCENT = 420
+    const val ACCENT = AMBIENT
+
+    /** A full-width artwork change deserves more time than local component movement. */
+    const val CAROUSEL = 560
 
     /** 图片渐进加载：占位主色渐变 → 12px 模糊放大 1.05 → 清晰归位. */
     const val IMAGE_IN = 550

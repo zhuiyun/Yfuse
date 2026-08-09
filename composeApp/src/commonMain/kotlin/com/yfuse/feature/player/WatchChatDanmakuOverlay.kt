@@ -117,7 +117,8 @@ internal fun WatchChatDanmakuOverlay(
     ) {
         val laneCount = (maxHeight / CHAT_LANE_HEIGHT).toInt().coerceIn(1, MAX_LANES)
 
-        LaunchedEffect(enabled, roomCode, messageKeys, laneCount) {
+        val activeKeys = active.map { it.message.animationKey() }
+        LaunchedEffect(enabled, roomCode, messageKeys, laneCount, activeKeys) {
             if (!enabled || roomCode == null) {
                 // Off by the viewer's own choice, or no room to belong to: nothing is owed a
                 // flight, now or later.
@@ -125,13 +126,23 @@ internal fun WatchChatDanmakuOverlay(
                 active = emptyList()
                 return@LaunchedEffect
             }
-            val arrivals = watchChatDanmakuArrivals(messages, seenKeys, laneCount)
-            seenKeys = messageKeys.toSet()
+            // Never put a second message into a lane whose first message is still crossing.
+            // When every lane is occupied, leave the message unseen; completion changes
+            // activeKeys and this effect schedules the waiting message on the next free lane.
+            val occupied = active.mapTo(mutableSetOf()) { it.lane }
+            val available = (0 until laneCount)
+                .map { (nextLane + it) % laneCount }
+                .filterNot(occupied::contains)
+            val arrivals = watchChatDanmakuArrivals(messages, seenKeys, available.size)
             if (arrivals.isEmpty()) return@LaunchedEffect
             val flights = arrivals.mapIndexed { index, message ->
-                WatchChatFlight(message, (nextLane + index) % laneCount)
+                WatchChatFlight(message, available[index])
             }
-            nextLane = (nextLane + flights.size) % laneCount
+            // History can be bounded by the relay; discard identities no longer present so
+            // a long room session does not turn this into an ever-growing set.
+            seenKeys = (seenKeys intersect messageKeys.toSet()) +
+                arrivals.map { it.animationKey() }
+            nextLane = (flights.last().lane + 1) % laneCount
             active = (active + flights).takeLast(MAX_ACTIVE_MESSAGES)
         }
 

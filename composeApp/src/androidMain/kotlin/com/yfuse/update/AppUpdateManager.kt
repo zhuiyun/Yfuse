@@ -81,10 +81,10 @@ internal class AutomaticUpdateCheckGate(
     private val nowEpochMs: () -> Long = System::currentTimeMillis,
 ) {
     @Synchronized
-    fun tryAcquire(): Boolean {
+    fun tryAcquire(force: Boolean = false): Boolean {
         val now = nowEpochMs().coerceAtLeast(0L)
         val lastCheck = settings.getLong(KEY_LAST_AUTOMATIC_UPDATE_CHECK_EPOCH_MS, 0L)
-        if (!isAutomaticUpdateCheckDue(lastCheck, now)) return false
+        if (!force && !isAutomaticUpdateCheckDue(lastCheck, now)) return false
         // Record the attempt before starting I/O. A failing endpoint must not be hammered again
         // every time the user returns to 首页; the profile screen still offers manual retry.
         settings.putLong(KEY_LAST_AUTOMATIC_UPDATE_CHECK_EPOCH_MS, now)
@@ -456,6 +456,7 @@ class AppUpdateManager(
 
     private var pendingInstall: File? = null
     private var checkJob: Job? = null
+    private var launchCheckStarted = false
 
     @Volatile
     private var pauseRequested = false
@@ -508,6 +509,23 @@ class AppUpdateManager(
             )
             return
         }
+        runCheck(automatic = true)
+    }
+
+    /**
+     * The first check of a new app process always reaches the manifest.
+     *
+     * Persisting the 30-minute gate across process death meant this sequence stayed silent:
+     * check 0.2.27, publish 0.2.28, reopen Yfuse. The new process inherited the old timestamp
+     * and skipped the only check the user expected opening the app to perform. Repeated tab and
+     * foreground checks still use [checkIfDue]; only this once-per-process launch check bypasses
+     * the interval, while [AutomaticUpdatePromptGate] continues to cap interruptions.
+     */
+    @Synchronized
+    fun checkOnLaunch() {
+        if (launchCheckStarted) return
+        launchCheckStarted = true
+        automaticCheckGate.tryAcquire(force = true)
         runCheck(automatic = true)
     }
 
