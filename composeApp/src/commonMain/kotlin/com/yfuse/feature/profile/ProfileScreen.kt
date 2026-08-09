@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -62,16 +63,20 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccent
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPredictiveBack
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
+import com.yfuse.core.designsystem.SharedElementTransitionContainer
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.SplashPreview
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
+import com.yfuse.core.designsystem.rememberPredictiveBackState
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.DecoderMode
@@ -113,6 +118,22 @@ private enum class ProfilePage {
     Downloads,
     Recovery,
     Splash,
+}
+
+/**
+ * A real navigation identity for the profile tab's formerly local `pageStack`.
+ *
+ * Keeping this separate from [ProfilePage] gives the profile root a first-class route too, so
+ * predictive back can keep and reveal the exact screen that a settings page will return to.
+ */
+private sealed interface ProfileRoute {
+    data object Root : ProfileRoute
+    data class Page(val page: ProfilePage) : ProfileRoute
+}
+
+private fun profileRouteKey(route: ProfileRoute): String = when (route) {
+    ProfileRoute.Root -> "profile-root"
+    is ProfileRoute.Page -> "profile-${route.page.name}"
 }
 
 /** 个人中心 — `padding:52px 18px 100px; gap:18px`. */
@@ -165,6 +186,12 @@ fun ProfileScreen(component: ProfileComponent) {
     ScrollToTopOnReselect(mainListState)
     val screenScope = rememberCoroutineScope()
     val page = pageStack.lastOrNull()?.let { ProfilePage.valueOf(it) }
+    val activeRoute = page?.let { ProfileRoute.Page(it) } ?: ProfileRoute.Root
+    val previousRoute = when {
+        page == null -> null
+        pageStack.size == 1 -> ProfileRoute.Root
+        else -> ProfileRoute.Page(ProfilePage.valueOf(pageStack[pageStack.lastIndex - 1]))
+    }
 
     fun openPage(target: ProfilePage) {
         pageStack = pageStack + target.name
@@ -180,269 +207,293 @@ fun ProfileScreen(component: ProfileComponent) {
     }
 
     StatusBarIconStyle(darkIcons = !palette.isDark)
-    PlatformBackHandler(
-        enabled = page != null || sheet != null ||
-            addServerOpen || confirmRemove != null || confirmClearCache,
-    ) {
+
+    // Modal surfaces always get first refusal. A predictive page gesture is disabled while one
+    // is open so a single back action closes exactly the topmost thing instead of moving the page
+    // underneath a dialog that is still visible.
+    val modalBackEnabled =
+        sheet != null || addServerOpen || confirmRemove != null || confirmClearCache
+    PlatformBackHandler(enabled = modalBackEnabled) {
         when {
             confirmClearCache -> confirmClearCache = false
             confirmRemove != null -> confirmRemove = null
             addServerOpen -> component.serversStore.accept(ServersIntent.DismissDialog)
             sheet != null -> sheet = null
-            else -> closePage()
         }
     }
 
+    // These pages used to be a `when(page)` replacement plus a commit-only BackHandler. Treat the
+    // local stack as a real route stack instead: its previous screen remains composed, follows the
+    // same gesture as detail/library/search routes, and owns drawing through the commit handoff.
+    val pageBack = rememberPredictiveBackState()
+    PlatformPredictiveBackHandler(
+        enabled = page != null && !modalBackEnabled,
+        onProgress = pageBack::onProgress,
+        onCancel = pageBack::onCancel,
+        onBack = { pageBack.onCommit(::closePage) },
+    )
+
     Box(Modifier.fillMaxSize()) {
-        when (page) {
-            ProfilePage.Account -> AccountSettingsScreen(
-                account = component.account,
-                onBack = ::closePage,
-            )
+        CompositionLocalProvider(LocalPredictiveBack provides pageBack) {
+            SharedElementTransitionContainer(
+                targetState = activeRoute,
+                routeKey = ::profileRouteKey,
+                depth = pageStack.size + 1,
+                previous = previousRoute,
+            ) { route ->
+                when (route) {
+                    is ProfileRoute.Page -> when (val activePage = route.page) {
+                        ProfilePage.Account -> AccountSettingsScreen(
+                            account = component.account,
+                            onBack = ::closePage,
+                        )
 
-            ProfilePage.Playback -> PlaybackSettingsScreen(
-                onBack = ::closePage,
-                engine = engine,
-                decoder = decoder,
-                autoNext = autoNext,
-                videoCacheSize = videoCacheSize,
-                skipSegments = if (skipTimesBySeries.isEmpty()) {
-                    "${skipMode.label} · 跟随服务器 ›"
-                } else {
-                    "${skipMode.label} ›"
-                },
-                customUserAgent = if (customUserAgent.isBlank()) "应用默认 ›" else "已启用 ›",
-                onEngine = { sheet = Sheet.Engine },
-                onDecoder = { sheet = Sheet.Decoder },
-                onAutoNext = prefs::setAutoNext,
-                onVideoCache = { sheet = Sheet.VideoCache },
-                onSkipSegments = { sheet = Sheet.SkipSegments },
-                onUserAgent = { sheet = Sheet.UserAgent },
-            )
+                        ProfilePage.Playback -> PlaybackSettingsScreen(
+                            onBack = ::closePage,
+                            engine = engine,
+                            decoder = decoder,
+                            autoNext = autoNext,
+                            videoCacheSize = videoCacheSize,
+                            skipSegments = if (skipTimesBySeries.isEmpty()) {
+                                "${skipMode.label} · 跟随服务器 ›"
+                            } else {
+                                "${skipMode.label} ›"
+                            },
+                            customUserAgent = if (customUserAgent.isBlank()) "应用默认 ›" else "已启用 ›",
+                            onEngine = { sheet = Sheet.Engine },
+                            onDecoder = { sheet = Sheet.Decoder },
+                            onAutoNext = prefs::setAutoNext,
+                            onVideoCache = { sheet = Sheet.VideoCache },
+                            onSkipSegments = { sheet = Sheet.SkipSegments },
+                            onUserAgent = { sheet = Sheet.UserAgent },
+                        )
 
-            ProfilePage.Danmaku -> DanmakuSettingsScreen(
-                onBack = ::closePage,
-                sourceSummary = when (danmakuSources.size) {
-                    0 -> "未配置 ›"
-                    1 -> "${danmakuSources.first().name} ›"
-                    else -> {
-                        val active = danmakuSources.activeOr(danmakuActiveSourceId)
-                        "${danmakuSources.size} 个 · ${active?.name.orEmpty()} ›"
-                    }
-                },
-                blockedSummary = if (danmakuBlocked.isEmpty()) {
-                    "未设置 ›"
-                } else {
-                    "${danmakuBlocked.size} 个 ›"
-                },
-                onSources = { sheet = Sheet.DanmakuSource },
-                onBlockedWords = { sheet = Sheet.DanmakuBlocked },
-            )
+                        ProfilePage.Danmaku -> DanmakuSettingsScreen(
+                            onBack = ::closePage,
+                            sourceSummary = when (danmakuSources.size) {
+                                0 -> "未配置 ›"
+                                1 -> "${danmakuSources.first().name} ›"
+                                else -> {
+                                    val active = danmakuSources.activeOr(danmakuActiveSourceId)
+                                    "${danmakuSources.size} 个 · ${active?.name.orEmpty()} ›"
+                                }
+                            },
+                            blockedSummary = if (danmakuBlocked.isEmpty()) {
+                                "未设置 ›"
+                            } else {
+                                "${danmakuBlocked.size} 个 ›"
+                            },
+                            onSources = { sheet = Sheet.DanmakuSource },
+                            onBlockedWords = { sheet = Sheet.DanmakuBlocked },
+                        )
 
-            ProfilePage.WatchTogether -> WatchTogetherSettingsScreen(
-                onBack = ::closePage,
-                connected = watchState.connected,
-                roomCode = watchState.roomCode,
-                nickname = watchNickname,
-                chatDanmaku = watchChatDanmaku,
-                chatPreview = watchChatPreview,
-                customEndpoint = watchEndpoint.trimEnd('/') !=
-                    WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/'),
-                onJoin = { sheet = Sheet.WatchTogether },
-                onProfile = { sheet = Sheet.WatchProfile },
-                onChatDanmaku = component.watchTogetherPreferences::setChatDanmakuEnabled,
-                onChatPreview = component.watchTogetherPreferences::setChatPreviewEnabled,
-                onEndpoint = { sheet = Sheet.WatchEndpoint },
-            )
+                        ProfilePage.WatchTogether -> WatchTogetherSettingsScreen(
+                            onBack = ::closePage,
+                            connected = watchState.connected,
+                            roomCode = watchState.roomCode,
+                            nickname = watchNickname,
+                            chatDanmaku = watchChatDanmaku,
+                            chatPreview = watchChatPreview,
+                            customEndpoint = watchEndpoint.trimEnd('/') !=
+                                WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/'),
+                            onJoin = { sheet = Sheet.WatchTogether },
+                            onProfile = { sheet = Sheet.WatchProfile },
+                            onChatDanmaku = component.watchTogetherPreferences::setChatDanmakuEnabled,
+                            onChatPreview = component.watchTogetherPreferences::setChatPreviewEnabled,
+                            onEndpoint = { sheet = Sheet.WatchEndpoint },
+                        )
 
-            ProfilePage.Appearance -> AppearanceSettingsScreen(
-                onBack = ::closePage,
-                mode = mode,
-                accent = accent,
-                splashSummary = if (splashAnimation) "${splashVariant.label} ›" else "已关闭 ›",
-                reduceTransparency = reduceTransparency,
-                largeText = largeText,
-                reduceMotion = reduceMotion,
-                onThemeMode = { sheet = Sheet.ThemeMode },
-                onAccent = { sheet = Sheet.Accent },
-                onSplash = { openPage(ProfilePage.Splash) },
-                onReduceTransparency = prefs::setReduceTransparency,
-                onLargeText = prefs::setLargeText,
-                onReduceMotion = prefs::setReduceMotion,
-            )
+                        ProfilePage.Appearance -> AppearanceSettingsScreen(
+                            onBack = ::closePage,
+                            mode = mode,
+                            accent = accent,
+                            splashSummary = if (splashAnimation) "${splashVariant.label} ›" else "已关闭 ›",
+                            reduceTransparency = reduceTransparency,
+                            largeText = largeText,
+                            reduceMotion = reduceMotion,
+                            onThemeMode = { sheet = Sheet.ThemeMode },
+                            onAccent = { sheet = Sheet.Accent },
+                            onSplash = { openPage(ProfilePage.Splash) },
+                            onReduceTransparency = prefs::setReduceTransparency,
+                            onLargeText = prefs::setLargeText,
+                            onReduceMotion = prefs::setReduceMotion,
+                        )
 
-            ProfilePage.DataAndDiagnostics -> {
-                val backupPayload = remember(
-                    component,
-                    state.servers,
-                    state.currentServer?.id,
-                ) {
-                    component.exportServers()
-                }
-                DataAndDiagnosticsScreen(
-                    onBack = ::closePage,
-                    serverCount = state.servers.size,
-                    backupPayload = backupPayload,
-                    onImport = component::importServers,
-                    onClearCache = { confirmClearCache = true },
-                )
-            }
-
-            ProfilePage.Downloads,
-            ProfilePage.Recovery,
-            ProfilePage.Splash,
-            -> ProfileUtilityScreen(
-                page = page,
-                onBack = ::closePage,
-                offlineManager = component.offlineMedia,
-                onPlayOffline = { offlineToPlay = it },
-                syncManager = component.syncManager,
-                playbackRecovery = component.playbackRecovery,
-                themePreferences = prefs,
-                onResumePlayback = { snapshot ->
-                    component.recoveryItem(snapshot)?.let { recoveryToPlay = it to snapshot }
-                },
-            )
-
-            null -> {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().statusBarsPadding(),
-                state = mainListState,
-                contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                item {
-                    Section(title = "Yfuse 账号") {
-                        SettingsCard {
-                            SettingRow(
-                                title = "账号与同步",
-                                value = when (val account = accountState) {
-                                    AccountState.Restoring -> "正在恢复 ›"
-                                    is AccountState.RestoreFailed -> "连接失败 · 点此重试 ›"
-                                    AccountState.SignedOut -> "未登录 ›"
-                                    is AccountState.SignedIn -> "${account.session.user.nickname} · 手动加密同步 ›"
-                                },
-                                embedded = true,
-                                onClick = { openPage(ProfilePage.Account) },
+                        ProfilePage.DataAndDiagnostics -> {
+                            val backupPayload = remember(
+                                component,
+                                state.servers,
+                                state.currentServer?.id,
+                            ) {
+                                component.exportServers()
+                            }
+                            DataAndDiagnosticsScreen(
+                                onBack = ::closePage,
+                                serverCount = state.servers.size,
+                                backupPayload = backupPayload,
+                                onImport = component::importServers,
+                                onClearCache = { confirmClearCache = true },
                             )
                         }
-                    }
-                }
 
-                item {
-                    Section(
-                        title = "我的服务器",
-                        action = "+ 添加",
-                        onAction = ::openAddServer,
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            CollapsibleSummaryRow(
-                                title = "${state.servers.size} 台服务器",
-                                subtitle = state.currentServer?.serverName ?: "尚未连接",
-                                expanded = serversExpanded,
-                                onClick = { serversExpanded = !serversExpanded },
-                            )
-                            if (serversExpanded) {
-                                state.servers.forEach { server ->
-                                    ServerRow(
-                                        server = server,
-                                        isCurrent = server.id == state.currentServer?.id,
-                                        onClick = {
-                                            component.store.accept(
-                                                ProfileIntent.SwitchServer(server.id),
-                                            )
-                                        },
-                                        onLongClick = { confirmRemove = server },
-                                        onEdit = {
-                                            component.serversStore.accept(
-                                                ServersIntent.EditServer(server),
-                                            )
-                                        },
-                                    )
+                        ProfilePage.Downloads,
+                        ProfilePage.Recovery,
+                        ProfilePage.Splash,
+                        -> ProfileUtilityScreen(
+                            page = activePage,
+                            onBack = ::closePage,
+                            offlineManager = component.offlineMedia,
+                            onPlayOffline = { offlineToPlay = it },
+                            syncManager = component.syncManager,
+                            playbackRecovery = component.playbackRecovery,
+                            themePreferences = prefs,
+                            onResumePlayback = { snapshot ->
+                                component.recoveryItem(snapshot)?.let { recoveryToPlay = it to snapshot }
+                            },
+                        )
+                    }
+
+                    ProfileRoute.Root -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+                            state = mainListState,
+                            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
+                            verticalArrangement = Arrangement.spacedBy(18.dp),
+                        ) {
+                            item {
+                                Section(title = "Yfuse 账号") {
+                                    SettingsCard {
+                                        SettingRow(
+                                            title = "账号与同步",
+                                            value = when (val account = accountState) {
+                                                AccountState.Restoring -> "正在恢复 ›"
+                                                is AccountState.RestoreFailed -> "连接失败 · 点此重试 ›"
+                                                AccountState.SignedOut -> "未登录 ›"
+                                                is AccountState.SignedIn -> "${account.session.user.nickname} · 手动加密同步 ›"
+                                            },
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Account) },
+                                        )
+                                    }
                                 }
                             }
+
+                            item {
+                                Section(
+                                    title = "我的服务器",
+                                    action = "+ 添加",
+                                    onAction = ::openAddServer,
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        CollapsibleSummaryRow(
+                                            title = "${state.servers.size} 台服务器",
+                                            subtitle = state.currentServer?.serverName ?: "尚未连接",
+                                            expanded = serversExpanded,
+                                            onClick = { serversExpanded = !serversExpanded },
+                                        )
+                                        if (serversExpanded) {
+                                            state.servers.forEach { server ->
+                                                ServerRow(
+                                                    server = server,
+                                                    isCurrent = server.id == state.currentServer?.id,
+                                                    onClick = {
+                                                        component.store.accept(
+                                                            ProfileIntent.SwitchServer(server.id),
+                                                        )
+                                                    },
+                                                    onLongClick = { confirmRemove = server },
+                                                    onEdit = {
+                                                        component.serversStore.accept(
+                                                            ServersIntent.EditServer(server),
+                                                        )
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            item {
+                                Section(title = "设置") {
+                                    SettingsCard {
+                                        SettingRow(
+                                            "播放",
+                                            "${engine.label} · ${decoder.label} ›",
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Playback) },
+                                        )
+                                        SettingsDivider()
+                                        SettingRow(
+                                            "弹幕",
+                                            when (danmakuSources.size) {
+                                                0 -> "未配置 ›"
+                                                1 -> "1 个来源 ›"
+                                                else -> "${danmakuSources.size} 个来源 ›"
+                                            },
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Danmaku) },
+                                        )
+                                        SettingsDivider()
+                                        SettingRow(
+                                            "一起看",
+                                            if (watchState.connected) {
+                                                "房间 ${watchState.roomCode.orEmpty()} ›"
+                                            } else {
+                                                "$watchNickname ›"
+                                            },
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.WatchTogether) },
+                                        )
+                                        SettingsDivider()
+                                        SettingRow(
+                                            "外观与辅助",
+                                            "${mode.label} · ${accent.label}色 ›",
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Appearance) },
+                                        )
+                                    }
+                                }
+                            }
+
+                            item {
+                                Section(title = "数据与应用") {
+                                    SettingsCard {
+                                        DownloadRow(
+                                            value = "${offlineItems.size} 项 ›",
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Downloads) },
+                                        )
+                                        SettingsDivider()
+                                        SettingRow(
+                                            "播放恢复与同步",
+                                            when {
+                                                syncState.conflicts.isNotEmpty() ->
+                                                    "${syncState.conflicts.size} 个冲突 ›"
+                                                syncState.pendingCount > 0 ->
+                                                    "${syncState.pendingCount} 项待同步 ›"
+                                                recoverySnapshot != null -> "可继续播放 ›"
+                                                else -> "状态正常 ›"
+                                            },
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.Recovery) },
+                                        )
+                                        SettingsDivider()
+                                        SettingRow(
+                                            "数据与诊断",
+                                            "${state.servers.size} 台服务器 · 缓存与日志 ›",
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.DataAndDiagnostics) },
+                                        )
+                                    }
+                                }
+                            }
+
+                            item { AppUpdateTools() }
+                            item { AppVersionFooter() }
                         }
                     }
                 }
-
-                item {
-                    Section(title = "设置") {
-                        SettingsCard {
-                            SettingRow(
-                                "播放",
-                                "${engine.label} · ${decoder.label} ›",
-                                embedded = true,
-                                onClick = { openPage(ProfilePage.Playback) },
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                "弹幕",
-                                when (danmakuSources.size) {
-                                    0 -> "未配置 ›"
-                                    1 -> "1 个来源 ›"
-                                    else -> "${danmakuSources.size} 个来源 ›"
-                                },
-                                embedded = true,
-                                onClick = { openPage(ProfilePage.Danmaku) },
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                "一起看",
-                                if (watchState.connected) {
-                                    "房间 ${watchState.roomCode.orEmpty()} ›"
-                                } else {
-                                    "$watchNickname ›"
-                                },
-                                embedded = true,
-                                onClick = { openPage(ProfilePage.WatchTogether) },
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                "外观与辅助",
-                                "${mode.label} · ${accent.label}色 ›",
-                                embedded = true,
-                                onClick = { openPage(ProfilePage.Appearance) },
-                            )
-                        }
-                    }
-                }
-
-                item {
-                    Section(title = "数据与应用") {
-                        SettingsCard {
-                            DownloadRow(
-                                value = "${offlineItems.size} 项 ›",
-                                embedded = true,
-                                onClick = { openPage(ProfilePage.Downloads) },
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                "播放恢复与同步",
-                                when {
-                                    syncState.conflicts.isNotEmpty() ->
-                                        "${syncState.conflicts.size} 个冲突 ›"
-                                    syncState.pendingCount > 0 ->
-                                        "${syncState.pendingCount} 项待同步 ›"
-                                    recoverySnapshot != null -> "可继续播放 ›"
-                                    else -> "状态正常 ›"
-                                },
-                                embedded = true,
-                                onClick = { openPage(ProfilePage.Recovery) },
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                "数据与诊断",
-                                "${state.servers.size} 台服务器 · 缓存与日志 ›",
-                                embedded = true,
-                                onClick = { openPage(ProfilePage.DataAndDiagnostics) },
-                            )
-                        }
-                    }
-                }
-
-                item { AppUpdateTools() }
-                item { AppVersionFooter() }
-            }
             }
         }
 
@@ -1446,71 +1497,71 @@ private fun ProfileUtilityScreen(
         }
 
         item {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .glass(continuousRounded(18.dp), palette.card, palette.border)
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(continuousRounded(18.dp), palette.card, palette.border)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Bottom,
-                    ) {
-                        Text("离线下载占用", style = sc(12.5f, 700), color = palette.text)
-                        Text(
-                            "${formatOfflineBytes(downloads.sumOf { it.downloadedBytes })} 已使用",
-                            style = mr(10.5f, 400),
-                            color = palette.sub2,
-                        )
-                    }
-                }
-            }
-
-            item {
-                Box(Modifier.fillMaxWidth().clip(continuousRounded(18.dp))) {
-                    DescribedSwitchRow(
-                        "仅在 Wi-Fi 下下载",
-                        "避免占用蜂窝流量",
-                        wifiOnly,
-                    ) { offlineManager.setWifiOnly(it) }
-                }
-            }
-
-            if (downloads.isEmpty()) item {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 52.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        AppIcons.Download,
-                        null,
-                        tint = palette.hint,
-                        modifier = Modifier.size(28.dp),
-                    )
-                    Spacer(Modifier.height(10.dp))
+                    Text("离线下载占用", style = sc(12.5f, 700), color = palette.text)
                     Text(
-                        "还没有下载内容\n在详情页点击下载，即可离线观看",
-                        style = sc(11.5f, 400, lineHeight = 18f),
-                        color = palette.hint,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        "${formatOfflineBytes(downloads.sumOf { it.downloadedBytes })} 已使用",
+                        style = mr(10.5f, 400),
+                        color = palette.sub2,
                     )
                 }
             }
-            if (downloads.isNotEmpty()) {
-                items(
-                    count = downloads.size,
-                    key = { downloads[it].id },
-                ) { index ->
-                    val download = downloads[index]
-                    OfflineDownloadRow(
-                        item = download,
-                        onPlay = { onPlayOffline(download) },
-                        onPause = { offlineManager.pause(download.id) },
-                        onResume = { offlineManager.resume(download.id) },
-                        onRemove = { offlineManager.remove(download.id) },
-                    )
-                }
+        }
+
+        item {
+            Box(Modifier.fillMaxWidth().clip(continuousRounded(18.dp))) {
+                DescribedSwitchRow(
+                    "仅在 Wi-Fi 下下载",
+                    "避免占用蜂窝流量",
+                    wifiOnly,
+                ) { offlineManager.setWifiOnly(it) }
+            }
+        }
+
+        if (downloads.isEmpty()) item {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 52.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    AppIcons.Download,
+                    null,
+                    tint = palette.hint,
+                    modifier = Modifier.size(28.dp),
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "还没有下载内容\n在详情页点击下载，即可离线观看",
+                    style = sc(11.5f, 400, lineHeight = 18f),
+                    color = palette.hint,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
+        }
+        if (downloads.isNotEmpty()) {
+            items(
+                count = downloads.size,
+                key = { downloads[it].id },
+            ) { index ->
+                val download = downloads[index]
+                OfflineDownloadRow(
+                    item = download,
+                    onPlay = { onPlayOffline(download) },
+                    onPause = { offlineManager.pause(download.id) },
+                    onResume = { offlineManager.resume(download.id) },
+                    onRemove = { offlineManager.remove(download.id) },
+                )
+            }
         }
     }
 }
