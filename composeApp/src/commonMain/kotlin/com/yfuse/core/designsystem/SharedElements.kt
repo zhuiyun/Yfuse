@@ -169,7 +169,9 @@ fun <T : Any> SharedElementTransitionContainer(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = 0f }
+                        // Keep the retained route visibly painted under the opaque active page.
+                        // Toggling this layer from alpha 0 during a pop left a one-frame hole
+                        // while movableContent changed owners, which read as a full-screen flash.
                         .clearAndSetSemantics { },
                 ) {
                     CompositionLocalProvider(LocalRouteVisible provides false) {
