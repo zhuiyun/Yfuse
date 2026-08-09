@@ -1,6 +1,9 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,16 +41,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.motionAwareItem
-import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.WatchAvatar
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
@@ -63,6 +71,9 @@ import com.yfuse.core.util.withoutControlCharacters
 import kotlinx.coroutines.launch
 
 internal val WatchChatPanelWidth = 340.dp
+
+private val ChatDrawerEdgeHandleWidth = 28.dp
+private val ChatDrawerDismissThreshold = 72.dp
 
 @Composable
 internal fun WatchChatPanel(
@@ -81,7 +92,20 @@ internal fun WatchChatPanel(
     var draft by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     var showJumpToLatest by remember { mutableStateOf(false) }
+    var drawerDragging by remember { mutableStateOf(false) }
+    var dismissCommitted by remember { mutableStateOf(false) }
+    var drawerDragPx by remember { mutableFloatStateOf(0f) }
+    val drawerOffset by animateFloatAsState(
+        targetValue = if (drawerDragging || dismissCommitted) drawerDragPx else 0f,
+        animationSpec = if (drawerDragging || dismissCommitted) {
+            snap()
+        } else {
+            Motion.settle(reduceMotion)
+        },
+        label = "watch-chat-edge-drag",
+    )
 
     LaunchedEffect(messages.lastOrNull()?.id) {
         if (messages.isEmpty()) {
@@ -118,225 +142,269 @@ internal fun WatchChatPanel(
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)).noRippleClickable(onDismiss))
-    Column(
+    Box(
         modifier
             .fillMaxHeight()
             .width(WatchChatPanelWidth)
-            .glass(
-                shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp),
-                fill = PlayerTokens.drawerFillLandscape,
-                border = Color.White.copy(alpha = 0.24f),
-            )
-            .noRippleClickable { }
-            .imePadding()
-            .padding(horizontal = 14.dp, vertical = 16.dp),
+            .graphicsLayer { translationX = drawerOffset },
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text("房间聊天", style = sc(13.5f, 700), color = Color.White)
-                Text(
-                    "${participants.size} 人在线 · ${participants.count { it.ready }} 人就绪 · 最近 50 条",
-                    style = mr(9.5f, 500),
-                    color = Color.White.copy(alpha = 0.48f),
+        Column(
+            Modifier
+                .fillMaxSize()
+                .glass(
+                    shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp),
+                    fill = PlayerTokens.drawerFillLandscape,
+                    border = Color.White.copy(alpha = 0.24f),
                 )
-            }
+                .noRippleClickable { }
+                .imePadding()
+                .padding(horizontal = 14.dp, vertical = 16.dp),
+        ) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    if (danmakuEnabled) "弹幕开" else "弹幕关",
-                    style = sc(9.5f, 650),
-                    color = if (danmakuEnabled) Color.White else Color.White.copy(alpha = 0.48f),
-                    modifier = Modifier
-                        .pressable(onClick = onToggleDanmaku)
-                        .glass(
-                            continuousRounded(10.dp),
-                            if (danmakuEnabled) Brand.Primary.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f),
-                            Color.White.copy(alpha = 0.16f),
-                        )
-                        .padding(horizontal = 9.dp, vertical = 6.dp),
-                )
-                Icon(
-                    AppIcons.Close,
-                    contentDescription = "关闭聊天",
-                    tint = Color.White.copy(alpha = 0.55f),
-                    modifier = Modifier.size(13.dp).noRippleClickable(onDismiss),
-                )
-            }
-        }
-
-        if (participants.isNotEmpty()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-            ) {
-                participants.forEach { participant ->
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
-                    ) {
-                        WatchAvatar(participant.avatarId, 30.dp)
-                        Text(
-                            when {
-                                participant.isSelf -> "我"
-                                participant.isHost -> "${participant.name} · 房主"
-                                else -> participant.name
-                            },
-                            style = mr(8.5f, 500),
-                            color = Color.White.copy(alpha = 0.62f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.width(58.dp),
-                        )
-                        Text(
-                            participant.playbackStatusLabel,
-                            style = mr(7.5f, 500),
-                            color = when {
-                                !participant.mediaAvailable -> Brand.Danger
-                                participant.buffering -> Color(0xFFFFC857)
-                                participant.ready -> Brand.Primary
-                                else -> Color.White.copy(alpha = 0.42f)
-                            },
-                            maxLines = 1,
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-        WatchStickerTray(
-            enabled = sendingEnabled,
-            onPick = { onSend(WatchStickers.token(it)) },
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Spacer(Modifier.height(10.dp))
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (messages.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column {
+                    Text("房间聊天", style = sc(13.5f, 700), color = Color.White)
                     Text(
-                        "还没有消息\n发一句开始聊天吧",
-                        style = mr(11f, 500),
-                        color = Color.White.copy(alpha = 0.42f),
+                        "${participants.size} 人在线 · ${participants.count { it.ready }} 人就绪 · 最近 50 条",
+                        style = mr(9.5f, 500),
+                        color = Color.White.copy(alpha = 0.48f),
                     )
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    state = listState,
-                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    items(messages, key = { it.id }) { message ->
-                        WatchChatBubble(message, onRetry, motionAwareItem())
+                    Text(
+                        if (danmakuEnabled) "弹幕开" else "弹幕关",
+                        style = sc(9.5f, 650),
+                        color = if (danmakuEnabled) Color.White else Color.White.copy(alpha = 0.48f),
+                        modifier = Modifier
+                            .pressable(onClick = onToggleDanmaku)
+                            .glass(
+                                continuousRounded(10.dp),
+                                if (danmakuEnabled) Brand.Primary.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f),
+                                Color.White.copy(alpha = 0.16f),
+                            )
+                            .padding(horizontal = 9.dp, vertical = 6.dp),
+                    )
+                    Icon(
+                        AppIcons.Close,
+                        contentDescription = "关闭聊天",
+                        tint = Color.White.copy(alpha = 0.55f),
+                        modifier = Modifier.size(13.dp).noRippleClickable(onDismiss),
+                    )
+                }
+            }
+
+            if (participants.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
+                    participants.forEach { participant ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            WatchAvatar(participant.avatarId, 30.dp)
+                            Text(
+                                when {
+                                    participant.isSelf -> "我"
+                                    participant.isHost -> "${participant.name} · 房主"
+                                    else -> participant.name
+                                },
+                                style = mr(8.5f, 500),
+                                color = Color.White.copy(alpha = 0.62f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.width(58.dp),
+                            )
+                            Text(
+                                participant.playbackStatusLabel,
+                                style = mr(7.5f, 500),
+                                color = when {
+                                    !participant.mediaAvailable -> Brand.Danger
+                                    participant.buffering -> Color(0xFFFFC857)
+                                    participant.ready -> Brand.Primary
+                                    else -> Color.White.copy(alpha = 0.42f)
+                                },
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
             }
 
-            if (showJumpToLatest && messages.isNotEmpty()) {
-                Text(
-                    "有新消息 · 回到最新",
-                    style = sc(10.5f, 650),
-                    color = Color.White,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 8.dp)
-                        .glass(
-                            shape = continuousRounded(16.dp),
-                            fill = Brand.Primary.copy(alpha = 0.58f),
-                            border = Color.White.copy(alpha = 0.22f),
-                        )
-                        .pressable(onClick = {
-                            scope.launch {
-                                listState.animateScrollToItem(messages.lastIndex)
-                                showJumpToLatest = false
-                            }
-                        })
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                )
-            }
-        }
-
-        error?.let {
-            Text(
-                it,
-                style = mr(9.5f, 500),
-                color = Brand.Danger,
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            Spacer(Modifier.height(12.dp))
+            WatchStickerTray(
+                enabled = sendingEnabled,
+                onPick = { onSend(WatchStickers.token(it)) },
+                modifier = Modifier.fillMaxWidth(),
             )
-        }
 
-        Row(
-            Modifier.fillMaxWidth().padding(top = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(
-                Modifier
-                    .weight(1f)
-                    .glass(
-                        continuousRounded(14.dp),
-                        Color.White.copy(alpha = 0.1f),
-                        Color.White.copy(alpha = 0.18f),
-                    )
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Box(contentAlignment = Alignment.CenterStart) {
-                    if (draft.isEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (messages.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            if (sendingEnabled) "说点什么…" else "重连后可发送",
+                            "还没有消息\n发一句开始聊天吧",
                             style = mr(11f, 500),
-                            color = Color.White.copy(alpha = 0.35f),
+                            color = Color.White.copy(alpha = 0.42f),
                         )
                     }
-                    BasicTextField(
-                        value = draft,
-                        onValueChange = { value ->
-                            draft = value.replace('\r', ' ')
-                                .replace('\n', ' ')
-                                .withoutControlCharacters()
-                                .takeGraphemes(MAX_CHAT_GRAPHEMES)
-                                .takeGraphemesWithinUtf8Bytes(MAX_CHAT_BYTES)
-                            onClearError()
-                        },
-                        singleLine = true,
-                        enabled = sendingEnabled,
-                        textStyle = mr(11f, 500).copy(color = Color.White),
-                        cursorBrush = SolidColor(Brand.Primary),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { submit() }),
-                        modifier = Modifier.fillMaxWidth(),
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        items(messages, key = { it.id }) { message ->
+                            WatchChatBubble(message, onRetry, motionAwareItem())
+                        }
+                    }
+                }
+
+                if (showJumpToLatest && messages.isNotEmpty()) {
+                    Text(
+                        "有新消息 · 回到最新",
+                        style = sc(10.5f, 650),
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 8.dp)
+                            .glass(
+                                shape = continuousRounded(16.dp),
+                                fill = Brand.Primary.copy(alpha = 0.58f),
+                                border = Color.White.copy(alpha = 0.22f),
+                            )
+                            .pressable(onClick = {
+                                scope.launch {
+                                    listState.animateScrollToItem(messages.lastIndex)
+                                    showJumpToLatest = false
+                                }
+                            })
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+            }
+
+            error?.let {
+                Text(
+                    it,
+                    style = mr(9.5f, 500),
+                    color = Brand.Danger,
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                )
+            }
+
+            Row(
+                Modifier.fillMaxWidth().padding(top = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .glass(
+                            continuousRounded(14.dp),
+                            Color.White.copy(alpha = 0.1f),
+                            Color.White.copy(alpha = 0.18f),
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (draft.isEmpty()) {
+                            Text(
+                                if (sendingEnabled) "说点什么…" else "重连后可发送",
+                                style = mr(11f, 500),
+                                color = Color.White.copy(alpha = 0.35f),
+                            )
+                        }
+                        BasicTextField(
+                            value = draft,
+                            onValueChange = { value ->
+                                draft = value.replace('\r', ' ')
+                                    .replace('\n', ' ')
+                                    .withoutControlCharacters()
+                                    .takeGraphemes(MAX_CHAT_GRAPHEMES)
+                                    .takeGraphemesWithinUtf8Bytes(MAX_CHAT_BYTES)
+                                onClearError()
+                            },
+                            singleLine = true,
+                            enabled = sendingEnabled,
+                            textStyle = mr(11f, 500).copy(color = Color.White),
+                            cursorBrush = SolidColor(Brand.Primary),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { submit() }),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Text(
+                        "${draft.graphemeCount()}/$MAX_CHAT_GRAPHEMES",
+                        style = mr(8f, 500),
+                        color = Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.align(Alignment.End),
                     )
                 }
                 Text(
-                    "${draft.graphemeCount()}/$MAX_CHAT_GRAPHEMES",
-                    style = mr(8f, 500),
-                    color = Color.White.copy(alpha = 0.3f),
-                    modifier = Modifier.align(Alignment.End),
+                    "发送",
+                    style = sc(10.5f, 700),
+                    color = if (draft.isBlank() || !sendingEnabled) Color.White.copy(alpha = 0.3f) else Color.White,
+                    modifier = Modifier
+                        .pressable(enabled = draft.isNotBlank() && sendingEnabled, onClick = ::submit)
+                        .glass(
+                            continuousRounded(13.dp),
+                            Brand.Primary.copy(alpha = if (draft.isBlank() || !sendingEnabled) 0.16f else 0.55f),
+                            Color.White.copy(alpha = 0.2f),
+                        )
+                        .padding(horizontal = 13.dp, vertical = 13.dp),
                 )
             }
-            Text(
-                "发送",
-                style = sc(10.5f, 700),
-                color = if (draft.isBlank() || !sendingEnabled) Color.White.copy(alpha = 0.3f) else Color.White,
-                modifier = Modifier
-                    .pressable(enabled = draft.isNotBlank() && sendingEnabled, onClick = ::submit)
-                    .glass(
-                        continuousRounded(13.dp),
-                        Brand.Primary.copy(alpha = if (draft.isBlank() || !sendingEnabled) 0.16f else 0.55f),
-                        Color.White.copy(alpha = 0.2f),
-                    )
-                    .padding(horizontal = 13.dp, vertical = 13.dp),
-            )
         }
+
+        // A narrow edge owns the dismiss gesture so horizontal sticker/member scrolling keeps
+        // its full range. Once the gesture starts, pointer capture continues outside the 28dp
+        // handle and the whole drawer follows the finger.
+        Box(
+            Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .width(ChatDrawerEdgeHandleWidth)
+                .pointerInput(onDismiss) {
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            dismissCommitted = false
+                            drawerDragging = true
+                        },
+                        onDragEnd = {
+                            val shouldDismiss = drawerDragPx >= ChatDrawerDismissThreshold.toPx()
+                            drawerDragging = false
+                            if (shouldDismiss) {
+                                dismissCommitted = true
+                                onDismiss()
+                            } else {
+                                drawerDragPx = 0f
+                            }
+                        },
+                        onDragCancel = {
+                            drawerDragging = false
+                            drawerDragPx = 0f
+                        },
+                    ) { change, dragAmount ->
+                        if (dragAmount != 0f) {
+                            change.consume()
+                            drawerDragPx = (drawerDragPx + dragAmount)
+                                .coerceIn(0f, WatchChatPanelWidth.toPx())
+                        }
+                    }
+                },
+        )
     }
 }
 
