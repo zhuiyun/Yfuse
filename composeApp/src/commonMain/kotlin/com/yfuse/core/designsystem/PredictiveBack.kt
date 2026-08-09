@@ -37,8 +37,8 @@ import kotlinx.coroutines.launch
  *  - [progress] — the finger is down and driving it. Reversible; [onCancel] springs it home.
  *  - [finish] — it committed, and the page is thrown the rest of the way off-screen. Only
  *    when that lands does the stack actually pop, by which point both pages are already
- *    where the pop would have put them — see [consumePendingCommit], which is how the stack
- *    learns to swap them without animating a movement the user has just watched.
+ *    where the pop would have put them. The revealed route remains the drawing owner during
+ *    [handoffInProgress] and is only moved back after the new target has settled.
  */
 @Stable
 class PredictiveBackState internal constructor(private val scope: CoroutineScope) {
@@ -50,6 +50,13 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
      * rebuild the page below on every frame of the gesture. This flips twice per gesture.
      */
     var peeking by mutableStateOf(false)
+        private set
+
+    /**
+     * The stack has popped, but the revealed route still owns drawing until its zero-duration
+     * target transition is ready to receive the same movable subtree.
+     */
+    internal var handoffInProgress by mutableStateOf(false)
         private set
 
     /** 0f at the start of the gesture, 1f where it would commit. Read in the draw phase. */
@@ -133,14 +140,11 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
                     easing = Motion.Curve,
                 ),
             ) { value, _ -> finish = value }
-            // One frame swaps all of it: the peek layers come down, the stack pops, and the
-            // pop is marked as already-animated. Splitting them would show the page below
-            // twice, or show it not at all.
+            // Keep the completed reveal painted while the stack changes ownership. Clearing
+            // these draw values before pop removed the only root host one composition before
+            // AnimatedContent placed its zero-duration target, exposing the window backdrop.
             pendingCommit = true
-            peeking = false
-            progress = 0f
-            finish = 0f
-            finishing = false
+            handoffInProgress = true
             pop()
         }
     }
@@ -153,6 +157,20 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
         val pending = pendingCommit
         pendingCommit = false
         return pending
+    }
+
+    /**
+     * Called by the route container after the post-pop target has remained settled for a frame.
+     * Resetting all gesture state together moves the already-painted route back to its active
+     * host in one recomposition.
+     */
+    internal fun completeCommitHandoff() {
+        if (!handoffInProgress) return
+        peeking = false
+        progress = 0f
+        finish = 0f
+        handoffInProgress = false
+        finishing = false
     }
 
     private companion object {
