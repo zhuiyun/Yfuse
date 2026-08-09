@@ -330,10 +330,13 @@ object Motion {
     const val MODAL = 400
     val modalOffset = 46.dp
 
-    /** 迷你播放器展开 — 从底部 0.8 缩放放大；详情页顶图 1.14 → 1. */
+    /** 迷你播放器展开 — 从底部 0.8 缩放放大；详情页顶图只做克制的 1.08 → 1. */
     const val EXPAND = 460
     const val MINI_SCALE_FROM = 0.8f
-    const val DETAIL_HERO_SCALE_FROM = 1.14f
+    const val DETAIL_HERO_SCALE_FROM = 1.08f
+
+    /** Detail content settles after the artwork; short enough to never queue behind a tap. */
+    const val DETAIL_CONTENT = 320
 
     /** 顶栏材质切换 — 滚动超过 280px 后转为玻璃底（§4.2）. */
     const val TOP_BAR = 280
@@ -344,7 +347,7 @@ object Motion {
      * Slower than a tab switch and faster than the image it belongs to: the wash is
      * background, and a page that recolours as fast as it redraws reads as a flicker.
      */
-    const val ACCENT = 420
+    const val ACCENT = 520
 
     /** 图片渐进加载：占位主色渐变 → 12px 模糊放大 1.05 → 清晰归位. */
     const val IMAGE_IN = 550
