@@ -5,7 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -48,12 +48,8 @@ private val PremiumSeekThumbDiameter = 8.dp
 private val PremiumSeekThumbDiameterDragging = 14.dp
 
 /**
- * Player scrubber with three readable layers: remaining, buffered and played.
- *
- * The painted track stays slim while the whole 40dp row accepts input. Direct manipulation
- * grows the track and thumb, adds a time bubble, and confirms the commit with haptics. The
- * implementation deliberately uses ordinary Compose layout/background primitives so it stays
- * compatible with this project's Compose Multiplatform 1.7 line.
+ * Player scrubber with remaining, buffered and played layers.
+ * The visible rail stays slim while the whole 40dp row accepts input.
  */
 @Composable
 internal fun PremiumSeekBar(
@@ -140,16 +136,16 @@ internal fun PremiumSeekBar(
             if (visual.bufferedFraction > 0f) {
                 Box(
                     Modifier
-                        .fillMaxSize()
                         .fillMaxWidth(visual.bufferedFraction)
+                        .fillMaxHeight()
                         .background(Color.White.copy(alpha = 0.44f)),
                 )
             }
             if (visual.playedFraction > 0f) {
                 Box(
                     Modifier
-                        .fillMaxSize()
                         .fillMaxWidth(visual.playedFraction)
+                        .fillMaxHeight()
                         .background(PlayerTokens.progress),
                 )
             }
