@@ -401,9 +401,7 @@ private fun HeroSlide(
                     TmdbImages.media(item.posterPath, "w780"),
                 ),
                 contentDescription = item.title,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .sharedMediaElement("tmdb-backdrop-${item.id}"),
+                modifier = Modifier.fillMaxSize(),
             )
         }
         // 底部 90% → 透明的深色渐变压暗，保证任意剧照上标题都可读 (§4.1).
@@ -704,7 +702,9 @@ private fun ContinueWatching(
                     title = item.title,
                     year = item.year?.toString(),
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
-                    sharedKey = "media-poster-${item.id}",
+                    // Keep the home content continuously rendered on pop. A shared-media
+                    // overlay can briefly outlive the disposed detail image and flash blank.
+                    sharedKey = null,
                     onClick = { onClick(item) },
                     modifier = Modifier.width(150.dp),
                     posterModifier = Modifier.fillMaxWidth().height(90.dp),
