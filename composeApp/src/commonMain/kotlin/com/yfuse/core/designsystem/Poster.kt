@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,21 +61,21 @@ fun FallbackImage(
     progressive: Boolean = true,
 ) {
     val candidates = remember(urls) { urls.filterNotNull().filter { it.isNotBlank() }.distinct() }
-    var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
-    var loaded by remember(candidates, candidateIndex) { mutableStateOf(false) }
+    var candidateIndex by rememberSaveable(candidates) { mutableIntStateOf(0) }
+    var loaded by rememberSaveable(candidates, candidateIndex) { mutableStateOf(false) }
     /**
      * Whether this particular picture is allowed the entrance.
      *
      * The reveal exists to cover a wait. An image Coil already holds in memory has no wait
      * to cover, so playing it there is not polish — it is 550ms of blur inserted in front of
-     * something that was ready to draw. It showed up worst in the grids: [loaded] restarts
-     * at false every time a tile is recycled into composition, so scrolling back over
-     * artwork already on screen a moment ago re-blurred every tile, every time.
+     * something that was ready to draw. The settled flags are saveable under the route and
+     * stable item key, so returning from detail can draw the same already-loaded artwork on
+     * its first visible frame.
      *
-     * Set from the request's own data source, so the decision is per picture rather than a
-     * guess about the page.
+     * The request's data source still decides whether a genuinely new picture needs the
+     * entrance, so the choice remains per picture rather than a guess about the page.
      */
-    var instant by remember(candidates, candidateIndex) { mutableStateOf(false) }
+    var instant by rememberSaveable(candidates, candidateIndex) { mutableStateOf(false) }
     val animate = progressive && !LocalAccessibilityOptions.current.reduceMotion && !instant
     // 0 while the picture is still arriving, 1 once it has settled into place.
     val settle by animateFloatAsState(
