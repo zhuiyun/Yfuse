@@ -170,7 +170,9 @@ fun <T : Any> SharedElementTransitionContainer(
             revealRouteKey == targetRouteKey
         ) {
             withFrameNanos { }
-            back?.completeCommitHandoff()
+            if (back?.handoffInProgress == true) {
+                back.completeCommitHandoff()
+            }
         }
     }
 
@@ -258,9 +260,10 @@ fun <T : Any> SharedElementTransitionContainer(
                 // so skip the stale invocation and keep every provider mounted exactly once.
                 val revealOwnsTarget =
                     handoff && revealRouteKey != null && childKey == revealRouteKey
-                if (revealOwnsTarget) {
-                    // SideEffect confirms AnimatedContent has applied a composition containing
-                    // its target host; the reveal remains the only movable-content owner.
+                if (revealOwnsTarget && transitionSettled && childKey == targetRouteKey) {
+                    // Only a settled composition that actually visits the target host may release
+                    // the reveal. An earlier target visit can be followed by one outgoing-only
+                    // composition, which is the exact gap this handoff prevents.
                     SideEffect { handoffTargetVisited = true }
                 }
                 if (!revealOwnsTarget && (!transitionSettled || childKey == targetRouteKey)) {
