@@ -7,12 +7,13 @@ import com.arkivanov.mvikotlin.core.store.Store
  *
  * The detail page and the transient PlayerComponent live in the same process, so handing the
  * actual Store across avoids rebuilding item detail, episode MediaSources and every stream URL
- * after the user has already pressed 播放. The key intentionally excludes the resume position:
- * 从头播放 and resume use the same queue and only differ in where the native player seeks.
+ * after the user has already pressed 播放. Resume position is part of the key because it lives in
+ * PlayerState; 从头播放 therefore falls back to a fresh queue instead of inheriting resume state.
  */
 internal data class PlaybackPreloadKey(
     val serverId: String?,
     val itemId: String,
+    val startPositionTicks: Long,
     val mediaSourceId: String?,
 )
 
