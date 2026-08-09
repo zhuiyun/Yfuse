@@ -28,36 +28,29 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.sync.WatchReactionBurst
+import kotlin.math.PI
+import kotlin.math.sin
 import kotlinx.coroutines.delay
 
-/** How long a bubble takes to cross the strip it floats up. */
-private const val REACTION_MS = 2_600
+/** How long a reaction owns attention before leaving the picture. */
+private const val REACTION_MS = 2_450
 
 /** How far a bubble travels before it is gone. */
-private val RiseDistance = 180.dp
+private val RiseDistance = 196.dp
 
 /**
  * 一起看 reactions, drifting up the right-hand edge.
  *
- * The room already had a text chat, but a chat is a conversation — it wants attention, it
- * has an unread badge, and typing during a film is its own decision. A reaction is the
- * other half: a single tap that everyone sees for two seconds and nobody has to answer.
- *
- * Rendering reuses nothing from the danmaku engine on purpose. Danmaku is a dense
- * horizontal stream with lane allocation; this is a handful of bubbles on one edge, and
- * borrowing that machinery would cost more than the twenty lines it replaces.
+ * Reactions should read as an acknowledgement, not another chat bubble. The motion therefore
+ * has three stages: a short pop when it is born, a calm floating middle, then a soft fade.
+ * One progress value drives the whole layer so this stays cheap even when several people tap
+ * at once over video playback.
  */
 @Composable
 fun WatchReactionOverlay(
     reactions: List<WatchReactionBurst>,
     onFinished: (Long) -> Unit,
-    /**
-     * How far in from the right edge the bubbles rise.
-     *
-     * They float up the bottom-right corner, which is also where the chat panel opens — so
-     * with the panel up they rose entirely behind it and a room that was reacting looked like
-     * a room that had gone quiet. The caller moves them clear.
-     */
+    /** Move the lane left while the chat drawer occupies the right edge. */
     insetEnd: Dp = DefaultInsetEnd,
     modifier: Modifier = Modifier,
 ) {
@@ -70,7 +63,6 @@ fun WatchReactionOverlay(
     }
 }
 
-/** Clear of the right edge, when nothing else is in the way. */
 private val DefaultInsetEnd = 26.dp
 
 @Composable
@@ -80,18 +72,19 @@ private fun BoxScope.ReactionBubble(
     onFinished: (Long) -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val rise = remember { Animatable(0f) }
-    // A stable per-bubble sideways offset so simultaneous reactions do not stack into one
-    // illegible column. Derived from the id rather than random, so a recomposition mid-flight
-    // does not teleport the bubble sideways.
-    val drift = remember(burst.id) { ((burst.id % 5L).toInt() - 2) * 9 }
+    val progress = remember { Animatable(0f) }
+
+    // Stable variation stops simultaneous reactions becoming one vertical column while also
+    // preventing a recomposition from teleporting an in-flight bubble.
+    val lane = remember(burst.id) { ((burst.id % 5L).toInt() - 2) }
+    val driftPx = lane * 10f
+    val tilt = remember(burst.id) { (((burst.id % 7L).toInt() - 3) * 1.35f) }
 
     LaunchedEffect(burst.id, reduceMotion) {
         if (reduceMotion) {
-            // No travel, but still transient: it appears, it is read, it goes.
             delay(REACTION_MS.toLong())
         } else {
-            rise.animateTo(1f, tween(REACTION_MS, easing = LinearEasing))
+            progress.animateTo(1f, tween(REACTION_MS, easing = LinearEasing))
         }
         onFinished(burst.id)
     }
@@ -99,28 +92,52 @@ private fun BoxScope.ReactionBubble(
     Row(
         Modifier
             .align(Alignment.BottomEnd)
-            .padding(end = insetEnd, bottom = 150.dp)
+            .padding(end = insetEnd, bottom = 146.dp)
             .graphicsLayer {
-                val progress = rise.value
-                translationY = -RiseDistance.toPx() * progress
-                translationX = drift.dp.toPx() * progress
-                // Holds full strength for the first third, then thins out.
-                alpha = ((1f - progress) * 1.5f).coerceIn(0f, 1f)
+                if (reduceMotion) {
+                    alpha = 1f
+                    scaleX = 1f
+                    scaleY = 1f
+                    return@graphicsLayer
+                }
+
+                val p = progress.value.coerceIn(0f, 1f)
+                val arc = sin(p * PI).toFloat()
+                translationY = -RiseDistance.toPx() * p
+                translationX = driftPx.dp.toPx() * (0.35f + p) + arc * lane * 2.2f
+
+                // 0..12%: 0.82 -> 1.08 -> 1.00. The overshoot is deliberately tiny; the
+                // film remains the focal point and the reaction just acknowledges the tap.
+                val pop = when {
+                    p < 0.055f -> 0.82f + (p / 0.055f) * 0.26f
+                    p < 0.12f -> 1.08f - ((p - 0.055f) / 0.065f) * 0.08f
+                    else -> 1f
+                }
+                scaleX = pop
+                scaleY = pop
+                rotationZ = tilt * arc
+
+                // Stay fully legible through most of the flight, fade only near the end.
+                alpha = when {
+                    p < 0.10f -> (p / 0.10f).coerceIn(0f, 1f)
+                    p < 0.68f -> 1f
+                    else -> (1f - (p - 0.68f) / 0.32f).coerceIn(0f, 1f)
+                }
             }
             .glass(
                 shape = GlassShapes.chip,
                 fill = PlayerTokens.nextUpFill,
-                border = PlayerTokens.hairline,
+                border = Color.White.copy(alpha = 0.24f),
             )
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 11.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(burst.reaction.emoji, style = sc(17f, 400))
+        Text(burst.reaction.emoji, style = sc(18f, 400))
         if (burst.name.isNotBlank() && !burst.isMine) {
             Text(
                 burst.name,
-                style = mr(10f, 600),
+                style = mr(10f, 650),
                 color = PlayerTokens.timeText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
