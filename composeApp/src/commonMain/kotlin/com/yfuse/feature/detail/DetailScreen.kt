@@ -105,7 +105,6 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedDominantColor
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
-import com.yfuse.core.designsystem.sharedMediaElement
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
@@ -349,7 +348,9 @@ fun DetailScreen(component: DetailComponent) {
             heroPanelBrush(detailSurface, density, start = captionLift)
         }
 
-        val listState = rememberLazyListState()
+        // A different detail route must always start at its hero. Keying the state by the
+        // route item also prevents a newly opened title inheriting the previous title's offset.
+        val listState = remember(component.itemId) { LazyListState() }
         val detailBackdrop = rememberBackdropState()
         val (overscrollPull, overscrollConnection) = rememberOverscrollPull(
             LocalAccessibilityOptions.current.reduceMotion,
@@ -975,8 +976,9 @@ private fun Hero(
             progressive = false,
             modifier = Modifier
                 .fillMaxSize()
-                .sharedMediaElement(sharedKey)
-                // Inside the shared element, not around it: scaling the bounds would
+                // Keep the hero in the destination layer. A shared overlay can outlive the
+                // disposed detail image during pop and expose a blank full-screen frame.
+                // Inside the image, not around it: scaling the bounds would
                 // fight the poster travelling in from the list it was tapped in.
                 .graphicsLayer {
                     val scale = 1f +
