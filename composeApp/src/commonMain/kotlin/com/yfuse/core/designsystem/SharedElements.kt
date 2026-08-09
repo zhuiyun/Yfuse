@@ -17,10 +17,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -127,6 +132,18 @@ fun <T : Any> SharedElementTransitionContainer(
     val targetRouteKey = routeKey(targetState)
     val previousRouteKey = previousValue?.let(routeKey)
 
+    // previous is derived from backStack.lastOrNull(), so it becomes null as soon as root is
+    // popped to. Retain the gesture destination independently until the already-visible
+    // subtree can move from PredictiveBackReveal to AnimatedContent without an empty frame.
+    var retainedPrevious by remember { mutableStateOf(previousValue) }
+    LaunchedEffect(previousValue) {
+        if (previousValue != null) retainedPrevious = previousValue
+    }
+    val handoff = back?.handoffInProgress == true
+    val revealValue = if (handoff) retainedPrevious else previousValue
+    val revealRouteKey = revealValue?.let(routeKey)
+    var handoffTargetVisited by remember(targetRouteKey) { mutableStateOf(false) }
+
     // A gesture can only reveal a route once AnimatedContent has handed that exact movable
     // subtree to the retained underlay.
     back?.canPeek =
@@ -134,6 +151,28 @@ fun <T : Any> SharedElementTransitionContainer(
             previousValue != null &&
             previousRouteKey != null &&
             previousRouteKey != targetRouteKey
+
+    // A committed preview owns the returned-to route until the zero-duration pop has settled.
+    // Leave it painted for one full frame in that state, then move the same movable subtree to
+    // AnimatedContent in the following recomposition.
+    LaunchedEffect(
+        back,
+        handoff,
+        handoffTargetVisited,
+        transitionSettled,
+        targetRouteKey,
+        revealRouteKey,
+    ) {
+        if (
+            handoff &&
+            handoffTargetVisited &&
+            transitionSettled &&
+            revealRouteKey == targetRouteKey
+        ) {
+            withFrameNanos { }
+            back?.completeCommitHandoff()
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         // Keep both routes in one lookahead scope, but move only the page being left.
@@ -143,17 +182,19 @@ fun <T : Any> SharedElementTransitionContainer(
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) sharedTransition@{
         when {
             back?.peeking == true &&
-                transitionSettled &&
-                previousValue != null &&
-                previousRouteKey != null -> {
+                (transitionSettled || handoff) &&
+                revealValue != null &&
+                revealRouteKey != null -> {
                 PredictiveBackReveal(back) {
                     CompositionLocalProvider(LocalRouteVisible provides false) {
-                        if (previousRouteKey == targetRouteKey) {
+                        if (!handoff && revealRouteKey == targetRouteKey) {
                             // Related detail pages deliberately share a route key and cannot invoke
                             // the same movable SaveableStateProvider twice at the same time.
-                            latestContent(previousValue)
+                            latestContent(revealValue)
                         } else {
-                            movableRoute(previousRouteKey)(previousValue)
+                            // During commit this remains the sole owner even after targetState has
+                            // become the same route key. AnimatedContent is gated below until move.
+                            movableRoute(revealRouteKey)(revealValue)
                         }
                     }
                 }
@@ -215,7 +256,14 @@ fun <T : Any> SharedElementTransitionContainer(
                 // AnimatedContent can report itself settled for one composition while it still
                 // visits the outgoing child. The retained host owns that movable subtree now,
                 // so skip the stale invocation and keep every provider mounted exactly once.
-                if (!transitionSettled || childKey == targetRouteKey) {
+                val revealOwnsTarget =
+                    handoff && revealRouteKey != null && childKey == revealRouteKey
+                if (revealOwnsTarget) {
+                    // SideEffect confirms AnimatedContent has applied a composition containing
+                    // its target host; the reveal remains the only movable-content owner.
+                    SideEffect { handoffTargetVisited = true }
+                }
+                if (!revealOwnsTarget && (!transitionSettled || childKey == targetRouteKey)) {
                     CompositionLocalProvider(
                         LocalSharedTransitionScope provides this@sharedTransition,
                         LocalSharedAnimatedVisibilityScope provides this@animatedContent,
