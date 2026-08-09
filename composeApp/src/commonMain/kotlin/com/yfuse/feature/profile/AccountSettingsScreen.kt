@@ -18,14 +18,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -37,33 +33,37 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.WatchTogetherPreferences
-import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
-import com.yfuse.core.designsystem.WatchAvatar
-import com.yfuse.core.designsystem.HapticSignal
-import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ConfirmDialog
+import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
+import com.yfuse.core.designsystem.WatchAvatar
+import com.yfuse.core.designsystem.YfButton
+import com.yfuse.core.designsystem.YfButtonTone
+import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.YfLinkButton
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.sc
 import kotlinx.coroutines.launch
 
-/** Mirrors the minimum the repository and the account service both enforce. */
 private const val MIN_PASSWORD_LENGTH = 8
 
 @Composable
@@ -105,19 +105,16 @@ internal fun AccountSettingsScreen(
                     Spacer(Modifier.height(6.dp))
                     Text(current.message, style = mr(10.5f, 400), color = palette.sub)
                     Spacer(Modifier.height(10.dp))
-                    Button(onClick = account::retryRestore, modifier = Modifier.fillMaxWidth()) {
-                        Text("重试")
-                    }
+                    YfButton(
+                        label = "重试",
+                        onClick = account::retryRestore,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
 
-            AccountState.SignedOut -> item {
-                SignedOutAccountCard(account)
-            }
-
-            is AccountState.SignedIn -> item {
-                SignedInAccountCard(account, current)
-            }
+            AccountState.SignedOut -> item { SignedOutAccountCard(account) }
+            is AccountState.SignedIn -> item { SignedInAccountCard(account, current) }
         }
 
         item {
@@ -148,7 +145,6 @@ private fun SignedOutAccountCard(account: AccountRepository) {
     val scope = rememberCoroutineScope()
     var registerMode by rememberSaveable { mutableStateOf(false) }
     var username by rememberSaveable { mutableStateOf("") }
-    // Passwords must not enter Android's saved-instance-state Bundle.
     var password by remember { mutableStateOf("") }
     var nickname by rememberSaveable { mutableStateOf("") }
     var avatarId by rememberSaveable { mutableStateOf(0) }
@@ -156,38 +152,38 @@ private fun SignedOutAccountCard(account: AccountRepository) {
     var error by remember { mutableStateOf<String?>(null) }
 
     AccountCard {
-        Text(if (registerMode) "创建 Yfuse 账号" else "登录 Yfuse 账号", style = sc(15f, 700), color = palette.text)
+        Text(
+            if (registerMode) "创建 Yfuse 账号" else "登录 Yfuse 账号",
+            style = sc(15f, 700),
+            color = palette.text,
+        )
         Spacer(Modifier.height(5.dp))
         Text("账号服务：IP 直连 · HTTPS", style = mr(10.5f, 400), color = palette.sub2)
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
+
+        YfFormField(
             value = username,
             onValueChange = { username = it.take(40) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("账号名") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+            label = "账号名",
             enabled = !busy,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         )
         Spacer(Modifier.height(9.dp))
-        OutlinedTextField(
+        YfFormField(
             value = password,
             onValueChange = { password = it.take(128) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("密码（至少 $MIN_PASSWORD_LENGTH 位）") },
-            singleLine = true,
+            label = "密码（至少 $MIN_PASSWORD_LENGTH 位）",
+            enabled = !busy,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            enabled = !busy,
         )
+
         if (registerMode) {
             Spacer(Modifier.height(9.dp))
-            OutlinedTextField(
+            YfFormField(
                 value = nickname,
                 onValueChange = { nickname = it.take(24) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("昵称（可选）") },
-                singleLine = true,
+                label = "昵称（可选）",
                 enabled = !busy,
             )
             Spacer(Modifier.height(11.dp))
@@ -195,12 +191,15 @@ private fun SignedOutAccountCard(account: AccountRepository) {
             Spacer(Modifier.height(7.dp))
             AvatarPicker(avatarId, enabled = !busy, onSelect = { avatarId = it })
         }
+
         error?.let {
             Spacer(Modifier.height(9.dp))
             Text(it, style = mr(10.5f, 500), color = Brand.Danger)
         }
+
         Spacer(Modifier.height(13.dp))
-        Button(
+        YfButton(
+            label = if (registerMode) "注册账号" else "登录账号",
             onClick = {
                 busy = true
                 error = null
@@ -223,14 +222,10 @@ private fun SignedOutAccountCard(account: AccountRepository) {
             },
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy && username.isNotBlank() && password.length >= MIN_PASSWORD_LENGTH,
-        ) {
-            if (busy) {
-                CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(8.dp))
-            }
-            Text(if (registerMode) "注册账号" else "登录账号")
-        }
-        TextButton(
+            loading = busy,
+        )
+        YfLinkButton(
+            label = if (registerMode) "已有账号？去登录" else "没有账号？创建一个",
             onClick = {
                 registerMode = !registerMode
                 password = ""
@@ -238,9 +233,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
             },
             modifier = Modifier.align(Alignment.CenterHorizontally),
             enabled = !busy,
-        ) {
-            Text(if (registerMode) "已有账号？去登录" else "没有账号？创建一个")
-        }
+        )
     }
 }
 
@@ -263,10 +256,6 @@ private fun SignedInAccountCard(
     var confirmClearRemote by remember { mutableStateOf(false) }
     var confirmUpload by remember { mutableStateOf(false) }
     var confirmDownload by remember { mutableStateOf(false) }
-    // Which of the two is running, so the button that was pressed carries the spinner and
-    // the other merely dims. `busy` alone disabled the whole form at once, which recoloured
-    // every control on the card for the length of a fast request — the other half of the
-    // flashing.
     var uploading by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
 
@@ -277,14 +266,6 @@ private fun SignedInAccountCard(
 
     AccountCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // The *edited* nickname and avatar, not the saved ones.
-            //
-            // These two showed `user.…`, which is what the server last confirmed, while the
-            // picker below edited local state — so choosing an avatar moved the selection
-            // ring and left the avatar beside the name on the old one until 保存资料 came
-            // back. It read as the tap not registering. A picker and its preview have to be
-            // the same value; 保存资料 is what makes that value permanent, not what makes it
-            // visible.
             AccountAvatar(nickname.ifBlank { user.nickname }, avatarId)
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)) {
@@ -306,13 +287,12 @@ private fun SignedInAccountCard(
                 },
             )
         }
+
         Spacer(Modifier.height(14.dp))
-        OutlinedTextField(
+        YfFormField(
             value = nickname,
             onValueChange = { nickname = it.take(24) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("昵称") },
-            singleLine = true,
+            label = "昵称",
             enabled = !busy && !state.syncing,
         )
         Spacer(Modifier.height(10.dp))
@@ -322,7 +302,8 @@ private fun SignedInAccountCard(
             onSelect = { avatarId = it },
         )
         Spacer(Modifier.height(12.dp))
-        Button(
+        YfButton(
+            label = "保存资料",
             onClick = {
                 busy = true
                 localError = null
@@ -333,10 +314,11 @@ private fun SignedInAccountCard(
                     busy = false
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
             enabled = !busy && !state.syncing && nickname.isNotBlank(),
-        ) { Text("保存资料") }
-        TextButton(
+            loading = busy && !state.syncing,
+        )
+        YfLinkButton(
+            label = if (showPasswordForm) "取消修改密码" else "修改登录密码",
             onClick = {
                 showPasswordForm = !showPasswordForm
                 currentPassword = ""
@@ -346,66 +328,62 @@ private fun SignedInAccountCard(
             },
             modifier = Modifier.align(Alignment.CenterHorizontally),
             enabled = !busy && !state.syncing,
-        ) { Text(if (showPasswordForm) "取消修改密码" else "修改登录密码") }
+        )
+
         if (showPasswordForm) {
-            OutlinedTextField(
+            YfFormField(
                 value = currentPassword,
                 onValueChange = { currentPassword = it.take(128) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("当前密码") },
-                singleLine = true,
+                label = "当前密码",
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 enabled = !busy,
             )
             Spacer(Modifier.height(9.dp))
-            OutlinedTextField(
+            YfFormField(
                 value = newPassword,
                 onValueChange = { newPassword = it.take(128) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("新密码（至少 $MIN_PASSWORD_LENGTH 位）") },
-                singleLine = true,
+                label = "新密码（至少 $MIN_PASSWORD_LENGTH 位）",
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 enabled = !busy,
             )
             Spacer(Modifier.height(9.dp))
-            OutlinedTextField(
+            YfFormField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it.take(128) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("确认新密码") },
-                singleLine = true,
+                label = "确认新密码",
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 enabled = !busy,
             )
             Spacer(Modifier.height(10.dp))
-            Button(
+            YfButton(
+                label = "确认修改密码",
                 onClick = {
                     if (newPassword != confirmPassword) {
                         localError = "两次输入的新密码不一致"
-                        return@Button
-                    }
-                    busy = true
-                    localError = null
-                    val currentSecret = currentPassword.toCharArray()
-                    val newSecret = newPassword.toCharArray()
-                    currentPassword = ""
-                    newPassword = ""
-                    confirmPassword = ""
-                    scope.launch {
-                        val result = account.changePassword(currentSecret, newSecret)
-                        result.exceptionOrNull()?.let { localError = it.message ?: "修改密码失败" }
-                        if (result.isSuccess) showPasswordForm = false
-                        busy = false
+                    } else {
+                        busy = true
+                        localError = null
+                        val currentSecret = currentPassword.toCharArray()
+                        val newSecret = newPassword.toCharArray()
+                        currentPassword = ""
+                        newPassword = ""
+                        confirmPassword = ""
+                        scope.launch {
+                            val result = account.changePassword(currentSecret, newSecret)
+                            result.exceptionOrNull()?.let { localError = it.message ?: "修改密码失败" }
+                            if (result.isSuccess) showPasswordForm = false
+                            busy = false
+                        }
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
                 enabled = !busy && currentPassword.isNotEmpty() &&
                     newPassword.length >= MIN_PASSWORD_LENGTH &&
                     confirmPassword.length >= MIN_PASSWORD_LENGTH,
-            ) { Text("确认修改密码") }
+                loading = busy,
+            )
         }
     }
 
@@ -414,19 +392,10 @@ private fun SignedInAccountCard(
         Text("加密同步", style = sc(13f, 700), color = palette.text)
         Spacer(Modifier.height(5.dp))
         Text(
-            "云端版本 ${state.syncVersion}" +
-                if (state.syncing) " · 正在同步…" else " · 手动同步",
+            "云端版本 ${state.syncVersion}" + if (state.syncing) " · 正在同步…" else " · 手动同步",
             style = mr(10.5f, 400),
             color = palette.sub2,
         )
-        // One status line that is always here.
-        //
-        // This was two conditional `Text`s — a success message and an error — each of which
-        // appeared with its own spacer and disappeared again. Every action grew the card,
-        // and the next one shrank it, which shifted the two buttons and everything below
-        // them: that is the flashing. The slot is now reserved whether or not it has
-        // anything to say, so pressing a button changes what the card *says* and never how
-        // tall it is.
         Spacer(Modifier.height(7.dp))
         Text(
             text = localError ?: state.message ?: syncIdleHint,
@@ -442,10 +411,6 @@ private fun SignedInAccountCard(
         )
         Spacer(Modifier.height(11.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            // 上传 and 恢复 each overwrite one whole side with the other, and both used to do
-            // it on a single tap sitting inside a two-button row. The warning was printed
-            // under them, which is exactly the place a warning is not read. Neither is
-            // reversible and neither is urgent, so both now ask.
             OverlayButton(
                 label = "上传本机",
                 onClick = { confirmUpload = true },
@@ -474,7 +439,8 @@ private fun SignedInAccountCard(
 
     Spacer(Modifier.height(16.dp))
     AccountCard {
-        TextButton(
+        YfButton(
+            label = "退出 Yfuse 账号",
             onClick = {
                 busy = true
                 scope.launch {
@@ -482,18 +448,16 @@ private fun SignedInAccountCard(
                     busy = false
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
             enabled = !busy && !state.syncing,
-        ) {
-            Text("退出 Yfuse 账号", color = Brand.Danger)
-        }
+            loading = busy,
+            tone = YfButtonTone.Destructive,
+        )
     }
 
     if (confirmUpload) {
         ConfirmDialog(
             title = "用本机数据覆盖云端？",
-            message = "云端当前的同步数据会被这台设备上的服务器、弹幕绑定和同步设置替换，" +
-                "不能撤销。",
+            message = "云端当前的同步数据会被这台设备上的服务器、弹幕绑定和同步设置替换，不能撤销。",
             confirmLabel = "上传",
             onConfirm = {
                 confirmUpload = false
@@ -501,7 +465,6 @@ private fun SignedInAccountCard(
                 uploading = true
                 localError = null
                 scope.launch {
-                    // Failures already surface through the repository's status message.
                     account.uploadNow()
                     uploading = false
                     busy = false
@@ -514,8 +477,7 @@ private fun SignedInAccountCard(
     if (confirmDownload) {
         ConfirmDialog(
             title = "用云端数据覆盖本机？",
-            message = "这台设备上的服务器、弹幕绑定和同步设置会被云端版本 " +
-                "${state.syncVersion} 替换，不能撤销。",
+            message = "这台设备上的服务器、弹幕绑定和同步设置会被云端版本 ${state.syncVersion} 替换，不能撤销。",
             confirmLabel = "恢复",
             onConfirm = {
                 confirmDownload = false
@@ -533,9 +495,6 @@ private fun SignedInAccountCard(
     }
 
     if (confirmClearRemote) {
-        // Was the app's last stock Material `AlertDialog` — an opaque M3 surface with M3
-        // typography and radii, in the middle of a glass app. Same question, same two ways
-        // out, in the one overlay material everything else uses.
         ConfirmDialog(
             title = "清空服务器数据？",
             message = "只删除这个账号的云端同步密文；账号、昵称头像和本机数据都会保留。",
@@ -556,17 +515,8 @@ private fun SignedInAccountCard(
     }
 }
 
-/**
- * What the sync card's status line says when it has no news.
- *
- * It is the warning that used to sit *under* the two buttons, which is where a warning about
- * what a button does goes unread. Standing it in the slot the buttons report into means it is
- * the thing you are already looking at when you reach for them, and it keeps that slot from
- * being empty — see the card for why the height has to be constant.
- */
 private const val syncIdleHint =
     "不会自动上传或恢复。上传会用本机数据覆盖云端；恢复会用云端数据覆盖本机。"
-
 
 @Composable
 private fun AccountHeader(onBack: () -> Unit) {
@@ -574,14 +524,20 @@ private fun AccountHeader(onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
-                .size(34.dp)
-                .pressable(onClick = onBack)
-                .glass(continuousRounded(12.dp), palette.card3, palette.border),
+                .size(44.dp)
+                .pressable(onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(AppIcons.ChevronLeft, "返回", tint = palette.text, modifier = Modifier.size(17.dp))
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .glass(continuousRounded(12.dp), palette.card3, palette.border),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(AppIcons.ChevronLeft, "返回", tint = palette.text, modifier = Modifier.size(17.dp))
+            }
         }
-        Column(Modifier.padding(start = 12.dp)) {
+        Column(Modifier.padding(start = 8.dp)) {
             Text("账号与同步", style = sc(20f, 700), color = palette.text)
             Text("IP HTTPS · 敏感数据加密同步", style = mr(10.5f, 400), color = palette.sub2)
         }
@@ -594,25 +550,16 @@ private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glass(continuousRounded(18.dp), palette.card, palette.border)
+            .glass(GlassShapes.card, palette.card, palette.border)
             .padding(horizontal = 16.dp, vertical = 15.dp),
         content = content,
     )
 }
 
-/**
- * The eight avatars, drawn as the avatars they are.
- *
- * This used to render `id + 1` — eight grey circles reading 1 to 8 — while the very same
- * ids are drawn as 🍿 🎬 🌙 🚀 🐱 🐼 🦊 ✨ everywhere 一起看 shows a participant. Picking
- * one here therefore told the user nothing about what they had picked, and the number
- * they were choosing between existed in no other part of the app.
- */
 @Composable
 private fun AvatarPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(WatchTogetherPreferences.AVATAR_COUNT) { id ->
-            // WatchAvatar carries its own selected ring, so there is no glass layer here.
             WatchAvatar(
                 avatarId = id,
                 size = 38.dp,
@@ -627,13 +574,6 @@ private fun AvatarPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Uni
     }
 }
 
-/**
- * The signed-in identity: the first character of the nickname, or the chosen avatar when
- * there is no nickname to take one from.
- *
- * The fallback was `avatarId + 1`, which put a bare digit where every other surface in the
- * app shows this account's actual avatar.
- */
 @Composable
 private fun AccountAvatar(nickname: String, avatarId: Int) {
     val initial = nickname.take(1)
