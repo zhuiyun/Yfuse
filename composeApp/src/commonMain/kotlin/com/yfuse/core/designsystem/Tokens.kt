@@ -278,6 +278,13 @@ object Motion {
     /** `cubic-bezier(.32,.72,0,1)` — the single easing used by every transition. */
     val Curve = androidx.compose.animation.core.CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
 
+    // Semantic durations. Feature code chooses the meaning of a transition instead of
+    // inventing another number; the named route constants below map onto this vocabulary.
+    const val QUICK = 120
+    const val STANDARD = 220
+    const val EMPHASIZED = 360
+    const val AMBIENT = 520
+
     // ------------------------------------------------------------ 弹簧
     //
     // Durations belong to transitions — a page arriving takes as long as it takes, and the
@@ -315,7 +322,7 @@ object Motion {
         if (reduceMotion) snap() else settle<T>()
 
     /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */
-    const val PUSH = 360
+    const val PUSH = EMPHASIZED
     val pushOffset = 30.dp
 
     /** 返回 — 左侧 22px 滑入 + 淡入. */
@@ -347,7 +354,10 @@ object Motion {
      * Slower than a tab switch and faster than the image it belongs to: the wash is
      * background, and a page that recolours as fast as it redraws reads as a flicker.
      */
-    const val ACCENT = 520
+    const val ACCENT = AMBIENT
+
+    /** A full-width artwork change deserves more time than local component movement. */
+    const val CAROUSEL = 560
 
     /** 图片渐进加载：占位主色渐变 → 12px 模糊放大 1.05 → 清晰归位. */
     const val IMAGE_IN = 550
