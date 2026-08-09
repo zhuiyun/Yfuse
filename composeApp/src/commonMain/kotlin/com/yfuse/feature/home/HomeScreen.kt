@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -101,7 +102,16 @@ import kotlinx.coroutines.launch
 fun HomeScreen(component: HomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
-    val listState = rememberLazyListState()
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = component.listIndex,
+        initialFirstVisibleItemScrollOffset = component.listScrollOffset,
+    )
+    DisposableEffect(listState, component) {
+        onDispose {
+            component.listIndex = listState.firstVisibleItemIndex
+            component.listScrollOffset = listState.firstVisibleItemScrollOffset
+        }
+    }
     val heroVisible by remember(listState) {
         derivedStateOf {
             listState.firstVisibleItemIndex == 0 &&
