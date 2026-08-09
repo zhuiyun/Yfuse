@@ -4,6 +4,7 @@ import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
+import androidx.compose.foundation.lazy.LazyListState
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbHomeCache
@@ -29,9 +30,9 @@ class HomeComponent(
 ) : ComponentContext by componentContext {
 
     // The component remains on the Decompose back stack while detail covers it. Keep the
-    // viewport here so returning restores the exact shelf instead of rebuilding at the hero.
-    internal var listIndex: Int = 0
-    internal var listScrollOffset: Int = 0
+    // actual state object alive so the first frame on return is already at the old viewport;
+    // restoring an index after recomposition briefly painted the hero and caused a flash.
+    internal val listState = LazyListState()
 
     val store = HomeStoreFactory(
         storeFactory = storeFactory,
