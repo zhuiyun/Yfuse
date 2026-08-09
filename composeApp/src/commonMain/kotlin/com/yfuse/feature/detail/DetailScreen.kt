@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -97,12 +98,11 @@ import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
-import com.yfuse.core.designsystem.harmonizeArtworkAccent
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberAnimatedDominantColor
+import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
@@ -204,15 +204,19 @@ fun DetailScreen(component: DetailComponent) {
             EmbyImages.poster(baseUrl, it, accessToken = accessToken),
         )
     }.orEmpty()
-    val accent = rememberAnimatedDominantColor(
-        heroUrls.firstOrNull { it != null },
-        Brand.Primary,
+    // The backdrop can fail while the poster succeeds. Wait for FallbackImage to report the
+    // candidate that is actually on screen so Palette never tints one picture from another.
+    // Include the server because different libraries may legitimately reuse the same item id.
+    val heroIdentity = remember(baseUrl, detail?.id) { baseUrl to detail?.id }
+    var resolvedHeroUrl by remember(heroIdentity) { mutableStateOf<String?>(null) }
+    // Artwork is allowed to set the mood, not to redefine the product. Harmonize the final
+    // target before animation; doing the thresholded correction on every frame caused jumps.
+    val detailAccent = rememberAnimatedArtworkAccent(
+        url = resolvedHeroUrl,
+        fallback = Brand.Primary,
+        darkTheme = palette.isDark,
+        identity = heroIdentity,
     )
-    // Artwork is allowed to set the mood, not to redefine the product. The harmonised
-    // accent stays in a contrast-safe band and carries a small amount of Yfuse blue.
-    val detailAccent = remember(accent, palette.isDark) {
-        harmonizeArtworkAccent(accent, palette.isDark)
-    }
 
     var seasonPickerOpen by remember { mutableStateOf(false) }
     var overviewExpanded by remember { mutableStateOf(false) }
@@ -332,14 +336,21 @@ fun DetailScreen(component: DetailComponent) {
         val detailSurface = remember(detailAccent, palette.isDark) {
             heroSurface(detailAccent, palette.isDark)
         }
-        val ambientBrush = remember(detailAccent, detailSurface, heroHeightPx) {
+        val ambientBrush = remember(
+            detailAccent,
+            detailSurface,
+            heroHeightPx,
+            palette.isDark,
+        ) {
             Brush.verticalGradient(
                 colors = listOf(
                     detailAccent.copy(alpha = if (palette.isDark) 0.18f else 0.10f),
                     detailSurface.copy(alpha = 0f),
                 ),
                 startY = 0f,
-                endY = heroHeightPx * 1.35f,
+                // The hero scrim reaches pure [detailSurface] at this exact edge. Ambient
+                // colour must also be fully transparent here or the two sides cannot match.
+                endY = heroHeightPx,
             )
         }
         // Blend band between the artwork and the page. It starts where the artwork ends,
@@ -395,6 +406,7 @@ fun DetailScreen(component: DetailComponent) {
                         surfaceColor = detailSurface,
                         sharedKey = "media-backdrop-${detail.id}",
                         scroll = heroScroll,
+                        onResolvedUrl = { resolvedHeroUrl = it },
                     )
                 }
 
@@ -927,6 +939,7 @@ private fun Hero(
     surfaceColor: Color,
     sharedKey: String,
     scroll: State<Float>,
+    onResolvedUrl: (String) -> Unit,
 ) {
     // 详情页顶图 1.14 → 1, §3.1. The parallax below has always been here; the entrance
     // it belongs to was not, so the artwork simply appeared at rest.
@@ -972,30 +985,33 @@ private fun Hero(
                 }
             },
     ) {
-        FallbackImage(
-            urls = urls,
-            contentDescription = title,
-            // The hero settles out of its own entrance, so it does not also resolve out
-            // of the blur — 1.05 on top of 1.14 is two scales for one arrival.
-            progressive = false,
-            modifier = Modifier
-                .fillMaxSize()
-                // Keep the hero in the destination layer. A shared overlay can outlive the
-                // disposed detail image during pop and expose a blank full-screen frame.
-                // Inside the image, not around it: scaling the bounds would
-                // fight the poster travelling in from the list it was tapped in.
-                .graphicsLayer {
-                    val scale = 1f +
-                        (Motion.DETAIL_HERO_SCALE_FROM - 1f) * (1f - entrance)
-                    scaleX = scale
-                    scaleY = scale
-                },
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(heroScrim(surfaceColor)),
-        )
+        // Clip only the artwork plane. The outer hero may still grow for pull-down overscroll,
+        // while its 1.08 entrance can no longer bleed below the physical hero edge without
+        // the scrim and flash through the sheet's transparent gradient start.
+        Box(Modifier.fillMaxSize().clipToBounds()) {
+            FallbackImage(
+                urls = urls,
+                contentDescription = title,
+                // The hero already owns the scale entrance. Resolve readiness with alpha only
+                // so a network/disk result does not arrive as a hard cut or add a second scale.
+                progressive = true,
+                alphaOnly = true,
+                onResolvedUrl = onResolvedUrl,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val scale = 1f +
+                            (Motion.DETAIL_HERO_SCALE_FROM - 1f) * (1f - entrance)
+                        scaleX = scale
+                        scaleY = scale
+                    },
+            )
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(heroScrim(surfaceColor)),
+            )
+        }
     }
 }
 

@@ -69,10 +69,10 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
                         val requestUrl = request.data as? String
                         val safeCacheKey = requestUrl?.let(::imageCacheKeyForUrl)
                         if (requestUrl != null && safeCacheKey != requestUrl) {
-                            // Only the cache identity changes. request.data remains the original
-                            // authenticated URL used by KtorNetworkFetcher.
+                            // Keep the authenticated URL as Coil's automatic in-memory identity,
+                            // so different sessions cannot share one decoded entry. Only the disk
+                            // identity is sanitized; request.data still reaches Ktor unchanged.
                             val safeRequest = request.newBuilder()
-                                .memoryCacheKey(safeCacheKey)
                                 .diskCacheKey(safeCacheKey)
                                 .build()
                             chain.withRequest(safeRequest).proceed()

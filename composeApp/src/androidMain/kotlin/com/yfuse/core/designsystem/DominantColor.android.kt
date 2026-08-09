@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -21,10 +21,10 @@ import kotlinx.coroutines.withContext
 @Composable
 actual fun rememberDominantColor(url: String?, fallback: Color): Color {
     val context = LocalContext.current
-    // This value lives under the route SaveableStateProvider. Returning from detail therefore
-    // starts with the already-extracted tint instead of repainting the page with the fallback
-    // and changing the large ambient wash again after Palette completes.
-    var colorArgb by rememberSaveable(url) { mutableIntStateOf(fallback.toArgb()) }
+    // Detail routes intentionally share one SaveableStateProvider key. A saveable value at this
+    // slot can therefore restore the previous title's colour before [url] is evaluated. Keep the
+    // result with this live image request instead; the retained route still preserves it on back.
+    var colorArgb by remember(url) { mutableIntStateOf(fallback.toArgb()) }
 
     LaunchedEffect(url) {
         if (url.isNullOrBlank()) return@LaunchedEffect

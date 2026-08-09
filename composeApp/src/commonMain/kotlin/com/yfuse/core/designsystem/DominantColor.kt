@@ -55,6 +55,44 @@ fun rememberAnimatedDominantColor(
 }
 
 /**
+ * Harmonizes the extracted artwork colour once, then animates that final UI target.
+ *
+ * Running [harmonizeArtworkAccent] on every intermediate animation frame is not continuous:
+ * its luminance guard changes the number of black/white correction passes at thresholds. A
+ * smooth raw-colour animation therefore produced several discrete jumps across the detail page.
+ * [identity] keeps one target for the lifetime of a media item while its resolved fallback URL
+ * changes, but resets it when the user opens a different item.
+ */
+@Composable
+fun rememberAnimatedArtworkAccent(
+    url: String?,
+    fallback: Color,
+    darkTheme: Boolean,
+    identity: Any?,
+    durationMillis: Int = Motion.ACCENT,
+): Color {
+    val extracted = rememberDominantColor(url, fallback)
+    var target by remember(identity, fallback, darkTheme) {
+        mutableStateOf(harmonizeArtworkAccent(extracted, darkTheme))
+    }
+    LaunchedEffect(extracted, fallback, darkTheme, identity) {
+        if (extracted != fallback) {
+            target = harmonizeArtworkAccent(extracted, darkTheme)
+        }
+    }
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val eased by animateColorAsState(
+        targetValue = target,
+        animationSpec = tween(
+            durationMillis = if (reduceMotion) 0 else durationMillis,
+            easing = Motion.Curve,
+        ),
+        label = "artworkAccent",
+    )
+    return eased
+}
+
+/**
  * Turns an extracted bitmap swatch into a UI colour rather than trusting the raw pixel.
  * Backdrops routinely produce near-black night scenes or very bright skies; both are valid
  * image colours and poor button/selection colours. The restrained band also keeps every title
