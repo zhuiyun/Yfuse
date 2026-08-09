@@ -196,20 +196,32 @@ fun Modifier.pressable(
  * six call sites across 媒体库网格, 搜索, 日历 and 一起看聊天 called `animateItem()` directly,
  * and its default springs run whatever the user has asked for. Passing null for all three
  * specs is how the platform spells "no animation" here.
+ *
+ * Set [animateAppearance] to false for routes that can be restored from the back stack.
+ * Placement still animates while visible, but a cold recovery cannot fade the entire
+ * viewport in after the navigation transition has already finished.
  */
 @Composable
-fun LazyItemScope.motionAwareItem(): Modifier =
-    if (LocalAccessibilityOptions.current.reduceMotion) {
-        Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
-    } else {
-        Modifier.animateItem()
+fun LazyItemScope.motionAwareItem(animateAppearance: Boolean = true): Modifier =
+    when {
+        LocalAccessibilityOptions.current.reduceMotion ->
+            Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
+
+        !animateAppearance ->
+            Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
+
+        else -> Modifier.animateItem()
     }
 
 /** [motionAwareItem], for grids. */
 @Composable
-fun LazyGridItemScope.motionAwareItem(): Modifier =
-    if (LocalAccessibilityOptions.current.reduceMotion) {
-        Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
-    } else {
-        Modifier.animateItem()
+fun LazyGridItemScope.motionAwareItem(animateAppearance: Boolean = true): Modifier =
+    when {
+        LocalAccessibilityOptions.current.reduceMotion ->
+            Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
+
+        !animateAppearance ->
+            Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
+
+        else -> Modifier.animateItem()
     }
