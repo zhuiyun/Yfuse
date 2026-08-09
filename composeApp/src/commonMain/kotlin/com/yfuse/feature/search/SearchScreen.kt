@@ -33,7 +33,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -58,6 +58,7 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SharedElementTransitionContainer
@@ -117,11 +118,16 @@ private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) 
     val store = component.store
     val fieldFocusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val routeVisible = LocalRouteVisible.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
 
-    var handledFocusRequest by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(focusRequest) {
-        if (focusRequest > handledFocusRequest) {
+    var handledFocusRequest by remember { mutableIntStateOf(0) }
+    LaunchedEffect(focusRequest, routeVisible) {
+        if (!routeVisible) {
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+        } else if (focusRequest > handledFocusRequest) {
             handledFocusRequest = focusRequest
             fieldFocusRequester.requestFocus()
             keyboard?.show()
@@ -359,11 +365,8 @@ private fun PeopleRow(
         ) {
             items(people, key = { "${it.serverId}-${it.personId}" }) { person ->
                 Column(
-                    // Keep live placement without a restored-route appearance fade.
-                    Modifier
-                        .width(64.dp)
-                        .then(motionAwareItem(animateAppearance = false))
-                        .pressable { onSelect(person) },
+                    // Cast lands after the titles do, so the row grows into place.
+                    Modifier.width(64.dp).then(motionAwareItem()).pressable { onSelect(person) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // The image draws nothing when the server has no headshot, so the
@@ -487,9 +490,7 @@ private fun ServerGroup(
                         serverId = group.serverId,
                         item = item,
                         onClick = { onOpenItem(item.id) },
-                        modifier = Modifier
-                            .width(270.dp)
-                            .then(motionAwareItem(animateAppearance = false)),
+                        modifier = Modifier.width(270.dp).then(motionAwareItem()),
                     )
                 }
             }
