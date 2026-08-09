@@ -33,7 +33,6 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.compose.BackHandler
 import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.annotation.OptIn
@@ -1185,7 +1184,6 @@ private fun PlayerRoot(
     onRefreshEpisodes: () -> Unit,
     onRemotePlayRequested: () -> Boolean,
 ) {
-    BackHandler(onBack = onBack)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
