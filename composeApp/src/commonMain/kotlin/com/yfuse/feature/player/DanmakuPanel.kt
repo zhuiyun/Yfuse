@@ -59,13 +59,6 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 
-/**
- * Everything the 弹幕 tab and 搜索弹幕 sheet read, in one bundle.
- *
- * One parameter instead of the fourteen this used to add to [PlayerControls]. The player's
- * signature is long because the player genuinely has that many knobs, but 弹幕 is one
- * feature and it should cost one argument.
- */
 data class DanmakuPanelState(
     val sources: List<DanmakuSource> = emptyList(),
     val activeSourceId: String? = null,
@@ -120,10 +113,9 @@ data class DanmakuPanelActions(
     val onSend: (String) -> Unit = {},
 )
 
-/** A useful viewing intent, translated to the four low-level rendering controls. */
 private data class DanmakuDisplayPreset(
     val label: String,
-    val subtitle: String,
+    val summary: String,
     val areaIndex: Int,
     val fontIndex: Int,
     val speedIndex: Int,
@@ -131,30 +123,9 @@ private data class DanmakuDisplayPreset(
 )
 
 private val DanmakuDisplayPresets = listOf(
-    DanmakuDisplayPreset(
-        label = "轻量",
-        subtitle = "顶部 1/4 · 小字 · 慢速 · 50%",
-        areaIndex = 0,
-        fontIndex = 0,
-        speedIndex = 0,
-        opacityIndex = 0,
-    ),
-    DanmakuDisplayPreset(
-        label = "标准",
-        subtitle = "顶部 1/2 · 标准字号 · 标准速度 · 75%",
-        areaIndex = 1,
-        fontIndex = 1,
-        speedIndex = 1,
-        opacityIndex = 1,
-    ),
-    DanmakuDisplayPreset(
-        label = "热闹",
-        subtitle = "顶部 3/4 · 大字 · 快速 · 100%",
-        areaIndex = 2,
-        fontIndex = 2,
-        speedIndex = 2,
-        opacityIndex = 2,
-    ),
+    DanmakuDisplayPreset("轻量", "1/4 · 小 · 慢 · 50%", 0, 0, 0, 0),
+    DanmakuDisplayPreset("标准", "1/2 · 标准 · 标准 · 75%", 1, 1, 1, 1),
+    DanmakuDisplayPreset("热闹", "3/4 · 大 · 快 · 100%", 2, 2, 2, 2),
 )
 
 private fun DanmakuDisplayPreset.isSelected(state: DanmakuPanelState): Boolean =
@@ -170,7 +141,6 @@ private fun DanmakuDisplayPreset.apply(actions: DanmakuPanelActions) {
     actions.onSelectOpacity(opacityIndex)
 }
 
-/** The 弹幕 tab of the settings panel. */
 @Composable
 internal fun DanmakuTab(
     state: DanmakuPanelState,
@@ -228,11 +198,9 @@ internal fun DanmakuTab(
     GroupLabel("显示风格")
     DanmakuDisplayPresets.forEach { preset ->
         OptionRow(
-            label = preset.label,
+            label = "${preset.label} · ${preset.summary}",
             selected = preset.isSelected(state),
             onClick = { preset.apply(actions) },
-            actionLabel = preset.subtitle,
-            onAction = { preset.apply(actions) },
         )
     }
 
