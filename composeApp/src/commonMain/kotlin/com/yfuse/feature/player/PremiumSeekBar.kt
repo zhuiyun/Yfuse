@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.GlassShapes
@@ -59,6 +60,7 @@ internal fun PremiumSeekBar(
     var widthPx by remember { mutableIntStateOf(1) }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val haptics = LocalHaptics.current
+    val density = LocalDensity.current
 
     val latestOnScrubTo by rememberUpdatedState(onScrubTo)
     val latestOnCommit by rememberUpdatedState(onCommit)
@@ -157,7 +159,7 @@ internal fun PremiumSeekBar(
         }
 
         if (dragging) {
-            val bubbleWidthPx = 68.dp.roundToPx()
+            val bubbleWidthPx = with(density) { 68.dp.roundToPx() }
             val x = (widthPx * visual.playedFraction - bubbleWidthPx / 2f)
                 .toInt()
                 .coerceIn(0, (widthPx - bubbleWidthPx).coerceAtLeast(0))
