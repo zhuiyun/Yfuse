@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -285,10 +286,14 @@ private fun HomeHeroCarousel(
     // Auto-advance stops for the session at that point and the dots become the only thing
     // that moves it — the alternative is the carousel wandering off the slide they picked
     // six seconds after they picked it.
-    var manuallySteered by remember { mutableStateOf(false) }
+    var manuallySteered by rememberSaveable { mutableStateOf(false) }
+    var carouselInitialized by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(items.map { it.id }) {
-        pagerState.scrollToPage(loopingCarouselStartPage(items.size))
+        if (!carouselInitialized && items.isNotEmpty()) {
+            pagerState.scrollToPage(loopingCarouselStartPage(items.size))
+            carouselInitialized = true
+        }
     }
     LaunchedEffect(items.size, carouselDragging, reduceMotion, manuallySteered) {
         // 390dp of artwork moving on its own is the largest single piece of motion in the
