@@ -41,7 +41,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +64,7 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.touchTarget
@@ -282,24 +282,21 @@ private fun HomeHeroCarousel(
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val routeVisible = LocalRouteVisible.current
     // Tapping a dot is a statement that the user is choosing the slide, not watching a reel.
     // Auto-advance stops for the session at that point and the dots become the only thing
     // that moves it — the alternative is the carousel wandering off the slide they picked
     // six seconds after they picked it.
-    var manuallySteered by rememberSaveable { mutableStateOf(false) }
-    var carouselInitialized by rememberSaveable { mutableStateOf(false) }
+    var manuallySteered by remember { mutableStateOf(false) }
 
     LaunchedEffect(items.map { it.id }) {
-        if (!carouselInitialized && items.isNotEmpty()) {
-            pagerState.scrollToPage(loopingCarouselStartPage(items.size))
-            carouselInitialized = true
-        }
+        pagerState.scrollToPage(loopingCarouselStartPage(items.size))
     }
-    LaunchedEffect(items.size, carouselDragging, reduceMotion, manuallySteered) {
+    LaunchedEffect(items.size, carouselDragging, reduceMotion, manuallySteered, routeVisible) {
         // 390dp of artwork moving on its own is the largest single piece of motion in the
         // app, and it was the one thing 减弱动态效果 did not switch off — the setting was
         // honoured in fifteen places and not in the most conspicuous one.
-        if (items.size <= 1 || carouselDragging || reduceMotion || manuallySteered) {
+        if (!routeVisible || items.size <= 1 || carouselDragging || reduceMotion || manuallySteered) {
             return@LaunchedEffect
         }
         while (true) {
