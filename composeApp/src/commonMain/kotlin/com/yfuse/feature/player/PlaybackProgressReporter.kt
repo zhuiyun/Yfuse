@@ -7,12 +7,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 import kotlin.math.abs
 import kotlin.random.Random
 
 private const val REPORT_INTERVAL_MS = 10_000L
 private const val SEEK_THRESHOLD_MS = 5_000L
 private const val TICKS_PER_MILLISECOND = 10_000L
+private const val NEXT_SOURCE_PRELOAD_WINDOW_MS = 90_000L
 
 internal interface PlaybackEventSink {
     suspend fun started(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean)
@@ -56,6 +58,9 @@ internal class PlaybackProgressReporter(
     items: List<PlayerMediaItem>,
     private val sink: PlaybackEventSink,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val sourcePreloader: PlaybackSourcePreloader? = runCatching {
+        GlobalContext.get().get<PlaybackSourcePreloader>()
+    }.getOrNull(),
 ) {
     private sealed interface Command {
         data class Update(val state: PlaybackState) : Command
@@ -71,6 +76,7 @@ internal class PlaybackProgressReporter(
     private var observedPlaying: Boolean? = null
     private var observedPositionMs = 0L
     private var enqueuedPositionMs = Long.MIN_VALUE
+    private val preloadedSources = mutableSetOf<String>()
 
     private var activeIndex = -1
     /** Stable identity of the reported entry; unlike [activeIndex], it survives queue reorders. */
@@ -102,6 +108,8 @@ internal class PlaybackProgressReporter(
 
     fun update(state: PlaybackState) {
         if (closed || items.isEmpty()) return
+        preloadNextIfNeeded(state)
+
         val itemChanged = state.currentIndex != observedIndex
         val playStateChanged = state.playing != observedPlaying
         val seeked = abs(state.positionMs - observedPositionMs) >= SEEK_THRESHOLD_MS
@@ -116,6 +124,22 @@ internal class PlaybackProgressReporter(
             enqueuedPositionMs = state.positionMs
             commands.trySend(Command.Update(state))
         }
+    }
+
+    /**
+     * The queue already contains concrete URLs for sibling episodes. When the active episode has
+     * at most 90 seconds left, warm the beginning of the next direct source. The platform
+     * implementation de-duplicates concurrent requests and writes into the player's shared cache,
+     * so this is cheap to call from the normal 500 ms playback-state sampling path.
+     */
+    private fun preloadNextIfNeeded(state: PlaybackState) {
+        val preloader = sourcePreloader ?: return
+        if (state.durationMs <= 0L) return
+        val remaining = state.remainingMs
+        if (remaining <= 0L || remaining > NEXT_SOURCE_PRELOAD_WINDOW_MS) return
+        val next = items.getOrNull(state.currentIndex + 1) ?: return
+        if (!preloadedSources.add(next.url)) return
+        preloader.preload(next.url)
     }
 
     /**
