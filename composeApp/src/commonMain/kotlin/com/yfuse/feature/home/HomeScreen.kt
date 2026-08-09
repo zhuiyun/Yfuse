@@ -2,6 +2,7 @@ package com.yfuse.feature.home
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -290,7 +291,10 @@ private fun HomeHeroCarousel(
         }
         while (true) {
             delay(6_000)
-            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+            pagerState.animateScrollToPage(
+                page = pagerState.currentPage + 1,
+                animationSpec = tween(Motion.CAROUSEL, easing = Motion.Curve),
+            )
         }
     }
 
@@ -328,11 +332,12 @@ private fun HomeHeroCarousel(
                     manuallySteered = true
                     carouselScope.launch {
                         pagerState.animateScrollToPage(
-                            loopingCarouselTargetPage(
+                            page = loopingCarouselTargetPage(
                                 currentPage = pagerState.currentPage,
                                 targetIndex = targetIndex,
                                 itemCount = items.size,
                             ),
+                            animationSpec = tween(Motion.EMPHASIZED, easing = Motion.Curve),
                         )
                     }
                 },
