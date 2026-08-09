@@ -97,6 +97,7 @@ import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
+import com.yfuse.core.designsystem.harmonizeArtworkAccent
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.mr
@@ -208,6 +209,11 @@ fun DetailScreen(component: DetailComponent) {
         heroUrls.firstOrNull { it != null },
         Brand.Primary,
     )
+    // Artwork is allowed to set the mood, not to redefine the product. The harmonised
+    // accent stays in a contrast-safe band and carries a small amount of Yfuse blue.
+    val detailAccent = remember(accent, palette.isDark) {
+        harmonizeArtworkAccent(accent, palette.isDark)
+    }
 
     var seasonPickerOpen by remember { mutableStateOf(false) }
     var overviewExpanded by remember { mutableStateOf(false) }
@@ -312,7 +318,9 @@ fun DetailScreen(component: DetailComponent) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val heroHeight = maxHeight * 0.60f
+        // Enough artwork to feel cinematic while still exposing the title and primary
+        // decision on compact phones. The old 60% crop hid too much of the useful page.
+        val heroHeight = maxHeight * 0.55f
         val heroHeightPx = with(density) { heroHeight.toPx() }
 
         // Lift the measured caption and the primary action over the artwork. The backdrop
@@ -322,8 +330,18 @@ fun DetailScreen(component: DetailComponent) {
             mutableStateOf(TypicalCaptionHeight + SheetGap + PlayButtonHeroOverlap)
         }
 
-        val detailSurface = remember(accent, palette.isDark) {
-            heroSurface(accent, palette.isDark)
+        val detailSurface = remember(detailAccent, palette.isDark) {
+            heroSurface(detailAccent, palette.isDark)
+        }
+        val ambientBrush = remember(detailAccent, detailSurface, heroHeightPx) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    detailAccent.copy(alpha = if (palette.isDark) 0.18f else 0.10f),
+                    detailSurface.copy(alpha = 0f),
+                ),
+                startY = 0f,
+                endY = heroHeightPx * 1.35f,
+            )
         }
         // Blend band between the artwork and the page. It starts where the artwork ends,
         // leaving the title block on clean artwork — see [heroPanelBrush].
@@ -342,7 +360,12 @@ fun DetailScreen(component: DetailComponent) {
 
         StatusBarIconStyle(darkIcons = !palette.isDark && (detail == null || barSolid))
 
-        Box(Modifier.fillMaxSize().background(detailSurface))
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(detailSurface)
+                .background(ambientBrush),
+        )
 
         when {
             detail == null && state.error == null -> DetailSkeleton(heroHeight)
@@ -387,6 +410,7 @@ fun DetailScreen(component: DetailComponent) {
                         TitleBlock(
                             detail = detail,
                             title = displayTitle,
+                            accent = detailAccent,
                             // A series has no file of its own, so its 杜比 facts belong to
                             // the episode 继续观看 would open — which is the copy the badge
                             // would be describing anyway.
@@ -397,7 +421,7 @@ fun DetailScreen(component: DetailComponent) {
                             },
                         )
                         DetailActionDock(
-                            accent = accent,
+                            accent = detailAccent,
                             label = if (state.playPositionTicks > 0L) "继续观看" else "播放",
                             detailLine = playDetailLine,
                             resolving = state.resolvingPlay || state.selectionLoading,
@@ -424,7 +448,7 @@ fun DetailScreen(component: DetailComponent) {
                             text = overview,
                             expanded = overviewExpanded,
                             onToggle = { overviewExpanded = !overviewExpanded },
-                            accent = accent,
+                            accent = detailAccent,
                             modifier = Modifier.sectionPadding(),
                         )
                     }
@@ -440,7 +464,7 @@ fun DetailScreen(component: DetailComponent) {
                             accessToken = playAccessToken,
                             episodes = state.episodes,
                             selectedEpisodeId = state.selectedEpisodeId,
-                            accent = Brand.Primary,
+                            accent = detailAccent,
                             seasonLabel = state.seasons
                                 .firstOrNull { it.id == state.selectedSeasonId }
                                 ?.name
@@ -472,7 +496,7 @@ fun DetailScreen(component: DetailComponent) {
                         VersionSection(
                             versions = playableVersions,
                             selectedId = state.selectedVersionId,
-                            accent = Brand.Primary,
+                            accent = detailAccent,
                             onSelect = {
                                 component.store.accept(DetailIntent.SelectVersion(it))
                             },
@@ -494,7 +518,7 @@ fun DetailScreen(component: DetailComponent) {
                             version = playableVersion,
                             audioLanguage = state.preferredAudioLanguage,
                             subtitleLanguage = state.preferredSubtitleLanguage,
-                            accent = Brand.Primary,
+                            accent = detailAccent,
                             onSelectAudio = {
                                 component.store.accept(DetailIntent.SelectAudioLanguage(it))
                             },
@@ -512,7 +536,7 @@ fun DetailScreen(component: DetailComponent) {
                             sources = comparableSources,
                             selectedServerId = state.selectedSourceServerId,
                             selectedItemId = state.selectedSourceItemId,
-                            accent = Brand.Primary,
+                            accent = detailAccent,
                             onSelect = { serverId, itemId ->
                                 component.store.accept(DetailIntent.SelectSource(serverId, itemId))
                             },
@@ -566,6 +590,7 @@ fun DetailScreen(component: DetailComponent) {
                             baseUrl = baseUrl,
                             accessToken = accessToken,
                             items = state.related,
+                            accent = detailAccent,
                             onOpen = { itemId ->
                                 state.server?.id?.let { component.onOpenRelated(it, itemId) }
                             },
@@ -593,7 +618,7 @@ fun DetailScreen(component: DetailComponent) {
             backdrop = detailBackdrop,
             progress = topBarProgress,
             surfaceColor = detailSurface,
-            accent = accent,
+            accent = detailAccent,
             showPlay = detail != null,
             showMore = detail != null,
             solid = barSolid,
@@ -656,7 +681,7 @@ fun DetailScreen(component: DetailComponent) {
                 sources = comparableSources,
                 selectedServerId = state.selectedSourceServerId,
                 selectedItemId = state.selectedSourceItemId,
-                accent = Brand.Primary,
+                accent = detailAccent,
                 onSelect = { serverId, itemId ->
                     val willPlay = state.selectedSourceServerId == serverId &&
                         state.selectedSourceItemId == itemId
@@ -679,7 +704,7 @@ fun DetailScreen(component: DetailComponent) {
                 heroUrls = heroUrls,
                 baseUrl = playBaseUrl,
                 accessToken = playAccessToken,
-                accent = Brand.Primary,
+                accent = detailAccent,
                 currentEpisodeId = state.selectedEpisodeId,
                 onPlayEpisode = { episode ->
                     if (state.selectedEpisodeId == episode.id) allEpisodesOpen = false
@@ -730,7 +755,7 @@ fun DetailScreen(component: DetailComponent) {
         ActionToast(
             message = state.actionMessage,
             onDismiss = { component.store.accept(DetailIntent.DismissMessage) },
-            accent = accent,
+            accent = detailAccent,
             modifier = Modifier.padding(bottom = 28.dp),
         )
     }
@@ -741,6 +766,7 @@ private fun RelatedSection(
     baseUrl: String,
     accessToken: String,
     items: List<MediaItem>,
+    accent: Color,
     onOpen: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -786,7 +812,7 @@ private fun RelatedSection(
                         item.communityRating?.let { ((it * 10).toInt() / 10.0).toString() }
                             ?: item.year?.toString().orEmpty(),
                         style = mr(12f, 700),
-                        color = Brand.Primary,
+                        color = accent,
                         maxLines = 1,
                     )
                 }
@@ -1128,18 +1154,19 @@ private fun DetailTopBar(
 private fun TitleBlock(
     detail: MediaDetail,
     title: String,
+    accent: Color,
     version: MediaVersion?,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = Alignment.Start,
     ) {
         Text(
             title,
             style = sc(23f, 800),
             color = ArtworkInk,
-            textAlign = TextAlign.Center,
+            textAlign = TextAlign.Start,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
@@ -1153,7 +1180,7 @@ private fun TitleBlock(
                 facts.joinToString(" · "),
                 style = sc(12f, 400),
                 color = ArtworkInkSub,
-                textAlign = TextAlign.Center,
+                textAlign = TextAlign.Start,
                 maxLines = 1,
             )
         }
@@ -1163,11 +1190,13 @@ private fun TitleBlock(
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                detail.communityRating?.let { RatingFigure((it * 10).toInt() / 10.0) }
+                detail.communityRating?.let {
+                    RatingFigure((it * 10).toInt() / 10.0, accent)
+                }
                 detail.officialRating?.let { CertificationBadge(it) }
             }
         }
-        detail.genres.firstOrNull()?.let { genre ->
+        detail.genres.take(2).joinToString(" · ").takeIf { it.isNotBlank() }?.let { genre ->
             Spacer(Modifier.height(8.dp))
             Text(genre, style = sc(11.5f, 500), color = ArtworkInkFaint, maxLines = 1)
         }
@@ -1235,13 +1264,13 @@ private val ArtworkInkFaint = Color.White.copy(alpha = 0.84f)
 
 /** `TMDB` in the secondary ink, the figure itself large and in the accent. */
 @Composable
-private fun RatingFigure(rating: Double) {
+private fun RatingFigure(rating: Double, accent: Color) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("TMDB", style = sc(12f, 600), color = ArtworkInkSub)
-        Text(rating.toString(), style = mr(19f, 800), color = Brand.PrimaryGradTop)
+        Text(rating.toString(), style = mr(19f, 800), color = lerp(accent, Color.White, 0.38f))
     }
 }
 
