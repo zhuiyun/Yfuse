@@ -121,7 +121,7 @@ internal fun SeasonEpisodesPage(
                     episode = episode,
                     baseUrl = baseUrl,
                     accessToken = accessToken,
-                    seriesPosterUrl = heroUrls.getOrNull(1),
+                    seriesPosterUrl = seriesPosterUrl,
                     accent = accent,
                     current = episode.id == currentEpisodeId,
                     onPlay = { onPlayEpisode(episode) },
