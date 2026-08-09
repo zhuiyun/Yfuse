@@ -30,8 +30,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -117,8 +119,10 @@ private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) 
     val keyboard = LocalSoftwareKeyboardController.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
 
+    var handledFocusRequest by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(focusRequest) {
-        if (focusRequest > 0) {
+        if (focusRequest > handledFocusRequest) {
+            handledFocusRequest = focusRequest
             fieldFocusRequester.requestFocus()
             keyboard?.show()
         }
@@ -355,8 +359,11 @@ private fun PeopleRow(
         ) {
             items(people, key = { "${it.serverId}-${it.personId}" }) { person ->
                 Column(
-                    // Cast lands after the titles do, so the row grows into place.
-                    Modifier.width(64.dp).then(motionAwareItem()).pressable { onSelect(person) },
+                    // Keep live placement without a restored-route appearance fade.
+                    Modifier
+                        .width(64.dp)
+                        .then(motionAwareItem(animateAppearance = false))
+                        .pressable { onSelect(person) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // The image draws nothing when the server has no headshot, so the
@@ -480,7 +487,9 @@ private fun ServerGroup(
                         serverId = group.serverId,
                         item = item,
                         onClick = { onOpenItem(item.id) },
-                        modifier = Modifier.width(270.dp).then(motionAwareItem()),
+                        modifier = Modifier
+                            .width(270.dp)
+                            .then(motionAwareItem(animateAppearance = false)),
                     )
                 }
             }
