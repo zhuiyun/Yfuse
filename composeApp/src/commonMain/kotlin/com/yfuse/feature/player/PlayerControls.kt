@@ -638,8 +638,6 @@ internal fun PlayerControls(
                 onPlayPause = { poke(); onPlayPause() },
                 onPrevious = { poke(); onPreviousItem() },
                 onNext = { poke(); onNextItem() },
-                onRewind = { poke(); onSeek((state.positionMs - 10_000L).coerceAtLeast(0L)) },
-                onForward = { poke(); onSeek(state.positionMs + 10_000L) },
                 skipCountdownLabel = skip.countdownSeconds?.let {
                     skipCountdownLabel(skip.segmentLabel, it)
                 },
@@ -647,16 +645,10 @@ internal fun PlayerControls(
                 onSeek = { poke(); onSeek(it) },
                 onScrub = { interactions++ },
                 onOpenTab = { poke(); settingsTab = it },
-                casting = castingDeviceId != null,
                 danmakuEnabled = danmaku.enabled,
                 onOpenDanmaku = {
                     poke()
                     settingsTab = Tab.Danmaku
-                },
-                onToggleCast = {
-                    poke()
-                    settingsTab = Tab.Cast
-                    if (castDevices.isEmpty()) onDiscoverCast()
                 },
             )
         }
@@ -1273,7 +1265,8 @@ private fun TopBar(
 }
 
 /**
- * 快退 / 播放 / 快进 — 26 / 30 / 26 rings at the left of the bottom bar.
+ * 上一集 / 播放 / 下一集. Ten-second seeking stays on the established double-tap gesture
+ * and the scrubber instead of repeating two more controls in the already narrow first layer.
  *
  * It used to float in the centre of the frame at 48 / 58 / 48, with a filled white disc on
  * the play button. That is the worst place to put anything: the middle of a shot is where
@@ -1295,8 +1288,6 @@ private fun TransportRow(
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    onRewind: () -> Unit,
-    onForward: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -1312,15 +1303,6 @@ private fun TransportRow(
             enabled = !locked && state.hasPrevious,
             onClick = onPrevious,
         )
-        CircleControl(
-            AppIcons.Rewind,
-            "快退 10 秒",
-            26.dp,
-            13.dp,
-            enabled = !locked,
-            onClick = onRewind,
-        )
-
         if (state.buffering) {
             Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
@@ -1341,14 +1323,6 @@ private fun TransportRow(
             )
         }
 
-        CircleControl(
-            AppIcons.Forward,
-            "快进 10 秒",
-            26.dp,
-            13.dp,
-            enabled = !locked,
-            onClick = onForward,
-        )
         CircleControl(
             AppIcons.Next,
             "下一集",
@@ -1475,18 +1449,14 @@ private fun BottomBar(
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    onRewind: () -> Unit,
-    onForward: () -> Unit,
     /** Non-null while an automatic skip is counting down; shown under the progress row. */
     skipCountdownLabel: String?,
     onCancelAutoSkip: () -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
     onOpenTab: (Tab) -> Unit,
-    casting: Boolean,
     danmakuEnabled: Boolean,
     onOpenDanmaku: () -> Unit,
-    onToggleCast: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Non-null only while the thumb is held; the engine's position is ignored then
@@ -1568,8 +1538,6 @@ private fun BottomBar(
                     onPlayPause = onPlayPause,
                     onPrevious = onPrevious,
                     onNext = onNext,
-                    onRewind = onRewind,
-                    onForward = onForward,
                 )
             }
 
@@ -1585,31 +1553,8 @@ private fun BottomBar(
                     filled = danmakuEnabled,
                     onClick = onOpenDanmaku,
                 )
-                // 字幕与音轨在同一个面板 tab 里（[Tab.Subtitle] 两组都列），所以这里
-                // 只出一个 chip；先前的两个 chip 打开的是同一块面板，纯粹重复。
-                val hasSubtitles = state.subtitleTracks.isNotEmpty()
-                val hasAudioChoice = state.audioTracks.size > 1
-                if (hasSubtitles || hasAudioChoice) {
-                    CircleControl(
-                        AppIcons.Subtitle,
-                        if (hasSubtitles && hasAudioChoice) "字幕与音轨" else if (hasSubtitles) {
-                            "字幕"
-                        } else {
-                            "音轨"
-                        },
-                        26.dp,
-                        12.dp,
-                        onClick = { onOpenTab(Tab.Subtitle) },
-                    )
-                }
-                CircleControl(
-                    AppIcons.Cast,
-                    if (casting) "停止投送" else "投屏",
-                    26.dp,
-                    12.dp,
-                    filled = casting,
-                    onClick = onToggleCast,
-                )
+                // 字幕、音轨、投屏、倍速和画面选项统一进入同一个设置面板，首层只
+                // 留弹幕与更多；空间关系和关闭方式因此完全一致。
                 CircleControl(
                     AppIcons.More,
                     "更多",
