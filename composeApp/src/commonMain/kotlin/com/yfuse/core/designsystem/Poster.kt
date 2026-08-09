@@ -121,9 +121,11 @@ fun FallbackImage(
                 onSuccess = { success ->
                     // Order matters: [instant] has to be true before [loaded] flips, or the
                     // animation starts on this frame and the flag lands on the next one.
-                    if (success.result.dataSource == DataSource.MEMORY_CACHE) instant = true
-                    loaded = true
-                    onResolvedUrl(candidate)
+                    if (candidateIndex == requestIndex) {
+                        if (success.result.dataSource == DataSource.MEMORY_CACHE) instant = true
+                        loaded = true
+                        onResolvedUrl(candidate)
+                    }
                 },
                 onError = {
                     // A disposed request can finish after its replacement. Only
