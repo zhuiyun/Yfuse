@@ -30,7 +30,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -87,7 +86,11 @@ fun SearchScreen(component: SearchComponent) {
         previous = stack.backStack.lastOrNull()?.instance,
     ) { instance ->
         when (instance) {
-            is SearchComponent.Child.Home -> SearchHomeScreen(instance.component, focusRequest)
+            is SearchComponent.Child.Home -> SearchHomeScreen(
+                component = instance.component,
+                focusRequest = focusRequest,
+                consumeFocusRequest = component::consumeFocusRequest,
+            )
             is SearchComponent.Child.Detail -> DetailScreen(instance.component)
             is SearchComponent.Child.Player -> PlayerScreen(instance.component)
         }
@@ -112,7 +115,11 @@ private val suggestedTerms = listOf("沙丘", "科幻", "悬疑", "动画", "纪
 
 /** 搜索 — `padding:52px 18px 100px; gap:20px`. */
 @Composable
-private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) {
+private fun SearchHomeScreen(
+    component: SearchHomeComponent,
+    focusRequest: Int,
+    consumeFocusRequest: (Int) -> Boolean,
+) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
     val store = component.store
@@ -122,13 +129,11 @@ private fun SearchHomeScreen(component: SearchHomeComponent, focusRequest: Int) 
     val routeVisible = LocalRouteVisible.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
 
-    var handledFocusRequest by remember { mutableIntStateOf(0) }
     LaunchedEffect(focusRequest, routeVisible) {
         if (!routeVisible) {
             focusManager.clearFocus(force = true)
             keyboard?.hide()
-        } else if (focusRequest > handledFocusRequest) {
-            handledFocusRequest = focusRequest
+        } else if (consumeFocusRequest(focusRequest)) {
             fieldFocusRequester.requestFocus()
             keyboard?.show()
         }
