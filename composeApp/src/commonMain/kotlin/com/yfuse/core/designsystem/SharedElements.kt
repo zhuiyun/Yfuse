@@ -11,22 +11,23 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.IntOffset
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 private val LocalSharedTransitionScope =
@@ -54,8 +55,7 @@ private val LocalSharedAnimatedVisibilityScope =
 @Immutable
 private data class Route<T : Any>(val value: T, val depth: Int)
 
-/** How long after a route change a back gesture may start peeking — see its use below. */
-private const val PEEK_GRACE = Motion.PUSH + 120L
+private typealias MovableRouteContent<T> = @Composable (T) -> Unit
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -73,8 +73,9 @@ fun <T : Any> SharedElementTransitionContainer(
     /**
      * What 返回 would land on, or `null` at the root of the stack.
      *
-     * Composed only while a back gesture is in flight, so the peek has the actual page to
-     * reveal rather than the ambient backdrop the shell happens to sit on.
+     * Retained after a push and moved between the hidden underlay, predictive preview and
+     * returning transition. That keeps the exact same Compose tree alive until it is visible
+     * again instead of rebuilding its painters, backdrop and ordinary remembered state.
      */
     previous: T? = null,
     content: @Composable (T) -> Unit,
@@ -82,9 +83,9 @@ fun <T : Any> SharedElementTransitionContainer(
     val accessibility = LocalAccessibilityOptions.current
     val stateHolder = rememberSaveableStateHolder()
     val density = LocalDensity.current
-    // 推进 — 右侧 30px 滑入; 返回 — 左侧 22px 滑入.
+    // 推进 keeps the restrained 30px offset. 返回 moves the opaque detail page fully
+    // aside and reveals the retained route underneath, matching predictive back.
     val pushOffset = with(density) { Motion.pushOffset.roundToPx() }
-    val popOffset = with(density) { Motion.popOffset.roundToPx() }
     val back = LocalPredictiveBack.current
     // Claimed once per route change, while it is happening: a pop the user has already
     // dragged all the way out has nothing left to animate. Asking during composition — not
@@ -92,32 +93,78 @@ fun <T : Any> SharedElementTransitionContainer(
     // built right here.
     val settledPop = remember(targetState) { back?.consumePendingCommit() == true }
 
-    // AnimatedContent may still own the previous saveable key while a route transition is
-    // settling. Wait until it is safe before composing the predictive-back preview.
-    var settled by remember { mutableStateOf(false) }
-    LaunchedEffect(targetState) {
-        settled = false
-        delay(PEEK_GRACE)
-        settled = true
+    // Keep each route's Compose-only state with the route while it moves between the active
+    // transition and the retained underlay. Decompose already keeps the component and store,
+    // but without movable content Coil painters, backdrop layers and ordinary remember values
+    // were disposed after push and rebuilt after pop.
+    val latestContent by rememberUpdatedState(content)
+    val movableRoutes = remember {
+        mutableMapOf<String, MovableRouteContent<T>>()
     }
-    back?.canPeek = settled && previous != null
+    fun movableRoute(key: String): MovableRouteContent<T> =
+        movableRoutes.getOrPut(key) {
+            movableContentOf { value: T ->
+                stateHolder.SaveableStateProvider(key) {
+                    latestContent(value)
+                }
+            }
+        }
+
+    val transition = updateTransition(
+        targetState = Route(targetState, depth),
+        label = "shared-media-route",
+    )
+    val transitionSettled = transition.currentState == transition.targetState
+    val previousValue = previous
+    val targetRouteKey = routeKey(targetState)
+    val previousRouteKey = previousValue?.let(routeKey)
+
+    // A gesture can only reveal a route once AnimatedContent has handed that exact movable
+    // subtree to the retained underlay.
+    back?.canPeek =
+        transitionSettled &&
+            previousValue != null &&
+            previousRouteKey != null &&
+            previousRouteKey != targetRouteKey
 
     Box(Modifier.fillMaxSize()) {
-        if (back != null && back.peeking && previous != null) {
-            PredictiveBackReveal(back) {
-                val previousKey = routeKey(previous)
-                if (previousKey == routeKey(targetState)) {
-                    content(previous)
-                } else {
-                    stateHolder.SaveableStateProvider(previousKey) { content(previous) }
+        when {
+            back?.peeking == true &&
+                transitionSettled &&
+                previousValue != null &&
+                previousRouteKey != null -> {
+                PredictiveBackReveal(back) {
+                    if (previousRouteKey == targetRouteKey) {
+                        // Related detail pages deliberately share a route key and cannot invoke
+                        // the same movable SaveableStateProvider twice at the same time.
+                        latestContent(previousValue)
+                    } else {
+                        movableRoute(previousRouteKey)(previousValue)
+                    }
+                }
+            }
+
+            transitionSettled &&
+                previousValue != null &&
+                previousRouteKey != null &&
+                previousRouteKey != targetRouteKey -> {
+                // At push completion AnimatedContent releases the outgoing route in the same
+                // recomposition in which this host receives that exact movable subtree. It stays
+                // measured and drawn off-screen, so pop reveals an already-rendered page.
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 0f }
+                        .clearAndSetSemantics { },
+                ) {
+                    movableRoute(previousRouteKey)(previousValue)
                 }
             }
         }
 
         val peek = if (back != null) Modifier.predictiveBackPeek(back) else Modifier
         SharedTransitionLayout(modifier = Modifier.fillMaxSize().then(peek)) sharedTransition@{
-            AnimatedContent(
-                targetState = Route(targetState, depth),
+            transition.AnimatedContent(
                 transitionSpec = {
                     val popping = this.targetState.depth < initialState.depth
                     // A committed gesture has already played this transition under the
@@ -130,36 +177,34 @@ fun <T : Any> SharedElementTransitionContainer(
                     }
                     val fade = tween<Float>(duration, easing = Motion.Curve)
                     val slide = tween<IntOffset>(duration, easing = Motion.Curve)
-                    val entering = if (popping) -popOffset else pushOffset
                     (
                         if (popping) {
-                            // Keep both routes fully opaque during pop. Fading a transparent
-                            // Compose page exposes AppBackdrop for a frame and reads as a
-                            // full-screen flash; the short opposing slides provide continuity
-                            // without ever revealing the shell beneath them.
-                            slideInHorizontally(slide) { entering } togetherWith
-                                slideOutHorizontally(slide) { -entering / 2 }
+                            // The fully opaque detail page exits to the right while the retained
+                            // route settles from a small left parallax underneath. At the final
+                            // frame the detail is already outside the viewport, so disposing it
+                            // cannot produce an abrupt full-screen cut.
+                            slideInHorizontally(slide) { -it / 10 } togetherWith
+                                slideOutHorizontally(slide) { it }
                         } else {
-                            (fadeIn(fade) + slideInHorizontally(slide) { entering }) togetherWith
-                                (fadeOut(fade) + slideOutHorizontally(slide) { -entering / 2 })
+                            (fadeIn(fade) + slideInHorizontally(slide) { pushOffset }) togetherWith
+                                (fadeOut(fade) + slideOutHorizontally(slide) { -pushOffset / 2 })
                         }
                     ).apply {
-                        // On push, the destination belongs above the source. On pop, keep the
-                        // fully-rendered detail page above the returning route while that route
-                        // composes its first frame behind it. Putting the cold destination on top
-                        // exposes its placeholder/background frame as a full-screen flash.
                         targetContentZIndex = if (popping) -1f else 1f
                     }
                 },
                 contentKey = { routeKey(it.value) },
-                label = "shared-media-route",
             ) animatedContent@{ child ->
-                CompositionLocalProvider(
-                    LocalSharedTransitionScope provides this@sharedTransition,
-                    LocalSharedAnimatedVisibilityScope provides this@animatedContent,
-                ) {
-                    stateHolder.SaveableStateProvider(routeKey(child.value)) {
-                        content(child.value)
+                val childKey = routeKey(child.value)
+                // AnimatedContent can report itself settled for one composition while it still
+                // visits the outgoing child. The retained host owns that movable subtree now,
+                // so skip the stale invocation and keep every provider mounted exactly once.
+                if (!transitionSettled || childKey == targetRouteKey) {
+                    CompositionLocalProvider(
+                        LocalSharedTransitionScope provides this@sharedTransition,
+                        LocalSharedAnimatedVisibilityScope provides this@animatedContent,
+                    ) {
+                        movableRoute(childKey)(child.value)
                     }
                 }
             }
