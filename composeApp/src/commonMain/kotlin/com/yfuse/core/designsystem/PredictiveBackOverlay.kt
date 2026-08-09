@@ -31,9 +31,7 @@ fun PredictiveBackOverlay(
         enabled = enabled,
         onProgress = state::onProgress,
         onCancel = state::onCancel,
-        // onCommit's route handoff flags are irrelevant here: onBack removes this whole host after
-        // the throw completes, so no intermediate owner swap can expose the window background.
-        onBack = { state.onCommit(onBack) },
+        onBack = { state.onStandaloneCommit(onBack) },
     )
 
     Box(
