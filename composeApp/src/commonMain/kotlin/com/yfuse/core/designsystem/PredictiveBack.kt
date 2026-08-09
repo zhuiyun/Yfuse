@@ -132,14 +132,7 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
         finishing = true
         job?.cancel()
         job = scope.launch {
-            animate(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = if (reduceMotion) 0 else THROW,
-                    easing = Motion.Curve,
-                ),
-            ) { value, _ -> finish = value }
+            throwOut()
             // Keep the completed reveal painted while the stack changes ownership. Clearing
             // these draw values before pop removed the only root host one composition before
             // AnimatedContent placed its zero-duration target, exposing the window backdrop.
@@ -147,6 +140,46 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
             handoffInProgress = true
             pop()
         }
+    }
+
+    /**
+     * Commits a predictive gesture whose destination is already mounted independently.
+     *
+     * A tab-root back and a full-screen overlay do not transfer a movable route between two
+     * navigation hosts: the page being revealed is already a sibling underneath. They therefore
+     * must not enter [handoffInProgress], which only [SharedElementTransitionContainer] knows how
+     * to finish. Complete the throw, switch/remove the top page, then clear the gesture in the same
+     * coroutine instead.
+     */
+    internal fun onStandaloneCommit(commit: () -> Unit) {
+        if (finishing) return
+        if (!peeking) {
+            commit()
+            return
+        }
+        finishing = true
+        job?.cancel()
+        job = scope.launch {
+            throwOut()
+            commit()
+            peeking = false
+            progress = 0f
+            finish = 0f
+            handoffInProgress = false
+            pendingCommit = false
+            finishing = false
+        }
+    }
+
+    private suspend fun throwOut() {
+        animate(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = if (reduceMotion) 0 else THROW,
+                easing = Motion.Curve,
+            ),
+        ) { value, _ -> finish = value }
     }
 
     /**
