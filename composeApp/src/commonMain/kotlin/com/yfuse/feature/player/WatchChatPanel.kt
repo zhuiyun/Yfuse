@@ -154,12 +154,22 @@ internal fun WatchChatPanel(
                         )
                         .padding(horizontal = 9.dp, vertical = 6.dp),
                 )
-                Icon(
-                    AppIcons.Close,
-                    contentDescription = "关闭聊天",
-                    tint = Color.White.copy(alpha = 0.55f),
-                    modifier = Modifier.size(13.dp).noRippleClickable(onDismiss),
-                )
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .pressable(
+                            onClickLabel = "关闭聊天",
+                            onClick = onDismiss,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        AppIcons.Close,
+                        contentDescription = "关闭聊天",
+                        tint = Color.White.copy(alpha = 0.72f),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         }
 

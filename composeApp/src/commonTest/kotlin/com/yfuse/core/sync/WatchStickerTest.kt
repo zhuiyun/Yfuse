@@ -25,6 +25,18 @@ class WatchStickerTest {
     )
 
     @Test
+    fun catalogue_keeps_the_promised_32_presets_and_motion_variety() {
+        assertEquals(32, WatchStickers.presets.size)
+        val motions = WatchStickers.presets.map { it.motion }.toSet()
+        assertTrue(WatchStickerMotion.Bounce in motions)
+        assertTrue(WatchStickerMotion.Shake in motions)
+        assertTrue(WatchStickerMotion.Spin in motions)
+        assertTrue(WatchStickerMotion.Pulse in motions)
+        assertTrue(WatchStickerMotion.Swing in motions)
+        assertTrue(WatchStickerMotion.Wobble in motions)
+    }
+
+    @Test
     fun every_preset_round_trips_through_the_wire_token() {
         WatchStickers.presets.forEach { sticker ->
             assertEquals(sticker, WatchStickers.parse(WatchStickers.token(sticker)))

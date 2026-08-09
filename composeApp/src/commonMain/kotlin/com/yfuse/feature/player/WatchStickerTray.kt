@@ -5,12 +5,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
@@ -153,32 +153,45 @@ internal fun WatchStickerTray(
     onPick: (WatchSticker) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        WatchStickers.presets.forEach { sticker ->
+        // Lazy composition matters here: every visible animated sticker owns a graphics layer
+        // and a clock. The old horizontally-scrolling Row composed and animated all 32 keys,
+        // including the two dozen that were completely off-screen.
+        items(
+            items = WatchStickers.presets,
+            key = WatchSticker::id,
+        ) { sticker ->
+            // Keep the visual chip compact, but give it the same 44dp minimum target as every
+            // other control. A 34dp surface is pleasant to look at and too small to tap.
             Box(
                 Modifier
-                    .size(34.dp)
-                    // Dimming the whole key, not its text: an emoji is drawn from a colour
-                    // font, so a text colour with alpha on it changes nothing at all.
+                    .size(44.dp)
                     .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
                     .pressable(
                         enabled = enabled,
                         haptic = HapticSignal.Confirm,
                         onClickLabel = sticker.label,
                         onClick = { onPick(sticker) },
-                    )
-                    .glass(
-                        shape = GlassShapes.chip,
-                        fill = PlayerTokens.chipFill,
-                        border = PlayerTokens.chipBorder,
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                WatchStickerGlyph(sticker, sizeSp = 16f)
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .glass(
+                            shape = GlassShapes.chip,
+                            fill = PlayerTokens.chipFill,
+                            border = PlayerTokens.chipBorder,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    WatchStickerGlyph(sticker, sizeSp = 16f)
+                }
             }
         }
     }
