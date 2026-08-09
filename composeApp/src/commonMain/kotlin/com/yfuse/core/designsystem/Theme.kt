@@ -1,15 +1,16 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.graphics.Color
 
 /**
  * Per-item accent. The prototype derives it from the artwork; this stays as the
@@ -34,20 +35,12 @@ enum class ThemeMode(val label: String) {
     Light("浅色"),
 }
 
-/**
- * Which launch choreography plays. Each one is a self-contained implementation; adding a
- * variant here is enough to make it selectable.
- */
+/** Which launch choreography plays. */
 enum class SplashAnimation(val label: String, val description: String) {
     One("动画1", "水滴落入云端，碎成播放键"),
     Two("动画2", "水滴积成一汪，炸开满屏水花"),
 }
 
-/**
- * The single definition of "is the UI dark right now". The splash, the window background and
- * the app itself all have to agree — when they each rolled their own `== ThemeMode.Dark` the
- * launch traded a black frame for a white one before the first screen appeared.
- */
 fun ThemeMode.resolveDark(systemDark: Boolean): Boolean = when (this) {
     ThemeMode.System -> systemDark
     ThemeMode.Dark -> true
@@ -65,6 +58,30 @@ data class AccessibilityOptions(
 )
 
 val LocalAccessibilityOptions = staticCompositionLocalOf { AccessibilityOptions() }
+
+/**
+ * Material controls are deliberately a minority in Yfuse, but the ones that remain should
+ * not fall back to the stock Material/Roboto scale. Mapping the theme once keeps progress
+ * indicators, platform dialogs and future Material components on the same Chinese-first type
+ * ladder as the hand-built surfaces without forcing every call site to remember a style.
+ */
+private val YfuseMaterialTypography = Typography(
+    displayLarge = sc(26f, 800),
+    displayMedium = sc(24f, 800),
+    displaySmall = sc(22f, 800),
+    headlineLarge = sc(22f, 750),
+    headlineMedium = sc(20f, 700),
+    headlineSmall = sc(18f, 700),
+    titleLarge = sc(18f, 700),
+    titleMedium = sc(15f, 650),
+    titleSmall = sc(13.5f, 650),
+    bodyLarge = sc(14f, 500),
+    bodyMedium = sc(13f, 450),
+    bodySmall = sc(12.5f, 450),
+    labelLarge = sc(12.5f, 650),
+    labelMedium = mr(11f, 600),
+    labelSmall = mr(10f, 550),
+)
 
 private fun darkScheme(accent: Color) = darkColorScheme(
     primary = accent,
@@ -125,6 +142,7 @@ fun YfuseTheme(
     ) {
         MaterialTheme(
             colorScheme = if (dark) darkScheme(accent.color) else lightScheme(accent.color),
+            typography = YfuseMaterialTypography,
             content = content,
         )
     }
