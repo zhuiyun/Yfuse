@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -139,7 +138,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     RefreshThresholdHaptics(pullState)
 
     var serverMenuOpen by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
+    val listState = component.listState
     val density = LocalDensity.current
     val lightPageReached by rememberScrolledPastHero(listState, HeroHeight)
     StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
