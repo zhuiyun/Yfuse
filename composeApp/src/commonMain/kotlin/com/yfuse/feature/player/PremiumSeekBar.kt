@@ -1,15 +1,18 @@
 package com.yfuse.feature.player
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,9 +24,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -41,9 +44,17 @@ import com.yfuse.core.designsystem.mr
 private val PremiumSeekTouchHeight = 40.dp
 private val PremiumSeekTrackHeight = 4.dp
 private val PremiumSeekTrackHeightDragging = 6.dp
-private val PremiumSeekThumbRadius = 4.dp
-private val PremiumSeekThumbRadiusDragging = 7.dp
+private val PremiumSeekThumbDiameter = 8.dp
+private val PremiumSeekThumbDiameterDragging = 14.dp
 
+/**
+ * Player scrubber with three readable layers: remaining, buffered and played.
+ *
+ * The painted track stays slim while the whole 40dp row accepts input. Direct manipulation
+ * grows the track and thumb, adds a time bubble, and confirms the commit with haptics. The
+ * implementation deliberately uses ordinary Compose layout/background primitives so it stays
+ * compatible with this project's Compose Multiplatform 1.7 line.
+ */
 @Composable
 internal fun PremiumSeekBar(
     fraction: Float,
@@ -73,6 +84,10 @@ internal fun PremiumSeekBar(
     )
     val shownFraction = if (dragging) dragFraction else fraction.coerceIn(0f, 1f)
     val visual = premiumSeekVisualState(shownFraction, bufferedFraction, interaction)
+    val trackHeight = PremiumSeekTrackHeight +
+        (PremiumSeekTrackHeightDragging - PremiumSeekTrackHeight) * interaction
+    val thumbDiameter = PremiumSeekThumbDiameter +
+        (PremiumSeekThumbDiameterDragging - PremiumSeekThumbDiameter) * interaction
 
     Box(
         modifier
@@ -115,48 +130,46 @@ internal fun PremiumSeekBar(
             },
         contentAlignment = Alignment.CenterStart,
     ) {
-        Canvas(Modifier.fillMaxWidth().height(PremiumSeekTouchHeight)) {
-            val centerY = size.height / 2f
-            val trackPx = PremiumSeekTrackHeight.toPx() +
-                (PremiumSeekTrackHeightDragging.toPx() - PremiumSeekTrackHeight.toPx()) * interaction
-            val playedX = size.width * visual.playedFraction
-            val bufferedX = size.width * visual.bufferedFraction
-
-            drawLine(
-                color = PlayerTokens.trackFillLandscape,
-                start = Offset(0f, centerY),
-                end = Offset(size.width, centerY),
-                strokeWidth = trackPx,
-                cap = StrokeCap.Round,
-            )
-            if (bufferedX > 0f) {
-                drawLine(
-                    color = Color.White.copy(alpha = 0.44f),
-                    start = Offset(0f, centerY),
-                    end = Offset(bufferedX, centerY),
-                    strokeWidth = trackPx,
-                    cap = StrokeCap.Round,
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(trackHeight)
+                .clip(CircleShape)
+                .background(PlayerTokens.trackFillLandscape),
+        ) {
+            if (visual.bufferedFraction > 0f) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .fillMaxWidth(visual.bufferedFraction)
+                        .background(Color.White.copy(alpha = 0.44f)),
                 )
             }
-            if (playedX > 0f) {
-                drawLine(
-                    brush = PlayerTokens.progress,
-                    start = Offset(0f, centerY),
-                    end = Offset(playedX, centerY),
-                    strokeWidth = trackPx,
-                    cap = StrokeCap.Round,
+            if (visual.playedFraction > 0f) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .fillMaxWidth(visual.playedFraction)
+                        .background(PlayerTokens.progress),
                 )
             }
-
-            val thumbRadius = PremiumSeekThumbRadius.toPx() +
-                (PremiumSeekThumbRadiusDragging.toPx() - PremiumSeekThumbRadius.toPx()) * interaction
-            drawCircle(
-                color = Color.White,
-                radius = thumbRadius,
-                center = Offset(playedX, centerY),
-                alpha = 0.72f + 0.28f * interaction,
-            )
         }
+
+        Box(
+            Modifier
+                .size(thumbDiameter)
+                .offset {
+                    val thumbPx = thumbDiameter.roundToPx()
+                    IntOffset(
+                        x = (widthPx * visual.playedFraction - thumbPx / 2f)
+                            .toInt()
+                            .coerceIn(-thumbPx / 2, (widthPx - thumbPx / 2).coerceAtLeast(0)),
+                        y = 0,
+                    )
+                }
+                .graphicsLayer { alpha = 0.72f + 0.28f * interaction }
+                .background(Color.White, CircleShape),
+        )
 
         if (dragging) {
             val bubbleWidthPx = with(density) { 68.dp.roundToPx() }
