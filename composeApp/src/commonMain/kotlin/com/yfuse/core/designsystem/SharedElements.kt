@@ -136,8 +136,11 @@ fun <T : Any> SharedElementTransitionContainer(
             previousRouteKey != targetRouteKey
 
     Box(Modifier.fillMaxSize()) {
+        // Keep both routes in one lookahead scope, but move only the page being left.
+        // Applying the gesture to SharedTransitionLayout also moved the retained reveal route,
+        // exposing the Activity/window background as a white wash during predictive back.
         val peek = if (back != null) Modifier.predictiveBackPeek(back) else Modifier
-        SharedTransitionLayout(modifier = Modifier.fillMaxSize().then(peek)) sharedTransition@{
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) sharedTransition@{
         when {
             back?.peeking == true &&
                 transitionSettled &&
@@ -177,6 +180,7 @@ fun <T : Any> SharedElementTransitionContainer(
         }
 
             transition.AnimatedContent(
+                modifier = Modifier.fillMaxSize().then(peek),
                 transitionSpec = {
                     val popping = this.targetState.depth < initialState.depth
                     // A committed gesture has already played this transition under the

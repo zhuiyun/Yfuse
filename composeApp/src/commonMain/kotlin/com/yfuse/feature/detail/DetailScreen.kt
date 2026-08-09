@@ -945,6 +945,10 @@ private fun Hero(
         Modifier
             .fillMaxWidth()
             .height(height)
+            // FallbackImage is transparent until its first drawable is ready. Paint the same
+            // surface used by the page and the hero scrim from frame one, so image loading
+            // cannot expose a separate band between the artwork and the content below.
+            .background(surfaceColor)
             .graphicsLayer {
                 // Upward, a restrained parallax: the artwork lags the page so the two read
                 // as separate planes.
