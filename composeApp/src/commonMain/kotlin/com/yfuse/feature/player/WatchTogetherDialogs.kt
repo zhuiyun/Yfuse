@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
@@ -28,15 +27,17 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.WatchAvatar
+import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
@@ -47,16 +48,6 @@ import com.yfuse.core.sync.WatchNetworkQuality
 import com.yfuse.core.sync.WatchParticipant
 import com.yfuse.feature.watch.CopyableRoomCode
 
-/**
- * In-player watch-together control. Since the entry points moved to where people actually
- * decide what to watch — 详情页 for hosting, an invite link for joining — this is now the
- * recovery path: "we're already watching, pull someone in."
- *
- * The relay address is deliberately not asked for here. It's infrastructure with a working
- * default, it belongs in 「我的」's settings, and putting it in front of someone mid-film (as
- * a required field, with both buttons disabled until it validated) was the single biggest
- * obstacle in the old flow.
- */
 @Composable
 internal fun WatchTogetherDialog(
     endpoint: String,
@@ -80,6 +71,7 @@ internal fun WatchTogetherDialog(
     onDismiss: () -> Unit,
 ) {
     var roomDraft by remember { mutableStateOf("") }
+    var manageCandidate by remember { mutableStateOf<WatchParticipant?>(null) }
     var kickCandidate by remember { mutableStateOf<WatchParticipant?>(null) }
     val normalizedRoom = WatchInvite.normalizeCode(roomDraft)
     val palette = LocalPalette.current
@@ -98,7 +90,7 @@ internal fun WatchTogetherDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .glass(continuousRounded(14.dp), palette.card2, palette.border)
+                    .glass(GlassShapes.card, palette.card2, palette.border)
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
@@ -117,6 +109,7 @@ internal fun WatchTogetherDialog(
                     textAlign = TextAlign.Center,
                 )
             }
+
             if (isHost) {
                 Text(
                     "控制权限",
@@ -131,13 +124,14 @@ internal fun WatchTogetherDialog(
                 )
                 if (controlMode == WatchControlMode.Moderators) {
                     Text(
-                        "可在下方设置管理员或移出成员",
+                        "管理员可以参与控制；成员管理集中在每个人的“管理”入口。",
                         style = mr(9f, 500),
                         color = palette.sub2,
                         modifier = Modifier.padding(top = 6.dp),
                     )
                 }
             }
+
             if (participants.isNotEmpty()) {
                 Row(
                     Modifier
@@ -148,8 +142,7 @@ internal fun WatchTogetherDialog(
                 ) {
                     participants.forEach { participant ->
                         Column(
-                            Modifier
-                                .width(108.dp),
+                            Modifier.width(108.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
@@ -191,39 +184,31 @@ internal fun WatchTogetherDialog(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             if (isHost && !participant.isHost && !participant.isSelf) {
-                                if (controlMode == WatchControlMode.Moderators) {
-                                    Text(
-                                        if (participant.isModerator) "取消管理员" else "设为管理员",
-                                        style = mr(8f, 600),
-                                        color = Brand.Primary,
-                                        modifier = Modifier.pressable {
-                                            onSetModerator(
-                                                participant.clientId,
-                                                !participant.isModerator,
-                                            )
-                                        },
-                                    )
-                                }
                                 Text(
-                                    "移出房间",
-                                    style = mr(8f, 600),
-                                    color = Brand.Danger,
-                                    modifier = Modifier.pressable {
-                                        kickCandidate = participant
-                                    },
+                                    "管理",
+                                    style = mr(8.5f, 650),
+                                    color = Brand.Primary,
+                                    modifier = Modifier
+                                        .pressable(onClick = { manageCandidate = participant })
+                                        .glass(
+                                            shape = GlassShapes.chip,
+                                            fill = Brand.Primary.copy(alpha = 0.10f),
+                                            border = Brand.Primary.copy(alpha = 0.24f),
+                                        )
+                                        .padding(horizontal = 10.dp, vertical = 5.dp),
                                 )
                             }
                         }
                     }
                 }
             }
+
             error?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(it, style = sc(10.5f, 500), color = Brand.Danger)
             }
+
             if (!canControl) {
-                // Deliberately still enabled once asked: a host who never answers would
-                // otherwise leave this pinned on "waiting" with no way to ask again.
                 OverlayButton(
                     label = if (controlRequested) "再次请求控制权" else "请求控制权",
                     onClick = onRequestControl,
@@ -240,6 +225,7 @@ internal fun WatchTogetherDialog(
                     )
                 }
             }
+
             OverlayButton(
                 label = "退出房间",
                 onClick = onLeave,
@@ -277,6 +263,44 @@ internal fun WatchTogetherDialog(
         }
     }
 
+    manageCandidate?.let { participant ->
+        GlassDialog(onDismiss = { manageCandidate = null }) {
+            OverlayHeader(
+                title = participant.name,
+                subtitle = listOf(
+                    participant.playbackStatusLabel,
+                    participant.networkStatusLabel,
+                ).joinToString(" · "),
+                onClose = { manageCandidate = null },
+            )
+            if (controlMode == WatchControlMode.Moderators) {
+                OverlayOptionRow(
+                    label = if (participant.isModerator) "取消管理员" else "设为管理员",
+                    description = if (participant.isModerator) {
+                        "取消后仅跟随房间播放"
+                    } else {
+                        "允许对方参与播放控制"
+                    },
+                    selected = participant.isModerator,
+                    onClick = {
+                        onSetModerator(participant.clientId, !participant.isModerator)
+                        manageCandidate = null
+                    },
+                )
+            }
+            OverlayOptionRow(
+                label = "移出房间",
+                description = "对方将无法再次加入当前房间",
+                selected = false,
+                destructive = true,
+                onClick = {
+                    manageCandidate = null
+                    kickCandidate = participant
+                },
+            )
+        }
+    }
+
     kickCandidate?.let { participant ->
         ConfirmDialog(
             title = "移出成员",
@@ -292,13 +316,6 @@ internal fun WatchTogetherDialog(
     }
 }
 
-/**
- * Host side of the control handoff: a member has asked to drive the room.
- *
- * Both answers are explicit. Granting moves the timeline to them — this device becomes a
- * follower and its own controls lock — and denying tells the asker so, rather than letting
- * the request expire into silence.
- */
 @Composable
 internal fun ControlRequestDialog(
     requesterName: String,
