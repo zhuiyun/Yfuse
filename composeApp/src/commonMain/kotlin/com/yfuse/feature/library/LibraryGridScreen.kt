@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -86,7 +85,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
     val palette = LocalPalette.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
     var sortOpen by remember { mutableStateOf(false) }
-    val gridState = rememberLazyGridState()
+    val gridState = component.gridState
 
     // Paging is driven by what is on screen rather than by the last composed tile: a tile
     // composes once, so binding the request to it would never fire again after a failure.
