@@ -206,14 +206,16 @@ fun DetailScreen(component: DetailComponent) {
     }.orEmpty()
     // The backdrop can fail while the poster succeeds. Wait for FallbackImage to report the
     // candidate that is actually on screen so Palette never tints one picture from another.
-    var resolvedHeroUrl by remember(detail?.id) { mutableStateOf<String?>(null) }
+    // Include the server because different libraries may legitimately reuse the same item id.
+    val heroIdentity = remember(baseUrl, detail?.id) { baseUrl to detail?.id }
+    var resolvedHeroUrl by remember(heroIdentity) { mutableStateOf<String?>(null) }
     // Artwork is allowed to set the mood, not to redefine the product. Harmonize the final
     // target before animation; doing the thresholded correction on every frame caused jumps.
     val detailAccent = rememberAnimatedArtworkAccent(
         url = resolvedHeroUrl,
         fallback = Brand.Primary,
         darkTheme = palette.isDark,
-        identity = detail?.id,
+        identity = heroIdentity,
     )
 
     var seasonPickerOpen by remember { mutableStateOf(false) }
