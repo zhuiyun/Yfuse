@@ -40,6 +40,9 @@ internal class AndroidPlaybackSourcePreloader(
     override fun preload(url: String) {
         val source = url.trim()
         if (source.isEmpty()) return
+        // Cache-off is an explicit user choice. Avoid even opening the stream, and also avoid
+        // retaining one completed bookkeeping Job per browsed detail page.
+        if (playbackPreferences.videoCacheSize.value.bytes <= 0L) return
         if (jobs[source]?.isActive == true) return
 
         val job = scope.launch {
