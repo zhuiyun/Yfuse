@@ -18,6 +18,8 @@ import com.yfuse.core.network.imageCacheKeyForUrl
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.core.offline.offlineApplicationContext
 import com.yfuse.di.appModule
+import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
+import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.update.AppUpdateManager
 import okio.Path.Companion.toOkioPath
 import org.koin.core.context.startKoin
@@ -49,6 +51,15 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
                     // Application-scoped so an update download survives the activity that
                     // started it, and so UpdateDownloadService can reach the same instance.
                     single { AppUpdateManager(this@YfuseApp, settings) }
+                    // Detail pages prepare playback before the tap. The Android implementation
+                    // warms direct-play bytes into the same Media3 cache used by ExoPlayer.
+                    single<PlaybackSourcePreloader> {
+                        AndroidPlaybackSourcePreloader(
+                            context = this@YfuseApp,
+                            playbackPreferences = get(),
+                            userAgentPreferences = get(),
+                        )
+                    }
                 },
             )
         }
