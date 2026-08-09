@@ -223,10 +223,9 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 item = item,
                                 showProgress = false,
                                 onClick = { component.onOpenItem(item.id) },
-                                // Appended pages fade in where they land rather than
-                                // appearing mid-scroll, and a sort change cross-dissolves
-                                // instead of swapping the grid between two frames.
-                                modifier = motionAwareItem(),
+                                // Keep placement animation for live sorting, but never fade the
+                                // whole restored viewport in after the detail page has gone.
+                                modifier = motionAwareItem(animateAppearance = false),
                             )
                         }
                         if (state.loadingMore || state.loadMoreError != null) {
@@ -282,11 +281,11 @@ private fun GenreFilterRow(
             GenreChip("全部", selected == null) { onSelect(null) }
         }
         items(genres, key = { it }) { genre ->
-            // The facet arrives after the first page, so the row grows under the header.
+            // Facets may move while live, but restored chips should already be opaque.
             GenreChip(
                 label = genre,
                 selected = selected == genre,
-                modifier = motionAwareItem(),
+                modifier = motionAwareItem(animateAppearance = false),
                 onClick = { onSelect(genre) },
             )
         }
