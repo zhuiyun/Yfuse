@@ -159,6 +159,7 @@ private fun EpisodeRow(
     episode: Episode,
     baseUrl: String,
     accessToken: String,
+    seriesPosterUrl: String?,
     accent: Color,
     current: Boolean,
     onPlay: () -> Unit,
