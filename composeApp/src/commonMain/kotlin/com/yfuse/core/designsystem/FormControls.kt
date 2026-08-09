@@ -23,20 +23,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 
-/** Semantic button treatments used by forms and settings, independent of Material defaults. */
 enum class YfButtonTone {
     Primary,
     Secondary,
     Destructive,
 }
 
-/**
- * A Yfuse-native form field: one glass body, a quiet label, and no Material outline notch.
- *
- * Keeping label and value inside the same continuous surface gives account/server forms the
- * same material vocabulary as the rest of the app while retaining the keyboard, selection,
- * password and accessibility behaviour of [BasicTextField].
- */
 @Composable
 fun YfFormField(
     value: String,
@@ -45,7 +37,7 @@ fun YfFormField(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     singleLine: Boolean = true,
-    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardOptions: KeyboardOptions = KeyboardOptions(),
     visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
     val palette = LocalPalette.current
@@ -85,7 +77,6 @@ fun YfFormField(
     }
 }
 
-/** Form/settings action with the app's continuous shape, glass depth and spring press response. */
 @Composable
 fun YfButton(
     label: String,
@@ -146,7 +137,6 @@ fun YfButton(
     }
 }
 
-/** Quiet inline action used below forms instead of a stock Material TextButton. */
 @Composable
 fun YfLinkButton(
     label: String,
@@ -155,7 +145,6 @@ fun YfLinkButton(
     enabled: Boolean = true,
     destructive: Boolean = false,
 ) {
-    val palette = LocalPalette.current
     Text(
         text = label,
         style = sc(11.5f, 650),
