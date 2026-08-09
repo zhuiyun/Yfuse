@@ -37,6 +37,14 @@ private val LocalSharedAnimatedVisibilityScope =
     staticCompositionLocalOf<AnimatedVisibilityScope?> { null }
 
 /**
+ * Whether this movable route is the navigation target right now.
+ *
+ * Retained routes still compose so painters and backdrop layers survive, but work that only
+ * makes sense on screen (focus, system bars and carousel clocks) pauses under the detail page.
+ */
+val LocalRouteVisible = staticCompositionLocalOf { true }
+
+/**
  * Keeps the outgoing and incoming Decompose children composed long enough for
  * shared artwork to travel between list, hero and detail layouts.
  *
@@ -134,12 +142,14 @@ fun <T : Any> SharedElementTransitionContainer(
                 previousValue != null &&
                 previousRouteKey != null -> {
                 PredictiveBackReveal(back) {
-                    if (previousRouteKey == targetRouteKey) {
-                        // Related detail pages deliberately share a route key and cannot invoke
-                        // the same movable SaveableStateProvider twice at the same time.
-                        latestContent(previousValue)
-                    } else {
-                        movableRoute(previousRouteKey)(previousValue)
+                    CompositionLocalProvider(LocalRouteVisible provides false) {
+                        if (previousRouteKey == targetRouteKey) {
+                            // Related detail pages deliberately share a route key and cannot invoke
+                            // the same movable SaveableStateProvider twice at the same time.
+                            latestContent(previousValue)
+                        } else {
+                            movableRoute(previousRouteKey)(previousValue)
+                        }
                     }
                 }
             }
@@ -150,14 +160,16 @@ fun <T : Any> SharedElementTransitionContainer(
                 previousRouteKey != targetRouteKey -> {
                 // At push completion AnimatedContent releases the outgoing route in the same
                 // recomposition in which this host receives that exact movable subtree. It stays
-                // measured and drawn off-screen, so pop reveals an already-rendered page.
+                // composed and measured without visible output, ready for pop to reveal.
                 Box(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = 0f }
                         .clearAndSetSemantics { },
                 ) {
-                    movableRoute(previousRouteKey)(previousValue)
+                    CompositionLocalProvider(LocalRouteVisible provides false) {
+                        movableRoute(previousRouteKey)(previousValue)
+                    }
                 }
             }
         }
@@ -203,6 +215,7 @@ fun <T : Any> SharedElementTransitionContainer(
                     CompositionLocalProvider(
                         LocalSharedTransitionScope provides this@sharedTransition,
                         LocalSharedAnimatedVisibilityScope provides this@animatedContent,
+                        LocalRouteVisible provides (childKey == targetRouteKey),
                     ) {
                         movableRoute(childKey)(child.value)
                     }
