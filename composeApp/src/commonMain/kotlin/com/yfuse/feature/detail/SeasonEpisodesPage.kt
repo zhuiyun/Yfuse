@@ -33,8 +33,8 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.PredictiveBackOverlay
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.mr
@@ -54,8 +54,9 @@ import com.yfuse.core.network.EmbyImages
  * A layer over the detail page rather than a pushed route. The page it covers is the one
  * that owns this season, its artwork and its state; a route would mean the same
  * configuration threaded through three navigation stacks (库 / 首页 / 搜索 each own a
- * detail child) to show a list the detail store has already loaded. 添加服务器 in 我的 is
- * modal for the same reason. System back closes it, so it behaves like a page regardless.
+ * detail child) to show a list the detail store has already loaded. The detail page stays
+ * composed underneath, so predictive back reveals the exact detail state while this page
+ * follows the gesture instead of exposing the activity backdrop.
  */
 @Composable
 internal fun SeasonEpisodesPage(
@@ -72,84 +73,85 @@ internal fun SeasonEpisodesPage(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    PlatformBackHandler(enabled = true, onBack = onDismiss)
 
-    Box(Modifier.fillMaxSize().background(palette.background)) {
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = Dimens.contentBottom),
-        ) {
-            item(key = "season-hero") {
-                Box(Modifier.fillMaxWidth().height(268.dp)) {
-                    FallbackImage(
-                        urls = heroUrls,
-                        contentDescription = seriesName,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    Box(Modifier.fillMaxSize().background(heroScrim(palette.background)))
-                    Column(
-                        Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(horizontal = Dimens.pageHorizontal)
-                            .padding(bottom = 18.dp),
-                    ) {
-                        Text(seasonLabel, style = sc(26f, 800), color = palette.text, maxLines = 1)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            seriesName,
-                            style = sc(13f, 500),
-                            color = palette.sub,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+    PredictiveBackOverlay(onBack = onDismiss) {
+        Box(Modifier.fillMaxSize().background(palette.background)) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = Dimens.contentBottom),
+            ) {
+                item(key = "season-hero") {
+                    Box(Modifier.fillMaxWidth().height(268.dp)) {
+                        FallbackImage(
+                            urls = heroUrls,
+                            contentDescription = seriesName,
+                            modifier = Modifier.fillMaxSize(),
                         )
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            "${episodes.size} 剧集",
-                            style = mr(12f, 600),
-                            color = palette.sub2,
-                            maxLines = 1,
-                        )
+                        Box(Modifier.fillMaxSize().background(heroScrim(palette.background)))
+                        Column(
+                            Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(horizontal = Dimens.pageHorizontal)
+                                .padding(bottom = 18.dp),
+                        ) {
+                            Text(seasonLabel, style = sc(26f, 800), color = palette.text, maxLines = 1)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                seriesName,
+                                style = sc(13f, 500),
+                                color = palette.sub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "${episodes.size} 剧集",
+                                style = mr(12f, 600),
+                                color = palette.sub2,
+                                maxLines = 1,
+                            )
+                        }
                     }
+                }
+
+                itemsIndexed(
+                    episodes,
+                    key = { index, episode -> "all-ep-${episode.id}-$index" },
+                ) { _, episode ->
+                    EpisodeRow(
+                        episode = episode,
+                        baseUrl = baseUrl,
+                        accessToken = accessToken,
+                        seriesPosterUrl = seriesPosterUrl,
+                        accent = accent,
+                        current = episode.id == currentEpisodeId,
+                        onPlay = { onPlayEpisode(episode) },
+                        modifier = Modifier.padding(
+                            horizontal = Dimens.pageHorizontal,
+                            vertical = 7.dp,
+                        ),
+                    )
                 }
             }
 
-            itemsIndexed(
-                episodes,
-                key = { index, episode -> "all-ep-${episode.id}-$index" },
-            ) { _, episode ->
-                EpisodeRow(
-                    episode = episode,
-                    baseUrl = baseUrl,
-                    accessToken = accessToken,
-                    seriesPosterUrl = seriesPosterUrl,
-                    accent = accent,
-                    current = episode.id == currentEpisodeId,
-                    onPlay = { onPlayEpisode(episode) },
-                    modifier = Modifier.padding(
-                        horizontal = Dimens.pageHorizontal,
-                        vertical = 7.dp,
-                    ),
+            // Same chip as the detail page's, in the same corner, so backing out of this reads
+            // as one gesture rather than two different ones a screen apart.
+            Box(
+                Modifier
+                    .statusBarsPadding()
+                    .padding(start = Dimens.pageHorizontal, top = 10.dp)
+                    .size(34.dp)
+                    .pressable(onClick = onDismiss)
+                    .glass(CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AppIcons.ChevronLeft,
+                    contentDescription = "返回",
+                    tint = palette.text,
+                    modifier = Modifier.size(15.dp),
                 )
             }
-        }
-
-        // Same chip as the detail page's, in the same corner, so backing out of this reads
-        // as one gesture rather than two different ones a screen apart.
-        Box(
-            Modifier
-                .statusBarsPadding()
-                .padding(start = Dimens.pageHorizontal, top = 10.dp)
-                .size(34.dp)
-                .pressable(onClick = onDismiss)
-                .glass(CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                AppIcons.ChevronLeft,
-                contentDescription = "返回",
-                tint = palette.text,
-                modifier = Modifier.size(15.dp),
-            )
         }
     }
 }
@@ -177,111 +179,89 @@ private fun EpisodeRow(
                 } else {
                     Modifier
                 }
-            )
-            .padding(7.dp),
+            ),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(148.dp).height(84.dp)) {
-            Poster(
-                url = EmbyImages.primary(
-                    baseUrl,
-                    episode.id,
-                    episode.primaryTag,
-                    maxHeight = 240,
-                    accessToken = accessToken,
-                ),
-                fallbackUrls = listOfNotNull(seriesPosterUrl),
-                shape = GlassShapes.thumb,
-                progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
-                modifier = Modifier.fillMaxSize(),
+        Box(
+            Modifier
+                .width(122.dp)
+                .height(69.dp)
+                .clip(GlassShapes.chip)
+                .background(palette.card2),
+        ) {
+            val episodeUrl = EmbyImages.primary(
+                baseUrl = baseUrl,
+                itemId = episode.id,
+                tag = episode.primaryTag,
+                maxHeight = 240,
+                accessToken = accessToken,
             )
-            // Watched and part-watched are different states and only one of them has a
-            // number: a check for "done", the time left for "you stopped here".
-            if (episode.played) {
+            val imageUrl = episodeUrl ?: seriesPosterUrl
+            if (imageUrl != null) {
+                FallbackImage(
+                    urls = listOf(episodeUrl, seriesPosterUrl),
+                    contentDescription = episode.name,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Poster(
+                    url = null,
+                    contentDescription = episode.name,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            if (current) {
                 Box(
                     Modifier
-                        .align(Alignment.TopEnd)
+                        .align(Alignment.BottomStart)
                         .padding(6.dp)
-                        .size(18.dp)
                         .clip(CircleShape)
-                        .background(Brand.Online),
-                    contentAlignment = Alignment.Center,
+                        .background(accent)
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
                 ) {
-                    Icon(
-                        AppIcons.Check,
-                        contentDescription = "已观看",
-                        tint = Color.White,
-                        modifier = Modifier.size(10.dp),
-                    )
-                }
-            } else {
-                episode.remainingLabel()?.let { remaining ->
-                    Row(
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(6.dp)
-                            .clip(GlassShapes.chip)
-                            .background(Color.Black.copy(alpha = 0.55f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            AppIcons.Play,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(8.dp),
-                        )
-                        Text(remaining, style = mr(9.5f, 600), color = Color.White, maxLines = 1)
-                    }
+                    Text("当前", style = sc(9f, 700), color = Color.White)
                 }
             }
         }
-        Column(Modifier.weight(1f)) {
+
+        Column(
+            Modifier
+                .weight(1f)
+                .padding(vertical = 10.dp),
+        ) {
             Text(
-                listOfNotNull(episode.indexNumber?.let { "E$it." }, episode.name)
-                    .joinToString(" "),
+                buildString {
+                    episode.indexNumber?.let { append("第 $it 集") }
+                    if (episode.name.isNotBlank()) {
+                        if (isNotEmpty()) append("  ")
+                        append(episode.name)
+                    }
+                }.ifBlank { "剧集" },
                 style = sc(13f, 700),
-                color = if (current) accent else palette.text,
+                color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val facts = listOfNotNull(
-                episode.runtimeMinutes?.let { "$it 分钟" },
-                episode.premiereDate,
-            )
-            if (facts.isNotEmpty()) {
-                Spacer(Modifier.height(3.dp))
+            episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    facts.joinToString(" · "),
-                    style = mr(10f, 400),
-                    color = palette.sub2,
-                    maxLines = 1,
-                )
-            }
-            if (!episode.overview.isNullOrBlank()) {
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    episode.overview,
-                    style = mr(10.5f, 400, lineHeight = 10.5f * 1.55f),
+                    overview,
+                    style = mr(10.5f, 400, lineHeight = 15f),
                     color = palette.sub,
-                    // Three lines: enough to recognise an episode by, short enough that
-                    // ten of them still scan as a list.
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-    }
-}
 
-/** `20:01` — how much of this episode is left, for something already started. */
-private fun Episode.remainingLabel(): String? {
-    val runtimeMs = runtimeMinutes?.takeIf { it > 0 }?.let { it * 60_000L } ?: return null
-    val watchedMs = resumePositionTicks?.takeIf { it > 0 }?.let { it / 10_000L } ?: return null
-    val leftMs = (runtimeMs - watchedMs).takeIf { it > 0 } ?: return null
-    val totalSeconds = leftMs / 1000
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return "$minutes:${seconds.toString().padStart(2, '0')}"
+        Icon(
+            AppIcons.Play,
+            contentDescription = "播放",
+            tint = if (current) accent else Brand.Primary,
+            modifier = Modifier
+                .padding(end = 10.dp)
+                .size(18.dp),
+        )
+    }
 }
