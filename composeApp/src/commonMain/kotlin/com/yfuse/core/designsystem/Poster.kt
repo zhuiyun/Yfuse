@@ -58,6 +58,10 @@ fun FallbackImage(
      * cast avatar has nothing to resolve into.
      */
     progressive: Boolean = true,
+    /** Fade the drawable without adding the progressive blur and 1.05 scale. */
+    alphaOnly: Boolean = false,
+    /** Reports the fallback candidate whose drawable actually reached the screen. */
+    onResolvedUrl: (String) -> Unit = {},
 ) {
     val candidates = remember(urls) { urls.filterNotNull().filter { it.isNotBlank() }.distinct() }
     var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
@@ -97,15 +101,21 @@ fun FallbackImage(
                     // the caller's — [Poster] tints its own well — because nothing can know
                     // the artwork's colour before the artwork has arrived.
                     val remaining = 1f - settle
-                    val scale = 1f + (Motion.IMAGE_SCALE_FROM - 1f) * remaining
+                    val scale = if (alphaOnly) {
+                        1f
+                    } else {
+                        1f + (Motion.IMAGE_SCALE_FROM - 1f) * remaining
+                    }
                     scaleX = scale
                     scaleY = scale
                     alpha = settle
                     // Below API 31 renderEffect is ignored, so the load resolves as a
                     // scale-and-fade on those devices rather than not at all.
-                    if (remaining > 0.01f) {
+                    renderEffect = if (!alphaOnly && remaining > 0.01f) {
                         val radius = Motion.imageBlur.toPx() * remaining
-                        renderEffect = BlurEffect(radius, radius)
+                        BlurEffect(radius, radius)
+                    } else {
+                        null
                     }
                 },
                 onSuccess = { success ->
@@ -113,6 +123,7 @@ fun FallbackImage(
                     // animation starts on this frame and the flag lands on the next one.
                     if (success.result.dataSource == DataSource.MEMORY_CACHE) instant = true
                     loaded = true
+                    onResolvedUrl(candidate)
                 },
                 onError = {
                     // A disposed request can finish after its replacement. Only
