@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -143,8 +144,12 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val lightPageReached by rememberScrolledPastHero(listState, HeroHeight)
     StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
 
+    var carouselInitialized by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(slides.map { it.id }) {
-        pagerState.scrollToPage(loopingCarouselStartPage(slides.size))
+        if (!carouselInitialized && slides.isNotEmpty()) {
+            pagerState.scrollToPage(loopingCarouselStartPage(slides.size))
+            carouselInitialized = true
+        }
     }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     LaunchedEffect(slides.size, carouselDragging, reduceMotion) {
