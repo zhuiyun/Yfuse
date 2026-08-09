@@ -30,7 +30,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -58,6 +60,7 @@ import com.yfuse.core.util.graphemeCount
 import com.yfuse.core.util.takeGraphemes
 import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
 import com.yfuse.core.util.withoutControlCharacters
+import kotlinx.coroutines.launch
 
 /**
  * How much of the right edge the panel takes.
@@ -83,21 +86,39 @@ internal fun WatchChatPanel(
 ) {
     var draft by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var showJumpToLatest by remember { mutableStateOf(false) }
 
     LaunchedEffect(messages.lastOrNull()?.id) {
-        if (messages.isEmpty()) return@LaunchedEffect
-        // Follow the transcript only for someone already at the end of it. Scrolling back
-        // through what was said and being thrown to the bottom because somebody typed is not
-        // a list that scrolls badly — it is a list that undoes the scroll — and with a room
-        // that is talking it happens every few seconds.
-        //
-        // Nothing visible yet means the panel has just opened, which is exactly when the
-        // bottom is where the reader wants to be.
+        if (messages.isEmpty()) {
+            showJumpToLatest = false
+            return@LaunchedEffect
+        }
+
+        // Follow only when the reader is already at the end. If they are reading history,
+        // preserve the scroll position and surface a lightweight "回到最新" affordance.
         val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
         when {
-            last == null -> listState.scrollToItem(messages.lastIndex)
-            last.index >= messages.lastIndex - 1 -> listState.animateScrollToItem(messages.lastIndex)
+            last == null -> {
+                listState.scrollToItem(messages.lastIndex)
+                showJumpToLatest = false
+            }
+            last.index >= messages.lastIndex - 1 -> {
+                listState.animateScrollToItem(messages.lastIndex)
+                showJumpToLatest = false
+            }
+            else -> showJumpToLatest = true
         }
+    }
+
+    // A manual scroll back to the end clears the affordance even if no new message arrives.
+    LaunchedEffect(listState, messages.lastIndex) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+            .collect { index ->
+                if (messages.isNotEmpty() && index >= messages.lastIndex - 1) {
+                    showJumpToLatest = false
+                }
+            }
     }
 
     fun submit() {
@@ -206,16 +227,6 @@ internal fun WatchChatPanel(
         }
 
         Spacer(Modifier.height(12.dp))
-        // The tray sits above the transcript, where it can be tapped without reading
-        // anything first.
-        //
-        // A key sends an ordinary chat message whose text is the sticker's token — see
-        // [WatchStickers]. That is what fixed it: the keys used to fire a reaction that
-        // floated up the bottom-right corner of the player, which is precisely where this
-        // panel is, so tapping one from in here produced a bubble that rose entirely behind
-        // the panel that sent it. It looked like the key did not work. As a message it lands
-        // in the transcript and flies past as 弹幕, on both sides, like anything else said
-        // in the room.
         WatchStickerTray(
             enabled = sendingEnabled,
             onPick = { onSend(WatchStickers.token(it)) },
@@ -223,24 +234,48 @@ internal fun WatchChatPanel(
         )
 
         Spacer(Modifier.height(10.dp))
-        if (messages.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    "还没有消息\n发一句开始聊天吧",
-                    style = mr(11f, 500),
-                    color = Color.White.copy(alpha = 0.42f),
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                state = listState,
-                verticalArrangement = Arrangement.spacedBy(9.dp),
-            ) {
-                items(messages, key = { it.id }) { message ->
-                    // Someone else's message arriving mid-film should not be a jump cut.
-                    WatchChatBubble(message, onRetry, motionAwareItem())
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (messages.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "还没有消息\n发一句开始聊天吧",
+                        style = mr(11f, 500),
+                        color = Color.White.copy(alpha = 0.42f),
+                    )
                 }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
+                    items(messages, key = { it.id }) { message ->
+                        WatchChatBubble(message, onRetry, motionAwareItem())
+                    }
+                }
+            }
+
+            if (showJumpToLatest && messages.isNotEmpty()) {
+                Text(
+                    "有新消息 · 回到最新",
+                    style = sc(10.5f, 650),
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 8.dp)
+                        .glass(
+                            shape = continuousRounded(16.dp),
+                            fill = Brand.Primary.copy(alpha = 0.58f),
+                            border = Color.White.copy(alpha = 0.22f),
+                        )
+                        .pressable {
+                            scope.launch {
+                                listState.animateScrollToItem(messages.lastIndex)
+                                showJumpToLatest = false
+                            }
+                        }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
             }
         }
 
@@ -349,8 +384,6 @@ private fun WatchChatBubble(
                 )
                 val sticker = message.sticker
                 if (sticker != null) {
-                    // No bubble around it. A sticker is the whole message, and a tinted
-                    // capsule behind a 40sp glyph reads as a glyph that has been quoted.
                     WatchStickerGlyph(
                         sticker = sticker,
                         sizeSp = 40f,
