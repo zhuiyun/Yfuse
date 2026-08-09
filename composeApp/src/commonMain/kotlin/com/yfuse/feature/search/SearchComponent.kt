@@ -1,5 +1,6 @@
 package com.yfuse.feature.search
 
+import androidx.compose.foundation.lazy.LazyListState
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.DelicateDecomposeApi
 import com.arkivanov.decompose.router.stack.ChildStack
@@ -133,6 +134,9 @@ class SearchHomeComponent(
     history: SearchHistory,
     val onOpenItem: (serverId: String, itemId: String) -> Unit,
 ) : ComponentContext by componentContext {
+
+    /** Search remains composed logically while detail covers it; retain its real viewport. */
+    internal val listState = LazyListState()
 
     fun serverBaseUrl(serverId: String): String =
         registry.serverById(serverId)?.baseUrl.orEmpty()
