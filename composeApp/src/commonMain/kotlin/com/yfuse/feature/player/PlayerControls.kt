@@ -1519,9 +1519,10 @@ private fun BottomBar(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(formatTime(shownPosition), style = mr(11f, 400), color = PlayerTokens.timeTextLandscape)
-            SeekBar(
+            PremiumSeekBar(
                 fraction = fraction,
                 bufferedFraction = bufferedFraction,
+                label = formatTime(shownPosition),
                 enabled = !seekLocked && state.durationMs > 0L,
                 onScrubTo = {
                     scrubbed = it
