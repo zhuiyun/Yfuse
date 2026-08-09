@@ -96,7 +96,7 @@ import kotlinx.coroutines.delay
  * player appeared and vanished between two frames, in the one part of the app where chrome
  * is *supposed* to come and go politely over content the user is watching.
  */
-private const val CHROME_MS = 220
+private const val CHROME_MS = Motion.STANDARD
 
 /** Controls fade out after this long without interaction, while playing. */
 private const val AUTO_HIDE_MS = 4_000L
