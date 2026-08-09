@@ -59,13 +59,6 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.sc
 
-/**
- * Everything the 弹幕 tab and 搜索弹幕 sheet read, in one bundle.
- *
- * One parameter instead of the fourteen this used to add to [PlayerControls]. The player's
- * signature is long because the player genuinely has that many knobs, but 弹幕 is one
- * feature and it should cost one argument.
- */
 data class DanmakuPanelState(
     val sources: List<DanmakuSource> = emptyList(),
     val activeSourceId: String? = null,
@@ -73,19 +66,10 @@ data class DanmakuPanelState(
     val count: Int = 0,
     val loading: Boolean = false,
     val error: String? = null,
-    /**
-     * The episode the comments on screen came from — `九门(2026) - 第4集`.
-     *
-     * Shown because matching is a guess. Without it, 弹幕 from the wrong episode looks
-     * exactly like 弹幕 from the right one that happens to be badly timed.
-     */
     val matchLabel: String? = null,
-    /** True when [matchLabel] is a hand-picked match rather than the server's guess. */
     val matchPinned: Boolean = false,
     val mergeDuplicates: Boolean = true,
-    /** True when this source can be written to at all — a template cannot. */
     val canSend: Boolean = false,
-    /** Non-null while a 发送 is in flight or has just failed. */
     val sendError: String? = null,
     val sending: Boolean = false,
     val areaOptions: List<Pair<String, Boolean>> = emptyList(),
@@ -96,31 +80,20 @@ data class DanmakuPanelState(
 ) {
     val activeSource: DanmakuSource? get() = sources.activeOr(activeSourceId)
     val configured: Boolean get() = activeSource != null
-
-    /**
-     * Whether 搜索弹幕 is worth offering — true as soon as *any* source can be searched,
-     * not only the selected one. The sheet carries the source chips, so a template being
-     * active is a reason to open it rather than a reason to hide the way in.
-     */
     val searchable: Boolean get() = sources.any { it.supportsSearch }
 }
 
-/** The 搜索弹幕 sheet's contents: a keyword, its 作品 hits, and one of them opened. */
 data class DanmakuSearchState(
     val query: String = "",
     val running: Boolean = false,
     val error: String? = null,
     val results: List<DanmakuSearchResult> = emptyList(),
-    /** Non-null once a result is opened, which swaps the list for that 作品's 集. */
     val openResult: DanmakuSearchResult? = null,
     val episodes: List<DanmakuEpisode> = emptyList(),
-    /** True after a search that came back with nothing, so "无结果" isn't shown before one. */
     val searched: Boolean = false,
-    /** Newest first. Shown in place of the hint before anything has been typed. */
     val recent: List<String> = emptyList(),
 )
 
-/** Callbacks for [DanmakuPanelState], grouped for the same reason the state is. */
 data class DanmakuPanelActions(
     val onToggle: () -> Unit = {},
     val onSelectArea: (Int) -> Unit = {},
@@ -128,22 +101,46 @@ data class DanmakuPanelActions(
     val onSelectSpeed: (Int) -> Unit = {},
     val onSelectOpacity: (Int) -> Unit = {},
     val onSelectSource: (String) -> Unit = {},
-    /** Called as the sheet opens, so the keyword can be seeded from what is playing. */
     val onOpenSearch: () -> Unit = {},
     val onQueryChange: (String) -> Unit = {},
     val onSubmitSearch: () -> Unit = {},
     val onOpenResult: (DanmakuSearchResult) -> Unit = {},
     val onBackToResults: () -> Unit = {},
     val onPickEpisode: (DanmakuEpisode) -> Unit = {},
-    /** Drops a hand-picked match and goes back to whatever the server matches on its own. */
     val onClearMatch: () -> Unit = {},
     val onToggleMerge: () -> Unit = {},
-    /** Re-runs the load that failed, without changing anything about the match. */
     val onRetry: () -> Unit = {},
     val onSend: (String) -> Unit = {},
 )
 
-/** The 弹幕 tab of the settings panel. */
+private data class DanmakuDisplayPreset(
+    val label: String,
+    val summary: String,
+    val areaIndex: Int,
+    val fontIndex: Int,
+    val speedIndex: Int,
+    val opacityIndex: Int,
+)
+
+private val DanmakuDisplayPresets = listOf(
+    DanmakuDisplayPreset("轻量", "1/4 · 小 · 慢 · 50%", 0, 0, 0, 0),
+    DanmakuDisplayPreset("标准", "1/2 · 标准 · 标准 · 75%", 1, 1, 1, 1),
+    DanmakuDisplayPreset("热闹", "3/4 · 大 · 快 · 100%", 2, 2, 2, 2),
+)
+
+private fun DanmakuDisplayPreset.isSelected(state: DanmakuPanelState): Boolean =
+    state.areaOptions.getOrNull(areaIndex)?.second == true &&
+        state.fontOptions.getOrNull(fontIndex)?.second == true &&
+        state.speedOptions.getOrNull(speedIndex)?.second == true &&
+        state.opacityOptions.getOrNull(opacityIndex)?.second == true
+
+private fun DanmakuDisplayPreset.apply(actions: DanmakuPanelActions) {
+    actions.onSelectArea(areaIndex)
+    actions.onSelectFont(fontIndex)
+    actions.onSelectSpeed(speedIndex)
+    actions.onSelectOpacity(opacityIndex)
+}
+
 @Composable
 internal fun DanmakuTab(
     state: DanmakuPanelState,
@@ -151,6 +148,8 @@ internal fun DanmakuTab(
     onOpenSearch: () -> Unit,
     onOpenSend: () -> Unit,
 ) {
+    var advancedVisible by remember { mutableStateOf(false) }
+
     GroupLabel("弹幕")
     OptionRow(
         if (state.enabled) "关闭弹幕" else "开启弹幕",
@@ -169,13 +168,9 @@ internal fun DanmakuTab(
         color = if (state.error != null) Brand.Danger else Color.White.copy(alpha = 0.56f),
         modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp),
     )
-    // A failed load used to be a red line and nothing else: the only way to try again was
-    // to leave the episode and come back. Most of these failures are a timeout.
     if (state.error != null && !state.loading) {
         OptionRow("重试", selected = false, onClick = actions.onRetry)
     }
-    // What the comments are actually from. A wrong match is the single most common thing
-    // to go wrong here and the only way to see it is to print it.
     state.matchLabel?.let { label ->
         Text(
             label,
@@ -191,50 +186,50 @@ internal fun DanmakuTab(
             "搜索弹幕",
             selected = false,
             onClick = onOpenSearch,
-            // 取消匹配 only means something once a hand-picked one is in force; the
-            // server's own guess is not something there is a way to un-choose.
             actionLabel = if (state.matchPinned) "取消匹配" else null,
             onAction = actions.onClearMatch,
         )
     }
-
     if (state.canSend) {
         OptionRow("发送弹幕", selected = false, onClick = onOpenSend)
     }
-    // The single most effective thing that can be done to fourteen thousand comments.
     OptionRow("合并重复弹幕", state.mergeDuplicates, onClick = actions.onToggleMerge)
 
-    GroupLabel("显示区域")
-    state.areaOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected, onClick = { actions.onSelectArea(index) })
+    GroupLabel("显示风格")
+    DanmakuDisplayPresets.forEach { preset ->
+        OptionRow(
+            label = "${preset.label} · ${preset.summary}",
+            selected = preset.isSelected(state),
+            onClick = { preset.apply(actions) },
+        )
     }
-    GroupLabel("字体大小")
-    state.fontOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected, onClick = { actions.onSelectFont(index) })
-    }
-    GroupLabel("移动速度")
-    state.speedOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected, onClick = { actions.onSelectSpeed(index) })
-    }
-    GroupLabel("透明度")
-    state.opacityOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected, onClick = { actions.onSelectOpacity(index) })
+
+    OptionRow(
+        label = if (advancedVisible) "收起高级设置" else "高级设置",
+        selected = advancedVisible,
+        onClick = { advancedVisible = !advancedVisible },
+    )
+
+    if (advancedVisible) {
+        GroupLabel("显示区域")
+        state.areaOptions.forEachIndexed { index, (label, selected) ->
+            OptionRow(label, selected, onClick = { actions.onSelectArea(index) })
+        }
+        GroupLabel("字体大小")
+        state.fontOptions.forEachIndexed { index, (label, selected) ->
+            OptionRow(label, selected, onClick = { actions.onSelectFont(index) })
+        }
+        GroupLabel("移动速度")
+        state.speedOptions.forEachIndexed { index, (label, selected) ->
+            OptionRow(label, selected, onClick = { actions.onSelectSpeed(index) })
+        }
+        GroupLabel("透明度")
+        state.opacityOptions.forEachIndexed { index, (label, selected) ->
+            OptionRow(label, selected, onClick = { actions.onSelectOpacity(index) })
+        }
     }
 }
 
-/**
- * 搜索弹幕 — a keyword, the 作品 that match it, and the 集 under the one you open.
- *
- * Automatic matching works from the filename, and filenames are not titles: a library that
- * calls a show 九门.2026.S01E04.2160p and a 弹幕 server that files it under 九门(2026) have
- * nothing in common for a matcher to work with. This is the manual override, and it is a
- * two-step list rather than a picker because the servers hold several copies of the same
- * title — a 2021 film and a 2026 series, one per platform — and only a person can say which
- * one is on screen.
- *
- * A right-edge sheet, like the episode drawer, and for the same reason: it is a list to
- * scroll while the film keeps playing behind it, not something to stop the world for.
- */
 @Composable
 internal fun DanmakuSearchPanel(
     state: DanmakuPanelState,
@@ -276,15 +271,10 @@ internal fun DanmakuSearchPanel(
             value = search.query,
             onValueChange = actions.onQueryChange,
             onSubmit = actions.onSubmitSearch,
-            // The sheet exists to be typed into; opening it and then having to tap the
-            // field is a step with exactly one possible answer.
             autoFocus = true,
         )
 
-        // Which server answers. Only drawn with a real choice to make — one source is not
-        // a set of options, it is a fact.
         if (state.sources.size > 1) {
-            // Chips overflow once there are four or five sources; slide rather than clip.
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -366,8 +356,6 @@ internal fun DanmakuSearchPanel(
             search.recent.isNotEmpty() -> Column(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                // The same show, next episode, tomorrow night. Retyping a title on a
-                // landscape keyboard is the sort of chore a list of eight strings removes.
                 Text(
                     "最近搜索",
                     style = mr(10f, 600),
@@ -394,18 +382,6 @@ internal fun DanmakuSearchPanel(
     }
 }
 
-/**
- * 发送弹幕 — one line, onto the episode the player is matched to.
- *
- * A dialog rather than a bar along the bottom of the picture: sending is occasional, the
- * bar would be permanent, and the player already treats a modal question this way (一起看
- * asks for a room code the same way). It closes on send, because the sent line appearing
- * over the picture is the confirmation.
- *
- * The position is taken at the moment 发送 is pressed rather than when the dialog opened —
- * the film has been playing the whole time it was being typed, and a comment that lands
- * twenty seconds early is a comment about the wrong shot.
- */
 @Composable
 internal fun DanmakuSendDialog(
     sending: Boolean,
@@ -455,7 +431,6 @@ private fun SearchField(
     onSubmit: () -> Unit,
     autoFocus: Boolean = false,
     placeholder: String = "片名",
-    /** The trailing icon. Null leaves the field bare, for a form with its own buttons. */
     action: ImageVector? = AppIcons.Search,
 ) {
     val focusRequester = remember { FocusRequester() }
