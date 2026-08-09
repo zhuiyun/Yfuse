@@ -10,15 +10,21 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.offline.OfflineDownloadRequest
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.util.componentScope
+import com.yfuse.feature.player.PlaybackPreloadKey
+import com.yfuse.feature.player.PlaybackSourcePreloader
+import com.yfuse.feature.player.PlayerStoreFactory
+import com.yfuse.feature.player.PreparedPlaybackRegistry
+import com.yfuse.feature.player.PreparedPlayerStore
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import org.koin.core.context.GlobalContext
 
 class DetailComponent(
     componentContext: ComponentContext,
-    storeFactory: StoreFactory,
-    repo: EmbyRepository,
-    registry: ServerRegistry,
+    private val storeFactory: StoreFactory,
+    private val repo: EmbyRepository,
+    private val registry: ServerRegistry,
     val itemId: String,
     serverId: String? = null,
     /**
@@ -57,6 +63,28 @@ class DetailComponent(
 
     init {
         val scope = componentScope(lifecycle)
+        val sourcePreloader = runCatching {
+            GlobalContext.get().get<PlaybackSourcePreloader>()
+        }.getOrNull()
+
+        var preloadKey: PlaybackPreloadKey? = null
+        var preloadStore: PreparedPlayerStore? = null
+        var preloadObserver: Job? = null
+
+        fun releaseOwnedPreload() {
+            preloadObserver?.cancel()
+            preloadObserver = null
+            val key = preloadKey
+            val prepared = preloadStore
+            if (key != null && prepared != null &&
+                PreparedPlaybackRegistry.removeIfOwned(key, prepared)
+            ) {
+                prepared.dispose()
+            }
+            preloadKey = null
+            preloadStore = null
+        }
+
         store.labels
             .onEach {
                 if (it is DetailLabel.Play) {
@@ -64,6 +92,58 @@ class DetailComponent(
                 }
             }
             .launchIn(scope)
+
+        // Build the exact queue the play button will need while the user is still reading the
+        // detail page. For episodes this resolves the series queue and all MediaSources in one
+        // pass, so the next episode already has concrete direct/transcode addresses as well.
+        store.states
+            .onEach { state ->
+                val target = state.playTarget ?: return@onEach
+                val server = state.playServer ?: return@onEach
+                if (state.selectionLoading) return@onEach
+
+                val key = PlaybackPreloadKey(
+                    serverId = server.id,
+                    itemId = target.id,
+                    startPositionTicks = state.playPositionTicks,
+                    mediaSourceId = state.selectedVersionId,
+                )
+                if (key == preloadKey && preloadStore != null) return@onEach
+
+                releaseOwnedPreload()
+                val prepared = PlayerStoreFactory(
+                    storeFactory = storeFactory,
+                    repo = repo,
+                    registry = registry,
+                    itemId = target.id,
+                    startPositionTicks = state.playPositionTicks,
+                    serverId = server.id,
+                    mediaSourceId = state.selectedVersionId,
+                ).create()
+                preloadKey = key
+                preloadStore = prepared
+                PreparedPlaybackRegistry.register(key, prepared)
+                    ?.takeIf { previous -> previous !== prepared }
+                    ?.dispose()
+
+                // Metadata/URLs are useful to every engine. Android's preloader additionally
+                // puts the beginning of the selected direct stream into the shared Media3 cache.
+                preloadObserver = prepared.states
+                    .onEach { playback ->
+                        if (playback.loading) return@onEach
+                        val selected = playback.items.getOrNull(playback.startIndex)
+                        if (playback.error == null && selected != null) {
+                            sourcePreloader?.preload(selected.url)
+                        }
+                        // Ready/failed is terminal for PlayerStore. Keeping the Store itself is
+                        // intentional: PlayerComponent borrows this exact result on the tap.
+                        preloadObserver?.cancel()
+                        preloadObserver = null
+                    }
+                    .launchIn(scope)
+            }
+            .launchIn(scope)
+
         if (autoPlay) {
             // Fired once, only after the same concrete selection used by the visible play
             // key has resolved. A series' top-level detail is not itself playable.
@@ -78,6 +158,9 @@ class DetailComponent(
                 }
                 .launchIn(scope)
         }
-        lifecycle.doOnDestroy(store::dispose)
+        lifecycle.doOnDestroy {
+            releaseOwnedPreload()
+            store.dispose()
+        }
     }
 }
