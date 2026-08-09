@@ -9,6 +9,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 
 /**
  * Extracts a representative colour from the image at [url], used to tint the
@@ -50,4 +52,26 @@ fun rememberAnimatedDominantColor(
         label = "dominantColor",
     )
     return eased
+}
+
+/**
+ * Turns an extracted bitmap swatch into a UI colour rather than trusting the raw pixel.
+ * Backdrops routinely produce near-black night scenes or very bright skies; both are valid
+ * image colours and poor button/selection colours. The restrained band also keeps every title
+ * recognisably inside Yfuse's visual system instead of letting the artwork redesign the app.
+ */
+fun harmonizeArtworkAccent(raw: Color, darkTheme: Boolean): Color {
+    val brandBlend = if (darkTheme) 0.10f else 0.16f
+    var result = lerp(raw, Brand.Primary, brandBlend)
+    val minimum = if (darkTheme) 0.10f else 0.08f
+    val maximum = if (darkTheme) 0.34f else 0.28f
+    repeat(5) {
+        val light = result.luminance()
+        result = when {
+            light < minimum -> lerp(result, Color.White, 0.12f)
+            light > maximum -> lerp(result, Color.Black, 0.12f)
+            else -> return result
+        }
+    }
+    return result
 }
