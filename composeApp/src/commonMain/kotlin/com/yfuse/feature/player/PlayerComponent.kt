@@ -18,15 +18,28 @@ class PlayerComponent(
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
 
-    val store = PlayerStoreFactory(
-        storeFactory,
-        repo,
-        registry,
-        itemId,
-        startPositionTicks,
-        serverId,
-        mediaSourceId,
-    ).create()
+    private val preloadKey = PlaybackPreloadKey(
+        serverId = serverId,
+        itemId = itemId,
+        startPositionTicks = startPositionTicks,
+        mediaSourceId = mediaSourceId,
+    )
+
+    /**
+     * A detail page starts this exact Store before the tap. Taking it here preserves both a
+     * completed queue and an in-flight request, so pressing 播放 never throws that work away and
+     * starts the same item/episode/MediaSources resolution again.
+     */
+    val store = PreparedPlaybackRegistry.take(preloadKey)
+        ?: PlayerStoreFactory(
+            storeFactory,
+            repo,
+            registry,
+            itemId,
+            startPositionTicks,
+            serverId,
+            mediaSourceId,
+        ).create()
 
     init {
         lifecycle.doOnDestroy(store::dispose)
