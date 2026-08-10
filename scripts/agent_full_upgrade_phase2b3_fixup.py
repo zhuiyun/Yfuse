@@ -23,9 +23,6 @@ def replace(path: str, old: str, new: str, count: int = 1) -> None:
 player_component = "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerComponent.kt"
 
 if mode == "pre":
-    # The original PlayerComponent constructor parameters are ordinary parameters. The failover
-    # patch needs to retain mediaSourceId and uses named PlayerStoreFactory arguments, so normalize
-    # those two call-site shapes before applying the main phase 3 patch.
     replace(
         player_component,
         '    mediaSourceId: String? = null,\n',
@@ -38,16 +35,13 @@ if mode == "pre":
         ).create()
 ''',
         '''            serverId = serverId,
-            mediaSourceId = mediaSourceId,
-        ).create()
+        mediaSourceId = mediaSourceId,
+    ).create()
 ''',
     )
     print("phase2b3 pre-fixup applied")
     raise SystemExit(0)
 
-# A DetailComponent may hand PlayerComponent a Store that started loading before the tap. Give
-# that preloaded Store the same exact-media failover request/health dependencies; otherwise only
-# the slower non-preloaded path could switch servers.
 detail_component = "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailComponent.kt"
 text = read(detail_component)
 if 'import com.yfuse.core.data.PlaybackFailoverPlan\n' not in text:
@@ -102,14 +96,11 @@ if old not in text:
 text = text.replace(old, new, 1)
 write(detail_component, text)
 
-# Once failover chooses another server, MediaSourceIds are server-local and the source is selected
-# anew. The phase 3 bulk rewrite updates item ids; explicitly update this named argument too.
 player_store = "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt"
 text = read(player_store)
 text = text.replace('mediaSourceId = mediaSourceId,', 'mediaSourceId = effectiveMediaSourceId,')
 write(player_store, text.rstrip() + "\n")
 
-# Keep all newly generated files clean for the branch's git-diff formatting gate.
 for relative in (
     "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DownloadsScreen.kt",
     "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
