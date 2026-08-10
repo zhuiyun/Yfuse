@@ -22,14 +22,15 @@ jobs:
           ref: agent/unify-home-tab-reduce-transparency
           fetch-depth: 1
 
-      # Phase 2B upgrades downloads/tracking/profile IA; phase 3 adds exact-media failover.
       - name: Apply product workflows
         id: patch
         shell: bash
         run: |
           set -euo pipefail
           python3 scripts/agent_full_upgrade_phase2b.py
+          python3 scripts/agent_full_upgrade_phase2b3_fixup.py pre
           python3 scripts/agent_full_upgrade_phase3.py
+          python3 scripts/agent_full_upgrade_phase2b3_fixup.py post
           git diff --check
           if [[ -n "$(git status --porcelain composeApp)" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
