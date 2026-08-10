@@ -22,17 +22,15 @@ jobs:
           ref: agent/unify-home-tab-reduce-transparency
           fetch-depth: 0
 
-      - name: Apply phase 1
+      - name: Apply phase 2A
         id: patch
         shell: bash
         run: |
           set -euo pipefail
-          sed -i 's/version.ref = "activity"/version.ref = "androidx-activity"/g' scripts/agent_full_upgrade_phase1.py
-          python3 scripts/agent_full_upgrade_phase1.py
-          python3 scripts/agent_full_upgrade_phase1_fixup.py
-          python3 scripts/agent_full_upgrade_phase1_test_fixup.py
+          python3 scripts/agent_full_upgrade_phase2a.py
+          python3 scripts/agent_full_upgrade_phase2a_fixup.py
           git diff --check
-          if [[ -n "$(git status --porcelain composeApp gradle/libs.versions.toml)" ]]; then
+          if [[ -n "$(git status --porcelain composeApp)" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -62,37 +60,22 @@ jobs:
         shell: bash
         run: ./gradlew :composeApp:compileDebugKotlinAndroid --no-daemon
 
-      - name: Run stable affected unit tests
+      - name: Compile and run stable affected tests
         shell: bash
         run: |
           ./gradlew :composeApp:testDebugUnitTest --no-daemon \
-            --tests 'com.yfuse.feature.detail.DetailStoreTest.version_selects_first_and_selected_version_plays' \
-            --tests 'com.yfuse.feature.servers.*' \
-            --tests 'com.yfuse.feature.home.*' \
-            --tests 'com.yfuse.core.designsystem.NavigationIdentityTest'
+            --tests 'com.yfuse.core.data.GenreFacetNormalizationTest' \
+            --tests 'com.yfuse.core.designsystem.NavigationIdentityTest' \
+            --tests 'com.yfuse.feature.library.LibraryGridStoreTest.genres_fill_the_filter_row_and_a_selection_narrows_the_query'
 
-      - name: Verify service locator cleanup
-        shell: bash
-        run: |
-          set -euo pipefail
-          refs="$(git grep -n 'GlobalContext.get()' -- \
-            composeApp/src/commonMain/kotlin/com/yfuse/app \
-            composeApp/src/commonMain/kotlin/com/yfuse/feature/detail \
-            composeApp/src/commonMain/kotlin/com/yfuse/feature/home \
-            composeApp/src/commonMain/kotlin/com/yfuse/feature/profile || true)"
-          if [[ -n "$refs" ]]; then
-            printf '%s\n' "$refs"
-            exit 1
-          fi
-
-      - name: Commit phase 1 source
+      - name: Commit phase 2A source
         if: steps.patch.outputs.changed == 'true'
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add composeApp gradle/libs.versions.toml
+          git add composeApp/src
           git diff --cached --check
-          git commit -m "refactor: modernize app architecture and camera"
+          git commit -m "feat: unify playback selection and search filters"
           git push origin HEAD:agent/unify-home-tab-reduce-transparency
