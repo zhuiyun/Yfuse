@@ -30,6 +30,7 @@ jobs:
           sed -i 's/version.ref = "activity"/version.ref = "androidx-activity"/g' scripts/agent_full_upgrade_phase1.py
           python3 scripts/agent_full_upgrade_phase1.py
           python3 scripts/agent_full_upgrade_phase1_fixup.py
+          python3 scripts/agent_full_upgrade_phase1_test_fixup.py
           git diff --check
           if [[ -n "$(git status --porcelain composeApp gradle/libs.versions.toml)" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -65,6 +66,7 @@ jobs:
         shell: bash
         run: |
           ./gradlew :composeApp:testDebugUnitTest --no-daemon \
+            --tests 'com.yfuse.feature.detail.*' \
             --tests 'com.yfuse.feature.servers.*' \
             --tests 'com.yfuse.feature.home.*' \
             --tests 'com.yfuse.core.designsystem.*'
