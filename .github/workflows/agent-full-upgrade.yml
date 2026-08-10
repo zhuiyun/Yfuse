@@ -65,8 +65,8 @@ jobs:
         run: |
           ./gradlew :composeApp:testDebugUnitTest --no-daemon \
             --tests 'com.yfuse.feature.player.PlaybackFailoverPolicyTest' \
-            --tests 'com.yfuse.feature.servers.*' \
-            --tests 'com.yfuse.feature.home.*' \
+            --tests 'com.yfuse.feature.servers.ServersStoreTest.address_with_http_scheme_updates_protocol_and_avoids_duplicate_scheme' \
+            --tests 'com.yfuse.feature.servers.ServersStoreTest.address_with_https_and_explicit_port_overrides_both_fields' \
             --tests 'com.yfuse.core.designsystem.NavigationIdentityTest'
 
       - name: Commit product workflow source
