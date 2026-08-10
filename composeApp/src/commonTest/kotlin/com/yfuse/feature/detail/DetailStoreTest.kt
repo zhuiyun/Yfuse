@@ -37,15 +37,19 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.coroutines.CoroutineContext
 
 class DetailStoreTest {
+    private lateinit var testPlaybackTrackRequest: PlaybackTrackRequest
+    private lateinit var testSyncManager: ServerSyncManager
     @BeforeTest
     fun setUp() {
         val syncRegistry = testRegistry()
         val syncRepo = testRepo { json("{}") }
+        testPlaybackTrackRequest = PlaybackTrackRequest()
+        testSyncManager = ServerSyncManager(syncRepo, syncRegistry, MapSettings())
         startKoin {
             modules(
                 module {
-                    single { PlaybackTrackRequest() }
-                    single { ServerSyncManager(syncRepo, syncRegistry, MapSettings()) }
+                    single { testPlaybackTrackRequest }
+                    single { testSyncManager }
                 },
             )
         }
@@ -736,6 +740,8 @@ class DetailStoreTest {
             serverId = "one",
             sourceSelectionTimeoutMs = sourceSelectionTimeoutMs,
             mainContext = Dispatchers.Unconfined,
+            playbackTrackRequest = testPlaybackTrackRequest,
+            syncManager = testSyncManager,
         ).create()
     }
 
@@ -829,6 +835,8 @@ class DetailStoreTest {
             itemId = "s1",
             serverId = "one",
             mainContext = mainContext,
+            playbackTrackRequest = testPlaybackTrackRequest,
+            syncManager = testSyncManager,
         ).create()
     }
 

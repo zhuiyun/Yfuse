@@ -23,7 +23,7 @@ import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.clearImageCache
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.servers.ServersStoreFactory
-import org.koin.core.context.GlobalContext
+import com.yfuse.app.AppDependencies
 
 class ProfileComponent(
     componentContext: ComponentContext,
@@ -33,6 +33,7 @@ class ProfileComponent(
     val themePreferences: ThemePreferences,
     /** Re-opens the player on the current 一起看 room; see `RootComponent.enterWatchRoom`. */
     val onEnterWatchRoom: () -> Unit,
+    val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
 
     val store = ProfileStoreFactory(storeFactory, registry).create()
@@ -45,20 +46,21 @@ class ProfileComponent(
         storeFactory = storeFactory,
         repo = repo,
         registry = registry,
-        discovery = GlobalContext.get().get<LanDiscovery>(),
+        discovery = dependencies.lanDiscovery,
     ).create()
 
-    val offlineMedia: OfflineMediaManager = GlobalContext.get().get()
-    val syncManager: ServerSyncManager = GlobalContext.get().get()
-    val playbackRecovery: PlaybackRecoveryStore = GlobalContext.get().get()
-    val playbackPreferences: PlaybackPreferences = GlobalContext.get().get()
-    val userAgentPreferences: UserAgentPreferences = GlobalContext.get().get()
-    val danmakuPreferences: DanmakuPreferences = GlobalContext.get().get()
-    val skipSegmentPreferences: SkipSegmentPreferences = GlobalContext.get().get()
-    private val libraryCache: LibraryCache = GlobalContext.get().get()
-    val watchTogetherPreferences: WatchTogetherPreferences = GlobalContext.get().get()
-    val watchTogether: WatchTogetherClient = GlobalContext.get().get()
-    val account: AccountRepository = GlobalContext.get().get()
+    val offlineMedia: OfflineMediaManager = dependencies.offlineMediaManager
+    val syncManager: ServerSyncManager = dependencies.serverSyncManager
+    val playbackRecovery: PlaybackRecoveryStore = dependencies.playbackRecovery
+    val playbackPreferences: PlaybackPreferences = dependencies.playbackPreferences
+    val userAgentPreferences: UserAgentPreferences = dependencies.userAgentPreferences
+    val danmakuPreferences: DanmakuPreferences = dependencies.danmakuPreferences
+    val skipSegmentPreferences: SkipSegmentPreferences = dependencies.skipSegmentPreferences
+    private val libraryCache: LibraryCache = dependencies.libraryCache
+    val watchTogetherPreferences: WatchTogetherPreferences = dependencies.watchTogetherPreferences
+    val watchTogether: WatchTogetherClient = dependencies.watchTogether
+    val account: AccountRepository = dependencies.account
+    val serverHealthMonitor = dependencies.serverHealthMonitor
 
     /** Clear the shared image cache; offline video files and library metadata are untouched. */
     suspend fun onClearCache() = clearImageCache()

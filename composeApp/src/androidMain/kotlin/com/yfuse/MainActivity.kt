@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.toArgb
 import com.arkivanov.decompose.retainedComponent
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AnimatedSplashApp
+import com.yfuse.app.AppDependencies
 import com.yfuse.app.RootComponent
 import com.yfuse.app.isNightMode
 import com.yfuse.app.splashBackground
@@ -25,6 +26,7 @@ import com.yfuse.core.sync.WatchInvite
 import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager
+import com.yfuse.feature.player.PlaybackSourcePreloader
 import org.koin.core.context.GlobalContext
 
 class MainActivity : ComponentActivity() {
@@ -53,6 +55,26 @@ class MainActivity : ComponentActivity() {
                 themePreferences = koin.get<ThemePreferences>(),
                 searchHistory = koin.get<SearchHistory>(),
                 syncManager = koin.get<ServerSyncManager>(),
+                dependencies = AppDependencies(
+                    calendarRepository = koin.get(),
+                    tmdbHomeCache = koin.get(),
+                    offlineMediaManager = koin.get(),
+                    playbackTrackRequest = koin.get(),
+                    serverSyncManager = koin.get(),
+                    watchTogether = koin.get(),
+                    watchTogetherPreferences = koin.get(),
+                    inviteResolver = koin.get(),
+                    playbackSourcePreloader = runCatching { koin.get<PlaybackSourcePreloader>() }.getOrNull(),
+                    playbackRecovery = koin.get(),
+                    playbackPreferences = koin.get(),
+                    userAgentPreferences = koin.get(),
+                    danmakuPreferences = koin.get(),
+                    skipSegmentPreferences = koin.get(),
+                    libraryCache = koin.get(),
+                    lanDiscovery = koin.get(),
+                    account = koin.get(),
+                    serverHealthMonitor = koin.get(),
+                ),
             )
         }
 

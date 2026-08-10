@@ -10,6 +10,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.offline.OfflineDownloadRequest
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.util.componentScope
+import com.yfuse.app.AppDependencies
 import com.yfuse.feature.player.PlaybackPreloadKey
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.player.PlayerStoreFactory
@@ -18,7 +19,6 @@ import com.yfuse.feature.player.PreparedPlayerStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import org.koin.core.context.GlobalContext
 
 class DetailComponent(
     componentContext: ComponentContext,
@@ -35,6 +35,7 @@ class DetailComponent(
      * them on a detail page they then have to press 播放 on is a step they already took.
      */
     private val autoPlay: Boolean = false,
+    val dependencies: AppDependencies,
     val onBack: () -> Unit,
     val onOpenRelated: (serverId: String, itemId: String) -> Unit,
     private val onPlay: (
@@ -45,13 +46,17 @@ class DetailComponent(
     ) -> Unit,
 ) : ComponentContext by componentContext {
 
-    val store = DetailStoreFactory(storeFactory, repo, registry, itemId, serverId).create()
+    val store = DetailStoreFactory(
+        storeFactory, repo, registry, itemId, serverId,
+        playbackTrackRequest = dependencies.playbackTrackRequest,
+        syncManager = dependencies.serverSyncManager,
+    ).create()
 
     fun download() {
         val state = store.state
         val detail = state.playTarget ?: return
         val server = state.playServer ?: return
-        GlobalContext.get().get<OfflineMediaManager>().enqueue(
+        dependencies.offlineMediaManager.enqueue(
             OfflineDownloadRequest(
                 serverId = server.id,
                 itemId = detail.id,
@@ -63,9 +68,7 @@ class DetailComponent(
 
     init {
         val scope = componentScope(lifecycle)
-        val sourcePreloader = runCatching {
-            GlobalContext.get().get<PlaybackSourcePreloader>()
-        }.getOrNull()
+        val sourcePreloader = dependencies.playbackSourcePreloader
 
         var preloadKey: PlaybackPreloadKey? = null
         var preloadStore: PreparedPlayerStore? = null

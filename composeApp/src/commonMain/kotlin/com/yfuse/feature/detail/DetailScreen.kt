@@ -120,7 +120,6 @@ import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.feature.player.PlaybackSelectionState
 import com.yfuse.feature.watch.WatchInviteShareSheet
-import org.koin.core.context.GlobalContext
 import kotlinx.coroutines.launch
 
 /** Height of the collapsing top bar's content row, above the status bar inset. */
@@ -260,8 +259,8 @@ fun DetailScreen(component: DetailComponent) {
         ).joinToString(" · ").takeIf { it.isNotBlank() }
     }
 
-    val watchTogether = remember { GlobalContext.get().get<WatchTogetherClient>() }
-    val watchPreferences = remember { GlobalContext.get().get<WatchTogetherPreferences>() }
+    val watchTogether = component.dependencies.watchTogether
+    val watchPreferences = component.dependencies.watchTogetherPreferences
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by watchPreferences.endpoint.collectAsState()
     val share = rememberShareHandler()

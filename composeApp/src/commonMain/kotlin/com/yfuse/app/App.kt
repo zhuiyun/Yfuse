@@ -6,7 +6,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -101,7 +100,6 @@ import com.yfuse.feature.watch.WatchInviteResolver
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
 import kotlinx.coroutines.launch
-import org.koin.core.context.GlobalContext
 
 private data class TabItem(val tab: Tab, val label: String, val icon: ImageVector)
 
@@ -147,9 +145,9 @@ fun App(root: RootComponent) {
         // moment, and an active room has to stay visible after the player is dismissed —
         // the client is a singleton, so without this the user could be in a room with no
         // indication anywhere in the app.
-        val watchTogether = remember { GlobalContext.get().get<WatchTogetherClient>() }
-        val inviteResolver = remember { GlobalContext.get().get<WatchInviteResolver>() }
-        val watchPreferences = remember { GlobalContext.get().get<WatchTogetherPreferences>() }
+        val watchTogether = root.dependencies.watchTogether
+        val inviteResolver = root.dependencies.inviteResolver
+        val watchPreferences = root.dependencies.watchTogetherPreferences
         val watchState by watchTogether.state.collectAsState()
         val watchEndpoint by watchPreferences.endpoint.collectAsState()
         val pendingInvite by root.pendingInvite.collectAsState()
@@ -298,11 +296,7 @@ fun App(root: RootComponent) {
                         transitionSpec = {
                             val duration = if (reduceMotion) 0 else Motion.TAB
                             val fade = tween<Float>(duration, easing = Motion.Curve)
-                            val zoom = tween<Float>(duration, easing = Motion.Curve)
-                            (
-                                fadeIn(fade) +
-                                    scaleIn(zoom, initialScale = Motion.TAB_SCALE_FROM)
-                                ) togetherWith fadeOut(fade) using
+                            fadeIn(fade) togetherWith fadeOut(fade) using
                                 // Every tab fills the same screen, so there is no size to
                                 // transition — and the default one clips to an animating
                                 // box, which would crop the incoming page for 260ms.

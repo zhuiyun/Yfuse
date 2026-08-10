@@ -12,6 +12,7 @@ import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.app.AppDependencies
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.serialization.Serializable
@@ -25,6 +26,7 @@ class LibraryComponent(
     private val storeFactory: StoreFactory,
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
+    private val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
 
     private val navigation = StackNavigation<Config>()
@@ -127,6 +129,7 @@ class LibraryComponent(
                 itemId = config.itemId,
                 serverId = config.serverId,
                 autoPlay = config.autoPlay,
+                dependencies = dependencies,
                 onBack = { navigation.pop() },
                 onOpenRelated = { serverId, itemId ->
                     navigation.pushToFront(Config.Detail(serverId, itemId))

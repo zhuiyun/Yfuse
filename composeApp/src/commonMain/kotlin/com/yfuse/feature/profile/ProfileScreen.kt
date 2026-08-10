@@ -50,6 +50,8 @@ import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.ServerHealth
+import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
@@ -57,6 +59,7 @@ import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
@@ -171,6 +174,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val accountState by component.account.state.collectAsState()
     val serversState by component.serversStore.states
         .collectAsState(component.serversStore.state)
+    val serverHealth by component.serverHealthMonitor.health.collectAsState()
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmRemove by remember { mutableStateOf<SavedServer?>(null) }
@@ -398,6 +402,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                                 ServerRow(
                                                     server = server,
                                                     isCurrent = server.id == state.currentServer?.id,
+                                                    health = serverHealth[server.id],
                                                     onClick = {
                                                         component.store.accept(
                                                             ProfileIntent.SwitchServer(server.id),
@@ -1115,6 +1120,7 @@ internal fun Section(
 private fun ServerRow(
     server: SavedServer,
     isCurrent: Boolean,
+    health: ServerHealth?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onEdit: () -> Unit,
@@ -1165,10 +1171,22 @@ private fun ServerRow(
                     Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(if (isCurrent) Brand.Online else Brand.Offline),
+                        .background(
+                            when (health?.status) {
+                                ServerHealthStatus.Healthy -> Semantic.Success
+                                ServerHealthStatus.Degraded -> Semantic.Warning
+                                ServerHealthStatus.AuthRequired -> Semantic.Error
+                                ServerHealthStatus.Offline -> Semantic.Offline
+                                else -> Semantic.Offline
+                            },
+                        ),
                 )
                 Text(
-                    if (isCurrent) "当前使用 · ${server.userName}" else server.userName,
+                    listOfNotNull(
+                        "当前使用".takeIf { isCurrent },
+                        server.userName.takeIf { it.isNotBlank() },
+                        health?.summary,
+                    ).joinToString(" · "),
                     style = mr(10f, 400),
                     color = palette.sub,
                     maxLines = 1,

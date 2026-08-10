@@ -214,7 +214,19 @@ class ServersStoreFactory(
                 }
                 is ServersIntent.ServerNameChanged -> dispatch(Msg.ServerName(intent.value))
                 is ServersIntent.ProtocolChanged -> dispatch(Msg.Protocol(intent.https))
-                is ServersIntent.HostChanged -> dispatch(Msg.Host(intent.value))
+                is ServersIntent.HostChanged -> {
+                    val parsed = parseServerAddress(intent.value)
+                    if (parsed != null && (parsed.https != null || parsed.port != null)) {
+                        parsed.https?.let { scheme ->
+                            dispatch(Msg.Protocol(scheme))
+                            if (parsed.port == null) dispatch(Msg.Port(defaultServerPort(scheme)))
+                        }
+                        parsed.port?.let { dispatch(Msg.Port(it)) }
+                        dispatch(Msg.Host(parsed.host))
+                    } else {
+                        dispatch(Msg.Host(intent.value))
+                    }
+                }
                 is ServersIntent.PortChanged -> dispatch(Msg.Port(intent.value))
                 is ServersIntent.UsernameChanged -> dispatch(Msg.Username(intent.value))
                 is ServersIntent.PasswordChanged -> dispatch(Msg.Password(intent.value))

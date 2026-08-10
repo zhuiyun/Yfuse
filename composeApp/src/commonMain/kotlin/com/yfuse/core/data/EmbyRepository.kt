@@ -71,6 +71,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.time.TimeSource
 
 /** Result of a successful authentication, ready to persist as a [SavedServer]. */
 data class AuthedServer(
@@ -420,6 +421,15 @@ class EmbyRepository(private val client: HttpClient) {
                 setBody(TextContent(requestJson, ContentType.Application.Json))
             }.body()
         }
+    }
+
+    /** Authenticated, cheap server probe used by the health monitor. */
+    suspend fun probeServer(server: SavedServer): Result<Long> = call("server_probe") {
+        val mark = TimeSource.Monotonic.markNow()
+        client.get("${normalizeBaseUrl(server.baseUrl)}/System/Info") {
+            header("X-Emby-Token", server.accessToken)
+        }.bodyAsText()
+        mark.elapsedNow().inWholeMilliseconds
     }
 
     /** Aggregates the home screen: continue-watching, latest-per-library, featured. */

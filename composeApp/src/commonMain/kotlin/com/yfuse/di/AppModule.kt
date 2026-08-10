@@ -18,6 +18,7 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbHomeCache
@@ -76,6 +77,7 @@ fun appModule(
         )
     }
     single { EmbyRepository(get()) }
+    single { ServerHealthMonitor(get(), get()) }
     single { AiringScheduleCache(get()) }
     single {
         AiringCalendarRepository(

@@ -11,6 +11,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.app.AppDependencies
 import kotlinx.serialization.Serializable
 
 /**
@@ -25,6 +26,7 @@ class ProfileTabComponent(
     val themePreferences: ThemePreferences,
     /** Re-opens the player on the current 一起看 room; see `RootComponent.enterWatchRoom`. */
     private val onEnterWatchRoom: () -> Unit,
+    private val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
 
     private val navigation = StackNavigation<Config>()
@@ -70,6 +72,7 @@ class ProfileTabComponent(
                 repo = repo,
                 themePreferences = themePreferences,
                 onEnterWatchRoom = onEnterWatchRoom,
+                dependencies = dependencies,
             ),
         )
     }

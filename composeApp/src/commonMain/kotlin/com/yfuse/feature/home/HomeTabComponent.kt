@@ -14,6 +14,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.app.AppDependencies
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.feature.calendar.CalendarComponent
 import com.yfuse.feature.detail.DetailComponent
@@ -32,6 +33,7 @@ class HomeTabComponent(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     private val calendarRepository: AiringCalendarRepository,
+    private val dependencies: AppDependencies,
     // The header's search entry and avatar switch tabs, which only the root can do.
     private val onOpenSearch: () -> Unit,
     private val onOpenLibrary: () -> Unit,
@@ -95,6 +97,7 @@ class HomeTabComponent(
                 tmdb = tmdb,
                 emby = repo,
                 registry = registry,
+                cache = dependencies.tmdbHomeCache,
                 onOpenEmbyItem = { serverId, itemId ->
                     navigation.push(Config.Detail(serverId, itemId))
                 },
@@ -115,6 +118,7 @@ class HomeTabComponent(
                 registry = registry,
                 itemId = config.itemId,
                 serverId = config.serverId,
+                dependencies = dependencies,
                 onBack = { navigation.pop() },
                 onOpenRelated = { serverId, itemId ->
                     navigation.push(Config.Detail(serverId, itemId))

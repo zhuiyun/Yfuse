@@ -15,7 +15,6 @@ import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.componentScope
-import org.koin.core.context.GlobalContext
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.profile.ProfileTabComponent
@@ -39,6 +38,7 @@ class RootComponent(
     val themePreferences: ThemePreferences,
     searchHistory: SearchHistory,
     syncManager: ServerSyncManager,
+    val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
 
     enum class Tab { Home, Browse, Search, Profile }
@@ -53,11 +53,12 @@ class RootComponent(
     val activeTab: Value<Tab> = _activeTab
 
     private val scope = componentScope(lifecycle)
-    private val watchTogether: WatchTogetherClient = GlobalContext.get().get()
-    private val inviteResolver: WatchInviteResolver = GlobalContext.get().get()
+    private val watchTogether: WatchTogetherClient = dependencies.watchTogether
+    private val inviteResolver: WatchInviteResolver = dependencies.inviteResolver
 
     init {
         syncManager.start(scope)
+        dependencies.serverHealthMonitor.start(scope)
     }
 
     /** 首页: TMDB recommendations. */
@@ -67,7 +68,8 @@ class RootComponent(
         tmdb = tmdb,
         repo = repo,
         registry = registry,
-        calendarRepository = GlobalContext.get().get(),
+        calendarRepository = dependencies.calendarRepository,
+        dependencies = dependencies,
         onOpenSearch = ::openSearch,
         onOpenLibrary = { selectTab(Tab.Browse) },
         onOpenProfile = { selectTab(Tab.Profile) },
@@ -79,6 +81,7 @@ class RootComponent(
         storeFactory = storeFactory,
         repo = repo,
         registry = registry,
+        dependencies = dependencies,
     )
 
     val search = SearchComponent(
@@ -87,6 +90,7 @@ class RootComponent(
         repo = repo,
         registry = registry,
         history = searchHistory,
+        dependencies = dependencies,
     )
 
     val profile = ProfileTabComponent(
@@ -96,6 +100,7 @@ class RootComponent(
         registry = registry,
         themePreferences = themePreferences,
         onEnterWatchRoom = ::enterWatchRoom,
+        dependencies = dependencies,
     )
 
     fun selectTab(tab: Tab) {

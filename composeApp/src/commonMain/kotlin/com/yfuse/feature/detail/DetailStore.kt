@@ -25,7 +25,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import org.koin.core.context.GlobalContext
 import kotlin.coroutines.CoroutineContext
 
 data class DetailState(
@@ -199,6 +198,8 @@ class DetailStoreFactory(
     private val serverId: String? = null,
     private val sourceSelectionTimeoutMs: Long = SOURCE_SELECTION_TIMEOUT_MS,
     private val mainContext: CoroutineContext = Dispatchers.Main,
+    private val playbackTrackRequest: PlaybackTrackRequest,
+    private val syncManager: ServerSyncManager,
 ) {
     fun create(): Store<DetailIntent, DetailState, DetailLabel> =
         storeFactory.create(
@@ -1037,7 +1038,7 @@ class DetailStoreFactory(
             val server = current.playServer ?: return
             val versionId = current.selectedVersionId
                 ?.takeIf { selected -> target.versions.any { it.id == selected } }
-            GlobalContext.get().get<PlaybackTrackRequest>().set(
+            playbackTrackRequest.set(
                 itemId = target.id,
                 audioLanguage = current.preferredAudioLanguage,
                 subtitleLanguage = current.preferredSubtitleLanguage,
@@ -1057,7 +1058,7 @@ class DetailStoreFactory(
             val detail = current.detail ?: return
             val server = current.server ?: return
             val target = !detail.isFavorite
-            val sync = GlobalContext.get().get<ServerSyncManager>()
+            val sync = syncManager
             scope.launch {
                 sync.setFavorite(server, detail.id, detail.title, target)
                     .onSuccess {
@@ -1084,7 +1085,7 @@ class DetailStoreFactory(
             val detail = current.detail ?: return
             val server = current.server ?: return
             val target = !detail.played
-            val sync = GlobalContext.get().get<ServerSyncManager>()
+            val sync = syncManager
             scope.launch {
                 sync.setPlayed(server, detail.id, detail.title, target)
                     .onSuccess {

@@ -13,7 +13,6 @@ import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.util.componentScope
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import org.koin.core.context.GlobalContext
 
 class HomeComponent(
     componentContext: ComponentContext,
@@ -21,6 +20,7 @@ class HomeComponent(
     tmdb: TmdbRepository,
     emby: EmbyRepository,
     registry: ServerRegistry,
+    cache: TmdbHomeCache,
     private val onOpenEmbyItem: (String, String) -> Unit,
     private val onOpenTmdbItem: (TmdbItem, String?) -> Unit,
     val onOpenSearch: () -> Unit,
@@ -39,7 +39,7 @@ class HomeComponent(
         tmdb = tmdb,
         emby = emby,
         registry = registry,
-        cache = GlobalContext.get().get<TmdbHomeCache>(),
+        cache = cache,
     ).create()
 
     init {

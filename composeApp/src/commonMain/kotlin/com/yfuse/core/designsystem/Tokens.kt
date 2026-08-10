@@ -45,6 +45,14 @@ object Brand {
     val Douban = Color(0xFF2F9E5E)
 }
 
+/** Meaningful status colours; feature code should not repurpose the brand accent for state. */
+object Semantic {
+    val Success = Brand.Online
+    val Warning = Color(0xFFD58A3A)
+    val Error = Brand.Danger
+    val Offline = Brand.Offline
+}
+
 /** 主色渐变 135deg — used for avatars, server badges, category cards. */
 val PrimaryGradient: Brush = cssLinearGradient(
     135f,
@@ -281,9 +289,9 @@ object Motion {
     // Semantic durations. Feature code chooses the meaning of a transition instead of
     // inventing another number; the named route constants below map onto this vocabulary.
     const val QUICK = 120
-    const val STANDARD = 220
-    const val EMPHASIZED = 360
-    const val AMBIENT = 520
+    const val STANDARD = 180
+    const val EMPHASIZED = 280
+    const val AMBIENT = 500
 
     // ------------------------------------------------------------ 弹簧
     //
@@ -326,27 +334,27 @@ object Motion {
     val pushOffset = 30.dp
 
     /** 返回 — 左侧 22px 滑入 + 淡入. */
-    const val POP = 300
+    const val POP = 260
     val popOffset = 22.dp
 
     /** 平级切 tab — 0.986 缩放淡入. */
-    const val TAB = 260
+    const val TAB = 180
     const val TAB_SCALE_FROM = 0.986f
 
     /** 覆盖（播放器 / 菜单）— 下方 46px 上滑. */
-    const val MODAL = 400
+    const val MODAL = 280
     val modalOffset = 46.dp
 
     /** 迷你播放器展开 — 从底部 0.8 缩放放大；详情页顶图只做克制的 1.08 → 1. */
-    const val EXPAND = 460
+    const val EXPAND = 300
     const val MINI_SCALE_FROM = 0.8f
     const val DETAIL_HERO_SCALE_FROM = 1.08f
 
     /** Detail content settles after the artwork; short enough to never queue behind a tap. */
-    const val DETAIL_CONTENT = 320
+    const val DETAIL_CONTENT = 260
 
     /** 顶栏材质切换 — 滚动超过 280px 后转为玻璃底（§4.2）. */
-    const val TOP_BAR = 280
+    const val TOP_BAR = 220
 
     /**
      * 作品主色跟随切换 — the artwork accent easing from one title's colour to the next.
@@ -357,7 +365,7 @@ object Motion {
     const val ACCENT = AMBIENT
 
     /** A full-width artwork change deserves more time than local component movement. */
-    const val CAROUSEL = 560
+    const val CAROUSEL = 500
 
     /** 图片渐进加载：占位主色渐变 → 12px 模糊放大 1.05 → 清晰归位. */
     const val IMAGE_IN = 550

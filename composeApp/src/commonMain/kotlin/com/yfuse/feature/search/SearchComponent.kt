@@ -16,6 +16,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.app.AppDependencies
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.serialization.Serializable
@@ -28,6 +29,7 @@ class SearchComponent(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     private val history: SearchHistory,
+    private val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
 
     private val navigation = StackNavigation<Config>()
@@ -113,6 +115,7 @@ class SearchComponent(
                 registry = registry,
                 itemId = config.itemId,
                 serverId = config.serverId,
+                dependencies = dependencies,
                 onBack = { navigation.pop() },
                 onOpenRelated = { serverId, itemId ->
                     navigation.push(Config.Detail(serverId, itemId))

@@ -141,6 +141,7 @@ fun HomeScreen(component: HomeComponent) {
                     HomeHeroCarousel(
                         items = state.featuredSlides.take(5),
                         height = heroHeight,
+                        visible = heroVisible,
                         onOpenProfile = component.onOpenProfile,
                         onOpenSearch = component.onOpenSearch,
                         onOpenCalendar = component.onOpenCalendar,
@@ -263,6 +264,7 @@ fun HomeScreen(component: HomeComponent) {
 private fun HomeHeroCarousel(
     items: List<TmdbItem>,
     height: androidx.compose.ui.unit.Dp,
+    visible: Boolean,
     onOpenProfile: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenCalendar: () -> Unit,
@@ -282,14 +284,24 @@ private fun HomeHeroCarousel(
     // six seconds after they picked it.
     var manuallySteered by remember { mutableStateOf(false) }
 
+    LaunchedEffect(carouselDragging) {
+        if (carouselDragging) manuallySteered = true
+    }
+    LaunchedEffect(manuallySteered) {
+        if (manuallySteered) {
+            delay(25_000L)
+            manuallySteered = false
+        }
+    }
+
     LaunchedEffect(items.map { it.id }) {
         pagerState.scrollToPage(loopingCarouselStartPage(items.size))
     }
-    LaunchedEffect(items.size, carouselDragging, reduceMotion, manuallySteered, routeVisible) {
+    LaunchedEffect(items.size, carouselDragging, reduceMotion, manuallySteered, routeVisible, visible) {
         // 390dp of artwork moving on its own is the largest single piece of motion in the
         // app, and it was the one thing 减弱动态效果 did not switch off — the setting was
         // honoured in fifteen places and not in the most conspicuous one.
-        if (!routeVisible || items.size <= 1 || carouselDragging || reduceMotion || manuallySteered) {
+        if (!routeVisible || !visible || items.size <= 1 || carouselDragging || reduceMotion || manuallySteered) {
             return@LaunchedEffect
         }
         while (true) {
