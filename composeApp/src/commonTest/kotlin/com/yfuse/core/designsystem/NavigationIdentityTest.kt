@@ -29,7 +29,6 @@ class NavigationIdentityTest {
     @Test
     fun normal_push_keeps_the_outgoing_route_for_back_preview() {
         val tracker = RouteRetentionTracker(initialTargetKey = "A")
-
         tracker.observe(targetKey = "B", previousRouteKey = "A")
 
         assertEquals(
@@ -39,11 +38,9 @@ class NavigationIdentityTest {
     }
 
     @Test
-    fun interrupted_push_still_removes_the_popped_target_after_settle() {
+    fun interrupted_push_removes_the_popped_target_after_settle() {
         val tracker = RouteRetentionTracker(initialTargetKey = "A")
         tracker.observe(targetKey = "B", previousRouteKey = "A")
-
-        // Pop back before B ever reaches a settled transition frame.
         tracker.observe(targetKey = "A", previousRouteKey = "Home")
 
         assertEquals(
@@ -53,47 +50,31 @@ class NavigationIdentityTest {
     }
 
     @Test
-    fun three_level_pop_freezes_the_committed_reveal_route_during_handoff() {
-        // Before the pop: Home -> A -> B, so A is the route revealed by B's gesture.
-        val tracker = PredictiveBackRevealRouteTracker(initialPrevious = "A")
+    fun back_gesture_state_tracks_only_system_progress() {
+        val state = BackGestureState()
 
-        // After B is popped, A is the target and Home becomes `previous` immediately.
-        assertEquals(
-            "A",
-            tracker.reveal(previous = "Home", frozen = true),
-        )
+        state.update(0.42f, BackGestureEdge.Right)
+        assertTrue(state.active)
+        assertEquals(0.42f, state.progress)
+        assertEquals(BackGestureEdge.Right, state.edge)
 
-        // Once A owns drawing, normal observation resumes for the next gesture.
-        assertEquals(
-            "Home",
-            tracker.reveal(previous = "Home", frozen = false),
-        )
+        state.cancel()
+        assertFalse(state.active)
+        assertEquals(0f, state.progress)
+        assertFalse(state.consumeCommittedGesture())
     }
 
     @Test
-    fun rapid_previous_changes_cannot_replace_a_committed_reveal_route() {
-        val tracker = PredictiveBackRevealRouteTracker(initialPrevious = "Detail-A")
+    fun completed_gesture_suppresses_exactly_one_followup_pop_animation() {
+        val state = BackGestureState()
+        state.update(0.9f, BackGestureEdge.Left)
+        state.commit()
 
-        assertEquals(
-            "Detail-A",
-            tracker.reveal(previous = "Home", frozen = true),
-        )
-        assertEquals(
-            "Detail-A",
-            tracker.reveal(previous = null, frozen = true),
-        )
-        assertEquals(
-            "Detail-A",
-            tracker.reveal(previous = "Unexpected", frozen = true),
-        )
+        assertTrue(state.consumeCommittedGesture())
+        assertFalse(state.consumeCommittedGesture())
 
-        assertEquals(
-            "Library",
-            tracker.reveal(previous = "Library", frozen = false),
-        )
-        assertEquals(
-            "Library",
-            tracker.reveal(previous = null, frozen = true),
-        )
+        // Hardware/back-button completion has no progress and must not masquerade as a swipe.
+        state.commit()
+        assertFalse(state.consumeCommittedGesture())
     }
 }

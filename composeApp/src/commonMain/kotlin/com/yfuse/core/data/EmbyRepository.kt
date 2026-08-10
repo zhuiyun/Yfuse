@@ -211,6 +211,51 @@ private data class PersonalCollection(
     val totalCount: Int,
 )
 
+private val bilingualGenrePairs = mapOf(
+    "action" to "动作",
+    "adventure" to "冒险",
+    "animation" to "动画",
+    "biography" to "传记",
+    "children" to "儿童",
+    "kids" to "儿童",
+    "comedy" to "喜剧",
+    "crime" to "犯罪",
+    "documentary" to "纪录片",
+    "drama" to "剧情",
+    "family" to "家庭",
+    "fantasy" to "奇幻",
+    "history" to "历史",
+    "horror" to "恐怖",
+    "music" to "音乐",
+    "mystery" to "悬疑",
+    "romance" to "爱情",
+    "science fiction" to "科幻",
+    "sci-fi" to "科幻",
+    "sci-fi & fantasy" to "科幻",
+    "sport" to "体育",
+    "sports" to "体育",
+    "thriller" to "惊悚",
+    "war" to "战争",
+    "western" to "西部",
+)
+
+/**
+ * Removes bilingual duplicates without translating a server-only English value.
+ *
+ * If both "Action" and "动作" exist, keep "动作". If only "Action" exists, keep
+ * "Action" so the value sent back through the Genres query remains valid for that server.
+ */
+internal fun dedupeBilingualGenreLabels(values: List<String>): List<String> {
+    val cleaned = values.map { it.trim() }.filter { it.isNotEmpty() }
+    val exactValues = cleaned.toHashSet()
+    val seen = hashSetOf<String>()
+    return cleaned.filter { value ->
+        val chineseTwin = bilingualGenrePairs[value.lowercase()]
+        val shadowedByChinese = chineseTwin != null && chineseTwin in exactValues
+        !shadowedByChinese && seen.add(value.lowercase())
+    }
+}
+
 class EmbyRepository(private val client: HttpClient) {
 
     suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> = call("public_users") {
@@ -582,7 +627,9 @@ class EmbyRepository(private val client: HttpClient) {
                 parameter("SortOrder", "Ascending")
                 parameter("Limit", LIBRARY_GENRE_LIMIT)
             }.body()
-            dto.Items.mapNotNull { it.Name?.takeIf(String::isNotBlank) }.distinct()
+            dedupeBilingualGenreLabels(
+                dto.Items.mapNotNull { it.Name?.takeIf(String::isNotBlank) },
+            )
         }.onFailure {
             if (it is CancellationException) throw it
             AppLog.warning(

@@ -63,12 +63,12 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccent
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.LocalPredictiveBack
+import com.yfuse.core.designsystem.LocalBackGesture
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.PlatformBackHandler
-import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
+import com.yfuse.core.designsystem.PlatformBackGestureHandler
 import com.yfuse.core.designsystem.SharedElementTransitionContainer
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.SplashPreview
@@ -76,7 +76,7 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.rememberPredictiveBackState
+import com.yfuse.core.designsystem.rememberBackGestureState
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.DecoderMode
@@ -222,19 +222,21 @@ fun ProfileScreen(component: ProfileComponent) {
         }
     }
 
-    // These pages used to be a `when(page)` replacement plus a commit-only BackHandler. Treat the
-    // local stack as a real route stack instead: its previous screen remains composed, follows the
-    // same gesture as detail/library/search routes, and owns drawing through the commit handoff.
-    val pageBack = rememberPredictiveBackState()
-    PlatformPredictiveBackHandler(
+    // Settings pages have a real previous route, so they follow the system back progress.
+    // Modal sheets remain commit-only and therefore disable this handler while open.
+    val pageBack = rememberBackGestureState()
+    PlatformBackGestureHandler(
         enabled = page != null && !modalBackEnabled,
-        onProgress = pageBack::onProgress,
-        onCancel = pageBack::onCancel,
-        onBack = { pageBack.onCommit(::closePage) },
+        onProgress = pageBack::update,
+        onCancel = pageBack::cancel,
+        onBack = {
+            pageBack.commit()
+            closePage()
+        },
     )
 
     Box(Modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalPredictiveBack provides pageBack) {
+        CompositionLocalProvider(LocalBackGesture provides pageBack) {
             SharedElementTransitionContainer(
                 targetState = activeRoute,
                 routeKey = ::profileRouteKey,

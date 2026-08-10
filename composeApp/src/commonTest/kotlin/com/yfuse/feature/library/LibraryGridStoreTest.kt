@@ -192,7 +192,7 @@ class LibraryGridStoreTest {
             }
         }
         val store = LibraryGridStoreFactory(DefaultStoreFactory(), repo, registry(), "lib1").create()
-        store.states.first { it.genres.isNotEmpty() }
+        store.states.first { it.genres.isNotEmpty() && !it.loading && it.items.isNotEmpty() }
 
         store.accept(GridIntent.SetGenre("科幻"))
 

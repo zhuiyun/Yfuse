@@ -74,9 +74,10 @@ import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.OverlayVisibility
-import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
-import com.yfuse.core.designsystem.LocalPredictiveBack
-import com.yfuse.core.designsystem.rememberPredictiveBackState
+import com.yfuse.core.designsystem.PlatformBackGestureHandler
+import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.LocalBackGesture
+import com.yfuse.core.designsystem.rememberBackGestureState
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.pressable
@@ -222,41 +223,32 @@ fun App(root: RootComponent) {
         // library's grid, and to slide away under scroll, which left "is the bar there?"
         // depending on where the user happened to have scrolled to.
         val showBottomBar = atRoot
-        val goBack: () -> Unit = {
-            if (childCanGoBack) {
-                when (active) {
-                    Tab.Home -> root.home.navigateBack()
-                    Tab.Browse -> root.browse.navigateBack()
-                    Tab.Search -> root.search.navigateBack()
-                    Tab.Profile -> root.profile.navigateBack()
-                }
-            } else {
-                root.selectTab(Tab.Home)
+        val navigateChildBack: () -> Unit = {
+            when (active) {
+                Tab.Home -> root.home.navigateBack()
+                Tab.Browse -> root.browse.navigateBack()
+                Tab.Search -> root.search.navigateBack()
+                Tab.Profile -> root.profile.navigateBack()
             }
         }
 
-        // 返回 is now something you can start, look at, and abandon.
-        //
-        // The shell only receives the gesture; the page that follows the finger, and the page
-        // revealed behind it, are drawn by the tab's own navigation stack — see
-        // [PredictiveBackState]. That split is the whole point: the shell has no idea what is
-        // underneath the current page, so when it owned the animation the peek slid the entire
-        // app aside over the ambient backdrop and revealed a blank wash instead of the screen
-        // being returned to.
-        //
-        // 返回 itself still runs through the same [goBack] as the button, so there is exactly
-        // one definition of what back means. Only a page with somewhere to go back *to* peeks;
-        // dropping from a tab to 首页 is a jump, not a pop, and animating it as one would say
-        // something untrue about where the user is.
-        val backGesture = rememberPredictiveBackState()
-        PlatformPredictiveBackHandler(
-            enabled = childCanGoBack || active != Tab.Home,
-            onProgress = { progress, edge ->
-                if (childCanGoBack) backGesture.onProgress(progress, edge)
+        // AndroidX supplies the gesture clock. Only an actual child route intercepts progress;
+        // Home root is deliberately left to the system so Android can render back-to-home.
+        val backGesture = rememberBackGestureState()
+        PlatformBackGestureHandler(
+            enabled = childCanGoBack,
+            onProgress = backGesture::update,
+            onCancel = backGesture::cancel,
+            onBack = {
+                backGesture.commit()
+                navigateChildBack()
             },
-            onCancel = { backGesture.onCancel() },
-            onBack = { backGesture.onCommit(goBack) },
         )
+        // Returning from another root tab to Home is a navigation decision, not a route preview.
+        // Keep it commit-only instead of fabricating an animation for a destination underneath.
+        PlatformBackHandler(enabled = !childCanGoBack && active != Tab.Home) {
+            root.selectTab(Tab.Home)
+        }
 
         // An overlay owned by one of the tab screens composes below this shell's floating
         // furniture, so the bar has to be told to get out of its way — see [OverlayVisibility].
@@ -282,7 +274,7 @@ fun App(root: RootComponent) {
         CompositionLocalProvider(
             LocalOverlayVisibility provides overlays,
             LocalTabReselected provides root.tabReselected,
-            LocalPredictiveBack provides backGesture,
+            LocalBackGesture provides backGesture,
         ) {
             AppBackdrop {
                 Box(

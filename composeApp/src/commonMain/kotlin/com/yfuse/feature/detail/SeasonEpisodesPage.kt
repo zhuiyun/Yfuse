@@ -34,7 +34,7 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
-import com.yfuse.core.designsystem.PredictiveBackOverlay
+import com.yfuse.core.designsystem.SystemBackGestureSurface
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.mr
@@ -74,7 +74,7 @@ internal fun SeasonEpisodesPage(
 ) {
     val palette = LocalPalette.current
 
-    PredictiveBackOverlay(onBack = onDismiss) {
+    SystemBackGestureSurface(onBack = onDismiss) {
         Box(Modifier.fillMaxSize().background(palette.background)) {
             LazyColumn(
                 Modifier.fillMaxSize(),

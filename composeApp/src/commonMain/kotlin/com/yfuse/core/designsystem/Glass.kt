@@ -342,7 +342,7 @@ fun GlassCard(
  * The layers of the ambient field, bottom first.
  *
  * Exposed separately from [AppBackdrop] because a page lifted off the shell by a back gesture
- * has to carry its own copy — see [predictiveBackPeek]. Most pages are transparent over this,
+ * has to carry its own copy during an interactive back gesture. Most pages are transparent over this,
  * so one taken out of the stack and put in its own layer has nothing behind it.
  */
 @Composable

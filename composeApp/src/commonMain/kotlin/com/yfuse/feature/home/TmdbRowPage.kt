@@ -29,7 +29,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.PredictiveBackOverlay
+import com.yfuse.core.designsystem.SystemBackGestureSurface
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
@@ -69,7 +69,7 @@ internal fun TmdbRowPage(
 ) {
     val palette = LocalPalette.current
 
-    PredictiveBackOverlay(onBack = onDismiss) {
+    SystemBackGestureSurface(onBack = onDismiss) {
         Box(Modifier.fillMaxSize().background(palette.background)) {
             Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Row(
