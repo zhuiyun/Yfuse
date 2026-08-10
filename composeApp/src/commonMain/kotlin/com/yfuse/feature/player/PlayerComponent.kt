@@ -5,6 +5,7 @@ import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.app.AppDependencies
 
 class PlayerComponent(
     componentContext: ComponentContext,
@@ -14,7 +15,8 @@ class PlayerComponent(
     itemId: String,
     startPositionTicks: Long,
     serverId: String? = null,
-    mediaSourceId: String? = null,
+    private val mediaSourceId: String? = null,
+    private val dependencies: AppDependencies,
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
 
@@ -40,9 +42,11 @@ class PlayerComponent(
             registry,
             itemId,
             startPositionTicks,
-            serverId,
-            mediaSourceId,
-        ).create()
+            serverId = serverId,
+        mediaSourceId = mediaSourceId,
+        failoverRequest = dependencies.playbackFailoverRequest,
+        healthMonitor = dependencies.serverHealthMonitor,
+    ).create()
 
     init {
         // Claiming transfers ownership from DetailComponent. Both claimed and fallback stores now

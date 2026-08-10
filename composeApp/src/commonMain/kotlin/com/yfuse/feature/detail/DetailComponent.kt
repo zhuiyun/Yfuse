@@ -6,10 +6,12 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.PlaybackFailoverPlan
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.offline.OfflineDownloadRequest
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.util.componentScope
+import com.yfuse.core.sync.watchKey
 import com.yfuse.app.AppDependencies
 import com.yfuse.feature.player.PlaybackPreloadKey
 import com.yfuse.feature.player.PlaybackSourcePreloader
@@ -50,6 +52,7 @@ class DetailComponent(
         storeFactory, repo, registry, itemId, serverId,
         playbackTrackRequest = dependencies.playbackTrackRequest,
         syncManager = dependencies.serverSyncManager,
+        playbackFailoverRequest = dependencies.playbackFailoverRequest,
     ).create()
 
     fun download() {
@@ -121,6 +124,17 @@ class DetailComponent(
                 }
 
                 releaseOwnedPreload()
+                dependencies.playbackFailoverRequest.set(
+                    PlaybackFailoverPlan(
+                        itemId = target.id,
+                        mediaKey = target.providerIds.watchKey(target.id),
+                        fallbackServerIds = state.sources.asSequence()
+                            .filter { it.reachable && it.source != null && it.serverId != server.id }
+                            .map { it.serverId }
+                            .distinct()
+                            .toList(),
+                    ),
+                )
                 val prepared = PlayerStoreFactory(
                     storeFactory = storeFactory,
                     repo = repo,
@@ -129,6 +143,8 @@ class DetailComponent(
                     startPositionTicks = state.playPositionTicks,
                     serverId = server.id,
                     mediaSourceId = state.selectedVersionId,
+                    failoverRequest = dependencies.playbackFailoverRequest,
+                    healthMonitor = dependencies.serverHealthMonitor,
                 ).create()
                 preloadKey = key
                 preloadStore = prepared

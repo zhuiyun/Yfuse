@@ -98,7 +98,7 @@ fun CalendarScreen(component: CalendarComponent) {
                         .padding(10.dp),
                 )
                 Column(Modifier.weight(1f)) {
-                    Text("追剧日历", style = sc(17f, 800), color = palette.text)
+                    Text("追剧中心", style = sc(17f, 800), color = palette.text)
                     Spacer(Modifier.height(2.dp))
                     Text(
                         "按原产地播出日期",

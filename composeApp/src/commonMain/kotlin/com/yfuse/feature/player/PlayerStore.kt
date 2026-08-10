@@ -7,10 +7,15 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.PlaybackFailoverRequest
+import com.yfuse.core.data.ServerHealthMonitor
+import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
+import com.yfuse.core.network.EmbyError
+import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackMethod
@@ -364,6 +369,8 @@ class PlayerStoreFactory(
     private val serverId: String? = null,
     /** The file the detail page picked, when the item has more than one. */
     private val mediaSourceId: String? = null,
+    private val failoverRequest: PlaybackFailoverRequest = PlaybackFailoverRequest(),
+    private val healthMonitor: ServerHealthMonitor? = null,
 ) {
     fun create(): Store<PlayerIntent, PlayerState, Nothing> =
         storeFactory.create(
@@ -378,10 +385,10 @@ class PlayerStoreFactory(
         CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
 
         override fun executeAction(action: PlayerAction) {
-            val server = serverId?.let(registry::serverById) ?: registry.defaultServer
+            val primaryServer = serverId?.let(registry::serverById) ?: registry.defaultServer
             val startMs = startPositionTicks / 10_000L
             scope.launch {
-                if (server == null) {
+                if (primaryServer == null) {
                     AppLog.error(
                         category = "feature.player",
                         event = "server_missing",
@@ -389,6 +396,52 @@ class PlayerStoreFactory(
                     )
                     dispatch(PlayerMsg.Failed("没有可用的服务器"))
                     return@launch
+                }
+
+                var server = requireNotNull(primaryServer)
+                var effectiveItemId = itemId
+                var effectiveMediaSourceId = mediaSourceId
+                var detailResult = repo.itemDetail(server, effectiveItemId)
+                val failoverPlan = failoverRequest.consume(itemId)
+                val primaryFailure = detailResult.exceptionOrNull()
+                if (primaryFailure == null) {
+                    healthMonitor?.recordSuccess(server.id)
+                } else {
+                    healthMonitor?.recordFailure(server.id, primaryFailure)
+                }
+                if (primaryFailure?.isPlaybackFailoverEligible() == true && failoverPlan != null) {
+                    for (fallbackId in failoverPlan.fallbackServerIds) {
+                        val fallback = registry.serverById(fallbackId) ?: continue
+                        if (healthMonitor?.health?.value?.get(fallback.id)?.status == ServerHealthStatus.AuthRequired) continue
+                        val hitResult = repo.findByMediaKey(fallback, failoverPlan.mediaKey)
+                        val hit = hitResult.getOrNull()
+                        if (hit == null) {
+                            hitResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(fallback.id, it) }
+                            continue
+                        }
+                        val fallbackDetail = repo.itemDetail(fallback, hit.id)
+                        val resolved = fallbackDetail.getOrNull()
+                        if (resolved != null) {
+                            AppLog.warning(
+                                category = "feature.player",
+                                event = "playback_server_failover",
+                                message = "Primary server failed before playback; switched to an exact-media fallback",
+                                attributes = mapOf(
+                                    "fromServerId" to server.id,
+                                    "toServerId" to fallback.id,
+                                    "mediaKey" to failoverPlan.mediaKey,
+                                ),
+                            )
+                            server = fallback
+                            effectiveItemId = hit.id
+                            effectiveMediaSourceId = null
+                            detailResult = fallbackDetail
+                            healthMonitor?.recordSuccess(fallback.id)
+                            break
+                        } else {
+                            fallbackDetail.exceptionOrNull()?.let { healthMonitor?.recordFailure(fallback.id, it) }
+                        }
+                    }
                 }
 
                 var negotiatedVersions: List<MediaVersion> = emptyList()
@@ -410,7 +463,7 @@ class PlayerStoreFactory(
                     progress: Float? = null,
                     caption: String? = null,
                 ): PlayerMediaItem {
-                  val effectiveVersions = if (id == itemId && negotiatedVersions.isNotEmpty()) {
+                  val effectiveVersions = if (id == effectiveItemId && negotiatedVersions.isNotEmpty()) {
                       negotiatedVersions
                   } else {
                       versions
@@ -419,11 +472,11 @@ class PlayerStoreFactory(
                       baseUrl = server.baseUrl,
                       itemId = id,
                       token = server.accessToken,
-                      negotiatedPlaySessionId = negotiatedSessionId.takeIf { id == itemId },
+                      negotiatedPlaySessionId = negotiatedSessionId.takeIf { id == effectiveItemId },
                   )
                   // The file the detail page picked, else the server's first — which is
                   // also what an unqualified stream request would have returned anyway.
-                  val chosen = playerVersions.firstOrNull { it.id == mediaSourceId }
+                  val chosen = playerVersions.firstOrNull { it.id == effectiveMediaSourceId }
                       ?: playerVersions.firstOrNull()
                   // Entries whose sources were never fetched still need addresses; they get
                   // the unqualified ones, which is the file the server would have picked.
@@ -448,7 +501,7 @@ class PlayerStoreFactory(
                     fallbackTranscodeUrl = unqualified.fallbackTranscodeUrl,
                     playSessionId = unqualified.playSessionId,
                     playMethod = unqualified.playMethod,
-                    trickplay = (if (id == itemId) negotiatedTrickplay else null)?.let { info ->
+                    trickplay = (if (id == effectiveItemId) negotiatedTrickplay else null)?.let { info ->
                         TrickplayStoryboard(
                             urlPattern = EmbyStream.trickplayTilePattern(
                                 baseUrl = server.baseUrl,
@@ -505,7 +558,6 @@ class PlayerStoreFactory(
                   )
                 }
 
-                val detailResult = repo.itemDetail(server, itemId)
                 detailResult.onFailure {
                     AppLog.warning(
                         category = "feature.player",
@@ -520,8 +572,8 @@ class PlayerStoreFactory(
                 val playbackInfoResult = withTimeoutOrNull(5_000L) {
                     repo.playbackInfo(
                         server = server,
-                        itemId = itemId,
-                        mediaSourceId = mediaSourceId,
+                        itemId = effectiveItemId,
+                        mediaSourceId = effectiveMediaSourceId,
                         startPositionTicks = startPositionTicks,
                         playSessionId = requestedSessionId,
                     )
@@ -536,7 +588,7 @@ class PlayerStoreFactory(
                 } else {
                     playbackInfoResult.onSuccess { playbackInfo ->
                         negotiatedVersions = playbackInfo.MediaSources.mapIndexed { index, source ->
-                            source.toMediaVersion(fallbackId = itemId, ordinal = index)
+                            source.toMediaVersion(fallbackId = effectiveItemId, ordinal = index)
                         }
                         negotiatedSessionId = playbackInfo.PlaySessionId
                             ?.takeIf { it.isNotBlank() }
@@ -563,7 +615,7 @@ class PlayerStoreFactory(
                 // The shared Ktor client already enforces a request timeout. Wrapping a second
                 // request in a coroutine timeout here can strand MockEngine/UI continuations
                 // on the caller dispatcher, so the optional metadata relies on that budget.
-                negotiatedTrickplay = repo.trickplayInfo(server, itemId).getOrNull()
+                negotiatedTrickplay = repo.trickplayInfo(server, effectiveItemId).getOrNull()
                 val seriesId = detail?.seriesId
 
                 if (detail?.type == "Episode" && seriesId != null) {
@@ -607,7 +659,7 @@ class PlayerStoreFactory(
                                 // carries MediaSources from the single episode-list request.
                                 // Without this, their transcode URL used item id as
                                 // MediaSourceId and Emby rejected it with HTTP 400.
-                                versions = if (ep.id == itemId) detail.versions else ep.versions,
+                                versions = if (ep.id == effectiveItemId) detail.versions else ep.versions,
                                 stillTag = ep.primaryTag,
                                 // A finished episode reads as full rather than as untouched:
                                 // Emby clears the resume percentage on completion, so the
@@ -619,7 +671,7 @@ class PlayerStoreFactory(
                                 caption = ep.indexNumber?.let { "第 $it 集" },
                             )
                         }
-                        val index = items.indexOfFirst { it.id == itemId }.coerceAtLeast(0)
+                        val index = items.indexOfFirst { it.id == effectiveItemId }.coerceAtLeast(0)
                         AppLog.info(
                             category = "feature.player",
                             event = "queue_ready",
@@ -635,7 +687,7 @@ class PlayerStoreFactory(
                     PlayerMsg.Ready(
                         listOf(
                             itemOf(
-                                id = itemId,
+                                id = effectiveItemId,
                                 title = detail?.title ?: "",
                                 playbackSegments = detail?.playbackSegments.orEmpty(),
                                 providerIds = detail?.providerIds.orEmpty(),
@@ -672,3 +724,11 @@ class PlayerStoreFactory(
 }
 
 // watchKey now lives in com.yfuse.core.sync alongside the invite payload that carries it.
+
+
+internal fun Throwable.isPlaybackFailoverEligible(): Boolean =
+    when (val error = (this as? EmbyErrorException)?.error) {
+        EmbyError.Network -> true
+        is EmbyError.Server -> error.code in 500..599
+        else -> false
+    }

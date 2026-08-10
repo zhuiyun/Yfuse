@@ -138,6 +138,7 @@ class HomeTabComponent(
                 startPositionTicks = config.startPositionTicks,
                 serverId = config.serverId,
                 mediaSourceId = config.mediaSourceId,
+                dependencies = dependencies,
                 onBack = { navigation.pop() },
             ),
         )

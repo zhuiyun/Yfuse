@@ -4,6 +4,7 @@ data class DiscoveredServer(
     val name: String,
     val address: String,
     val id: String,
+    val version: String? = null,
 )
 
 interface LanDiscovery {

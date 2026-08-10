@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -31,10 +32,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -170,9 +175,31 @@ fun ServersScreen(component: ServersComponent) {
                     )
                 }
 
+                if (!form.https) {
+                    Spacer(Modifier.height(10.dp))
+                    Column(
+                        Modifier.fillMaxWidth().glass(
+                            continuousRounded(14.dp),
+                            Color(0xFFFFA24A).copy(alpha = 0.11f),
+                            Color(0xFFFFA24A).copy(alpha = 0.30f),
+                        ).padding(12.dp),
+                    ) {
+                        Text("⚠ HTTP 连接未加密", style = sc(12f, 700), color = Color(0xFFD77922))
+                        Text("仅建议在可信局域网使用；公网服务器优先使用 HTTPS。", style = sc(10.5f, 400), color = palette.sub)
+                    }
+                }
                 if (form.error != null) {
                     Spacer(Modifier.height(8.dp))
-                    Text(form.error, style = mr(11f, 500), color = Brand.Danger)
+                    Column(
+                        Modifier.fillMaxWidth().glass(
+                            continuousRounded(14.dp),
+                            Brand.Danger.copy(alpha = 0.08f),
+                            Brand.Danger.copy(alpha = 0.26f),
+                        ).padding(12.dp),
+                    ) {
+                        Text("连接失败", style = sc(12f, 700), color = Brand.Danger)
+                        Text("${form.error}。请检查地址、端口、协议和账号后重试。", style = sc(10.5f, 400), color = palette.sub)
+                    }
                 }
             }
         }
@@ -380,7 +407,19 @@ private fun OnboardingScreen(
                             Column(Modifier.weight(1f)) {
                                 Text(server.name, style = sc(13f, 700), color = palette.text)
                                 Spacer(Modifier.height(3.dp))
-                                Text(server.address, style = mr(10.5f, 400), color = palette.sub2)
+                                Text(
+                                    listOfNotNull(
+                                        server.address,
+                                        server.version?.let { "Emby $it" },
+                                        when {
+                                            server.address.startsWith("https://", ignoreCase = true) -> "HTTPS"
+                                            server.address.startsWith("http://", ignoreCase = true) -> "HTTP"
+                                            else -> "局域网"
+                                        },
+                                    ).joinToString(" · "),
+                                    style = mr(10.5f, 400),
+                                    color = palette.sub2,
+                                )
                             }
                             Icon(
                                 AppIcons.ChevronRight,
@@ -558,6 +597,8 @@ private fun OnboardInput(
     onValueChange: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val focusManager = LocalFocusManager.current
+    var revealPassword by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             label,
@@ -575,19 +616,27 @@ private fun OnboardInput(
             if (value.isEmpty()) {
                 Text(placeholder, style = mr(13f, 400), color = palette.hint)
             }
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = mr(13f, 400).copy(color = palette.text),
-                cursorBrush = SolidColor(Brand.Primary),
-                visualTransformation = if (password) {
-                    PasswordVisualTransformation()
-                } else {
-                    androidx.compose.ui.text.input.VisualTransformation.None
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = mr(13f, 400).copy(color = palette.text),
+                    cursorBrush = SolidColor(Brand.Primary),
+                    visualTransformation = if (password && !revealPassword) PasswordVisualTransformation() else VisualTransformation.None,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                    modifier = Modifier.weight(1f),
+                )
+                if (password) {
+                    Text(
+                        if (revealPassword) "隐藏" else "显示",
+                        style = sc(10.5f, 600),
+                        color = Brand.Primary,
+                        modifier = Modifier.pressable { revealPassword = !revealPassword }.padding(start = 8.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -628,26 +677,41 @@ private fun FormInput(
     keyboardType: KeyboardType = KeyboardType.Text,
 ) {
     val palette = LocalPalette.current
+    val focusManager = LocalFocusManager.current
+    var revealPassword by rememberSaveable { mutableStateOf(false) }
     FormField(label = label, divider = divider, labelBottomPadding = 3.dp) {
         Box(contentAlignment = Alignment.CenterStart) {
             if (value.isEmpty() && placeholder != null) {
                 Text(placeholder, style = mr(13f, 500), color = palette.hint)
             }
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                enabled = enabled,
-                singleLine = true,
-                textStyle = mr(13f, 500).copy(color = palette.text),
-                cursorBrush = SolidColor(Brand.Primary),
-                visualTransformation = if (password) {
-                    PasswordVisualTransformation()
-                } else {
-                    androidx.compose.ui.text.input.VisualTransformation.None
-                },
-                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    enabled = enabled,
+                    singleLine = true,
+                    textStyle = mr(13f, 500).copy(color = palette.text),
+                    cursorBrush = SolidColor(Brand.Primary),
+                    visualTransformation = if (password && !revealPassword) PasswordVisualTransformation() else VisualTransformation.None,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = keyboardType,
+                        imeAction = if (password) ImeAction.Done else ImeAction.Next,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                        onDone = { focusManager.clearFocus() },
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+                if (password) {
+                    Text(
+                        if (revealPassword) "隐藏" else "显示",
+                        style = sc(10.5f, 600),
+                        color = Brand.Primary,
+                        modifier = Modifier.pressable { revealPassword = !revealPassword }.padding(start = 8.dp),
+                    )
+                }
+            }
         }
     }
 }

@@ -265,13 +265,11 @@ fun ProfileScreen(component: ProfileComponent) {
                             } else {
                                 "${skipMode.label} ›"
                             },
-                            customUserAgent = if (customUserAgent.isBlank()) "应用默认 ›" else "已启用 ›",
                             onEngine = { sheet = Sheet.Engine },
                             onDecoder = { sheet = Sheet.Decoder },
                             onAutoNext = prefs::setAutoNext,
                             onVideoCache = { sheet = Sheet.VideoCache },
                             onSkipSegments = { sheet = Sheet.SkipSegments },
-                            onUserAgent = { sheet = Sheet.UserAgent },
                         )
 
                         ProfilePage.Danmaku -> DanmakuSettingsScreen(
@@ -300,13 +298,10 @@ fun ProfileScreen(component: ProfileComponent) {
                             nickname = watchNickname,
                             chatDanmaku = watchChatDanmaku,
                             chatPreview = watchChatPreview,
-                            customEndpoint = watchEndpoint.trimEnd('/') !=
-                                WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/'),
                             onJoin = { sheet = Sheet.WatchTogether },
                             onProfile = { sheet = Sheet.WatchProfile },
                             onChatDanmaku = component.watchTogetherPreferences::setChatDanmakuEnabled,
                             onChatPreview = component.watchTogetherPreferences::setChatPreviewEnabled,
-                            onEndpoint = { sheet = Sheet.WatchEndpoint },
                         )
 
                         ProfilePage.Appearance -> AppearanceSettingsScreen(
@@ -337,19 +332,26 @@ fun ProfileScreen(component: ProfileComponent) {
                                 onBack = ::closePage,
                                 serverCount = state.servers.size,
                                 backupPayload = backupPayload,
+                                customUserAgent = customUserAgent,
+                                watchEndpoint = watchEndpoint,
                                 onImport = component::importServers,
+                                onUserAgent = { sheet = Sheet.UserAgent },
+                                onWatchEndpoint = { sheet = Sheet.WatchEndpoint },
                                 onClearCache = { confirmClearCache = true },
                             )
                         }
 
-                        ProfilePage.Downloads,
+                        ProfilePage.Downloads -> DownloadsScreen(
+                            onBack = ::closePage,
+                            manager = component.offlineMedia,
+                            onPlay = { offlineToPlay = it },
+                        )
+
                         ProfilePage.Recovery,
                         ProfilePage.Splash,
                         -> ProfileUtilityScreen(
                             page = activePage,
                             onBack = ::closePage,
-                            offlineManager = component.offlineMedia,
-                            onPlayOffline = { offlineToPlay = it },
                             syncManager = component.syncManager,
                             playbackRecovery = component.playbackRecovery,
                             themePreferences = prefs,
@@ -464,7 +466,7 @@ fun ProfileScreen(component: ProfileComponent) {
                             }
 
                             item {
-                                Section(title = "数据与应用") {
+                                Section(title = "我的内容") {
                                     SettingsCard {
                                         DownloadRow(
                                             value = "${offlineItems.size} 项 ›",
@@ -487,8 +489,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                         )
                                         SettingsDivider()
                                         SettingRow(
-                                            "数据与诊断",
-                                            "${state.servers.size} 台服务器 · 缓存与日志 ›",
+                                            "高级设置",
+                                            "网络兼容 · 备份 · 缓存 · 诊断 ›",
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.DataAndDiagnostics) },
                                         )
@@ -729,193 +731,41 @@ fun ProfileScreen(component: ProfileComponent) {
 }
 
 @Composable
-private fun PlaybackSettingsScreen(
-    onBack: () -> Unit,
-    engine: PlayerEngine,
-    decoder: DecoderMode,
-    autoNext: Boolean,
-    videoCacheSize: VideoCacheSize,
-    skipSegments: String,
-    customUserAgent: String,
-    onEngine: () -> Unit,
-    onDecoder: () -> Unit,
-    onAutoNext: (Boolean) -> Unit,
-    onVideoCache: () -> Unit,
-    onSkipSegments: () -> Unit,
-    onUserAgent: () -> Unit,
-) {
-    SettingsPage(
-        title = "播放",
-        subtitle = "播放器、解码与播放行为",
-        onBack = onBack,
-    ) {
-        item {
-            Section(title = "播放体验") {
-                SettingsCard {
-                    SettingRow("默认播放器内核", "${engine.label} ›", true, onEngine)
-                    SettingsDivider()
-                    SettingRow("解码内核", "${decoder.label} ›", true, onDecoder)
-                    SettingsDivider()
-                    SwitchRow("自动播放下一集", autoNext, true, onAutoNext)
-                    SettingsDivider()
-                    SettingRow("视频缓存大小", "${videoCacheSize.label} ›", true, onVideoCache)
-                    SettingsDivider()
-                    SettingRow("片头片尾", skipSegments, true, onSkipSegments)
-                }
-            }
-        }
-        item {
-            Section(title = "网络与兼容") {
-                SettingsCard {
-                    SettingRow("自定义 User-Agent", customUserAgent, true, onUserAgent)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DanmakuSettingsScreen(
-    onBack: () -> Unit,
-    sourceSummary: String,
-    blockedSummary: String,
-    onSources: () -> Unit,
-    onBlockedWords: () -> Unit,
-) {
-    SettingsPage(
-        title = "弹幕",
-        subtitle = "来源与内容过滤",
-        onBack = onBack,
-    ) {
-        item {
-            Section(title = "弹幕设置") {
-                SettingsCard {
-                    SettingRow("弹幕来源", sourceSummary, true, onSources)
-                    SettingsDivider()
-                    SettingRow("屏蔽词", blockedSummary, true, onBlockedWords)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun WatchTogetherSettingsScreen(
-    onBack: () -> Unit,
-    connected: Boolean,
-    roomCode: String?,
-    nickname: String,
-    chatDanmaku: Boolean,
-    chatPreview: Boolean,
-    customEndpoint: Boolean,
-    onJoin: () -> Unit,
-    onProfile: () -> Unit,
-    onChatDanmaku: (Boolean) -> Unit,
-    onChatPreview: (Boolean) -> Unit,
-    onEndpoint: () -> Unit,
-) {
-    SettingsPage(
-        title = "一起看",
-        subtitle = "房间、资料与聊天显示",
-        onBack = onBack,
-    ) {
-        item {
-            Section(title = "房间") {
-                SettingsCard {
-                    SettingRow(
-                        if (connected) "当前房间" else "加入房间",
-                        if (connected) "房间 ${roomCode.orEmpty()} · 查看 ›" else "输入房间码 ›",
-                        true,
-                        onJoin,
-                    )
-                    SettingsDivider()
-                    SettingRow("一起看资料", "$nickname ›", true, onProfile)
-                }
-            }
-        }
-        item {
-            Section(title = "聊天显示") {
-                SettingsCard {
-                    SwitchRow("聊天弹幕", chatDanmaku, true, onChatDanmaku)
-                    SettingsDivider()
-                    SwitchRow("聊天消息浮层", chatPreview, true, onChatPreview)
-                }
-            }
-        }
-        item {
-            Section(title = "连接") {
-                SettingsCard {
-                    SettingRow(
-                        "一起看服务器",
-                        if (customEndpoint) "自定义 ›" else "默认 ›",
-                        true,
-                        onEndpoint,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AppearanceSettingsScreen(
-    onBack: () -> Unit,
-    mode: ThemeMode,
-    accent: AccentColor,
-    splashSummary: String,
-    reduceTransparency: Boolean,
-    largeText: Boolean,
-    reduceMotion: Boolean,
-    onThemeMode: () -> Unit,
-    onAccent: () -> Unit,
-    onSplash: () -> Unit,
-    onReduceTransparency: (Boolean) -> Unit,
-    onLargeText: (Boolean) -> Unit,
-    onReduceMotion: (Boolean) -> Unit,
-) {
-    SettingsPage(
-        title = "外观与辅助",
-        subtitle = "主题、颜色与辅助显示",
-        onBack = onBack,
-    ) {
-        item {
-            Section(title = "外观") {
-                SettingsCard {
-                    SettingRow("主题模式", "${mode.label} ›", true, onThemeMode)
-                    SettingsDivider()
-                    SettingRow("强调色", "${accent.label}色 ›", true, onAccent)
-                    SettingsDivider()
-                    SettingRow("开屏动画", splashSummary, true, onSplash)
-                }
-            }
-        }
-        item {
-            Section(title = "辅助功能") {
-                SettingsCard {
-                    SwitchRow("减少透明效果", reduceTransparency, true, onReduceTransparency)
-                    SettingsDivider()
-                    SwitchRow("大号文字", largeText, true, onLargeText)
-                    SettingsDivider()
-                    SwitchRow("减少动画", reduceMotion, true, onReduceMotion)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun DataAndDiagnosticsScreen(
     onBack: () -> Unit,
     serverCount: Int,
     backupPayload: String,
+    customUserAgent: String,
+    watchEndpoint: String,
     onImport: (String) -> Result<Int>,
+    onUserAgent: () -> Unit,
+    onWatchEndpoint: () -> Unit,
     onClearCache: () -> Unit,
 ) {
     SettingsPage(
-        title = "数据与诊断",
-        subtitle = "迁移、缓存与问题排查",
+        title = "高级设置",
+        subtitle = "网络兼容、迁移与问题排查",
         onBack = onBack,
     ) {
+        item {
+            Section(title = "网络与兼容") {
+                SettingsCard {
+                    SettingRow(
+                        "自定义 User-Agent",
+                        if (customUserAgent.isBlank()) "应用默认 ›" else "已启用 ›",
+                        true,
+                        onUserAgent,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "一起看服务地址",
+                        if (watchEndpoint.trimEnd('/') == WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')) "默认 ›" else "自定义 ›",
+                        true,
+                        onWatchEndpoint,
+                    )
+                }
+            }
+        }
         item {
             Box(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
                 ServerBackupTools(
@@ -946,7 +796,7 @@ private fun DataAndDiagnosticsScreen(
 }
 
 @Composable
-private fun SettingsPage(
+internal fun SettingsPage(
     title: String,
     subtitle: String? = null,
     onBack: () -> Unit,
@@ -999,7 +849,7 @@ private fun SettingsPageHeader(
 }
 
 @Composable
-private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     val palette = LocalPalette.current
     Column(
         Modifier
@@ -1380,7 +1230,7 @@ private fun SplashSettingsScreen(
 
 /** Same row with the prototype's 38×22 pill switch. */
 @Composable
-private fun SwitchRow(
+internal fun SwitchRow(
     title: String,
     checked: Boolean,
     embedded: Boolean = false,
@@ -1406,7 +1256,7 @@ private fun SwitchRow(
 }
 
 @Composable
-private fun SettingsDivider() {
+internal fun SettingsDivider() {
     val palette = LocalPalette.current
     Box(
         Modifier
@@ -1454,8 +1304,6 @@ private fun DescribedSwitchRow(
 private fun ProfileUtilityScreen(
     page: ProfilePage,
     onBack: () -> Unit,
-    offlineManager: OfflineMediaManager,
-    onPlayOffline: (OfflineMedia) -> Unit,
     syncManager: ServerSyncManager,
     playbackRecovery: PlaybackRecoveryStore,
     themePreferences: ThemePreferences,
@@ -1474,116 +1322,8 @@ private fun ProfileUtilityScreen(
         )
         return
     }
-    val palette = LocalPalette.current
-    val downloads by offlineManager.items.collectAsState()
-    val wifiOnly by offlineManager.wifiOnly.collectAsState()
+    Unit
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(
-            top = Dimens.contentTop,
-            bottom = TabBarInset,
-            start = Dimens.pageHorizontal,
-            end = Dimens.pageHorizontal,
-        ),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-        item {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .size(34.dp)
-                        .pressable(onClick = onBack)
-                        .glass(continuousRounded(12.dp), palette.card3, palette.border),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        AppIcons.ChevronLeft,
-                        "返回",
-                        tint = palette.text,
-                        modifier = Modifier.size(17.dp),
-                    )
-                }
-                Text(
-                    "下载",
-                    style = sc(20f, 700),
-                    color = palette.text,
-                    modifier = Modifier.padding(start = 12.dp),
-                )
-            }
-        }
-
-        item {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .glass(continuousRounded(18.dp), palette.card, palette.border)
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    Text("离线下载占用", style = sc(12.5f, 700), color = palette.text)
-                    Text(
-                        "${formatOfflineBytes(downloads.sumOf { it.downloadedBytes })} 已使用",
-                        style = mr(10.5f, 400),
-                        color = palette.sub2,
-                    )
-                }
-            }
-        }
-
-        item {
-            Box(Modifier.fillMaxWidth().clip(continuousRounded(18.dp))) {
-                DescribedSwitchRow(
-                    "仅在 Wi-Fi 下下载",
-                    "避免占用蜂窝流量",
-                    wifiOnly,
-                ) { offlineManager.setWifiOnly(it) }
-            }
-        }
-
-        if (downloads.isEmpty()) item {
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 52.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    AppIcons.Download,
-                    null,
-                    tint = palette.hint,
-                    modifier = Modifier.size(28.dp),
-                )
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "还没有下载内容\n在详情页点击下载，即可离线观看",
-                    style = sc(11.5f, 400, lineHeight = 18f),
-                    color = palette.hint,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-            }
-        }
-        if (downloads.isNotEmpty()) {
-            items(
-                count = downloads.size,
-                key = { downloads[it].id },
-            ) { index ->
-                val download = downloads[index]
-                OfflineDownloadRow(
-                    item = download,
-                    onPlay = { onPlayOffline(download) },
-                    onPause = { offlineManager.pause(download.id) },
-                    onResume = { offlineManager.resume(download.id) },
-                    onRemove = { offlineManager.remove(download.id) },
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -1819,111 +1559,6 @@ private fun Long.asRecoveryClock(): String {
     val minutes = total / 60L
     val seconds = total % 60L
     return "$minutes:${seconds.toString().padStart(2, '0')}"
-}
-
-@Composable
-private fun OfflineDownloadRow(
-    item: OfflineMedia,
-    onPlay: () -> Unit,
-    onPause: () -> Unit,
-    onResume: () -> Unit,
-    onRemove: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .glass(GlassShapes.card, palette.card, palette.border)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    item.title,
-                    style = sc(12.5f, 700),
-                    color = palette.text,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    when (item.status) {
-                        DownloadStatus.Queued -> "等待下载"
-                        DownloadStatus.WaitingForWifi -> "等待 Wi-Fi"
-                        DownloadStatus.Downloading ->
-                            "${formatOfflineBytes(item.downloadedBytes)} / " +
-                                formatOfflineBytes(item.totalBytes)
-                        DownloadStatus.Paused -> "已暂停 · ${formatOfflineBytes(item.downloadedBytes)}"
-                        DownloadStatus.Completed -> "已完成 · ${formatOfflineBytes(item.downloadedBytes)}"
-                        DownloadStatus.Failed -> item.error ?: "下载失败"
-                    },
-                    style = mr(10.5f, 400),
-                    color = if (item.status == DownloadStatus.Failed) Brand.Danger else palette.sub2,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Text(
-                when (item.status) {
-                    DownloadStatus.Completed -> "播放"
-                    DownloadStatus.Downloading -> "暂停"
-                    else -> "继续"
-                },
-                style = sc(11f, 700),
-                color = Brand.Primary,
-                modifier = Modifier
-                    .pressable {
-                        when (item.status) {
-                            DownloadStatus.Completed -> onPlay()
-                            DownloadStatus.Downloading -> onPause()
-                            else -> onResume()
-                        }
-                    }
-                    .glass(GlassShapes.chip, palette.card2, palette.border)
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                AppIcons.Close,
-                contentDescription = "删除离线文件",
-                tint = palette.sub2,
-                modifier = Modifier
-                    .size(30.dp)
-                    .pressable(onClick = onRemove)
-                    .glass(CircleShape, palette.card2, palette.border)
-                    .padding(8.dp),
-            )
-        }
-        if (item.status != DownloadStatus.Completed) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(continuousRounded(2.dp))
-                    .background(palette.border),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(item.progress)
-                        .height(4.dp)
-                        .background(Brand.Primary),
-                )
-            }
-        }
-    }
-}
-
-private fun formatOfflineBytes(value: Long): String = when {
-    value >= 1024L * 1024L * 1024L ->
-        "${(value / 1024.0 / 1024.0 / 1024.0 * 10).toInt() / 10.0} GB"
-    value >= 1024L * 1024L -> "${value / 1024L / 1024L} MB"
-    value >= 1024L -> "${value / 1024L} KB"
-    else -> "$value B"
 }
 
 /**

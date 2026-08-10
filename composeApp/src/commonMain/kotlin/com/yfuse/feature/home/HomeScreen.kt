@@ -62,6 +62,7 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalAccent
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSizing
@@ -195,6 +196,16 @@ fun HomeScreen(component: HomeComponent) {
                                 },
                             )
                         }
+                    }
+                }
+
+                if (state.nextUp.isNotEmpty()) {
+                    item(key = "next-up") {
+                        NextUpShelf(
+                            items = state.nextUp,
+                            onSeeAll = component.onOpenCalendar,
+                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
+                        )
                     }
                 }
 
@@ -647,6 +658,46 @@ private fun HeroCircleButton(icon: ImageVector, label: String, onClick: () -> Un
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, label, tint = Color.White, modifier = Modifier.size(15.dp))
+    }
+}
+
+@Composable
+private fun NextUpShelf(
+    items: List<HomeResumeEntry>,
+    onSeeAll: () -> Unit,
+    onClick: (HomeResumeEntry) -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).padding(bottom = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text("下一集", style = Type.section(16f), color = palette.text)
+                Text("继续追你正在看的剧集", style = mr(10.5f, 400), color = palette.sub2)
+            }
+            Text("追剧中心 ›", style = mr(11f, 600), color = LocalAccent.current.color, modifier = Modifier.pressable(onClick = onSeeAll))
+        }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(items, key = { "next-${it.server.id}-${it.item.id}" }) { entry ->
+                val item = entry.item
+                CaptionedPoster(
+                    url = EmbyImages.primary(entry.server.baseUrl, item.posterItemId, item.posterTag, accessToken = entry.server.accessToken),
+                    fallbackUrls = emptyList(),
+                    title = item.title,
+                    year = item.subtitle ?: item.year?.toString(),
+                    sharedKey = null,
+                    onClick = { onClick(entry) },
+                    modifier = Modifier.width(MediaSizing.landscapeCardWidth),
+                    posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
+                )
+            }
+        }
     }
 }
 

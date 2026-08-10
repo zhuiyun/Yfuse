@@ -17,6 +17,7 @@ private data class DiscoveryResponse(
     val Address: String,
     val Id: String,
     val Name: String,
+    val Version: String? = null,
 )
 
 actual fun createLanDiscovery(): LanDiscovery = AndroidLanDiscovery()
@@ -70,6 +71,7 @@ private class AndroidLanDiscovery : LanDiscovery {
                         name = response.Name,
                         address = response.Address,
                         id = response.Id,
+                        version = response.Version,
                     )
                 }
                 val attributes = mapOf(

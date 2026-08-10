@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
                     playbackSourcePreloader = runCatching { koin.get<PlaybackSourcePreloader>() }.getOrNull(),
                     playbackRecovery = koin.get(),
                     playbackPreferences = koin.get(),
+                    playbackFailoverRequest = koin.get(),
                     userAgentPreferences = koin.get(),
                     danmakuPreferences = koin.get(),
                     skipSegmentPreferences = koin.get(),

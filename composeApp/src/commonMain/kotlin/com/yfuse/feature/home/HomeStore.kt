@@ -58,6 +58,7 @@ data class HomeState(
     val server: SavedServer? = null,
     /** 继续观看 — aggregated from every signed-in server. */
     val resume: List<HomeResumeEntry> = emptyList(),
+    val nextUp: List<HomeResumeEntry> = emptyList(),
     val resolving: Boolean = false,
     val error: String? = null,
     /** A live refresh failed, but the last bounded cache is still usable. */
@@ -127,6 +128,7 @@ private sealed interface Msg {
     data class Cached(val content: TmdbHome) : Msg
     data class Loaded(val content: TmdbHome) : Msg
     data class ResumeLoaded(val items: List<HomeResumeEntry>) : Msg
+    data class NextUpLoaded(val items: List<HomeResumeEntry>) : Msg
     data class Server(val value: SavedServer?) : Msg
     data class Failed(val message: String) : Msg
     data class Resolving(val value: Boolean) : Msg
@@ -200,6 +202,7 @@ class HomeStoreFactory(
         private var resumeGeneration = 0L
         private var resumeConnection: List<HomeServerConnection> = emptyList()
         private var resumeJob: Job? = null
+        private var nextUpJob: Job? = null
 
         override fun executeAction(action: Action) {
             when (action) {
@@ -207,6 +210,7 @@ class HomeStoreFactory(
                 is Action.Servers -> {
                     dispatch(Msg.Server(action.default))
                     loadResume(action.servers)
+                    loadNextUp(action.servers)
                 }
             }
         }
@@ -216,10 +220,12 @@ class HomeStoreFactory(
                 HomeIntent.Retry -> {
                     loadRecommendations()
                     loadResume(registry.data.value.servers, force = true)
+                    loadNextUp(registry.data.value.servers)
                 }
                 HomeIntent.Refresh -> {
                     loadRecommendations(refresh = true)
                     loadResume(registry.data.value.servers, force = true)
+                    loadNextUp(registry.data.value.servers)
                 }
                 HomeIntent.DismissMessage -> dispatch(Msg.ActionMessage(null))
                 is HomeIntent.Open -> open(intent.item)
@@ -308,6 +314,24 @@ class HomeStoreFactory(
                 } finally {
                     if (generation == resumeGeneration) resumeJob = null
                 }
+            }
+        }
+
+        private fun loadNextUp(servers: List<SavedServer>) {
+            nextUpJob?.cancel()
+            val available = servers.filter { it.knownUnavailableEndpointReason() == null }
+            if (available.isEmpty()) {
+                dispatch(Msg.NextUpLoaded(emptyList()))
+                return
+            }
+            nextUpJob = scope.launch {
+                val entries = coroutineScope {
+                    available.map { server -> async {
+                        emby.nextUpEpisodes(server, 8).getOrDefault(emptyList())
+                            .map { HomeResumeEntry(it, server) }
+                    } }.awaitAll().flatten()
+                }
+                dispatch(Msg.NextUpLoaded(entries.distinctBy { it.server.id to it.item.id }))
             }
         }
 
@@ -411,6 +435,7 @@ class HomeStoreFactory(
                 recommendationNotice = null,
             )
             is Msg.ResumeLoaded -> copy(resume = msg.items)
+            is Msg.NextUpLoaded -> copy(nextUp = msg.items)
             // Resume entries carry their own server, so changing the default only changes
             // recommendation resolution and the server opened from the library tab.
             is Msg.Server -> copy(server = msg.value)

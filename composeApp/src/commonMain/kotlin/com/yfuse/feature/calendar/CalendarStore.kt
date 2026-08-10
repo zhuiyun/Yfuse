@@ -28,14 +28,21 @@ import kotlinx.coroutines.launch
  * whichever of the two the user came for.
  */
 enum class CalendarFilter(val label: String) {
+    Today("今天"),
+    Upcoming("即将更新"),
+    Unwatched("待观看"),
+    Mine("正在追"),
     All("全部"),
-    Mine("我的"),
     Domestic("国产"),
     Foreign("国外"),
     ;
 
     fun accepts(entry: CalendarEntry): Boolean = when (this) {
-        All -> true
+        Today, Upcoming, All -> true
+        Unwatched -> entry.inLibrary && entry.status in setOf(
+            com.yfuse.core.model.LibraryStatus.Available,
+            com.yfuse.core.model.LibraryStatus.Missing,
+        )
         Mine -> entry.inLibrary
         Domestic -> entry.episode.origin == ShowOrigin.Domestic
         Foreign -> entry.episode.origin == ShowOrigin.Foreign
@@ -45,20 +52,20 @@ enum class CalendarFilter(val label: String) {
 data class CalendarState(
     val loading: Boolean = true,
     val days: List<CalendarDay> = emptyList(),
-    val filter: CalendarFilter = CalendarFilter.All,
+    val filter: CalendarFilter = CalendarFilter.Today,
     val today: String = currentIsoDate(),
     val error: String? = null,
 ) {
     /** The days the current filter leaves, with days it empties dropped entirely. */
     val visibleDays: List<CalendarDay>
-        get() = if (filter == CalendarFilter.All) {
-            days
-        } else {
-            days.mapNotNull { day ->
-                day.entries.filter(filter::accepts)
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { day.copy(entries = it) }
+        get() = days.mapNotNull { day ->
+            val dateAccepted = when (filter) {
+                CalendarFilter.Today -> day.date == today
+                CalendarFilter.Upcoming -> day.date >= today
+                else -> true
             }
+            if (!dateAccepted) return@mapNotNull null
+            day.entries.filter(filter::accepts).takeIf { it.isNotEmpty() }?.let { day.copy(entries = it) }
         }
 
     /**

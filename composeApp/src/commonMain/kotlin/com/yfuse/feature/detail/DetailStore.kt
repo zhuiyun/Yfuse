@@ -7,6 +7,8 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackTrackRequest
+import com.yfuse.core.data.PlaybackFailoverPlan
+import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
@@ -19,6 +21,7 @@ import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.watchKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -189,6 +192,7 @@ class DetailStoreFactory(
     private val mainContext: CoroutineContext = Dispatchers.Main,
     private val playbackTrackRequest: PlaybackTrackRequest,
     private val syncManager: ServerSyncManager,
+    private val playbackFailoverRequest: PlaybackFailoverRequest = PlaybackFailoverRequest(),
 ) {
     fun create(): Store<DetailIntent, DetailState, DetailLabel> =
         storeFactory.create(
@@ -986,6 +990,19 @@ class DetailStoreFactory(
                 itemId = target.id,
                 audioLanguage = current.preferredAudioLanguage,
                 subtitleLanguage = current.preferredSubtitleLanguage,
+            )
+            val mediaKey = target.providerIds.watchKey(target.id)
+            val fallbackServers = current.sources.asSequence()
+                .filter { it.reachable && it.source != null && it.serverId != server.id }
+                .map { it.serverId }
+                .distinct()
+                .toList()
+            playbackFailoverRequest.set(
+                PlaybackFailoverPlan(
+                    itemId = target.id,
+                    mediaKey = mediaKey,
+                    fallbackServerIds = fallbackServers,
+                ),
             )
             publish(
                 DetailLabel.Play(
