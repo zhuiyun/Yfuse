@@ -26,7 +26,7 @@ class DetailComponent(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     val itemId: String,
-    serverId: String? = null,
+    val serverId: String? = null,
     /**
      * Starts playback as soon as the item has loaded, without waiting for a tap.
      *
@@ -108,7 +108,14 @@ class DetailComponent(
                     startPositionTicks = state.playPositionTicks,
                     mediaSourceId = state.selectedVersionId,
                 )
-                if (key == preloadKey && preloadStore != null) return@detailState
+                val currentPrepared = preloadStore
+                if (
+                    key == preloadKey &&
+                    currentPrepared != null &&
+                    PreparedPlaybackRegistry.owns(key, currentPrepared)
+                ) {
+                    return@detailState
+                }
 
                 releaseOwnedPreload()
                 val prepared = PlayerStoreFactory(
@@ -136,7 +143,7 @@ class DetailComponent(
                             sourcePreloader?.preload(selected.url)
                         }
                         // Ready/failed is terminal for PlayerStore. Keeping the Store itself is
-                        // intentional: PlayerComponent borrows this exact result on the tap.
+                        // intentional: PlayerComponent claims this exact result for one launch.
                         preloadObserver?.cancel()
                         preloadObserver = null
                     }

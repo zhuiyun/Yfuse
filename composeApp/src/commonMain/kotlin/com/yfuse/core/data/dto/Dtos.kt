@@ -174,7 +174,7 @@ data class BaseItemDto(
 data class ItemsResponseDto(
     val Items: List<BaseItemDto> = emptyList(),
     /** Full size of the matching set, independent of `Limit`. */
-    val TotalRecordCount: Int = 0,
+    val TotalRecordCount: Int? = null,
 )
 
 @Serializable

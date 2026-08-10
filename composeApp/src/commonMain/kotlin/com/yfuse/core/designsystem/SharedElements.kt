@@ -53,7 +53,7 @@ val LocalRouteVisible = staticCompositionLocalOf { true }
  * Keeps the outgoing and incoming Decompose children composed long enough for
  * shared artwork to travel between list, hero and detail layouts.
  *
- * [routeKey] must return a stable value per route (not per instance). It does two jobs:
+ * [routeKey] must return a stable value per logical stack entry. It does two jobs:
  * it tells [AnimatedContent] when the content genuinely changed, and it scopes a
  * [rememberSaveableStateHolder] entry so each route keeps its `rememberSaveable` state
  * while it sits in the back stack. Without that holder every route is rebuilt from
@@ -61,14 +61,74 @@ val LocalRouteVisible = staticCompositionLocalOf { true }
  * scrolled halfway down snapped back to the top as soon as the user opened a detail
  * page and returned.
  *
- * Routes that can stack on themselves (detail → related detail) share one key and
- * therefore one saved scroll offset. Giving those a per-item key would keep a registry
- * entry alive for every item ever visited, which costs more than the wart is worth.
+ * Routes that can stack on themselves (detail → related detail) need distinct keys so the
+ * previous detail can remain mounted for predictive-back preview. Entries are removed after
+ * their pop transition settles, preventing already-popped details from accumulating here.
  */
 @Immutable
 private data class Route<T : Any>(val value: T, val depth: Int)
 
 private typealias MovableRouteContent<T> = @Composable (T) -> Unit
+
+/** Stable detail identity shared by the Home, Search and Library navigation hosts. */
+internal fun detailRouteIdentity(serverId: String?, itemId: String): String {
+    val server = serverId.orEmpty()
+    // Length prefixes keep the pair unambiguous even if a compatible server uses punctuation
+    // inside its ids.
+    return "detail:${server.length}:$server:${itemId.length}:$itemId"
+}
+
+/**
+ * Tracks route keys that left the stack even if their push never reached a settled frame.
+ *
+ * Target changes are observed during composition, while removal waits for the transition host
+ * to settle. A normal push keeps the departed target because it is `previousRouteKey`; a pop
+ * queues the departed target because it is no longer the page underneath.
+ */
+internal class RouteRetentionTracker(initialTargetKey: String) {
+    private var observedTargetKey = initialTargetKey
+    private val pendingRemovals = linkedSetOf<String>()
+
+    fun observe(targetKey: String, previousRouteKey: String?) {
+        if (targetKey == observedTargetKey) return
+        val departedKey = observedTargetKey
+        if (departedKey != previousRouteKey) pendingRemovals += departedKey
+        // A route can become active again before the animation settles; it must no longer be
+        // treated as obsolete in that case.
+        pendingRemovals -= targetKey
+        observedTargetKey = targetKey
+    }
+
+    fun removalsWhenSettled(targetKey: String, previousRouteKey: String?): Set<String> {
+        if (targetKey != observedTargetKey) return emptySet()
+        val removable = pendingRemovals.filterTo(linkedSetOf()) { key ->
+            key != targetKey && key != previousRouteKey
+        }
+        pendingRemovals.removeAll(removable)
+        return removable
+    }
+}
+
+/**
+ * Retains the route revealed by a committed predictive-back gesture until ownership handoff
+ * finishes.
+ *
+ * Popping a stack with at least three entries changes `previous` from the gesture destination
+ * to the route below that destination in the same update that changes the target. Updating the
+ * retained value while a gesture is finishing or handing off would therefore reveal one route
+ * too far back and leave the handoff unable to complete. Outside a gesture, observing `previous`
+ * synchronously keeps the next destination current without relying on effect ordering.
+ */
+internal class PredictiveBackRevealRouteTracker<T>(initialPrevious: T?) {
+    private var retainedPrevious = initialPrevious
+
+    fun reveal(previous: T?, frozen: Boolean): T? {
+        if (!frozen && previous != null) {
+            retainedPrevious = previous
+        }
+        return if (frozen) retainedPrevious else previous
+    }
+}
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -131,16 +191,22 @@ fun <T : Any> SharedElementTransitionContainer(
     val previousValue = previous
     val targetRouteKey = routeKey(targetState)
     val previousRouteKey = previousValue?.let(routeKey)
+    val routeRetention = remember { RouteRetentionTracker(targetRouteKey) }
+    // Do not defer this until the transition settles: B can be pushed and popped back to A
+    // before any settled B frame exists, while its movable/saveable entries were still created.
+    routeRetention.observe(targetRouteKey, previousRouteKey)
 
-    // previous is derived from backStack.lastOrNull(), so it becomes null as soon as root is
-    // popped to. Retain the gesture destination independently until the already-visible
-    // subtree can move from PredictiveBackReveal to AnimatedContent without an empty frame.
-    var retainedPrevious by remember { mutableStateOf(previousValue) }
-    LaunchedEffect(previousValue) {
-        if (previousValue != null) retainedPrevious = previousValue
+    // previous is derived from backStack.lastOrNull(), so after a pop it immediately becomes
+    // the route below the gesture destination (or null at root). Freeze the destination while
+    // ownership moves from PredictiveBackReveal to AnimatedContent; observing the new previous
+    // during handoff would reveal one route too far back and make completion impossible.
+    val revealRouteTracker = remember {
+        PredictiveBackRevealRouteTracker(initialPrevious = previousValue)
     }
     val handoff = back?.handoffInProgress == true
-    val revealValue = if (handoff) retainedPrevious else previousValue
+    // peeking remains true through the throw and commit handoff, so it freezes earlier than
+    // handoffInProgress and cannot lose the destination to a concurrent stack update.
+    val revealValue = revealRouteTracker.reveal(previousValue, frozen = back?.peeking == true)
     val revealRouteKey = revealValue?.let(routeKey)
     var handoffTargetVisited by remember(targetRouteKey) { mutableStateOf(false) }
 
@@ -176,6 +242,25 @@ fun <T : Any> SharedElementTransitionContainer(
         }
     }
 
+    // A push keeps the departed target as [previousRouteKey], because it is still in the
+    // stack. A pop does not: once its transition/handoff settles, release both its movable
+    // content wrapper and its saveable registry entry. Per-detail route keys can therefore
+    // preserve related-detail peeks without retaining every title visited for the app lifetime.
+    LaunchedEffect(
+        handoff,
+        transitionSettled,
+        targetRouteKey,
+        previousRouteKey,
+    ) {
+        if (!handoff && transitionSettled) {
+            routeRetention.removalsWhenSettled(targetRouteKey, previousRouteKey)
+                .forEach { departedKey ->
+                    movableRoutes.remove(departedKey)
+                    stateHolder.removeState(departedKey)
+                }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         // Keep both routes in one lookahead scope, but move only the page being left.
         // Applying the gesture to SharedTransitionLayout also moved the retained reveal route,
@@ -190,8 +275,8 @@ fun <T : Any> SharedElementTransitionContainer(
                 PredictiveBackReveal(back) {
                     CompositionLocalProvider(LocalRouteVisible provides false) {
                         if (!handoff && revealRouteKey == targetRouteKey) {
-                            // Related detail pages deliberately share a route key and cannot invoke
-                            // the same movable SaveableStateProvider twice at the same time.
+                            // Equal-key replacements cannot invoke the same movable
+                            // SaveableStateProvider twice at the same time.
                             latestContent(revealValue)
                         } else {
                             // During commit this remains the sole owner even after targetState has

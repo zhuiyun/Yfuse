@@ -69,6 +69,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalOverlayVisibility
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalTabReselected
+import com.yfuse.core.designsystem.LocalTabIdentity
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.MiniPlayerTokens
@@ -317,12 +318,14 @@ fun App(root: RootComponent) {
                     ) { tab ->
                         // The name rather than the enum: the key has to survive a Bundle
                         // round trip, and a String is the one thing guaranteed to.
-                        tabStates.SaveableStateProvider(tab.name) {
-                            when (tab) {
-                                Tab.Home -> HomeTabScreen(root.home)
-                                Tab.Browse -> LibraryScreen(root.browse)
-                                Tab.Search -> SearchScreen(root.search)
-                                Tab.Profile -> ProfileTabScreen(root.profile)
+                        CompositionLocalProvider(LocalTabIdentity provides tab.name) {
+                            tabStates.SaveableStateProvider(tab.name) {
+                                when (tab) {
+                                    Tab.Home -> HomeTabScreen(root.home)
+                                    Tab.Browse -> LibraryScreen(root.browse)
+                                    Tab.Search -> SearchScreen(root.search)
+                                    Tab.Profile -> ProfileTabScreen(root.profile)
+                                }
                             }
                         }
                     }

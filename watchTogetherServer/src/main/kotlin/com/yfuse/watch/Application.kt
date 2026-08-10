@@ -57,6 +57,8 @@ private data class WireMessage(
     val type: String,
     /** Present on every v3 server response. Missing on hello means a legacy v2 client. */
     val protocolVersion: Int? = null,
+    /** Optional feature negotiation; old clients ignore it and old servers omit it. */
+    val capabilities: List<String>? = null,
     // hello / welcome / roomUpdate
     val clientId: String? = null,
     val name: String? = null,
@@ -263,6 +265,7 @@ private const val CHAT_RATE_WINDOW_MS = 3_000L
  * that can arrive several times a second.
  */
 private val REACTIONS = setOf("😂", "😮", "😍", "😭", "👏", "🔥", "🤔", "💀")
+private val SERVER_CAPABILITIES = listOf("reactions")
 
 /** Bursts are the point, so this is looser than chat — but still bounded. */
 private const val MAX_REACTIONS_PER_WINDOW = 6
@@ -1008,6 +1011,7 @@ private fun normalizeForwardedAddress(raw: String): String? {
 private fun Room.welcomeMessage(clientId: String): WireMessage = synchronized(this) {
     WireMessage(
         type = "welcome",
+        capabilities = SERVER_CAPABILITIES,
         roomCode = code,
         isHost = hostId == clientId,
         canControl = canControl(clientId),

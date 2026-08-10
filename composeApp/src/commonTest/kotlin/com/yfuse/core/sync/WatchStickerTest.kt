@@ -6,14 +6,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WatchStickerTest {
-
-    /**
-     * What [WatchTogetherClient] will accept in one message. Its own copy is private, so this
-     * is a transcription — if that limit ever drops, this test is what notices that half the
-     * tray has quietly become unsendable.
-     */
-    private val maxChatGraphemes = 30
-
     private fun message(text: String) = WatchChatMessage(
         id = 1L,
         clientId = "c1",
@@ -51,8 +43,19 @@ class WatchStickerTest {
             // A token longer than a message is a sticker that cannot be sent, and the tray
             // would offer it anyway — the failure would only show up on tap.
             val token = WatchStickers.token(sticker)
-            assertTrue(token.length <= maxChatGraphemes, "token too long to send: $token")
+            val validation = validateWatchChat(token)
+            assertNull(validation.error, "token rejected by production chat validation: $token")
+            assertEquals(token, validation.text)
         }
+    }
+
+    @Test
+    fun production_chat_validation_enforces_its_shared_grapheme_limit() {
+        assertNull(validateWatchChat("字".repeat(MAX_WATCH_CHAT_GRAPHEMES)).error)
+        assertEquals(
+            "每条消息最多 $MAX_WATCH_CHAT_GRAPHEMES 字",
+            validateWatchChat("字".repeat(MAX_WATCH_CHAT_GRAPHEMES + 1)).error,
+        )
     }
 
     @Test

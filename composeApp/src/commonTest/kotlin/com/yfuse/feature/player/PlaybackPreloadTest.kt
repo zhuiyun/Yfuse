@@ -1,11 +1,35 @@
 package com.yfuse.feature.player
 
+import com.arkivanov.mvikotlin.core.rx.Disposable
+import com.arkivanov.mvikotlin.core.rx.Observer
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class PlaybackPreloadTest {
+
+    @Test
+    fun prepared_queue_can_be_claimed_by_only_one_player_launch() {
+        val key = PlaybackPreloadKey(
+            serverId = "server",
+            itemId = "episode",
+            startPositionTicks = 42L,
+            mediaSourceId = "source",
+        )
+        val prepared = FakePreparedStore()
+        PreparedPlaybackRegistry.register(key, prepared)
+
+        assertSame(prepared, PreparedPlaybackRegistry.claim(key))
+        assertNull(PreparedPlaybackRegistry.claim(key))
+        assertFalse(PreparedPlaybackRegistry.owns(key, prepared))
+        // Ownership moved to the first player; detail cleanup must not dispose it underneath
+        // that launch after the registry entry has been consumed.
+        assertFalse(PreparedPlaybackRegistry.removeIfOwned(key, prepared))
+    }
 
     @Test
     fun next_episode_is_preloaded_only_inside_the_final_90_seconds() = runTest {
@@ -16,7 +40,9 @@ class PlaybackPreloadTest {
                 PlayerMediaItem("e2", "direct-2", "hls-2", "第二集"),
             ),
             sink = NoopSink,
-            scope = this,
+            // The reporter owns a long-lived command actor. Run it as background work so
+            // runTest cancels the actor after the synchronous preload assertions complete.
+            scope = backgroundScope,
             sourcePreloader = preloader,
         )
 
@@ -62,7 +88,7 @@ class PlaybackPreloadTest {
         val reporter = PlaybackProgressReporter(
             items = listOf(PlayerMediaItem("e1", "direct-1", "hls-1", "第一集")),
             sink = NoopSink,
-            scope = this,
+            scope = backgroundScope,
             sourcePreloader = preloader,
         )
 
@@ -84,6 +110,36 @@ class PlaybackPreloadTest {
 
         override fun preload(url: String) {
             urls += url
+        }
+    }
+
+    private class FakePreparedStore : PreparedPlayerStore {
+        override val state = PlayerState()
+        override var isDisposed: Boolean = false
+            private set
+
+        override fun states(observer: Observer<PlayerState>): Disposable {
+            observer.onNext(state)
+            return TestDisposable()
+        }
+
+        override fun labels(observer: Observer<Nothing>): Disposable = TestDisposable()
+
+        override fun accept(intent: PlayerIntent) = Unit
+
+        override fun init() = Unit
+
+        override fun dispose() {
+            isDisposed = true
+        }
+    }
+
+    private class TestDisposable : Disposable {
+        override var isDisposed: Boolean = false
+            private set
+
+        override fun dispose() {
+            isDisposed = true
         }
     }
 

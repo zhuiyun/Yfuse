@@ -106,6 +106,27 @@ class SearchStoreTest {
     }
 
     @Test
+    fun a_new_query_resets_the_previous_type_filter() = runTest {
+        val registry = testRegistry()
+        registry.addOrUpdate(
+            SavedServer("id1", "http://host:8096", "我的服务器", "u1", "zhuiyun", "tok"),
+        )
+        val store = SearchStoreFactory(
+            DefaultStoreFactory(),
+            testRepo { json("""{"Items":[]}""") },
+            registry,
+        ).create()
+        store.accept(SearchIntent.SetType(SearchType.Movie))
+
+        store.accept(SearchIntent.QueryChanged("沙丘"))
+        store.accept(SearchIntent.Submit)
+
+        val state = store.states.first { it.hasSearched && !it.loading }
+        assertEquals(SearchType.All, state.type)
+        store.dispose()
+    }
+
+    @Test
     fun a_failed_server_survives_the_type_filter() {
         val state = SearchState(
             groups = listOf(

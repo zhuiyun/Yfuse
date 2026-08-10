@@ -61,6 +61,8 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SharedElementTransitionContainer
+import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.detailRouteIdentity
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
@@ -100,7 +102,10 @@ fun SearchScreen(component: SearchComponent) {
 /** Keeps each route's scrolled position while it waits in the back stack. */
 private fun routeKey(child: SearchComponent.Child): String = when (child) {
     is SearchComponent.Child.Home -> "home"
-    is SearchComponent.Child.Detail -> "detail"
+    is SearchComponent.Child.Detail -> detailRouteIdentity(
+        serverId = child.component.serverId,
+        itemId = child.component.itemId,
+    )
     is SearchComponent.Child.Player -> "player"
 }
 
@@ -128,6 +133,7 @@ private fun SearchHomeScreen(
     val focusManager = LocalFocusManager.current
     val routeVisible = LocalRouteVisible.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
+    ScrollToTopOnReselect(component.listState)
 
     LaunchedEffect(focusRequest, routeVisible) {
         if (!routeVisible) {

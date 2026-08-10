@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.core.designsystem.SharedElementTransitionContainer
+import com.yfuse.core.designsystem.detailRouteIdentity
 import com.yfuse.feature.calendar.CalendarScreen
 import com.yfuse.feature.detail.DetailScreen
 import com.yfuse.feature.player.PlayerScreen
@@ -30,7 +31,10 @@ fun HomeTabScreen(component: HomeTabComponent) {
 /** Keeps each route's scrolled position while it waits in the back stack. */
 private fun routeKey(child: HomeTabComponent.Child): String = when (child) {
     is HomeTabComponent.Child.Home -> "home"
-    is HomeTabComponent.Child.Detail -> "detail"
+    is HomeTabComponent.Child.Detail -> detailRouteIdentity(
+        serverId = child.component.serverId,
+        itemId = child.component.itemId,
+    )
     is HomeTabComponent.Child.Player -> "player"
     is HomeTabComponent.Child.Info -> "info"
     is HomeTabComponent.Child.Calendar -> "calendar"

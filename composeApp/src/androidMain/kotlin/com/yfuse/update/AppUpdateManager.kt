@@ -354,8 +354,8 @@ internal fun copyUpdatePackage(
 /**
  * Appends the response body to [partialFile] and returns the bytes it now holds.
  *
- * The partial file deliberately survives failures: it is the 断点续传 checkpoint. Only a
- * mismatch that proves the bytes are unusable removes it, which is [verifyUpdatePackage]'s job.
+ * The partial file deliberately survives failures: it is the 断点续传 checkpoint. Completed
+ * bytes are checked read-only, then an owner-aware manager operation decides whether to delete.
  */
 internal fun appendUpdatePackage(
     input: InputStream,
@@ -384,21 +384,56 @@ internal fun appendUpdatePackage(
     }
 }
 
-/** Verifies a completed package; a file that fails is deleted so the next attempt restarts. */
-internal fun verifyUpdatePackage(
+/** Read-only package verification used while an asynchronous restore may become stale. */
+internal fun cachedUpdatePackageMatches(file: File, manifest: UpdateManifest): Boolean =
+    file.isFile &&
+        file.length() == manifest.size &&
+        runCatching { file.sha256().equals(manifest.sha256, ignoreCase = true) }
+            .getOrDefault(false)
+
+internal enum class OwnedUpdateCacheDeleteResult {
+    Deleted,
+    Missing,
+    StaleOwner,
+    Failed,
+}
+
+/**
+ * Deletes one cache path only while it still belongs to the restore that inspected it.
+ *
+ * The file name contains only versionCode, so comparing that field alone would let an old restore
+ * delete a same-version package with a new digest. The caller serializes this ownership check and
+ * deletion with generation/record mutations.
+ */
+internal fun deleteUpdateCacheFileIfOwned(
     file: File,
-    expectedBytes: Long,
-    expectedSha256: String,
-): File {
-    try {
-        check(file.length() == expectedBytes) { "安装包下载不完整" }
-        check(file.sha256().equals(expectedSha256, ignoreCase = true)) { "安装包校验失败" }
-        return file
-    } catch (error: Throwable) {
-        file.delete()
-        throw error
+    expectedGeneration: Int,
+    currentGeneration: Int,
+    expectedManifest: UpdateManifest,
+    currentRecord: UpdateDownloadRecord?,
+): OwnedUpdateCacheDeleteResult {
+    if (expectedGeneration != currentGeneration ||
+        currentRecord?.manifest?.hasSamePackageAs(expectedManifest) != true
+    ) {
+        return OwnedUpdateCacheDeleteResult.StaleOwner
+    }
+    if (!file.exists()) return OwnedUpdateCacheDeleteResult.Missing
+    return if (file.delete()) {
+        OwnedUpdateCacheDeleteResult.Deleted
+    } else {
+        OwnedUpdateCacheDeleteResult.Failed
     }
 }
+
+internal fun updateDownloadOwnerStillCurrent(
+    expectedGeneration: Int,
+    currentGeneration: Int,
+    pauseRequested: Boolean,
+    expectedManifest: UpdateManifest,
+    currentRecord: UpdateDownloadRecord?,
+): Boolean = !pauseRequested &&
+    expectedGeneration == currentGeneration &&
+    currentRecord?.manifest?.hasSamePackageAs(expectedManifest) == true
 
 sealed interface UpdateState {
     data object Idle : UpdateState
@@ -429,6 +464,66 @@ sealed interface UpdateState {
 
 internal fun updateProgress(downloadedBytes: Long, totalBytes: Long): Float =
     if (totalBytes <= 0L) 0f else (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
+
+internal enum class ActiveDownloadManifestAction {
+    Keep,
+    Replace,
+    Invalidate,
+}
+
+/**
+ * Reconciles a package already being downloaded with the latest accepted manifest.
+ *
+ * Notes and display names may change without invalidating bytes already on disk. The fields
+ * below are the package identity: if any of them changes, continuing the old transfer risks
+ * staging an artifact the update server no longer publishes.
+ */
+internal fun activeDownloadManifestAction(
+    active: UpdateManifest,
+    published: UpdateManifest,
+    installedVersionCode: Int,
+): ActiveDownloadManifestAction = when {
+    published.versionCode <= installedVersionCode -> ActiveDownloadManifestAction.Invalidate
+    active.hasSamePackageAs(published) -> ActiveDownloadManifestAction.Keep
+    else -> ActiveDownloadManifestAction.Replace
+}
+
+internal fun UpdateManifest.hasSamePackageAs(other: UpdateManifest): Boolean =
+    versionCode == other.versionCode &&
+        apkUrl == other.apkUrl &&
+        size == other.size &&
+        sha256.equals(other.sha256, ignoreCase = true)
+
+/** Keeps metadata refreshed by a concurrent manifest check when a transfer finishes. */
+internal fun latestManifestForFinishedDownload(
+    downloaded: UpdateManifest,
+    currentState: UpdateState,
+): UpdateManifest {
+    val current = when (currentState) {
+        is UpdateState.Downloading -> currentState.manifest
+        is UpdateState.Paused -> currentState.manifest
+        is UpdateState.Ready -> currentState.manifest
+        else -> null
+    }
+    return current?.takeIf { it.hasSamePackageAs(downloaded) } ?: downloaded
+}
+
+/** A transfer may refresh its validator without rolling back newer notes/name metadata. */
+internal fun mergeDownloadRecordValidator(
+    current: UpdateDownloadRecord,
+    attempted: UpdateDownloadRecord,
+): UpdateDownloadRecord? = current
+    .takeIf { it.manifest.hasSamePackageAs(attempted.manifest) }
+    ?.copy(validator = attempted.validator)
+
+internal fun updateCheckSnapshotStillCurrent(
+    startGeneration: Int,
+    currentGeneration: Int,
+    startedWithOwnedState: Boolean,
+    currentState: UpdateState,
+): Boolean = startGeneration == currentGeneration &&
+    (startedWithOwnedState || currentState !is UpdateState.Downloading &&
+        currentState !is UpdateState.Paused && currentState !is UpdateState.Ready)
 
 /**
  * Owns update checking, downloading and installing for the whole process.
@@ -470,6 +565,28 @@ class AppUpdateManager(
 
     @Volatile
     private var foregroundActivities = 0
+
+    private data class ActiveDownloadCheck(
+        val generation: Int,
+        val manifest: UpdateManifest,
+    )
+
+    private data class ActiveDownloadRequest(
+        val generation: Int,
+        val manifest: UpdateManifest,
+    )
+
+    private data class UpdateCheckSnapshot(
+        val generation: Int,
+        val previous: UpdateState,
+        val activeDownload: ActiveDownloadCheck?,
+        val startedWithOwnedState: Boolean,
+    )
+
+    private data class RestoreDownloadOwner(
+        val generation: Int,
+        val record: UpdateDownloadRecord,
+    )
 
     init {
         restoreInterruptedDownload()
@@ -534,18 +651,11 @@ class AppUpdateManager(
 
     private fun runCheck(automatic: Boolean) {
         if (checkJob?.isActive == true) return
-        // A running or held download already knows which version it is fetching; re-checking
-        // would only replace that progress with a fresh Available state.
-        if (_state.value is UpdateState.Downloading || _state.value is UpdateState.Paused) {
-            if (!automatic) _promptVisible.value = true
-            return
-        }
-        val previous = _state.value
+        val checkSnapshot = snapshotUpdateCheck()
+        val previous = checkSnapshot.previous
+        val activeDownload = checkSnapshot.activeDownload
         checkJob = scope.launch {
-            // A dialog left open from an earlier result must not stand in for this one's, or
-            // the daily limit could be bypassed by a prompt that was never closed.
-            _promptVisible.value = false
-            _state.value = UpdateState.Checking
+            if (!beginUpdateCheckIfCurrent(checkSnapshot)) return@launch
             AppLog.info(
                 category = "update",
                 event = "check_started",
@@ -578,7 +688,15 @@ class AppUpdateManager(
                     }
                 }
             }.onSuccess { manifest ->
+                if (!isUpdateCheckSnapshotCurrent(checkSnapshot)) return@onSuccess
                 if (manifest.versionCode <= BuildConfig.VERSION_CODE) {
+                    if (activeDownload == null) {
+                        if (!publishCurrentIfCheckCurrent(checkSnapshot)) return@onSuccess
+                    } else {
+                        if (!invalidateActiveDownloadAndPublishCurrent(activeDownload)) {
+                            return@onSuccess
+                        }
+                    }
                     AppLog.info(
                         category = "update",
                         event = "already_current",
@@ -588,8 +706,6 @@ class AppUpdateManager(
                             "publishedVersionCode" to manifest.versionCode.toString(),
                         ),
                     )
-                    clearDownloadRecord()
-                    _state.value = UpdateState.Current
                     return@onSuccess
                 }
                 AppLog.info(
@@ -601,7 +717,49 @@ class AppUpdateManager(
                         "targetVersionCode" to manifest.versionCode.toString(),
                     ),
                 )
-                _state.value = withContext(Dispatchers.IO) { availableState(manifest) }
+                if (activeDownload == null) {
+                    val available = withContext(Dispatchers.IO) { availableState(manifest) }
+                    if (!publishAvailableIfCheckCurrent(checkSnapshot, available)) {
+                        return@onSuccess
+                    }
+                } else {
+                    when (
+                        activeDownloadManifestAction(
+                            active = activeDownload.manifest,
+                            published = manifest,
+                            installedVersionCode = BuildConfig.VERSION_CODE,
+                        )
+                    ) {
+                        ActiveDownloadManifestAction.Keep -> {
+                            if (!refreshActiveDownloadManifest(activeDownload, manifest)) {
+                                return@onSuccess
+                            }
+                        }
+                        ActiveDownloadManifestAction.Replace -> {
+                            if (!invalidateActiveDownload(
+                                    activeDownload,
+                                    nextState = UpdateState.Checking,
+                                )
+                            ) {
+                                return@onSuccess
+                            }
+                            val replacementGeneration = requestGeneration
+                            val available = withContext(Dispatchers.IO) {
+                                availableState(manifest)
+                            }
+                            if (!publishAvailableIfGenerationCurrent(
+                                    replacementGeneration,
+                                    available,
+                                )
+                            ) {
+                                return@onSuccess
+                            }
+                        }
+                        ActiveDownloadManifestAction.Invalidate -> error(
+                            "Current-version manifests are handled before available updates",
+                        )
+                    }
+                }
                 if (!automatic) {
                     _promptVisible.value = true
                 } else if (promptGate.tryAcquire(manifest.versionCode)) {
@@ -623,22 +781,182 @@ class AppUpdateManager(
                     throwable = error,
                 )
                 if (automatic) automaticCheckGate.releaseForRetry()
-                // An unreachable server says nothing about a package already downloaded and
-                // verified, so a staged install is not thrown away by a failed check.
-                _state.value = previous as? UpdateState.Ready
-                    ?: UpdateState.Error("暂时无法连接升级服务器")
+                // An unreachable or invalid manifest says nothing about bytes already being
+                // downloaded, so keep their live progress rather than replacing it with Error.
+                if (activeDownload != null) {
+                    if (isActiveDownloadCurrent(activeDownload) && !automatic) {
+                        _promptVisible.value = true
+                    }
+                    // A resume/replacement may have advanced the generation while the manifest
+                    // request was in flight. That newer operation owns the state even when this
+                    // stale check fails, so never replace it with Error here.
+                    return@onFailure
+                }
+                publishCheckFailureIfCurrent(checkSnapshot, previous)
             }
         }
     }
 
+    @Synchronized
+    private fun beginUpdateCheckIfCurrent(snapshot: UpdateCheckSnapshot): Boolean {
+        if (!isUpdateCheckSnapshotCurrent(snapshot)) return false
+        if (snapshot.activeDownload == null) {
+            // A dialog left open from an earlier result must not stand in for this one's, or the
+            // daily limit could be bypassed by a prompt that was never closed. An active transfer
+            // is different: its progress remains visible while this cheap check runs.
+            _promptVisible.value = false
+            _state.value = UpdateState.Checking
+        }
+        return true
+    }
+
+    @Synchronized
+    private fun snapshotUpdateCheck(): UpdateCheckSnapshot {
+        val previous = _state.value
+        val activeDownload = when (previous) {
+            is UpdateState.Downloading -> ActiveDownloadCheck(requestGeneration, previous.manifest)
+            is UpdateState.Paused -> ActiveDownloadCheck(requestGeneration, previous.manifest)
+            else -> null
+        }
+        return UpdateCheckSnapshot(
+            generation = requestGeneration,
+            previous = previous,
+            activeDownload = activeDownload,
+            startedWithOwnedState = previous is UpdateState.Downloading ||
+                previous is UpdateState.Paused || previous is UpdateState.Ready,
+        )
+    }
+
+    @Synchronized
+    private fun isUpdateCheckSnapshotCurrent(snapshot: UpdateCheckSnapshot): Boolean =
+        updateCheckSnapshotStillCurrent(
+            startGeneration = snapshot.generation,
+            currentGeneration = requestGeneration,
+            startedWithOwnedState = snapshot.startedWithOwnedState,
+            currentState = _state.value,
+        )
+
+    @Synchronized
+    private fun publishCurrentIfCheckCurrent(snapshot: UpdateCheckSnapshot): Boolean {
+        if (!isUpdateCheckSnapshotCurrent(snapshot)) return false
+        clearDownloadRecord()
+        _state.value = UpdateState.Current
+        return true
+    }
+
+    @Synchronized
+    private fun publishAvailableIfCheckCurrent(
+        snapshot: UpdateCheckSnapshot,
+        available: UpdateState,
+    ): Boolean {
+        if (!isUpdateCheckSnapshotCurrent(snapshot)) return false
+        _state.value = available
+        return true
+    }
+
+    @Synchronized
+    private fun publishAvailableIfGenerationCurrent(
+        expectedGeneration: Int,
+        available: UpdateState,
+    ): Boolean {
+        if (expectedGeneration != requestGeneration) return false
+        _state.value = available
+        return true
+    }
+
+    @Synchronized
+    private fun publishCheckFailureIfCurrent(
+        snapshot: UpdateCheckSnapshot,
+        previous: UpdateState,
+    ): Boolean {
+        if (!isUpdateCheckSnapshotCurrent(snapshot)) return false
+        _state.value = previous as? UpdateState.Ready
+            ?: UpdateState.Error("暂时无法连接升级服务器")
+        return true
+    }
+
+    @Synchronized
+    private fun isActiveDownloadCurrent(active: ActiveDownloadCheck): Boolean {
+        if (active.generation != requestGeneration) return false
+        val currentManifest = when (val current = _state.value) {
+            is UpdateState.Downloading -> current.manifest
+            is UpdateState.Paused -> current.manifest
+            is UpdateState.Ready -> current.manifest
+            else -> return false
+        }
+        return currentManifest.hasSamePackageAs(active.manifest)
+    }
+
+    /** Refreshes notes/name without resetting live progress for the same package. */
+    @Synchronized
+    private fun refreshActiveDownloadManifest(
+        active: ActiveDownloadCheck,
+        published: UpdateManifest,
+    ): Boolean {
+        if (active.generation != requestGeneration) return false
+        val current = _state.value
+        val refreshed = when (current) {
+            is UpdateState.Downloading -> current
+                .takeIf { it.manifest.hasSamePackageAs(active.manifest) }
+                ?.copy(manifest = published, totalBytes = published.size)
+            is UpdateState.Paused -> current
+                .takeIf { it.manifest.hasSamePackageAs(active.manifest) }
+                ?.copy(manifest = published, totalBytes = published.size)
+            is UpdateState.Ready -> current
+                .takeIf { it.manifest.hasSamePackageAs(active.manifest) }
+                ?.copy(manifest = published)
+            else -> null
+        } ?: return false
+        if (current is UpdateState.Downloading || current is UpdateState.Paused) {
+            val record = downloadRecord()?.takeIf {
+                it.manifest.hasSamePackageAs(active.manifest)
+            } ?: return false
+            putDownloadRecord(record.copy(manifest = published))
+        }
+        _state.value = refreshed
+        return true
+    }
+
+    /** Makes every in-flight callback from the replaced package fail its generation check. */
+    @Synchronized
+    private fun invalidateActiveDownload(
+        active: ActiveDownloadCheck,
+        nextState: UpdateState,
+    ): Boolean {
+        if (!isActiveDownloadCurrent(active)) return false
+        pauseRequested = true
+        requestGeneration += 1
+        pendingInstall = null
+        clearDownloadRecord()
+        _state.value = nextState
+        return true
+    }
+
+    @Synchronized
+    private fun invalidateActiveDownloadAndPublishCurrent(active: ActiveDownloadCheck): Boolean {
+        return invalidateActiveDownload(active, nextState = UpdateState.Current)
+    }
+
     /** Starts or resumes the background download. Safe to call while one is already running. */
+    @Synchronized
     fun download(manifest: UpdateManifest) {
         if (_state.value is UpdateState.Downloading) return
         pauseRequested = false
         requestGeneration += 1
-        val existing = partialFile(manifest).takeIf(File::isFile)?.length() ?: 0L
+        val matchingRecord = downloadRecord()?.takeIf {
+            it.manifest.hasSamePackageAs(manifest)
+        }
+        val partial = partialFile(manifest)
+        if (matchingRecord == null && partial.isFile && !partial.delete()) {
+            // File names only contain versionCode. A republished package can therefore collide
+            // with bytes from an older digest/URL and must never resume from that prefix.
+            clearDownloadRecord()
+            _state.value = UpdateState.Error("无法清理旧的下载缓存，请重试", manifest)
+            return
+        }
+        val existing = partial.takeIf(File::isFile)?.length() ?: 0L
         putDownloadRecord(
-            UpdateDownloadRecord(manifest, validator = storedValidator(manifest)),
+            UpdateDownloadRecord(manifest, validator = matchingRecord?.validator),
         )
         _state.value = UpdateState.Downloading(
             manifest = manifest,
@@ -666,6 +984,7 @@ class AppUpdateManager(
     }
 
     /** Keeps the bytes already fetched; [download] picks up from exactly there. */
+    @Synchronized
     fun pauseDownload() {
         val current = _state.value as? UpdateState.Downloading ?: return
         pauseRequested = true
@@ -704,12 +1023,9 @@ class AppUpdateManager(
     }
 
     private suspend fun runActiveDownloadLocked() {
-        val record = downloadRecord() ?: return
-        // Only a request that is still wanted runs: a pause between the service start and this
-        // point has already moved the state on.
-        if (pauseRequested || _state.value !is UpdateState.Downloading) return
-        val generation = requestGeneration
-        val manifest = record.manifest
+        val request = snapshotActiveDownloadRequest() ?: return
+        val generation = request.generation
+        val manifest = request.manifest
         var attempt = 0
         while (true) {
             if (!isCurrentRequest(generation)) break
@@ -728,30 +1044,98 @@ class AppUpdateManager(
                     "downloadedBytes" to downloaded.toString(),
                 ),
             )
-            if (!isCurrentRequest(generation)) break
             if (attempt >= UPDATE_DOWNLOAD_RETRY_LIMIT) {
-                _state.value = UpdateState.Paused(
-                    manifest = manifest,
-                    downloadedBytes = downloaded,
-                    totalBytes = manifest.size,
-                    message = error.message ?: "下载失败",
+                publishPausedIfCurrent(
+                    manifest,
+                    generation,
+                    downloaded,
+                    error.message ?: "下载失败",
                 )
                 break
             }
-            _state.value = UpdateState.Paused(
-                manifest = manifest,
-                downloadedBytes = downloaded,
-                totalBytes = manifest.size,
-                message = "网络中断，正在重试…",
-            )
+            if (!publishPausedIfCurrent(
+                    manifest,
+                    generation,
+                    downloaded,
+                    "网络中断，正在重试…",
+                )
+            ) {
+                break
+            }
             delay(UPDATE_DOWNLOAD_RETRY_BASE_DELAY_MS shl (attempt - 1))
-            if (!isCurrentRequest(generation)) break
-            _state.value = UpdateState.Downloading(
-                manifest = manifest,
-                downloadedBytes = downloaded,
-                totalBytes = manifest.size,
-            )
+            if (!publishDownloadingIfCurrent(manifest, generation, downloaded)) break
         }
+    }
+
+    @Synchronized
+    private fun snapshotActiveDownloadRequest(): ActiveDownloadRequest? {
+        val current = _state.value as? UpdateState.Downloading ?: return null
+        val record = downloadRecord() ?: return null
+        if (pauseRequested || !current.manifest.hasSamePackageAs(record.manifest)) return null
+        return ActiveDownloadRequest(requestGeneration, record.manifest)
+    }
+
+    @Synchronized
+    private fun ownedDownloadManifest(
+        expected: UpdateManifest,
+        generation: Int,
+    ): UpdateManifest? {
+        val record = downloadRecord()
+        if (!updateDownloadOwnerStillCurrent(
+                expectedGeneration = generation,
+                currentGeneration = requestGeneration,
+                pauseRequested = pauseRequested,
+                expectedManifest = expected,
+                currentRecord = record,
+            )
+        ) {
+            return null
+        }
+        return record?.manifest
+    }
+
+    @Synchronized
+    private fun publishDownloadingIfCurrent(
+        expected: UpdateManifest,
+        generation: Int,
+        downloadedBytes: Long,
+        requireDownloadingState: Boolean = false,
+    ): Boolean {
+        if (requireDownloadingState && _state.value !is UpdateState.Downloading) return false
+        val manifest = ownedDownloadManifest(expected, generation) ?: return false
+        _state.value = UpdateState.Downloading(manifest, downloadedBytes, manifest.size)
+        return true
+    }
+
+    @Synchronized
+    private fun publishPausedIfCurrent(
+        expected: UpdateManifest,
+        generation: Int,
+        downloadedBytes: Long,
+        message: String?,
+    ): Boolean {
+        val manifest = ownedDownloadManifest(expected, generation) ?: return false
+        _state.value = UpdateState.Paused(manifest, downloadedBytes, manifest.size, message)
+        return true
+    }
+
+    /** A user pause keeps ownership but sets pauseRequested, so update only its byte count. */
+    @Synchronized
+    private fun publishStoppedBytesIfOwned(
+        expected: UpdateManifest,
+        generation: Int,
+        downloadedBytes: Long,
+    ) {
+        if (generation != requestGeneration) return
+        val current = _state.value as? UpdateState.Paused ?: return
+        val manifest = downloadRecord()?.manifest
+            ?.takeIf { it.hasSamePackageAs(expected) && current.manifest.hasSamePackageAs(it) }
+            ?: return
+        _state.value = current.copy(
+            manifest = manifest,
+            downloadedBytes = downloadedBytes,
+            totalBytes = manifest.size,
+        )
     }
 
     /** A transfer that was paused, or replaced by a newer request, may no longer write state. */
@@ -768,34 +1152,57 @@ class AppUpdateManager(
         val target = File(directory, updatePackageFileName(manifest.versionCode))
         val partial = File(directory, "${target.name}.part")
         // The partial file is a checkpoint, not litter: it has to survive the sweep.
-        cleanupStaleUpdateFiles(directory, keepFileNames = setOf(target.name, partial.name))
-
-        if (target.isFile && target.length() == manifest.size &&
-            target.sha256().equals(manifest.sha256, ignoreCase = true)
+        if (!cleanupStaleFilesIfCurrent(
+                manifest,
+                generation,
+                directory,
+                keepFileNames = setOf(target.name, partial.name),
+            )
         ) {
-            partial.delete()
-            finish(manifest, target)
-            return@withContext true
+            return@withContext false
         }
 
-        val record = downloadRecord()?.takeIf { it.manifest.versionCode == manifest.versionCode }
+        if (cachedUpdatePackageMatches(target, manifest)) {
+            return@withContext finishCachedTargetIfCurrent(
+                manifest,
+                target,
+                partial,
+                generation,
+            )
+        }
+
+        val record = downloadRecord()?.takeIf { it.manifest.hasSamePackageAs(manifest) }
         var existing = partial.takeIf(File::isFile)?.length() ?: 0L
         var validator = record?.validator?.takeIf { existing > 0L }
         if (existing > 0L && record == null) {
             // Those bytes were fetched for some other package.
-            partial.delete()
+            when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
+                OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
+                OwnedUpdateCacheDeleteResult.Failed -> error("无法清理旧的下载缓存")
+                OwnedUpdateCacheDeleteResult.Deleted,
+                OwnedUpdateCacheDeleteResult.Missing,
+                -> Unit
+            }
             existing = 0L
         }
         if (existing >= manifest.size) {
             // Complete but never verified — most likely killed between the last write and the
             // digest check.
-            val verified = runCatching {
-                verifyUpdatePackage(partial, manifest.size, manifest.sha256)
+            if (!isCurrentRequest(generation)) return@withContext false
+            if (cachedUpdatePackageMatches(partial, manifest)) {
+                return@withContext promoteAndFinishIfCurrent(
+                    manifest,
+                    partial,
+                    target,
+                    generation,
+                )
             }
-            if (verified.isSuccess) {
-                promote(partial, target)
-                finish(manifest, target)
-                return@withContext true
+            when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
+                OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
+                OwnedUpdateCacheDeleteResult.Failed -> error("无法清理损坏的下载缓存")
+                OwnedUpdateCacheDeleteResult.Deleted,
+                OwnedUpdateCacheDeleteResult.Missing,
+                -> Unit
             }
             existing = 0L
             validator = null
@@ -858,7 +1265,13 @@ class AppUpdateManager(
                     )
                     connection.disconnect()
                     connection = null
-                    partial.delete()
+                    when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
+                        OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
+                        OwnedUpdateCacheDeleteResult.Failed -> error("无法重置下载缓存")
+                        OwnedUpdateCacheDeleteResult.Deleted,
+                        OwnedUpdateCacheDeleteResult.Missing,
+                        -> Unit
+                    }
                     existing = 0L
                     validator = null
                     continue
@@ -869,14 +1282,26 @@ class AppUpdateManager(
                 }
                 if (!append && existing > 0L) {
                     // A plain 200 to an If-Range request means the package changed.
-                    partial.delete()
+                    when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
+                        OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
+                        OwnedUpdateCacheDeleteResult.Failed -> error("无法重置下载缓存")
+                        OwnedUpdateCacheDeleteResult.Deleted,
+                        OwnedUpdateCacheDeleteResult.Missing,
+                        -> Unit
+                    }
                     existing = 0L
                 }
                 break
             }
             val activeConnection = checkNotNull(connection) { "升级连接已关闭" }
             validateUpdateContentLength(activeConnection.contentLengthLong, manifest.size - existing)
-            putDownloadRecord(UpdateDownloadRecord(manifest, validator = responseValidator))
+            if (!putDownloadRecordIfCurrent(
+                    generation,
+                    UpdateDownloadRecord(manifest, validator = responseValidator),
+                )
+            ) {
+                return@withContext false
+            }
             val copied = activeConnection.inputStream.use { input ->
                 appendUpdatePackage(
                     input = input,
@@ -886,22 +1311,19 @@ class AppUpdateManager(
                     shouldContinue = { isCurrentRequest(generation) },
                 ) { downloaded ->
                     // A pause has already moved the state on; progress must not undo it.
-                    if (isCurrentRequest(generation) && _state.value is UpdateState.Downloading) {
-                        _state.value = UpdateState.Downloading(
-                            manifest = manifest,
-                            downloadedBytes = downloaded,
-                            totalBytes = manifest.size,
-                        )
-                    }
+                    publishDownloadingIfCurrent(
+                        expected = manifest,
+                        generation = generation,
+                        downloadedBytes = downloaded,
+                        requireDownloadingState = true,
+                    )
                 }
             }
             if (copied < manifest.size) {
                 check(!isCurrentRequest(generation)) { "安装包下载不完整" }
-                if (generation == requestGeneration) {
-                    // The pause was recorded before the last chunks landed; show what the
-                    // resume will actually start from. A newer request owns the state instead.
-                    _state.value = UpdateState.Paused(manifest, copied, manifest.size)
-                }
+                // The pause was recorded before the last chunks landed; show what the resume
+                // will actually start from. A newer generation or invalidated record is ignored.
+                publishStoppedBytesIfOwned(manifest, generation, copied)
                 AppLog.info(
                     category = "update",
                     event = "download_interrupted",
@@ -910,13 +1332,76 @@ class AppUpdateManager(
                 )
                 return@withContext false
             }
-            verifyUpdatePackage(partial, manifest.size, manifest.sha256)
-            promote(partial, target)
-            finish(manifest, target)
-            true
+            if (!isCurrentRequest(generation)) return@withContext false
+            if (!cachedUpdatePackageMatches(partial, manifest)) {
+                when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
+                    OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
+                    OwnedUpdateCacheDeleteResult.Failed -> error("无法清理损坏的下载缓存")
+                    OwnedUpdateCacheDeleteResult.Deleted,
+                    OwnedUpdateCacheDeleteResult.Missing,
+                    -> error("安装包校验失败")
+                }
+            }
+            promoteAndFinishIfCurrent(manifest, partial, target, generation)
         } finally {
             connection?.disconnect()
         }
+    }
+
+    @Synchronized
+    private fun isDownloadOwnerCurrent(manifest: UpdateManifest, generation: Int): Boolean =
+        ownedDownloadManifest(manifest, generation) != null
+
+    @Synchronized
+    private fun cleanupStaleFilesIfCurrent(
+        manifest: UpdateManifest,
+        generation: Int,
+        directory: File,
+        keepFileNames: Set<String>,
+    ): Boolean {
+        if (!isDownloadOwnerCurrent(manifest, generation)) return false
+        cleanupStaleUpdateFiles(directory, keepFileNames)
+        return true
+    }
+
+    @Synchronized
+    private fun deleteDownloadFileIfCurrent(
+        manifest: UpdateManifest,
+        generation: Int,
+        file: File,
+    ): OwnedUpdateCacheDeleteResult {
+        if (!isCurrentRequest(generation)) return OwnedUpdateCacheDeleteResult.StaleOwner
+        return deleteUpdateCacheFileIfOwned(
+            file = file,
+            expectedGeneration = generation,
+            currentGeneration = requestGeneration,
+            expectedManifest = manifest,
+            currentRecord = downloadRecord(),
+        )
+    }
+
+    @Synchronized
+    private fun finishCachedTargetIfCurrent(
+        manifest: UpdateManifest,
+        target: File,
+        partial: File,
+        generation: Int,
+    ): Boolean {
+        if (!isDownloadOwnerCurrent(manifest, generation)) return false
+        partial.delete()
+        return finish(manifest, target, generation)
+    }
+
+    @Synchronized
+    private fun promoteAndFinishIfCurrent(
+        manifest: UpdateManifest,
+        partial: File,
+        target: File,
+        generation: Int,
+    ): Boolean {
+        if (!isDownloadOwnerCurrent(manifest, generation)) return false
+        promote(partial, target)
+        return finish(manifest, target, generation)
     }
 
     private fun promote(partial: File, target: File) {
@@ -924,19 +1409,22 @@ class AppUpdateManager(
         check(partial.renameTo(target)) { "无法保存安装包" }
     }
 
-    private fun finish(manifest: UpdateManifest, apk: File) {
+    @Synchronized
+    private fun finish(manifest: UpdateManifest, apk: File, generation: Int): Boolean {
+        if (!isDownloadOwnerCurrent(manifest, generation)) return false
+        val finishedManifest = latestManifestForFinishedDownload(manifest, _state.value)
         clearDownloadRecord()
         AppLog.info(
             category = "update",
             event = "download_verified",
             message = "Application update downloaded and verified",
-            attributes = mapOf("targetVersionName" to manifest.versionName),
+            attributes = mapOf("targetVersionName" to finishedManifest.versionName),
         )
-        _state.value = UpdateState.Ready(manifest, apk)
+        _state.value = UpdateState.Ready(finishedManifest, apk)
         // The installer is an activity. Launching one from the background is both blocked by
         // Android and rude, so a download finished behind the user's back waits for them.
         if (foregroundActivities > 0) {
-            scope.launch { install(apk) }
+            scope.launch { installIfCurrent(finishedManifest, apk, generation) }
         } else {
             pendingInstall = apk
             AppLog.info(
@@ -945,6 +1433,23 @@ class AppUpdateManager(
                 message = "Install deferred until Yfuse returns to the foreground",
             )
         }
+        return true
+    }
+
+    /** A newer manifest may invalidate the package after [finish] queues the main-thread launch. */
+    private fun installIfCurrent(
+        manifest: UpdateManifest,
+        apk: File,
+        generation: Int,
+    ) {
+        val ready = _state.value as? UpdateState.Ready ?: return
+        if (!isCurrentRequest(generation) ||
+            ready.apk != apk ||
+            !ready.manifest.hasSamePackageAs(manifest)
+        ) {
+            return
+        }
+        install(apk)
     }
 
     fun install(apk: File) {
@@ -1028,10 +1533,49 @@ class AppUpdateManager(
         val directory = File(appContext.cacheDir, "updates")
         val target = File(directory, updatePackageFileName(record.manifest.versionCode))
         val existing = File(directory, "${target.name}.part").takeIf(File::isFile)?.length() ?: 0L
-        // Deliberately not staged as a pending install: the installer may only be launched by
-        // an action the user just took, never because the app happened to start.
-        if (target.isFile && target.length() == record.manifest.size) {
-            _state.value = UpdateState.Ready(record.manifest, target)
+        if (target.isFile) {
+            // Hashing an APK can take hundreds of milliseconds. Keep application startup on the
+            // main thread responsive. Verification is deliberately read-only: any cleanup happens
+            // only after ownership is checked again under the same lock used by [download].
+            val owner = RestoreDownloadOwner(requestGeneration, record)
+            scope.launch {
+                if (!isRestoreOwnerCurrent(owner)) return@launch
+                val verified = withContext(Dispatchers.IO) {
+                    cachedUpdatePackageMatches(target, record.manifest)
+                }
+                if (verified) {
+                    publishRestoredStateIfCurrent(
+                        owner,
+                        UpdateState.Ready(record.manifest, target),
+                    )
+                    return@launch
+                }
+
+                when (withContext(Dispatchers.IO) { deleteRestoreTargetIfCurrent(owner, target) }) {
+                    OwnedUpdateCacheDeleteResult.StaleOwner -> return@launch
+                    OwnedUpdateCacheDeleteResult.Failed -> AppLog.warning(
+                        category = "update",
+                        event = "cached_package_cleanup_failed",
+                        message = "Rejected cached update package could not be removed",
+                        attributes = mapOf(
+                            "targetVersionCode" to record.manifest.versionCode.toString(),
+                        ),
+                    )
+                    OwnedUpdateCacheDeleteResult.Deleted,
+                    OwnedUpdateCacheDeleteResult.Missing,
+                    -> Unit
+                }
+
+                val partialBytes = withContext(Dispatchers.IO) {
+                    partialFile(record.manifest).takeIf(File::isFile)?.length() ?: 0L
+                }
+                val restored = if (partialBytes in 1 until record.manifest.size) {
+                    UpdateState.Paused(record.manifest, partialBytes, record.manifest.size)
+                } else {
+                    UpdateState.Available(record.manifest)
+                }
+                publishRestoredStateIfCurrent(owner, restored)
+            }
             return
         }
         if (existing <= 0L) return
@@ -1048,17 +1592,57 @@ class AppUpdateManager(
         )
     }
 
+    @Synchronized
+    private fun isRestoreOwnerCurrent(owner: RestoreDownloadOwner): Boolean =
+        owner.generation == requestGeneration && isDownloadRecordCurrent(owner.record)
+
+    @Synchronized
+    private fun deleteRestoreTargetIfCurrent(
+        owner: RestoreDownloadOwner,
+        target: File,
+    ): OwnedUpdateCacheDeleteResult = deleteUpdateCacheFileIfOwned(
+        file = target,
+        expectedGeneration = owner.generation,
+        currentGeneration = requestGeneration,
+        expectedManifest = owner.record.manifest,
+        currentRecord = downloadRecord(),
+    )
+
+    @Synchronized
+    private fun publishRestoredStateIfCurrent(
+        owner: RestoreDownloadOwner,
+        restored: UpdateState,
+    ) {
+        if (!isRestoreOwnerCurrent(owner)) return
+        when (_state.value) {
+            UpdateState.Idle,
+            UpdateState.Checking,
+            is UpdateState.Error,
+            -> _state.value = restored
+            else -> Unit
+        }
+    }
+
     private fun availableState(manifest: UpdateManifest): UpdateState {
         val directory = File(appContext.cacheDir, "updates")
         val target = File(directory, updatePackageFileName(manifest.versionCode))
-        if (target.isFile && target.length() == manifest.size) {
+        val hadCachedTarget = target.isFile
+        if (cachedUpdatePackageMatches(target, manifest)) {
             return UpdateState.Ready(manifest, target)
         }
-        val record = downloadRecord()?.takeIf { it.manifest.versionCode == manifest.versionCode }
-        val existing = File(directory, "${target.name}.part")
-            .takeIf { record != null && it.isFile }
-            ?.length()
-            ?: 0L
+        if (hadCachedTarget) {
+            AppLog.warning(
+                category = "update",
+                event = "cached_package_rejected",
+                message = "Cached update package failed size or digest verification",
+                attributes = mapOf("targetVersionCode" to manifest.versionCode.toString()),
+            )
+        }
+        val record = downloadRecord()?.takeIf {
+            it.manifest.hasSamePackageAs(manifest)
+        }
+        val partial = File(directory, "${target.name}.part")
+        val existing = partial.takeIf { record != null && it.isFile }?.length() ?: 0L
         return if (existing in 1 until manifest.size) {
             UpdateState.Paused(manifest, existing, manifest.size)
         } else {
@@ -1077,10 +1661,6 @@ class AppUpdateManager(
         "${updatePackageFileName(manifest.versionCode)}.part",
     )
 
-    private fun storedValidator(manifest: UpdateManifest): String? = downloadRecord()
-        ?.takeIf { it.manifest.versionCode == manifest.versionCode }
-        ?.validator
-
     private fun downloadRecord(): UpdateDownloadRecord? {
         val raw = settings.getStringOrNull(KEY_DOWNLOAD_RECORD) ?: return null
         return runCatching {
@@ -1096,11 +1676,26 @@ class AppUpdateManager(
         }.getOrNull()
     }
 
+    private fun isDownloadRecordCurrent(expected: UpdateDownloadRecord): Boolean =
+        downloadRecord()?.manifest?.hasSamePackageAs(expected.manifest) == true
+
     private fun putDownloadRecord(record: UpdateDownloadRecord) {
         settings.putString(
             KEY_DOWNLOAD_RECORD,
             json.encodeToString(UpdateDownloadRecord.serializer(), record),
         )
+    }
+
+    @Synchronized
+    private fun putDownloadRecordIfCurrent(
+        generation: Int,
+        record: UpdateDownloadRecord,
+    ): Boolean {
+        if (!isCurrentRequest(generation)) return false
+        val merged = downloadRecord()?.let { mergeDownloadRecordValidator(it, record) }
+            ?: return false
+        putDownloadRecord(merged)
+        return true
     }
 
     private fun clearDownloadRecord() {

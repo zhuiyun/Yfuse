@@ -10,6 +10,7 @@ import com.yfuse.core.data.LIBRARY_PAGE_SIZE
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.LibraryPage
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.toUserMessage
@@ -24,9 +25,14 @@ data class GridState(
     val items: List<MediaItem> = emptyList(),
     /** Size of the whole filtered set on the server, not of [items]. */
     val totalCount: Int = 0,
+    /** Next raw server offset. This advances even when a returned item is de-duplicated. */
+    val nextStartIndex: Int = 0,
     val sort: LibrarySort = LibrarySort.RecentlyAdded,
     /** Genre facets offered by this library; empty means no filter row. */
     val genres: List<String> = emptyList(),
+    /** Facet loading is independent from the poster grid and has its own retry affordance. */
+    val genresLoading: Boolean = false,
+    val genreLoadError: String? = null,
     /** The selected genre, or null for 全部. */
     val genre: String? = null,
     /** 稍后观看 keeps the order the user arranged, so it offers no sort. */
@@ -35,11 +41,12 @@ data class GridState(
     /** Appending failed. The loaded pages stay; the footer offers another try. */
     val loadMoreError: String? = null,
 ) {
-    val canLoadMore: Boolean get() = items.size < totalCount
+    val canLoadMore: Boolean get() = nextStartIndex < totalCount
 }
 
 sealed interface GridIntent {
     data object Retry : GridIntent
+    data object RetryGenres : GridIntent
 
     /** Reached the end of what is loaded — fetch the next page. */
     data object LoadMore : GridIntent
@@ -54,11 +61,13 @@ private sealed interface GridAction { data object Load : GridAction }
 private sealed interface GridMsg {
     data object Loading : GridMsg
     data object LoadingMore : GridMsg
-    data class Loaded(val items: List<MediaItem>, val totalCount: Int) : GridMsg
-    data class Appended(val items: List<MediaItem>, val totalCount: Int) : GridMsg
+    data class Loaded(val page: LibraryPage) : GridMsg
+    data class Appended(val page: LibraryPage) : GridMsg
     data class Failed(val message: String) : GridMsg
     data class AppendFailed(val message: String) : GridMsg
-    data class Genres(val values: List<String>) : GridMsg
+    data object GenresLoading : GridMsg
+    data class GenresLoaded(val values: List<String>) : GridMsg
+    data class GenresFailed(val message: String) : GridMsg
     data class Sort(val value: LibrarySort) : GridMsg
     data class Genre(val value: String?) : GridMsg
 }
@@ -88,6 +97,7 @@ class LibraryGridStoreFactory(
          */
         private var generation = 0L
         private var pageJob: Job? = null
+        private var genresJob: Job? = null
         private var genresLoaded = false
 
         override fun executeAction(action: GridAction) {
@@ -105,6 +115,7 @@ class LibraryGridStoreFactory(
                     loadGenres()
                     loadFirstPage()
                 }
+                GridIntent.RetryGenres -> loadGenres()
                 GridIntent.LoadMore -> loadNextPage()
                 is GridIntent.SetSort -> {
                     if (intent.sort == state().sort) return
@@ -124,12 +135,27 @@ class LibraryGridStoreFactory(
          * current filter, so re-reading it on every sort change would be pure traffic.
          */
         private fun loadGenres() {
-            if (genresLoaded) return
-            val server = registry.defaultServer ?: return
-            genresLoaded = true
-            scope.launch {
-                val genres = repo.libraryGenres(server, libraryId)
-                if (genres.isNotEmpty()) dispatch(GridMsg.Genres(genres))
+            if (genresLoaded || genresJob?.isActive == true) return
+            val server = registry.defaultServer
+            if (server == null) {
+                dispatch(GridMsg.GenresFailed("没有可用的服务器"))
+                return
+            }
+            dispatch(GridMsg.GenresLoading)
+            genresJob = scope.launch {
+                repo.libraryGenres(server, libraryId).onSuccess { genres ->
+                    genresLoaded = true
+                    dispatch(GridMsg.GenresLoaded(genres))
+                }.onFailure {
+                    AppLog.warning(
+                        category = "feature.library",
+                        event = "grid_genres_failed",
+                        message = "Library genre facets failed to load",
+                        throwable = it,
+                        attributes = mapOf("serverId" to server.id),
+                    )
+                    dispatch(GridMsg.GenresFailed(it.toUserMessage("分类加载失败")))
+                }
             }
         }
 
@@ -159,7 +185,7 @@ class LibraryGridStoreFactory(
                     limit = LIBRARY_PAGE_SIZE,
                 ).onSuccess {
                     if (current != generation) return@onSuccess
-                    dispatch(GridMsg.Loaded(it.items, it.totalCount))
+                    dispatch(GridMsg.Loaded(it))
                 }.onFailure {
                     if (current != generation) return@onFailure
                     AppLog.warning(
@@ -181,7 +207,7 @@ class LibraryGridStoreFactory(
             if (state.loading || state.loadingMore || !state.canLoadMore) return
             val server = registry.defaultServer ?: return
             val current = ++generation
-            val startIndex = state.items.size
+            val startIndex = state.nextStartIndex
             dispatch(GridMsg.LoadingMore)
             pageJob = scope.launch {
                 repo.libraryItems(
@@ -193,7 +219,7 @@ class LibraryGridStoreFactory(
                     limit = LIBRARY_PAGE_SIZE,
                 ).onSuccess {
                     if (current != generation) return@onSuccess
-                    dispatch(GridMsg.Appended(it.items, it.totalCount))
+                    dispatch(GridMsg.Appended(it))
                 }.onFailure {
                     if (current != generation) return@onFailure
                     AppLog.warning(
@@ -219,8 +245,9 @@ class LibraryGridStoreFactory(
             is GridMsg.Loaded -> copy(
                 loading = false,
                 loadingMore = false,
-                items = msg.items,
-                totalCount = msg.totalCount,
+                items = msg.page.items,
+                totalCount = msg.page.totalCount,
+                nextStartIndex = msg.page.startIndex + msg.page.items.size,
                 error = null,
             )
             is GridMsg.Appended -> {
@@ -228,21 +255,53 @@ class LibraryGridStoreFactory(
                 // (equal production years, a title added between requests). A LazyGrid with
                 // a duplicated key drops one of the copies, so the merge is by id.
                 val seen = items.mapTo(HashSet()) { it.id }
-                val appended = items + msg.items.filter { seen.add(it.id) }
+                val appended = items + msg.page.items.filter { seen.add(it.id) }
+                // Offset follows the raw server page, not the number of unique cards. An
+                // entirely duplicated page must still move forward instead of requesting
+                // the same boundary forever.
+                val nextStartIndex = msg.page.startIndex + msg.page.items.size
                 copy(
                     loading = false,
                     loadingMore = false,
                     items = appended,
-                    // A page that was entirely duplicates would otherwise leave the grid
-                    // asking for the same offset forever; the floor ends paging instead.
-                    totalCount = if (msg.items.isEmpty()) appended.size else msg.totalCount,
+                    // An empty page is authoritative even if a broken server reports a larger
+                    // total; pin the boundary so another end-of-list signal cannot loop.
+                    totalCount = if (msg.page.items.isEmpty()) {
+                        maxOf(appended.size, nextStartIndex)
+                    } else {
+                        msg.page.totalCount
+                    },
+                    nextStartIndex = nextStartIndex,
                 )
             }
             is GridMsg.Failed -> copy(loading = false, loadingMore = false, error = msg.message)
             is GridMsg.AppendFailed -> copy(loadingMore = false, loadMoreError = msg.message)
-            is GridMsg.Genres -> copy(genres = msg.values)
-            is GridMsg.Sort -> copy(sort = msg.value)
-            is GridMsg.Genre -> copy(genre = msg.value)
+            GridMsg.GenresLoading -> copy(genresLoading = true, genreLoadError = null)
+            is GridMsg.GenresLoaded -> copy(
+                genres = msg.values,
+                genresLoading = false,
+                genreLoadError = null,
+            )
+            is GridMsg.GenresFailed -> copy(
+                genresLoading = false,
+                genreLoadError = msg.message,
+            )
+            is GridMsg.Sort -> copy(
+                sort = msg.value,
+                items = emptyList(),
+                totalCount = 0,
+                nextStartIndex = 0,
+                error = null,
+                loadMoreError = null,
+            )
+            is GridMsg.Genre -> copy(
+                genre = msg.value,
+                items = emptyList(),
+                totalCount = 0,
+                nextStartIndex = 0,
+                error = null,
+                loadMoreError = null,
+            )
         }
     }
 }

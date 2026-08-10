@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- 与 values/themes.xml 的 Theme.Yfuse 逐字相同,只有 parent 换成深色。 -->
     <style name="Theme.Yfuse" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/launch_surface</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">@bool/launch_light_status_bar</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_transparent</item>
-        <item name="android:windowSplashScreenBackground">@color/launch_surface</item>
-        <item name="android:windowSplashScreenAnimationDuration">0</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="27">shortEdges</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@drawable/ic_splash_transparent</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/launch_surface</item>
+        <item name="android:windowSplashScreenAnimationDuration" tools:targetApi="31">0</item>
     </style>
 </resources>

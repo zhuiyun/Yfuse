@@ -1,8 +1,8 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
-
 package com.yfuse.feature.player
 
 import android.content.Context
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
  * running. 16 MiB is enough to cover ExoPlayer's initial time buffer for ordinary sources while
  * remaining bounded for a detail page the user only browses.
  */
+@OptIn(UnstableApi::class)
 internal class AndroidPlaybackSourcePreloader(
     context: Context,
     private val playbackPreferences: PlaybackPreferences,

@@ -184,6 +184,11 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     selected = state.genre,
                     onSelect = { component.store.accept(GridIntent.SetGenre(it)) },
                 )
+            } else if (state.genreLoadError != null) {
+                GenreLoadErrorRow(
+                    message = state.genreLoadError!!,
+                    onRetry = { component.store.accept(GridIntent.RetryGenres) },
+                )
             }
 
             Box(Modifier.fillMaxSize()) {
@@ -263,6 +268,41 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 }
             }
         }
+    }
+}
+
+/** Facet failure must stay actionable even when the poster request itself succeeded. */
+@Composable
+private fun GenreLoadErrorRow(message: String, onRetry: () -> Unit) {
+    val palette = LocalPalette.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = message,
+            style = sc(11.5f, 400),
+            color = palette.sub,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = "重试分类",
+            style = sc(11.5f, 700),
+            color = Brand.Primary,
+            modifier = Modifier
+                .pressable(onClick = onRetry)
+                .glass(
+                    shape = GlassShapes.chip,
+                    fill = Brand.Primary.copy(alpha = 0.08f),
+                    border = Brand.Primary.copy(alpha = 0.28f),
+                )
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+        )
     }
 }
 

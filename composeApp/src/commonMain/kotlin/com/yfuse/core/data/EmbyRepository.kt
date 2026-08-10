@@ -165,6 +165,34 @@ private const val SNAPSHOT_PAGE_SIZE = 2_000
 /** Backstop against a server whose `TotalRecordCount` is wrong, or a paging loop. */
 private const val SNAPSHOT_MAX_ITEMS = 100_000
 
+internal fun userLibrarySnapshotIsTruncated(
+    collectedItems: Int,
+    reportedTotal: Int,
+    maxItems: Int,
+): Boolean = collectedItems >= maxItems && reportedTotal > maxItems
+
+/**
+ * Resolves the total used by the grid when an Emby-compatible endpoint omits it.
+ *
+ * A short page proves that the end was reached. A full page does not, so expose one
+ * additional sentinel row to keep `canLoadMore` true until the next request answers.
+ * When the server does report a total, keep that exact boundary (with a floor for broken
+ * under-counts) so an exactly-full final page does not cause an unnecessary request.
+ */
+private fun pageTotal(
+    reportedTotal: Int?,
+    startIndex: Int,
+    itemCount: Int,
+    limit: Int,
+): Int {
+    val loadedThrough = startIndex + itemCount
+    return if (reportedTotal == null && limit > 0 && itemCount >= limit) {
+        loadedThrough + 1
+    } else {
+        (reportedTotal ?: loadedThrough).coerceAtLeast(loadedThrough)
+    }
+}
+
 private data class PersonalCollection(
     val items: List<MediaItem>,
     val totalCount: Int,
@@ -444,11 +472,13 @@ class EmbyRepository(private val client: HttpClient) {
     ): Result<LibraryPage> = call("library_items") {
         when (libraryId) {
             FAVORITES_COLLECTION_ID ->
-                return@call fetchFavorites(server, limit, startIndex, sort).toLibraryPage(startIndex)
+                return@call fetchFavorites(server, limit, startIndex, sort)
+                    .toLibraryPage(startIndex)
             // The playlist's own order is the one the user arranged, so 稍后观看 ignores
             // [sort] rather than overriding that with a column of its own choosing.
             WATCH_LATER_COLLECTION_ID ->
-                return@call fetchWatchLater(server, limit, startIndex).toLibraryPage(startIndex)
+                return@call fetchWatchLater(server, limit, startIndex)
+                    .toLibraryPage(startIndex)
         }
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
             header("X-Emby-Token", server.accessToken)
@@ -470,9 +500,12 @@ class EmbyRepository(private val client: HttpClient) {
         }.body()
         LibraryPage(
             items = dto.Items.map { it.toMediaItem() },
-            // A server that omits TotalRecordCount would otherwise report an empty library
-            // and stop paging after the first page.
-            totalCount = dto.TotalRecordCount.coerceAtLeast(startIndex + dto.Items.size),
+            totalCount = pageTotal(
+                reportedTotal = dto.TotalRecordCount,
+                startIndex = startIndex,
+                itemCount = dto.Items.size,
+                limit = limit,
+            ),
             startIndex = startIndex,
         )
     }
@@ -480,12 +513,12 @@ class EmbyRepository(private val client: HttpClient) {
     /**
      * The genres present in one library, for the grid's filter row.
      *
-     * Returns an empty list rather than failing: the filter is an enhancement, and a
-     * server that does not answer `/Genres` should still show its library.
+     * Failure stays separate from a valid empty facet so the grid can keep showing its
+     * content while still allowing an explicit retry to recover the filter row.
      */
-    suspend fun libraryGenres(server: SavedServer, libraryId: String): List<String> {
+    suspend fun libraryGenres(server: SavedServer, libraryId: String): Result<List<String>> {
         if (libraryId == FAVORITES_COLLECTION_ID || libraryId == WATCH_LATER_COLLECTION_ID) {
-            return emptyList()
+            return Result.success(emptyList())
         }
         return runCatching {
             val dto: ItemsResponseDto = client.get("${server.baseUrl}/Genres") {
@@ -507,7 +540,7 @@ class EmbyRepository(private val client: HttpClient) {
                 throwable = it,
                 attributes = mapOf("libraryId" to libraryId),
             )
-        }.getOrDefault(emptyList())
+        }
     }
 
     /** Real Emby recommendations used by the detail page's compact poster rail. */
@@ -684,6 +717,7 @@ class EmbyRepository(private val client: HttpClient) {
     suspend fun userLibrarySnapshot(server: SavedServer): Result<List<SyncedUserItem>> =
         call("user_library_snapshot") {
         val collected = mutableListOf<SyncedUserItem>()
+        val seenIds = HashSet<String>()
         var startIndex = 0
         var total = Int.MAX_VALUE
         while (startIndex < total && collected.size < SNAPSHOT_MAX_ITEMS) {
@@ -698,8 +732,13 @@ class EmbyRepository(private val client: HttpClient) {
                     parameter("StartIndex", startIndex)
                     parameter("Limit", SNAPSHOT_PAGE_SIZE)
                 }.body()
-            // A server that ignores StartIndex would otherwise loop on page one forever.
+            // Empty is the normal terminator when TotalRecordCount is absent. A repeated id is
+            // different: accepting an incomplete/duplicated snapshot as authoritative can replay
+            // pending mutations over remote changes, so fail the sync instead of merging it.
             if (dto.Items.isEmpty()) break
+            check(dto.Items.all { seenIds.add(it.Id) }) {
+                "服务器分页未前进，已取消本次同步"
+            }
             collected += dto.Items.map { item ->
                 SyncedUserItem(
                     id = item.Id,
@@ -710,10 +749,10 @@ class EmbyRepository(private val client: HttpClient) {
                     dateModified = item.DateModified,
                 )
             }
-            if (dto.TotalRecordCount > 0) total = dto.TotalRecordCount
+            dto.TotalRecordCount?.takeIf { it > 0 }?.let { total = it }
             startIndex += dto.Items.size
         }
-        if (collected.size >= SNAPSHOT_MAX_ITEMS && total > SNAPSHOT_MAX_ITEMS) {
+        if (userLibrarySnapshotIsTruncated(collected.size, total, SNAPSHOT_MAX_ITEMS)) {
             AppLog.warning(
                 category = "emby",
                 event = "library_snapshot_truncated",
@@ -724,6 +763,7 @@ class EmbyRepository(private val client: HttpClient) {
                     "total" to total.toString(),
                 ),
             )
+            error("媒体库项目过多，本次同步已取消以避免使用不完整快照")
         }
         collected
     }
@@ -1149,7 +1189,7 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
             personalCollectionParameters(limit, startIndex)
         }.body()
-        return dto.toPersonalCollection(startIndex)
+        return dto.toPersonalCollection(startIndex, limit)
     }
 
     private suspend fun fetchWatchLater(
@@ -1164,7 +1204,7 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("UserId", server.userId)
             personalCollectionParameters(limit, startIndex)
         }.body()
-        return dto.toPersonalCollection(startIndex)
+        return dto.toPersonalCollection(startIndex, limit)
     }
 
     private fun io.ktor.client.request.HttpRequestBuilder.personalCollectionParameters(
@@ -1182,13 +1222,18 @@ class EmbyRepository(private val client: HttpClient) {
         parameter("Limit", limit)
     }
 
-    private fun ItemsResponseDto.toPersonalCollection(startIndex: Int = 0): PersonalCollection =
+    private fun ItemsResponseDto.toPersonalCollection(
+        startIndex: Int,
+        limit: Int,
+    ): PersonalCollection =
         PersonalCollection(
             items = Items.map { it.toMediaItem() },
-            // Some Emby-compatible servers omit TotalRecordCount on playlist routes. Without
-            // the floor a later page would report a total smaller than what is already on
-            // screen, and the grid would decide it had reached the end too early.
-            totalCount = TotalRecordCount.coerceAtLeast(startIndex + Items.size),
+            totalCount = pageTotal(
+                reportedTotal = TotalRecordCount,
+                startIndex = startIndex,
+                itemCount = Items.size,
+                limit = limit,
+            ),
         )
 
     private fun PersonalCollection.toLibraryPage(startIndex: Int) = LibraryPage(
@@ -1225,7 +1270,7 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("IncludeItemTypes", "Movie,Series")
             parameter("Limit", 0)
         }.body()
-        return dto.TotalRecordCount
+        return dto.TotalRecordCount ?: 0
     }
 
     private suspend fun fetchResume(server: SavedServer): List<MediaItem> {
