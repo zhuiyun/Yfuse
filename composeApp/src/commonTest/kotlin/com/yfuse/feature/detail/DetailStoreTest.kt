@@ -19,6 +19,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.IOException
@@ -33,6 +34,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
+import kotlin.coroutines.CoroutineContext
 
 class DetailStoreTest {
     @BeforeTest
@@ -632,6 +634,7 @@ class DetailStoreTest {
                 IOException("temporary catalog failure")
                     .takeIf { attempts.incrementAndGet() < 3 }
             },
+            mainContext = UnconfinedTestDispatcher(testScheduler),
         )
         store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
 
@@ -744,6 +747,7 @@ class DetailStoreTest {
         onSecondEpisodeDetail: () -> Unit = {},
         onSecondNextUp: () -> Unit = {},
         seasonTwoEpisodesFailure: (() -> Throwable?)? = null,
+        mainContext: CoroutineContext = Dispatchers.Unconfined,
     ): com.arkivanov.mvikotlin.core.store.Store<
         DetailIntent,
         DetailState,
@@ -824,7 +828,7 @@ class DetailStoreTest {
             registry,
             itemId = "s1",
             serverId = "one",
-            mainContext = Dispatchers.Unconfined,
+            mainContext = mainContext,
         ).create()
     }
 

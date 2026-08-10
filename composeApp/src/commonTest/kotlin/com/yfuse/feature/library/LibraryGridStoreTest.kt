@@ -49,7 +49,13 @@ class LibraryGridStoreTest {
                 json(page(from = start, count = if (start == 0) 60 else 30, total = 90))
             }
         }
-        val store = LibraryGridStoreFactory(DefaultStoreFactory(), repo, registry(), "lib1").create()
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "lib1",
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
 
         val first = store.states.first { !it.loading && it.items.isNotEmpty() }
         assertEquals(60, first.items.size)

@@ -14,8 +14,10 @@ import com.yfuse.core.model.LibraryPage
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.toUserMessage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.coroutines.CoroutineContext
 
 data class GridState(
     /** The first page is on its way; the grid has nothing to show yet. */
@@ -77,18 +79,21 @@ class LibraryGridStoreFactory(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     private val libraryId: String,
+    private val mainContext: CoroutineContext = Dispatchers.Main,
 ) {
     fun create(): Store<GridIntent, GridState, Nothing> =
         storeFactory.create(
             name = "LibraryGridStore",
             initialState = GridState(sortable = libraryId != WATCH_LATER_COLLECTION_ID),
-            bootstrapper = coroutineBootstrapper<GridAction> { dispatch(GridAction.Load) },
+            bootstrapper = coroutineBootstrapper<GridAction>(mainContext) {
+                dispatch(GridAction.Load)
+            },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
         )
 
     private inner class ExecutorImpl :
-        CoroutineExecutor<GridIntent, GridAction, GridState, GridMsg, Nothing>() {
+        CoroutineExecutor<GridIntent, GridAction, GridState, GridMsg, Nothing>(mainContext) {
 
         /**
          * Guards against a slow page landing after the criteria changed under it. Both
