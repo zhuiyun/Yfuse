@@ -1,8 +1,8 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
-
 package com.yfuse.feature.player
 
 import android.content.Context
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -10,6 +10,8 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.UserAgentPreferences
+import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -27,10 +29,12 @@ import java.util.concurrent.ConcurrentHashMap
  * running. 16 MiB is enough to cover ExoPlayer's initial time buffer for ordinary sources while
  * remaining bounded for a detail page the user only browses.
  */
+@OptIn(UnstableApi::class)
 internal class AndroidPlaybackSourcePreloader(
     context: Context,
     private val playbackPreferences: PlaybackPreferences,
     private val userAgentPreferences: UserAgentPreferences,
+    private val themePreferences: ThemePreferences,
 ) : PlaybackSourcePreloader {
 
     private val applicationContext = context.applicationContext
@@ -40,6 +44,9 @@ internal class AndroidPlaybackSourcePreloader(
     override fun preload(url: String) {
         val source = url.trim()
         if (source.isEmpty()) return
+        // Only ExoPlayer consumes VideoCachePool. Warming 16 MiB for MPV/MDK performs the
+        // network work twice and cannot make their native demuxers start any faster.
+        if (themePreferences.engine.value != PlayerEngine.Exo) return
         // Cache-off is an explicit user choice. Avoid even opening the stream, and also avoid
         // retaining one completed bookkeeping Job per browsed detail page.
         if (playbackPreferences.videoCacheSize.value.bytes <= 0L) return

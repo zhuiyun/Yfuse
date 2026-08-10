@@ -44,7 +44,8 @@ class HomeTabComponent(
         source = navigation,
         serializer = Config.serializer(),
         initialConfiguration = Config.Home,
-        handleBackButton = true,
+        // The Compose shell owns system/predictive back so only the visible tab can pop.
+        handleBackButton = false,
         childFactory = ::child,
     )
 
@@ -94,8 +95,8 @@ class HomeTabComponent(
                 tmdb = tmdb,
                 emby = repo,
                 registry = registry,
-                onOpenEmbyItem = {
-                    navigation.push(Config.Detail(registry.defaultServer?.id, it))
+                onOpenEmbyItem = { serverId, itemId ->
+                    navigation.push(Config.Detail(serverId, itemId))
                 },
                 onOpenTmdbItem = { item, embyItemId ->
                     navigation.push(Config.Info(item, embyItemId))

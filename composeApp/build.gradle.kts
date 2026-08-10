@@ -57,6 +57,7 @@ kotlin {
             implementation(files("libs/libmpv-release.aar"))
             implementation(libs.androidx.palette)
             implementation(libs.zxing.core)
+            implementation(libs.google.cast.framework)
         }
 
         androidUnitTest.dependencies {

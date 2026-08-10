@@ -67,6 +67,10 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
     var finish by mutableFloatStateOf(0f)
         private set
 
+    /** Edge that drives the current gesture; retained through cancel/commit animation. */
+    var swipeEdge by mutableStateOf(PredictiveBackSwipeEdge.Left)
+        private set
+
     internal var reduceMotion: Boolean = false
 
     /**
@@ -92,7 +96,7 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
      */
     private var pendingCommit = false
 
-    internal fun onProgress(value: Float) {
+    internal fun onProgress(value: Float, edge: PredictiveBackSwipeEdge) {
         // The throw is not interruptible: it is the tail of a decision already made, and a
         // second gesture landing mid-throw would drag back a page that is on its way out.
         if (finishing) return
@@ -101,6 +105,7 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
         job = null
         pendingCommit = false
         peeking = true
+        swipeEdge = edge
         progress = value.coerceIn(0f, 1f)
     }
 
@@ -115,6 +120,7 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
             ) { value, _ -> progress = value }
             peeking = false
             progress = 0f
+            swipeEdge = PredictiveBackSwipeEdge.Left
         }
     }
 
@@ -168,6 +174,7 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
             handoffInProgress = false
             pendingCommit = false
             finishing = false
+            swipeEdge = PredictiveBackSwipeEdge.Left
         }
     }
 
@@ -204,6 +211,7 @@ class PredictiveBackState internal constructor(private val scope: CoroutineScope
         finish = 0f
         handoffInProgress = false
         finishing = false
+        swipeEdge = PredictiveBackSwipeEdge.Left
     }
 
     private companion object {
@@ -254,9 +262,10 @@ fun Modifier.predictiveBackPeek(state: PredictiveBackState): Modifier {
             val eased = Motion.Curve.transform(gesture.coerceIn(0f, 1f))
             val exit = Motion.Curve.transform(thrown.coerceIn(0f, 1f))
             val lift = (1f - 0.08f * eased) * (1f - 0.04f * exit)
+            val direction = if (state.swipeEdge == PredictiveBackSwipeEdge.Left) 1f else -1f
             scaleX = lift
             scaleY = lift
-            translationX = size.width * (0.06f * eased + 0.94f * exit)
+            translationX = direction * size.width * (0.06f * eased + 0.94f * exit)
             alpha = (1f - 0.2f * eased) * (1f - exit)
             shape = GlassShapes.sheet
             clip = true
@@ -282,7 +291,8 @@ fun PredictiveBackReveal(state: PredictiveBackState, content: @Composable () -> 
                 val eased = Motion.Curve.transform(state.progress.coerceIn(0f, 1f))
                 val exit = Motion.Curve.transform(state.finish.coerceIn(0f, 1f))
                 val settled = eased + (1f - eased) * exit
-                translationX = -size.width * 0.10f * (1f - settled)
+                val direction = if (state.swipeEdge == PredictiveBackSwipeEdge.Left) 1f else -1f
+                translationX = -direction * size.width * 0.10f * (1f - settled)
                 alpha = 0.82f + 0.18f * settled
             }
             // It is a preview, not a page yet. The layer above it is scaled down, so the

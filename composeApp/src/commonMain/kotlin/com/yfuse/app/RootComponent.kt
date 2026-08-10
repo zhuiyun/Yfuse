@@ -10,6 +10,7 @@ import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.designsystem.TabReselection
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherClient
@@ -98,6 +99,11 @@ class RootComponent(
     )
 
     fun selectTab(tab: Tab) {
+        if (_activeTab.value != tab) {
+            // Clear the previous tab's replayed event before AnimatedContent composes the new
+            // branch. A very fast second tap can then be replayed safely to that new subscriber.
+            _tabReselected.value = null
+        }
         _activeTab.value = tab
     }
 
@@ -106,11 +112,12 @@ class RootComponent(
      * its root page. The root screens listen and go back to the top — see
      * [com.yfuse.core.designsystem.ScrollToTopOnReselect].
      *
-     * A counter rather than an event stream because the meaning is "this happened again",
-     * and a counter survives a subscriber that was not composed at the time.
+     * The occurrence makes repeated taps distinct to StateFlow; the tab identity prevents
+     * AnimatedContent's still-composed outgoing root from acting on another tab's tap.
      */
-    private val _tabReselected = MutableStateFlow(0)
-    val tabReselected: StateFlow<Int> = _tabReselected.asStateFlow()
+    private val _tabReselected = MutableStateFlow<TabReselection?>(null)
+    val tabReselected: StateFlow<TabReselection?> = _tabReselected.asStateFlow()
+    private var tabReselectionOccurrence = 0L
 
     /**
      * The active tab was tapped again.
@@ -123,9 +130,13 @@ class RootComponent(
      */
     fun reselectTab(tab: Tab, atRoot: Boolean) {
         if (atRoot) {
-            _tabReselected.value++
+            _tabReselected.value = TabReselection(
+                tabIdentity = tab.name,
+                occurrence = ++tabReselectionOccurrence,
+            )
             return
         }
+        _tabReselected.value = null
         when (tab) {
             Tab.Home -> home.popToRoot()
             Tab.Browse -> browse.popToRoot()

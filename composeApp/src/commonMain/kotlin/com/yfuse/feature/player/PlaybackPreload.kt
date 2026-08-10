@@ -22,9 +22,11 @@ internal typealias PreparedPlayerStore = Store<PlayerIntent, PlayerState, Nothin
 /**
  * Process-local cache for queues prepared by DetailComponent.
  *
- * The detail component remains the owner. PlayerComponent only borrows the Store long enough to
- * launch PlayerActivity, which means returning from playback and pressing 播放 again is still an
- * instant cache hit instead of rebuilding the queue.
+ * The detail component owns an entry until PlayerComponent claims it for one launch. Claiming is
+ * destructive: stream URLs carry a play-session id, and reusing the same Store for a later launch
+ * would let the previous player's delayed `Stopped`/active-encoding cleanup terminate the new one.
+ * A later launch therefore builds a fresh Store, with fresh session ids, unless the detail page has
+ * prepared another entry in the meantime.
  */
 internal object PreparedPlaybackRegistry {
     private val stores = mutableMapOf<PlaybackPreloadKey, PreparedPlayerStore>()
@@ -34,7 +36,13 @@ internal object PreparedPlaybackRegistry {
         store: PreparedPlayerStore,
     ): PreparedPlayerStore? = stores.put(key, store)
 
-    fun get(key: PlaybackPreloadKey): PreparedPlayerStore? = stores[key]
+    /**
+     * Transfers one prepared queue to the player that is about to launch it.
+     *
+     * Removing before returning makes the session-bearing URLs single-use even when two player
+     * components are created for the same detail selection.
+     */
+    fun claim(key: PlaybackPreloadKey): PreparedPlayerStore? = stores.remove(key)
 
     /** True only while the detail page still owns this exact Store. */
     fun owns(key: PlaybackPreloadKey, store: PreparedPlayerStore): Boolean = stores[key] === store

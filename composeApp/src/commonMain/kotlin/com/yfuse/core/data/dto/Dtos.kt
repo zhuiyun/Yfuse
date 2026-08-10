@@ -8,6 +8,7 @@ import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.SubtitleTrackInfo
 import com.yfuse.core.model.VideoStreamInfo
+import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.model.languageDisplayName
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
@@ -75,6 +76,7 @@ data class PersonDto(
 
 @Serializable
 data class MediaStreamDto(
+    val Index: Int? = null,
     val Type: String? = null,
     val Height: Int? = null,
     val Width: Int? = null,
@@ -129,6 +131,131 @@ data class MediaSourceDto(
     /** The file's location on the server, shown at the foot of 媒体信息. */
     val Path: String? = null,
     val MediaStreams: List<MediaStreamDto>? = null,
+    /** Capability flags and URLs filled by `/Items/{id}/PlaybackInfo`. */
+    val SupportsDirectPlay: Boolean? = null,
+    val SupportsDirectStream: Boolean? = null,
+    val SupportsTranscoding: Boolean? = null,
+    val DirectStreamUrl: String? = null,
+    val AddApiKeyToDirectStreamUrl: Boolean? = null,
+    val TranscodingUrl: String? = null,
+    val TranscodingContainer: String? = null,
+    val TranscodingSubProtocol: String? = null,
+    val DefaultAudioStreamIndex: Int? = null,
+    val DefaultSubtitleStreamIndex: Int? = null,
+)
+
+@Serializable
+data class PlaybackInfoResponseDto(
+    val MediaSources: List<MediaSourceDto> = emptyList(),
+    val PlaySessionId: String? = null,
+    val ErrorCode: String? = null,
+)
+
+@Serializable
+data class PlaybackInfoRequestDto(
+    val Id: String,
+    val UserId: String,
+    val DeviceProfile: DeviceProfileDto,
+    val StartTimeTicks: Long = 0L,
+    val MediaSourceId: String? = null,
+    val CurrentPlaySessionId: String? = null,
+    val MaxStreamingBitrate: Long = 120_000_000L,
+    val MaxAudioChannels: Int = 8,
+    val EnableDirectPlay: Boolean = true,
+    val EnableDirectStream: Boolean = true,
+    val EnableTranscoding: Boolean = true,
+    val AllowInterlacedVideoStreamCopy: Boolean = true,
+    val AllowVideoStreamCopy: Boolean = true,
+    val AllowAudioStreamCopy: Boolean = true,
+    val IsPlayback: Boolean = true,
+    val AutoOpenLiveStream: Boolean = true,
+)
+
+@Serializable
+data class DeviceProfileDto(
+    val Name: String = "Yfuse Android",
+    val SupportedMediaTypes: String = "Video,Audio",
+    val MaxStreamingBitrate: Long = 120_000_000L,
+    val DirectPlayProfiles: List<DirectPlayProfileDto> = emptyList(),
+    val TranscodingProfiles: List<TranscodingProfileDto> = emptyList(),
+    val SubtitleProfiles: List<SubtitleProfileDto> = emptyList(),
+) {
+    companion object {
+        fun yfuseAndroid(): DeviceProfileDto = DeviceProfileDto(
+            DirectPlayProfiles = listOf(
+                DirectPlayProfileDto(
+                    Container = "mkv,mp4,m4v,mov,ts,m2ts,webm,avi,flv,wmv,mpg,mpeg",
+                    VideoCodec = "h264,hevc,h265,vp8,vp9,av1,mpeg2video,mpeg4,vc1",
+                    AudioCodec = "aac,mp3,ac3,eac3,truehd,dts,flac,opus,vorbis,pcm",
+                ),
+            ),
+            TranscodingProfiles = listOf(
+                TranscodingProfileDto(
+                    Container = "ts",
+                    VideoCodec = "h264",
+                    AudioCodec = "aac",
+                    Protocol = "hls",
+                ),
+                TranscodingProfileDto(
+                    Container = "mp4",
+                    VideoCodec = "h264",
+                    AudioCodec = "aac",
+                    Protocol = "http",
+                ),
+            ),
+            SubtitleProfiles = listOf(
+                SubtitleProfileDto("srt", "External"),
+                SubtitleProfileDto("vtt", "External"),
+                SubtitleProfileDto("subrip", "External"),
+                SubtitleProfileDto("ass", "Embed"),
+                SubtitleProfileDto("ssa", "Embed"),
+                SubtitleProfileDto("pgs", "Embed"),
+                SubtitleProfileDto("pgssub", "Embed"),
+                SubtitleProfileDto("dvdsub", "Embed"),
+                SubtitleProfileDto("dvbsub", "Embed"),
+            ),
+        )
+    }
+}
+
+@Serializable
+data class DirectPlayProfileDto(
+    val Container: String,
+    val Type: String = "Video",
+    val VideoCodec: String,
+    val AudioCodec: String,
+)
+
+@Serializable
+data class TranscodingProfileDto(
+    val Container: String,
+    val Type: String = "Video",
+    val VideoCodec: String,
+    val AudioCodec: String,
+    val Protocol: String,
+    val Context: String = "Streaming",
+    val MaxAudioChannels: String = "8",
+    val MinSegments: Int = 2,
+    val BreakOnNonKeyFrames: Boolean = true,
+)
+
+@Serializable
+data class SubtitleProfileDto(
+    val Format: String,
+    val Method: String,
+)
+
+@Serializable
+data class RemoteSubtitleInfoDto(
+    val Id: String,
+    val Name: String? = null,
+    val ProviderName: String? = null,
+    val Language: String? = null,
+    val Format: String? = null,
+    val Author: String? = null,
+    val Comment: String? = null,
+    val DownloadCount: Int? = null,
+    val IsHashMatch: Boolean? = null,
 )
 
 @Serializable
@@ -167,6 +294,18 @@ data class BaseItemDto(
     val ProviderIds: Map<String, String>? = null,
     val DateModified: String? = null,
     val Chapters: List<ChapterDto>? = null,
+    /** mediaSourceId -> width -> sprite layout (Jellyfin 10.9+). */
+    val Trickplay: Map<String, Map<String, TrickplayInfoDto>?>? = null,
+)
+
+@Serializable
+data class TrickplayInfoDto(
+    val Width: Int = 0,
+    val Height: Int = 0,
+    val TileWidth: Int = 0,
+    val TileHeight: Int = 0,
+    val ThumbnailCount: Int = 0,
+    val Interval: Long = 0L,
 )
 
 /** Resume (and most list endpoints) wrap items; `Items/Latest` returns a raw array. */
@@ -174,7 +313,7 @@ data class BaseItemDto(
 data class ItemsResponseDto(
     val Items: List<BaseItemDto> = emptyList(),
     /** Full size of the matching set, independent of `Limit`. */
-    val TotalRecordCount: Int = 0,
+    val TotalRecordCount: Int? = null,
 )
 
 @Serializable
@@ -272,6 +411,7 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         played = UserData?.Played == true,
         providerIds = ProviderIds.orEmpty(),
         playbackSegments = playbackSegments(),
+        trickplay = bestTrickplay(),
     )
 }
 
@@ -405,12 +545,21 @@ fun MediaSourceDto.toMediaVersion(fallbackId: String, ordinal: Int): MediaVersio
             .filter { it.Type == "Subtitle" }
             .map { stream ->
                 SubtitleTrackInfo(
+                    index = stream.Index,
                     codec = stream.Codec?.takeIf { it.isNotBlank() },
                     language = languageDisplayName(stream.Language)
                         ?: stream.Title?.takeIf { it.isNotBlank() },
                     forced = stream.IsForced == true,
+                    external = stream.IsExternal == true,
+                    default = stream.IsDefault == true,
                 )
             },
+        supportsDirectPlay = SupportsDirectPlay,
+        supportsDirectStream = SupportsDirectStream,
+        supportsTranscoding = SupportsTranscoding,
+        directStreamUrl = DirectStreamUrl?.takeIf { it.isNotBlank() },
+        addApiKeyToDirectStreamUrl = AddApiKeyToDirectStreamUrl != false,
+        transcodingUrl = TranscodingUrl?.takeIf { it.isNotBlank() },
     )
 }
 
@@ -442,7 +591,26 @@ fun BaseItemDto.toEpisode() = Episode(
     versions = MediaSources.orEmpty().mapIndexed { index, source ->
         source.toMediaVersion(fallbackId = Id, ordinal = index)
     },
+    trickplay = bestTrickplay(),
 )
+
+fun BaseItemDto.bestTrickplay(): TrickplayInfo? = Trickplay
+    .orEmpty()
+    .values
+    .filterNotNull()
+    .flatMap { it.values }
+    .filter { it.Width > 0 && it.Height > 0 && it.TileWidth > 0 && it.TileHeight > 0 && it.Interval > 0L }
+    .minWithOrNull(compareBy<TrickplayInfoDto> { kotlin.math.abs(it.Width - 320) }.thenBy { it.Width })
+    ?.let {
+        TrickplayInfo(
+            width = it.Width,
+            height = it.Height,
+            tileColumns = it.TileWidth,
+            tileRows = it.TileHeight,
+            intervalMs = it.Interval,
+            thumbnailCount = it.ThumbnailCount,
+        )
+    }
 
 /** Pairs Emby's IntroStart/IntroEnd markers and treats CreditsStart as open-ended. */
 fun BaseItemDto.playbackSegments(): List<PlaybackSegment> {

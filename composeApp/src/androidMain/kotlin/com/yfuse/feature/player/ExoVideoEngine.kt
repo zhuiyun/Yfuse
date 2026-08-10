@@ -31,6 +31,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.model.PlaybackMethod
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -73,6 +74,7 @@ internal data class ManifestTrackCandidate(
     val manifestName: String?,
     /** Codec/channel hint used only when two genuine tracks would otherwise look identical. */
     val qualifier: String? = null,
+    val codec: String? = null,
 )
 
 /**
@@ -128,6 +130,7 @@ internal fun collapseManifestTrackDuplicates(
             label = label,
             language = candidate.language,
             selected = candidate.selected,
+            codec = candidate.codec,
         )
     }
 }
@@ -195,6 +198,8 @@ class ExoVideoEngine(
             diagnostics = PlaybackDiagnostics(
                 engine = "Media3 / ExoPlayer",
                 decoder = decoderMode.label,
+                playMethod = items.getOrNull(startIndex)?.playMethod?.label
+                    ?: PlaybackMethod.DirectPlay.label,
             ),
         ),
     )
@@ -204,7 +209,9 @@ class ExoVideoEngine(
      *  ever arrive at the end. */
     private val items = items.toMutableList()
 
-    private val transcodedIndices = mutableSetOf<Int>()
+    private val transcodedIndices = items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
+        index.takeIf { item.playMethod == PlaybackMethod.Transcode }
+    }
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private val retryCounts = mutableMapOf<String, Int>()
@@ -394,7 +401,11 @@ class ExoVideoEngine(
                     error = null,
                     ended = false,
                     diagnostics = it.diagnostics.copy(
-                        playMethod = if (index in transcodedIndices) "服务器转码" else "直播放",
+                        playMethod = if (index in transcodedIndices) {
+                            PlaybackMethod.Transcode.label
+                        } else {
+                            items.getOrNull(index)?.playMethod?.label ?: PlaybackMethod.DirectPlay.label
+                        },
                         bufferedDurationMs = 0L,
                     ),
                 )
@@ -788,6 +799,7 @@ class ExoVideoEngine(
                         manifestGroupId = rendition?.first,
                         manifestName = rendition?.second,
                         qualifier = format.trackQualifier(type),
+                        codec = format.sampleMimeType?.substringAfterLast('/') ?: format.codecs,
                     )
                 }
             }

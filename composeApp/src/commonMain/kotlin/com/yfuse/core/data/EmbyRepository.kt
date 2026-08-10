@@ -3,13 +3,17 @@ package com.yfuse.core.data
 import com.yfuse.core.data.dto.AuthRequestDto
 import com.yfuse.core.data.dto.AuthResultDto
 import com.yfuse.core.data.dto.BaseItemDto
+import com.yfuse.core.data.dto.DeviceProfileDto
 import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.ItemCountsDto
 import com.yfuse.core.data.dto.MediaSourceDto
 import com.yfuse.core.data.dto.PublicInfoDto
 import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.data.dto.PlaybackReportDto
+import com.yfuse.core.data.dto.PlaybackInfoRequestDto
+import com.yfuse.core.data.dto.PlaybackInfoResponseDto
 import com.yfuse.core.data.dto.PlaylistCreatedDto
+import com.yfuse.core.data.dto.RemoteSubtitleInfoDto
 import com.yfuse.core.data.dto.ViewsDto
 import com.yfuse.core.data.dto.toEpisode
 import com.yfuse.core.data.dto.toMediaDetail
@@ -17,6 +21,7 @@ import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.data.dto.toPerson
 import com.yfuse.core.data.dto.toSeason
 import com.yfuse.core.data.dto.toSourceInfo
+import com.yfuse.core.data.dto.bestTrickplay
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.HomeContent
@@ -33,6 +38,7 @@ import com.yfuse.core.model.Person
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.SourceInfo
+import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.model.compareSourceInfoBestFirst
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
@@ -52,13 +58,19 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.content.TextContent
 import io.ktor.http.contentType
+import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /** Result of a successful authentication, ready to persist as a [SavedServer]. */
 data class AuthedServer(
@@ -90,6 +102,7 @@ internal const val FAVORITES_COLLECTION_ID = "__yfuse_favorites__"
 internal const val WATCH_LATER_COLLECTION_ID = "__yfuse_watch_later__"
 
 private const val PERSONAL_COLLECTION_PREVIEW_LIMIT = 16
+private val playbackRequestJson = Json { encodeDefaults = true }
 
 /**
  * How many titles one 「查看更多」 request asks for. Small enough that the first screenful
@@ -164,6 +177,34 @@ private const val SNAPSHOT_PAGE_SIZE = 2_000
 
 /** Backstop against a server whose `TotalRecordCount` is wrong, or a paging loop. */
 private const val SNAPSHOT_MAX_ITEMS = 100_000
+
+internal fun userLibrarySnapshotIsTruncated(
+    collectedItems: Int,
+    reportedTotal: Int,
+    maxItems: Int,
+): Boolean = collectedItems >= maxItems && reportedTotal > maxItems
+
+/**
+ * Resolves the total used by the grid when an Emby-compatible endpoint omits it.
+ *
+ * A short page proves that the end was reached. A full page does not, so expose one
+ * additional sentinel row to keep `canLoadMore` true until the next request answers.
+ * When the server does report a total, keep that exact boundary (with a floor for broken
+ * under-counts) so an exactly-full final page does not cause an unnecessary request.
+ */
+private fun pageTotal(
+    reportedTotal: Int?,
+    startIndex: Int,
+    itemCount: Int,
+    limit: Int,
+): Int {
+    val loadedThrough = startIndex + itemCount
+    return if (reportedTotal == null && limit > 0 && itemCount >= limit) {
+        loadedThrough + 1
+    } else {
+        (reportedTotal ?: loadedThrough).coerceAtLeast(loadedThrough)
+    }
+}
 
 private data class PersonalCollection(
     val items: List<MediaItem>,
@@ -258,6 +299,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId: String,
         positionTicks: Long,
         isPaused: Boolean,
+        playMethod: String = "DirectPlay",
     ): Result<Unit> = reportPlayback(
         server = server,
         path = "/Sessions/Playing",
@@ -265,6 +307,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId = playSessionId,
         positionTicks = positionTicks,
         isPaused = isPaused,
+        playMethod = playMethod,
     )
 
     suspend fun reportPlaybackProgress(
@@ -273,6 +316,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId: String,
         positionTicks: Long,
         isPaused: Boolean,
+        playMethod: String = "DirectPlay",
     ): Result<Unit> = reportPlayback(
         server = server,
         path = "/Sessions/Playing/Progress",
@@ -280,6 +324,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId = playSessionId,
         positionTicks = positionTicks,
         isPaused = isPaused,
+        playMethod = playMethod,
     )
 
     suspend fun reportPlaybackStopped(
@@ -288,6 +333,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId: String,
         positionTicks: Long,
         isPaused: Boolean,
+        playMethod: String = "DirectPlay",
     ): Result<Unit> = reportPlayback(
         server = server,
         path = "/Sessions/Playing/Stopped",
@@ -295,7 +341,41 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId = playSessionId,
         positionTicks = positionTicks,
         isPaused = isPaused,
+        playMethod = playMethod,
     )
+
+    /**
+     * Negotiates the actual source URL and playback method with the server.
+     * Metadata endpoints describe files; PlaybackInfo applies this device profile and is
+     * the authoritative answer for DirectPlay, DirectStream, or Transcode.
+     */
+    suspend fun playbackInfo(
+        server: SavedServer,
+        itemId: String,
+        mediaSourceId: String? = null,
+        startPositionTicks: Long = 0L,
+        playSessionId: String,
+    ): Result<PlaybackInfoResponseDto> = call("playback_info") {
+        // Pre-encode the device profile. Ktor's deferred request-body serializer can deadlock
+        // when this call is made from an unconfined UI/test dispatcher and the engine starts
+        // consuming the body on that same dispatcher.
+        val requestJson = playbackRequestJson.encodeToString(
+            PlaybackInfoRequestDto(
+                Id = itemId,
+                UserId = server.userId,
+                DeviceProfile = DeviceProfileDto.yfuseAndroid(),
+                StartTimeTicks = startPositionTicks.coerceAtLeast(0L),
+                MediaSourceId = mediaSourceId,
+                CurrentPlaySessionId = playSessionId,
+            ),
+        )
+        withContext(Dispatchers.Default) {
+            client.post("${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/PlaybackInfo") {
+                header("X-Emby-Token", server.accessToken)
+                setBody(TextContent(requestJson, ContentType.Application.Json))
+            }.body()
+        }
+    }
 
     /** Aggregates the home screen: continue-watching, latest-per-library, featured. */
     suspend fun homeContent(server: SavedServer): Result<HomeContent> = call("home_content") {
@@ -444,11 +524,13 @@ class EmbyRepository(private val client: HttpClient) {
     ): Result<LibraryPage> = call("library_items") {
         when (libraryId) {
             FAVORITES_COLLECTION_ID ->
-                return@call fetchFavorites(server, limit, startIndex, sort).toLibraryPage(startIndex)
+                return@call fetchFavorites(server, limit, startIndex, sort)
+                    .toLibraryPage(startIndex)
             // The playlist's own order is the one the user arranged, so 稍后观看 ignores
             // [sort] rather than overriding that with a column of its own choosing.
             WATCH_LATER_COLLECTION_ID ->
-                return@call fetchWatchLater(server, limit, startIndex).toLibraryPage(startIndex)
+                return@call fetchWatchLater(server, limit, startIndex)
+                    .toLibraryPage(startIndex)
         }
         val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
             header("X-Emby-Token", server.accessToken)
@@ -470,9 +552,12 @@ class EmbyRepository(private val client: HttpClient) {
         }.body()
         LibraryPage(
             items = dto.Items.map { it.toMediaItem() },
-            // A server that omits TotalRecordCount would otherwise report an empty library
-            // and stop paging after the first page.
-            totalCount = dto.TotalRecordCount.coerceAtLeast(startIndex + dto.Items.size),
+            totalCount = pageTotal(
+                reportedTotal = dto.TotalRecordCount,
+                startIndex = startIndex,
+                itemCount = dto.Items.size,
+                limit = limit,
+            ),
             startIndex = startIndex,
         )
     }
@@ -480,12 +565,12 @@ class EmbyRepository(private val client: HttpClient) {
     /**
      * The genres present in one library, for the grid's filter row.
      *
-     * Returns an empty list rather than failing: the filter is an enhancement, and a
-     * server that does not answer `/Genres` should still show its library.
+     * Failure stays separate from a valid empty facet so the grid can keep showing its
+     * content while still allowing an explicit retry to recover the filter row.
      */
-    suspend fun libraryGenres(server: SavedServer, libraryId: String): List<String> {
+    suspend fun libraryGenres(server: SavedServer, libraryId: String): Result<List<String>> {
         if (libraryId == FAVORITES_COLLECTION_ID || libraryId == WATCH_LATER_COLLECTION_ID) {
-            return emptyList()
+            return Result.success(emptyList())
         }
         return runCatching {
             val dto: ItemsResponseDto = client.get("${server.baseUrl}/Genres") {
@@ -507,7 +592,7 @@ class EmbyRepository(private val client: HttpClient) {
                 throwable = it,
                 attributes = mapOf("libraryId" to libraryId),
             )
-        }.getOrDefault(emptyList())
+        }
     }
 
     /** Real Emby recommendations used by the detail page's compact poster rail. */
@@ -684,6 +769,7 @@ class EmbyRepository(private val client: HttpClient) {
     suspend fun userLibrarySnapshot(server: SavedServer): Result<List<SyncedUserItem>> =
         call("user_library_snapshot") {
         val collected = mutableListOf<SyncedUserItem>()
+        val seenIds = HashSet<String>()
         var startIndex = 0
         var total = Int.MAX_VALUE
         while (startIndex < total && collected.size < SNAPSHOT_MAX_ITEMS) {
@@ -698,8 +784,13 @@ class EmbyRepository(private val client: HttpClient) {
                     parameter("StartIndex", startIndex)
                     parameter("Limit", SNAPSHOT_PAGE_SIZE)
                 }.body()
-            // A server that ignores StartIndex would otherwise loop on page one forever.
+            // Empty is the normal terminator when TotalRecordCount is absent. A repeated id is
+            // different: accepting an incomplete/duplicated snapshot as authoritative can replay
+            // pending mutations over remote changes, so fail the sync instead of merging it.
             if (dto.Items.isEmpty()) break
+            check(dto.Items.all { seenIds.add(it.Id) }) {
+                "服务器分页未前进，已取消本次同步"
+            }
             collected += dto.Items.map { item ->
                 SyncedUserItem(
                     id = item.Id,
@@ -710,10 +801,10 @@ class EmbyRepository(private val client: HttpClient) {
                     dateModified = item.DateModified,
                 )
             }
-            if (dto.TotalRecordCount > 0) total = dto.TotalRecordCount
+            dto.TotalRecordCount?.takeIf { it > 0 }?.let { total = it }
             startIndex += dto.Items.size
         }
-        if (collected.size >= SNAPSHOT_MAX_ITEMS && total > SNAPSHOT_MAX_ITEMS) {
+        if (userLibrarySnapshotIsTruncated(collected.size, total, SNAPSHOT_MAX_ITEMS)) {
             AppLog.warning(
                 category = "emby",
                 event = "library_snapshot_truncated",
@@ -724,6 +815,7 @@ class EmbyRepository(private val client: HttpClient) {
                     "total" to total.toString(),
                 ),
             )
+            error("媒体库项目过多，本次同步已取消以避免使用不完整快照")
         }
         collected
     }
@@ -1120,6 +1212,46 @@ class EmbyRepository(private val client: HttpClient) {
         dto.Items.map { it.toEpisode() }
     }
 
+    /** Optional Jellyfin storyboard metadata; failure is intentionally isolated from playback. */
+    suspend fun trickplayInfo(server: SavedServer, itemId: String): Result<TrickplayInfo?> =
+        call("trickplay_info") {
+            val dto: BaseItemDto = client.get(
+                "${server.baseUrl}/Users/${server.userId}/Items/$itemId",
+            ) {
+                header("X-Emby-Token", server.accessToken)
+                parameter("Fields", "Trickplay")
+            }.body()
+            dto.bestTrickplay()
+        }
+
+    suspend fun searchRemoteSubtitles(
+        server: SavedServer,
+        itemId: String,
+        language: String = "zh",
+    ): Result<List<RemoteSubtitleInfoDto>> = call("remote_subtitle_search") {
+        client.get(
+            "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
+                language.encodeURLPathPart(),
+        ) {
+            header("X-Emby-Token", server.accessToken)
+            parameter("IsPerfectMatch", false)
+        }.body()
+    }
+
+    suspend fun downloadRemoteSubtitle(
+        server: SavedServer,
+        itemId: String,
+        subtitleId: String,
+    ): Result<Unit> = call("remote_subtitle_download") {
+        client.post(
+            "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
+                subtitleId.encodeURLPathPart(),
+        ) {
+            header("X-Emby-Token", server.accessToken)
+        }
+        Unit
+    }
+
     private suspend fun findWatchLaterPlaylistId(server: SavedServer): String? {
         val playlists: ItemsResponseDto =
             client.get("${server.baseUrl}/Users/${server.userId}/Items") {
@@ -1149,7 +1281,7 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
             personalCollectionParameters(limit, startIndex)
         }.body()
-        return dto.toPersonalCollection(startIndex)
+        return dto.toPersonalCollection(startIndex, limit)
     }
 
     private suspend fun fetchWatchLater(
@@ -1164,7 +1296,7 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("UserId", server.userId)
             personalCollectionParameters(limit, startIndex)
         }.body()
-        return dto.toPersonalCollection(startIndex)
+        return dto.toPersonalCollection(startIndex, limit)
     }
 
     private fun io.ktor.client.request.HttpRequestBuilder.personalCollectionParameters(
@@ -1182,13 +1314,18 @@ class EmbyRepository(private val client: HttpClient) {
         parameter("Limit", limit)
     }
 
-    private fun ItemsResponseDto.toPersonalCollection(startIndex: Int = 0): PersonalCollection =
+    private fun ItemsResponseDto.toPersonalCollection(
+        startIndex: Int,
+        limit: Int,
+    ): PersonalCollection =
         PersonalCollection(
             items = Items.map { it.toMediaItem() },
-            // Some Emby-compatible servers omit TotalRecordCount on playlist routes. Without
-            // the floor a later page would report a total smaller than what is already on
-            // screen, and the grid would decide it had reached the end too early.
-            totalCount = TotalRecordCount.coerceAtLeast(startIndex + Items.size),
+            totalCount = pageTotal(
+                reportedTotal = TotalRecordCount,
+                startIndex = startIndex,
+                itemCount = Items.size,
+                limit = limit,
+            ),
         )
 
     private fun PersonalCollection.toLibraryPage(startIndex: Int) = LibraryPage(
@@ -1225,7 +1362,7 @@ class EmbyRepository(private val client: HttpClient) {
             parameter("IncludeItemTypes", "Movie,Series")
             parameter("Limit", 0)
         }.body()
-        return dto.TotalRecordCount
+        return dto.TotalRecordCount ?: 0
     }
 
     private suspend fun fetchResume(server: SavedServer): List<MediaItem> {
@@ -1270,6 +1407,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId: String,
         positionTicks: Long,
         isPaused: Boolean,
+        playMethod: String,
     ): Result<Unit> = call("report_playback") {
         client.post("${normalizeBaseUrl(server.baseUrl)}$path") {
             header("X-Emby-Token", server.accessToken)
@@ -1280,6 +1418,7 @@ class EmbyRepository(private val client: HttpClient) {
                     PlaySessionId = playSessionId,
                     PositionTicks = positionTicks.coerceAtLeast(0L),
                     IsPaused = isPaused,
+                    PlayMethod = playMethod,
                 ),
             )
         }

@@ -2,7 +2,7 @@
 kotlin = "2.1.21"
 agp = "8.11.1"
 compose = "1.7.3"
-androidx-activity = "1.9.3"
+androidx-activity = "1.13.0"
 decompose = "3.2.2"
 mvikotlin = "4.2.0"
 ktor = "3.0.3"
@@ -16,6 +16,7 @@ media3 = "1.5.1"
 palette = "1.0.0"
 turbine = "1.2.0"
 zxing = "3.3.3"
+google-cast = "22.3.1"
 ktlint-plugin = "12.1.2"
 ktlint = "1.3.1"
 
@@ -61,6 +62,7 @@ media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3" }
 media3-hls = { module = "androidx.media3:media3-exoplayer-hls", version.ref = "media3" }
 androidx-palette = { module = "androidx.palette:palette-ktx", version.ref = "palette" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
+google-cast-framework = { module = "com.google.android.gms:play-services-cast-framework", version.ref = "google-cast" }
 # Test
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 

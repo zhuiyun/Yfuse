@@ -96,8 +96,9 @@ class UpdateDownloadBoundaryTest {
     }
 
     @Test
-    fun a_truncated_download_keeps_the_partial_file_for_the_next_attempt() {
+    fun a_truncated_download_is_rejected_without_unowned_cleanup() {
         val partial = File.createTempFile("yfuse-update-", ".part")
+        val manifest = testManifest(size = 3L, sha256 = SHA256_ABC)
 
         try {
             assertEquals(
@@ -112,33 +113,31 @@ class UpdateDownloadBoundaryTest {
             assertTrue(partial.exists())
             assertEquals("ab", partial.readText())
 
-            assertFailsWith<IllegalStateException> {
-                verifyUpdatePackage(partial, expectedBytes = 3L, expectedSha256 = SHA256_ABC)
-            }
-            assertFalse(partial.exists())
+            assertFalse(cachedUpdatePackageMatches(partial, manifest))
+            assertTrue(partial.exists())
         } finally {
             partial.delete()
         }
     }
 
     @Test
-    fun digest_failure_removes_the_completed_file() {
+    fun digest_failure_is_read_only_until_the_owner_is_rechecked() {
         val partial = File.createTempFile("yfuse-update-", ".part")
+        val manifest = testManifest(size = 3L, sha256 = "0".repeat(64))
 
         try {
             partial.writeText("abc")
-            assertFailsWith<IllegalStateException> {
-                verifyUpdatePackage(partial, expectedBytes = 3L, expectedSha256 = "0".repeat(64))
-            }
-            assertFalse(partial.exists())
+            assertFalse(cachedUpdatePackageMatches(partial, manifest))
+            assertTrue(partial.exists())
         } finally {
             partial.delete()
         }
     }
 
     @Test
-    fun exact_verified_download_keeps_the_file() {
+    fun exact_completed_download_matches_the_production_verifier() {
         val partial = File.createTempFile("yfuse-update-", ".part")
+        val manifest = testManifest(size = 3L, sha256 = SHA256_ABC)
 
         try {
             assertEquals(
@@ -150,15 +149,108 @@ class UpdateDownloadBoundaryTest {
                     expectedBytes = 3L,
                 ),
             )
-            assertEquals(
-                partial,
-                verifyUpdatePackage(partial, expectedBytes = 3L, expectedSha256 = SHA256_ABC),
-            )
+            assertTrue(cachedUpdatePackageMatches(partial, manifest))
             assertTrue(partial.exists())
             assertEquals(3L, partial.length())
         } finally {
             partial.delete()
         }
+    }
+
+    @Test
+    fun equal_length_cached_apk_is_rejected_when_the_same_version_is_republished() {
+        val cached = File.createTempFile("yfuse-update-", ".apk")
+        val original = UpdateManifest(
+            versionCode = 80,
+            versionName = "0.2.80",
+            apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",
+            sha256 = SHA256_ABC,
+            size = 3L,
+        )
+
+        try {
+            cached.writeText("abc")
+            assertTrue(cachedUpdatePackageMatches(cached, original))
+
+            val republished = original.copy(sha256 = "0".repeat(64))
+            assertFalse(cachedUpdatePackageMatches(cached, republished))
+            // Checks and restore verification are read-only. Cleanup happens only after an
+            // owner token is checked again, so a stale task cannot erase a newer generation.
+            assertTrue(cached.exists())
+        } finally {
+            cached.delete()
+        }
+    }
+
+    @Test
+    fun stale_restore_does_not_delete_a_new_generation_partial_with_the_same_version_code() {
+        val partial = File.createTempFile("yfuse-update-", ".part").apply {
+            writeText("new generation bytes")
+        }
+        val oldManifest = UpdateManifest(
+            versionCode = 80,
+            versionName = "0.2.80",
+            apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",
+            sha256 = SHA256_ABC,
+            size = 3L,
+        )
+        val republished = oldManifest.copy(
+            apkUrl = "https://47.112.219.60/yfuse/Yfuse-80-republished.apk",
+            sha256 = "0".repeat(64),
+        )
+
+        try {
+            assertEquals(
+                OwnedUpdateCacheDeleteResult.StaleOwner,
+                deleteUpdateCacheFileIfOwned(
+                    file = partial,
+                    expectedGeneration = 7,
+                    currentGeneration = 8,
+                    expectedManifest = oldManifest,
+                    currentRecord = UpdateDownloadRecord(republished),
+                ),
+            )
+            assertTrue(partial.exists())
+            assertEquals(
+                OwnedUpdateCacheDeleteResult.StaleOwner,
+                deleteUpdateCacheFileIfOwned(
+                    file = partial,
+                    expectedGeneration = 8,
+                    currentGeneration = 8,
+                    expectedManifest = oldManifest,
+                    currentRecord = UpdateDownloadRecord(republished),
+                ),
+            )
+            assertTrue(partial.exists())
+            assertEquals("new generation bytes", partial.readText())
+        } finally {
+            partial.delete()
+        }
+    }
+
+    @Test
+    fun stale_download_owner_cannot_promote_a_verified_partial() {
+        val manifest = UpdateManifest(
+            versionCode = 80,
+            versionName = "0.2.80",
+            apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",
+            sha256 = SHA256_ABC,
+            size = 3L,
+        )
+        val record = UpdateDownloadRecord(manifest)
+
+        assertTrue(updateDownloadOwnerStillCurrent(7, 7, false, manifest, record))
+        assertFalse(updateDownloadOwnerStillCurrent(7, 8, false, manifest, record))
+        assertFalse(updateDownloadOwnerStillCurrent(7, 7, true, manifest, record))
+        assertFalse(
+            updateDownloadOwnerStillCurrent(
+                expectedGeneration = 7,
+                currentGeneration = 7,
+                pauseRequested = false,
+                expectedManifest = manifest,
+                currentRecord = UpdateDownloadRecord(manifest.copy(sha256 = "0".repeat(64))),
+            ),
+        )
     }
 
     @Test
@@ -193,6 +285,14 @@ class UpdateDownloadBoundaryTest {
             ),
         )
     }
+
+    private fun testManifest(size: Long, sha256: String) = UpdateManifest(
+        versionCode = 80,
+        versionName = "0.2.80",
+        apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",
+        sha256 = sha256,
+        size = size,
+    )
 
     private companion object {
         const val SHA256_ABC =

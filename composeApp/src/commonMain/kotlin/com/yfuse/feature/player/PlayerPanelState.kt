@@ -112,3 +112,31 @@ data class SkipSegmentActions(
     val onSetTimes: (Long, Long, Long) -> Unit = { _, _, _ -> },
     val onSelectMode: (SkipMode) -> Unit = {},
 )
+
+data class SubtitleControlState(
+    val offsetMs: Long = 0L,
+    val scale: Float = 1f,
+)
+
+data class SubtitleControlActions(
+    val onOffset: (Long) -> Unit = {},
+    val onScale: (Float) -> Unit = {},
+)
+
+data class RemoteSubtitleOption(
+    val id: String,
+    val label: String,
+    val detail: String,
+)
+
+data class RemoteSubtitlePanelState(
+    val loading: Boolean = false,
+    val results: List<RemoteSubtitleOption> = emptyList(),
+    val downloadingId: String? = null,
+    val message: String? = null,
+)
+
+data class RemoteSubtitleActions(
+    val onSearch: () -> Unit = {},
+    val onDownload: (String) -> Unit = {},
+)

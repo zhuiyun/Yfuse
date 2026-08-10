@@ -7,6 +7,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.model.PlaybackMethod
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -109,7 +110,9 @@ class MpvVideoEngine(
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
      *  rest of the season. */
-    private val transcodedIndices = mutableSetOf<Int>()
+    private val transcodedIndices = items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
+        index.takeIf { item.playMethod == PlaybackMethod.Transcode }
+    }
     private val progressiveIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private var fallbackJob: Job? = null
@@ -122,7 +125,8 @@ class MpvVideoEngine(
             diagnostics = PlaybackDiagnostics(
                 engine = "libmpv",
                 decoder = decoderMode.label,
-                playMethod = "直播放",
+                playMethod = items.getOrNull(startIndex)?.playMethod?.label
+                    ?: PlaybackMethod.DirectPlay.label,
             ),
         ),
     )
@@ -502,6 +506,16 @@ class MpvVideoEngine(
         withMpv { it.setPropertyDouble("panscan", if (fill) 1.0 else 0.0) }
     }
 
+    fun setScaleMode(mode: VideoScaleMode) {
+        withMpv { instance ->
+            instance.setPropertyDouble("panscan", if (mode == VideoScaleMode.Fill) 1.0 else 0.0)
+            instance.setPropertyString(
+                "video-aspect-override",
+                if (mode == VideoScaleMode.Stretch) "window" else "-1",
+            )
+        }
+    }
+
     override fun play() {
         playRequested = true
         _state.update { it.copy(ended = false) }
@@ -533,6 +547,18 @@ class MpvVideoEngine(
 
     override fun selectSubtitleTrack(id: String) = selectTrack("sid", id)
 
+    override fun setSubtitleOffsetMs(offsetMs: Long): Boolean {
+        val instance = mpv ?: return false
+        instance.setPropertyDouble("sub-delay", offsetMs / 1000.0)
+        return true
+    }
+
+    override fun setSubtitleScale(scale: Float): Boolean {
+        val instance = mpv ?: return false
+        instance.setPropertyDouble("sub-scale", scale.coerceIn(0.6f, 1.8f).toDouble())
+        return true
+    }
+
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
         playRequested = true
@@ -553,7 +579,11 @@ class MpvVideoEngine(
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
                 diagnostics = it.diagnostics.copy(
-                    playMethod = if (transcoding) "服务器转码" else "直播放",
+                    playMethod = if (transcoding) {
+                        PlaybackMethod.Transcode.label
+                    } else {
+                        items.getOrNull(index)?.playMethod?.label ?: PlaybackMethod.DirectPlay.label
+                    },
                     bufferedDurationMs = 0L,
                 ),
             )
@@ -753,12 +783,14 @@ class MpvVideoEngine(
                 val id = instance.getPropertyInt("track-list/$i/id") ?: continue
                 val language = instance.getPropertyString("track-list/$i/lang")
                 val title = instance.getPropertyString("track-list/$i/title")
+                val codec = instance.getPropertyString("track-list/$i/codec")
                 val bucket = if (type == "audio") audio else subtitles
                 bucket += EngineTrack(
                     id = id.toString(),
                     label = title ?: language ?: "${if (type == "audio") "音轨" else "字幕"} ${bucket.size + 1}",
                     language = language,
                     selected = instance.getPropertyBoolean("track-list/$i/selected") ?: false,
+                    codec = codec,
                 )
             }
 

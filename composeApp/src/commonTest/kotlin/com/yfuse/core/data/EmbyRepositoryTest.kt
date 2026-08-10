@@ -26,6 +26,30 @@ class EmbyRepositoryTest {
 
     private val server = SavedServer("id", "http://host:8096", "zhuiyun", "u1", "zhuiyun", "tok")
 
+    private fun itemPageWithoutTotal(count: Int): String {
+        val items = (0 until count).joinToString(",") {
+            """{"Id":"m$it","Name":"电影$it","Type":"Movie"}"""
+        }
+        return """{"Items":[$items]}"""
+    }
+
+    @Test
+    fun playback_info_posts_device_profile_and_parses_negotiated_source() = runTest {
+        val repo = testRepo { request ->
+            assertEquals(HttpMethod.Post, request.method)
+            assertTrue(request.url.encodedPath.endsWith("/Items/m1/PlaybackInfo"))
+            json(
+                """{"PlaySessionId":"session-1","MediaSources":[{"Id":"source-1","SupportsDirectPlay":true}]}""",
+            )
+        }
+
+        val result = repo.playbackInfo(server, "m1", playSessionId = "requested-session")
+
+        assertTrue(result.isSuccess, result.toString())
+        assertEquals("session-1", result.getOrThrow().PlaySessionId)
+        assertEquals("source-1", result.getOrThrow().MediaSources.single().Id)
+    }
+
     @Test
     fun authenticate_success_returns_server_with_name() = runTest {
         val repo = testRepo { req -> authRoutes(req) }
@@ -181,10 +205,21 @@ class EmbyRepositoryTest {
     }
 
     @Test
-    fun libraryGenres_returns_empty_when_the_server_has_no_facet() = runTest {
+    fun libraryItems_missing_total_on_a_full_first_page_keeps_paging_open() = runTest {
+        val repo = testRepo { json(itemPageWithoutTotal(count = 60)) }
+
+        val result = repo.libraryItems(server, "lib1", limit = 60)
+
+        assertTrue(result.isSuccess, result.toString())
+        assertEquals(60, result.getOrThrow().items.size)
+        assertEquals(61, result.getOrThrow().totalCount)
+    }
+
+    @Test
+    fun libraryGenres_reports_failure_when_the_facet_endpoint_is_unavailable() = runTest {
         val repo = testRepo { respond(content = "", status = HttpStatusCode.NotFound) }
 
-        assertEquals(emptyList(), repo.libraryGenres(server, "lib1"))
+        assertTrue(repo.libraryGenres(server, "lib1").isFailure)
     }
 
     @Test
@@ -194,7 +229,7 @@ class EmbyRepositoryTest {
             json("""{"Items":[{"Id":"g1","Name":"科幻"},{"Id":"g2","Name":"悬疑"}]}""")
         }
 
-        assertEquals(listOf("科幻", "悬疑"), repo.libraryGenres(server, "lib1"))
+        assertEquals(listOf("科幻", "悬疑"), repo.libraryGenres(server, "lib1").getOrThrow())
     }
 
     @Test
@@ -239,6 +274,23 @@ class EmbyRepositoryTest {
 
         assertTrue(result.isSuccess, result.toString())
         assertEquals("稍后看的剧", result.getOrThrow().items.single().title)
+    }
+
+    @Test
+    fun libraryItems_watchLater_missing_total_on_a_full_first_page_keeps_paging_open() = runTest {
+        val repo = testRepo { request ->
+            if (request.url.encodedPath.endsWith("/Playlists/p1/Items")) {
+                json(itemPageWithoutTotal(count = 60))
+            } else {
+                json("""{"Items":[{"Id":"p1","Name":"稍后观看","Type":"Playlist"}]}""")
+            }
+        }
+
+        val result = repo.libraryItems(server, WATCH_LATER_COLLECTION_ID, limit = 60)
+
+        assertTrue(result.isSuccess, result.toString())
+        assertEquals(60, result.getOrThrow().items.size)
+        assertEquals(61, result.getOrThrow().totalCount)
     }
 
     @Test
@@ -698,8 +750,6 @@ class EmbyRepositoryTest {
 
     @Test
     fun a_server_that_ignores_start_index_does_not_loop_forever() = runTest {
-        // An empty page is the only signal that a server which reports a large total but
-        // will not paginate has actually run out of rows.
         var calls = 0
         val repo = testRepo {
             calls++
@@ -711,6 +761,32 @@ class EmbyRepositoryTest {
         assertTrue(res.isSuccess, res.toString())
         assertEquals(0, res.getOrThrow().size)
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun a_server_repeating_the_first_non_empty_page_fails_instead_of_syncing_a_partial_snapshot() =
+        runTest {
+            var calls = 0
+            val repeatedPage = (0 until 2).joinToString(",") { index ->
+                """{"Id":"i$index","Name":"标题$index","UserData":{"Played":true}}"""
+            }
+            val repo = testRepo {
+                calls++
+                json("""{"Items":[$repeatedPage],"TotalRecordCount":4}""")
+            }
+
+            val res = repo.userLibrarySnapshot(server)
+
+            assertTrue(res.isFailure)
+            assertEquals(2, calls)
+            assertTrue(res.exceptionOrNull()?.message.orEmpty().contains("分页未前进"))
+        }
+
+    @Test
+    fun a_snapshot_that_hits_the_safety_ceiling_is_not_authoritative() {
+        assertTrue(userLibrarySnapshotIsTruncated(100_000, 100_001, 100_000))
+        assertFalse(userLibrarySnapshotIsTruncated(100_000, 100_000, 100_000))
+        assertFalse(userLibrarySnapshotIsTruncated(99_999, Int.MAX_VALUE, 100_000))
     }
 
     /** Emby uses 403 as well as 401 when a token/account is no longer valid. */

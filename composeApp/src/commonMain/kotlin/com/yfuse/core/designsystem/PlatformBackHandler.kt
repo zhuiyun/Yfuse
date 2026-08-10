@@ -6,6 +6,9 @@ import androidx.compose.runtime.Composable
 @Composable
 expect fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit)
 
+/** Physical edge from which the platform back gesture started. */
+enum class PredictiveBackSwipeEdge { Left, Right }
+
 /**
  * The back *gesture*, reported while the finger is still down.
  *
@@ -20,14 +23,14 @@ expect fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit)
  * content, the left/right edge distinction and the fling thresholds — all of which a custom
  * detector gets subtly wrong, and all of which are muscle memory the user already has.
  *
- * @param onProgress 0f at the start of the gesture, 1f at the point it would commit.
+ * @param onProgress progress from 0f to 1f and the physical edge driving the gesture.
  * @param onCancel the gesture was abandoned; return to rest.
  * @param onBack the gesture (or an ordinary back press) committed.
  */
 @Composable
 expect fun PlatformPredictiveBackHandler(
     enabled: Boolean,
-    onProgress: (Float) -> Unit,
+    onProgress: (Float, PredictiveBackSwipeEdge) -> Unit,
     onCancel: () -> Unit,
     onBack: () -> Unit,
 )

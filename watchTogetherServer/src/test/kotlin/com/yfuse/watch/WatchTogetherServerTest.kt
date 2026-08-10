@@ -453,7 +453,16 @@ class WatchTogetherServerTest {
             socketClient.webSocket("/watch") {
                 send("""{"type":"hello","clientId":"host","name":"房主","avatarId":0,"mediaKey":"tmdb:9"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                assertTrue(
+                    "reactions" in welcome["capabilities"]!!.jsonArray.map {
+                        it.jsonPrimitive.content
+                    },
+                )
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
+
+                // Joining broadcasts a roomUpdate back to the host after the welcome frame.
+                // Drain it so the next frame is the response to the invalid reaction below.
+                incoming.receive()
 
                 // Anything outside the server's own set is refused rather than relayed.
                 send("""{"type":"reaction","reaction":"🙈"}""")

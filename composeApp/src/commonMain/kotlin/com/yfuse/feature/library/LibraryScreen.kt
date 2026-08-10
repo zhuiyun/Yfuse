@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.core.designsystem.SharedElementTransitionContainer
+import com.yfuse.core.designsystem.detailRouteIdentity
 import com.yfuse.feature.detail.DetailScreen
 import com.yfuse.feature.player.PlayerScreen
 
@@ -30,6 +31,9 @@ fun LibraryScreen(component: LibraryComponent) {
 private fun routeKey(child: LibraryComponent.Child): String = when (child) {
     is LibraryComponent.Child.Home -> "home"
     is LibraryComponent.Child.Grid -> "grid"
-    is LibraryComponent.Child.Detail -> "detail"
+    is LibraryComponent.Child.Detail -> detailRouteIdentity(
+        serverId = child.component.serverId,
+        itemId = child.component.itemId,
+    )
     is LibraryComponent.Child.Player -> "player"
 }

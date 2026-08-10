@@ -8,7 +8,12 @@ data class EngineTrack(
     val label: String,
     val language: String?,
     val selected: Boolean,
+    val codec: String? = null,
 ) {
+    val requiresStyledRenderer: Boolean
+        get() = codec?.substringAfterLast('/')?.lowercase() in
+            setOf("ass", "ssa", "pgs", "pgssub", "dvdsub", "dvbsub")
+
     companion object {
         /** Passed to [VideoEngine.selectSubtitleTrack] to turn subtitles off. */
         const val OFF = "off"
@@ -27,6 +32,15 @@ data class PlaybackDiagnostics(
     val bufferEvents: Int = 0,
     val networkBitsPerSecond: Long = 0L,
 )
+
+enum class VideoScaleMode(val label: String) {
+    Fit("适应"),
+    Fill("裁剪填满"),
+    Stretch("拉伸填满"),
+    ;
+
+    fun next(): VideoScaleMode = entries[(ordinal + 1) % entries.size]
+}
 
 /** Everything the glass control layer needs to render, engine-agnostic. */
 data class PlaybackState(
@@ -110,6 +124,12 @@ interface VideoEngine {
 
     /** [EngineTrack.OFF] disables subtitles. */
     fun selectSubtitleTrack(id: String)
+
+    /** Positive values delay subtitles; negative values show them earlier. */
+    fun setSubtitleOffsetMs(offsetMs: Long): Boolean = offsetMs == 0L
+
+    /** Relative subtitle text size. Engines that cannot style return false. */
+    fun setSubtitleScale(scale: Float): Boolean = scale == 1f
 
     /** Jumps to another entry in the queue — next/previous and the episode list. */
     fun selectItem(index: Int)

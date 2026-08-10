@@ -21,7 +21,7 @@ class HomeComponent(
     tmdb: TmdbRepository,
     emby: EmbyRepository,
     registry: ServerRegistry,
-    private val onOpenEmbyItem: (String) -> Unit,
+    private val onOpenEmbyItem: (String, String) -> Unit,
     private val onOpenTmdbItem: (TmdbItem, String?) -> Unit,
     val onOpenSearch: () -> Unit,
     val onOpenLibrary: () -> Unit,
@@ -47,7 +47,7 @@ class HomeComponent(
         store.labels
             .onEach { label ->
                 when (label) {
-                    is HomeLabel.OpenEmbyItem -> onOpenEmbyItem(label.itemId)
+                    is HomeLabel.OpenEmbyItem -> onOpenEmbyItem(label.serverId, label.itemId)
                     is HomeLabel.OpenTmdbItem -> onOpenTmdbItem(label.item, label.embyItemId)
                 }
             }

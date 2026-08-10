@@ -5,7 +5,6 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -32,6 +31,7 @@ import android.view.KeyEvent
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
@@ -1209,7 +1209,9 @@ private fun PlayerRoot(
     // every handover so the switch is seamless.
     var resume by remember { mutableStateOf(startIndex to startPositionMs) }
     var engineGeneration by remember { mutableIntStateOf(0) }
-    var filled by remember { mutableStateOf(false) }
+    var scaleMode by remember { mutableStateOf(VideoScaleMode.Fit) }
+    var subtitleControls by remember { mutableStateOf(SubtitleControlState()) }
+    var pendingSubtitleLanguage by remember { mutableStateOf<String?>(null) }
 
     // Entry id -> chosen file, for titles the server holds more than one copy of. Switching
     // rebuilds the queue and restarts the engine at the same position, which is the same
@@ -1365,6 +1367,66 @@ private fun PlayerRoot(
     var danmakuEpisodeId by remember { mutableStateOf<String?>(null) }
     val danmakuSource = danmakuSources.activeOr(danmakuActiveSourceId)
     val currentItem = activeItems.getOrNull(state.currentIndex)
+    val remoteSubtitleRepository = remember { GlobalContext.get().get<EmbyRepository>() }
+    val remoteSubtitleRegistry = remember { GlobalContext.get().get<ServerRegistry>() }
+    var remoteSubtitles by remember(currentItem?.serverId, currentItem?.id) {
+        mutableStateOf(RemoteSubtitlePanelState())
+    }
+    val remoteSubtitleActions = RemoteSubtitleActions(
+        onSearch = {
+            val item = currentItem
+            val server = item?.serverId?.let(remoteSubtitleRegistry::serverById)
+            if (item != null && server != null && !remoteSubtitles.loading) {
+                remoteSubtitles = remoteSubtitles.copy(loading = true, message = null)
+                scope.launch {
+                    remoteSubtitleRepository.searchRemoteSubtitles(server, item.id)
+                        .onSuccess { results ->
+                            remoteSubtitles = remoteSubtitles.copy(
+                                loading = false,
+                                results = results.map { result ->
+                                    RemoteSubtitleOption(
+                                        id = result.Id,
+                                        label = result.Name ?: result.Language ?: "中文字幕",
+                                        detail = listOfNotNull(result.ProviderName, result.Format?.uppercase())
+                                            .joinToString(" · "),
+                                    )
+                                },
+                                message = "未找到字幕".takeIf { results.isEmpty() },
+                            )
+                        }
+                        .onFailure { error ->
+                            remoteSubtitles = remoteSubtitles.copy(
+                                loading = false,
+                                message = error.message ?: "字幕搜索失败",
+                            )
+                        }
+                }
+            }
+        },
+        onDownload = { subtitleId ->
+            val item = currentItem
+            val server = item?.serverId?.let(remoteSubtitleRegistry::serverById)
+            if (item != null && server != null && remoteSubtitles.downloadingId == null) {
+                remoteSubtitles = remoteSubtitles.copy(downloadingId = subtitleId, message = null)
+                scope.launch {
+                    remoteSubtitleRepository.downloadRemoteSubtitle(server, item.id, subtitleId)
+                        .onSuccess {
+                            remoteSubtitles = remoteSubtitles.copy(
+                                downloadingId = null,
+                                message = "字幕已下载，正在刷新播放轨道",
+                            )
+                            engine.retry()
+                        }
+                        .onFailure { error ->
+                            remoteSubtitles = remoteSubtitles.copy(
+                                downloadingId = null,
+                                message = error.message ?: "字幕下载失败",
+                            )
+                        }
+                }
+            }
+        },
+    )
     // Selection is its own state, separate from position/buffering updates. Keying this on
     // the identifiers guarantees that a version-only change is handed back to the detail
     // page even when the replacement engine starts with a PlaybackState equal to the old one.
@@ -2044,6 +2106,32 @@ private fun PlayerRoot(
         kind = target
     }
 
+    LaunchedEffect(engine, kind, subtitleControls.offsetMs) {
+        val applied = engine.setSubtitleOffsetMs(subtitleControls.offsetMs)
+        if (!applied && subtitleControls.offsetMs != 0L && kind != PlayerEngine.Mpv) {
+            switchEngine(PlayerEngine.Mpv)
+        }
+    }
+    LaunchedEffect(engine, kind, subtitleControls.scale) {
+        if (kind != PlayerEngine.Exo) {
+            val applied = engine.setSubtitleScale(subtitleControls.scale)
+            if (!applied && subtitleControls.scale != 1f && kind != PlayerEngine.Mpv) {
+                switchEngine(PlayerEngine.Mpv)
+            }
+        }
+    }
+    LaunchedEffect(engine, scaleMode) {
+        (engine as? MpvVideoEngine)?.setScaleMode(scaleMode)
+        (engine as? MdkVideoEngine)?.setFill(scaleMode != VideoScaleMode.Fit)
+    }
+    LaunchedEffect(engine, state.subtitleTracks, pendingSubtitleLanguage) {
+        val language = pendingSubtitleLanguage ?: return@LaunchedEffect
+        state.subtitleTracks.matchingLanguage(language)?.let { trackId ->
+            engine.selectSubtitleTrack(trackId)
+            pendingSubtitleLanguage = null
+        }
+    }
+
     LaunchedEffect(
         state.fallbacksExhausted,
         state.automaticFallbackBlocked,
@@ -2111,7 +2199,12 @@ private fun PlayerRoot(
         when (engine) {
             is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize())
             is MpvVideoEngine -> MpvSurface(engine, Modifier.fillMaxSize())
-            is ExoVideoEngine -> ExoSurface(engine, filled, Modifier.fillMaxSize())
+            is ExoVideoEngine -> ExoSurface(
+                engine = engine,
+                scaleMode = scaleMode,
+                subtitleScale = subtitleControls.scale,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         if (!inPictureInPicture && danmakuEnabled && danmakuVisible.isNotEmpty()) {
@@ -2131,7 +2224,7 @@ private fun PlayerRoot(
             PlayerControls(
                 state = state,
                 episodes = activeItems.toEpisodeCards(),
-                filled = filled,
+                filled = scaleMode != VideoScaleMode.Fit,
                 onBack = onBack,
                 onEnterPictureInPicture = onEnterPictureInPicture,
                 onPlayPause = { playbackGate.togglePlayPause() },
@@ -2142,13 +2235,30 @@ private fun PlayerRoot(
                 onNextItem = playbackGate::selectNext,
                 onRefreshEpisodes = onRefreshEpisodes,
                 onSelectAudio = engine::selectAudioTrack,
-                onSelectSubtitle = engine::selectSubtitleTrack,
+                onSelectSubtitle = { id ->
+                    val track = state.subtitleTracks.firstOrNull { it.id == id }
+                    if (track?.requiresStyledRenderer == true && kind != PlayerEngine.Mpv) {
+                        pendingSubtitleLanguage = track.language ?: track.label
+                        switchEngine(PlayerEngine.Mpv)
+                    } else {
+                        engine.selectSubtitleTrack(id)
+                    }
+                },
+                subtitleControls = subtitleControls,
+                subtitleActions = SubtitleControlActions(
+                    onOffset = { subtitleControls = subtitleControls.copy(offsetMs = it) },
+                    onScale = { subtitleControls = subtitleControls.copy(scale = it) },
+                ),
+                remoteSubtitles = remoteSubtitles,
+                remoteSubtitleActions = remoteSubtitleActions,
                 onSpeed = { newSpeed -> playbackGate.setSpeed(newSpeed) },
                 onToggleFill = {
-                    filled = !filled
-                    (engine as? MpvVideoEngine)?.setFill(filled)
-                    (engine as? MdkVideoEngine)?.setFill(filled)
+                    scaleMode = scaleMode.next()
+                    (engine as? MpvVideoEngine)?.setScaleMode(scaleMode)
+                    (engine as? MdkVideoEngine)?.setFill(scaleMode != VideoScaleMode.Fit)
+                    Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
                 },
+                trickplay = currentItem?.trickplay,
                 volume = volume,
                 onVolume = { setVolume(it) },
                 volumeKeyPresses = volumeKeyPresses.collectAsState().value,
@@ -2170,7 +2280,10 @@ private fun PlayerRoot(
                 onCastTo = { deviceId ->
                     val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls
                     scope.launch {
-                        castManager.play(deviceId, item.url, item.title)
+                        // Cast receivers reliably support H.264/AAC HLS; an original MKV,
+                        // ASS/PGS subtitle, or lossless audio track is far less portable.
+                        val castUrl = item.transcodeUrl.ifBlank { item.url }
+                        castManager.play(deviceId, castUrl, item.title)
                         if (castManager.state.value.activeDeviceId == deviceId) {
                             playbackGate.pause()
                         }
@@ -2369,7 +2482,7 @@ internal fun updatedVersionAttempts(
 
 @Composable
 private fun rememberWindowBrightness(): Pair<Float, (Float) -> Unit> {
-    val activity = LocalContext.current as? Activity
+    val activity = LocalActivity.current
     var level by remember(activity) {
         val current = activity?.window?.attributes?.screenBrightness ?: -1f
         mutableFloatStateOf(if (current in 0f..1f) current else 0.5f)
@@ -2461,7 +2574,12 @@ internal fun streamVolumeForFraction(fraction: Float, min: Int, max: Int): Int {
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun ExoSurface(engine: ExoVideoEngine, filled: Boolean, modifier: Modifier = Modifier) {
+private fun ExoSurface(
+    engine: ExoVideoEngine,
+    scaleMode: VideoScaleMode,
+    subtitleScale: Float,
+    modifier: Modifier = Modifier,
+) {
     AndroidView(
         factory = { ctx ->
             PlayerView(ctx).apply {
@@ -2473,10 +2591,11 @@ private fun ExoSurface(engine: ExoVideoEngine, filled: Boolean, modifier: Modifi
         update = { view ->
             // Reassigned on update too: a fresh engine reuses this same view.
             if (view.player !== engine.player) view.player = engine.player
-            view.resizeMode = if (filled) {
-                AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            } else {
-                AspectRatioFrameLayout.RESIZE_MODE_FIT
+            view.subtitleView?.setFractionalTextSize(0.0533f * subtitleScale.coerceIn(0.6f, 1.8f))
+            view.resizeMode = when (scaleMode) {
+                VideoScaleMode.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                VideoScaleMode.Fill -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                VideoScaleMode.Stretch -> AspectRatioFrameLayout.RESIZE_MODE_FILL
             }
         },
         modifier = modifier,

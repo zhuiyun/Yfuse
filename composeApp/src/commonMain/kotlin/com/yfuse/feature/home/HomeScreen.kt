@@ -85,7 +85,6 @@ import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.sharedMediaElement
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.network.EmbyImages
@@ -203,10 +202,6 @@ fun HomeScreen(component: HomeComponent) {
                 if (state.resume.isNotEmpty()) {
                     item {
                         ContinueWatching(
-                            // From the same state as the items themselves — see
-                            // [HomeState.server].
-                            baseUrl = state.server?.baseUrl.orEmpty(),
-                            accessToken = state.server?.accessToken.orEmpty(),
                             items = state.resume,
                             onSeeAll = component.onOpenLibrary,
                             onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
@@ -648,11 +643,9 @@ private fun HeroCircleButton(icon: ImageVector, label: String, onClick: () -> Un
 /** 继续观看 — 150×90 artwork with title/year below and a 3px progress bar. */
 @Composable
 private fun ContinueWatching(
-    baseUrl: String,
-    accessToken: String,
-    items: List<MediaItem>,
+    items: List<HomeResumeEntry>,
     onSeeAll: () -> Unit,
-    onClick: (MediaItem) -> Unit,
+    onClick: (HomeResumeEntry) -> Unit,
 ) {
     val palette = LocalPalette.current
     Column {
@@ -678,26 +671,30 @@ private fun ContinueWatching(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            items(items, key = { it.id }) { item ->
+            items(items, key = { "${it.server.id}:${it.item.id}" }) { entry ->
+                val item = entry.item
                 CaptionedPoster(
                     url = EmbyImages.backdrop(
-                        baseUrl,
+                        entry.server.baseUrl,
                         item,
                         maxWidth = 480,
-                        accessToken = accessToken,
+                        accessToken = entry.server.accessToken,
                     ),
                     fallbackUrl = EmbyImages.poster(
-                        baseUrl,
+                        entry.server.baseUrl,
                         item,
-                        accessToken = accessToken,
+                        accessToken = entry.server.accessToken,
                     ),
                     title = item.title,
-                    year = item.year?.toString(),
+                    year = listOfNotNull(
+                        item.year?.toString(),
+                        entry.server.serverName,
+                    ).joinToString(" · "),
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
                     // Keep the home content continuously rendered on pop. A shared-media
                     // overlay can briefly outlive the disposed detail image and flash blank.
                     sharedKey = null,
-                    onClick = { onClick(item) },
+                    onClick = { onClick(entry) },
                     modifier = Modifier.width(150.dp),
                     posterModifier = Modifier.fillMaxWidth().height(90.dp),
                 )

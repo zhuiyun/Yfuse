@@ -39,6 +39,7 @@ import kotlinx.serialization.json.Json
 private data class WatchWireMessage(
     val type: String,
     val protocolVersion: Int? = null,
+    val capabilities: List<String>? = null,
     val clientId: String? = null,
     val name: String? = null,
     val avatarId: Int? = null,
@@ -254,6 +255,8 @@ data class WatchTogetherState(
     val participants: List<WatchParticipant> = emptyList(),
     val chatMessages: List<WatchChatMessage> = emptyList(),
     val chatError: String? = null,
+    /** False for legacy v3 servers, which predate the reaction wire message. */
+    val reactionsSupported: Boolean = false,
     /**
      * Reactions still in flight up the screen. Bounded because a room that spams them
      * must not be able to grow this without limit; the overlay drops each one itself once
@@ -275,6 +278,35 @@ data class WatchTogetherState(
     /** This device asked for control and is still waiting to hear back. */
     val controlRequested: Boolean = false,
 )
+
+internal const val WATCH_CAPABILITY_REACTIONS = "reactions"
+
+internal fun supportsWatchReactions(capabilities: List<String>?): Boolean =
+    WATCH_CAPABILITY_REACTIONS in capabilities.orEmpty()
+
+internal fun WatchTogetherState.canSendReaction(): Boolean =
+    connected && !reconnecting && reactionsSupported
+
+internal data class WatchChatValidation(
+    val text: String,
+    val error: String?,
+)
+
+/** Shared by the sender and sticker tests, so the tray cannot drift past the real wire limit. */
+internal fun validateWatchChat(raw: String): WatchChatValidation {
+    val text = raw.replace('\r', ' ')
+        .replace('\n', ' ')
+        .withoutControlCharacters()
+        .trim()
+    val error = when {
+        text.isEmpty() -> "请输入消息"
+        text.graphemeCount() > MAX_WATCH_CHAT_GRAPHEMES ->
+            "每条消息最多 $MAX_WATCH_CHAT_GRAPHEMES 字"
+        text.encodeToByteArray().size > MAX_WATCH_CHAT_BYTES -> "消息内容过长"
+        else -> null
+    }
+    return WatchChatValidation(text, error)
+}
 
 /**
  * The room's shared "what's playing and where", mirroring the server's `Timeline`. Position
@@ -526,7 +558,7 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
      */
     fun sendReaction(reaction: WatchReaction): Boolean {
         val state = _state.value
-        if (!state.connected || state.reconnecting) return false
+        if (!state.canSendReaction()) return false
         val myName = state.participants.firstOrNull { it.isSelf }?.name.orEmpty()
         pushReaction(reaction, myName, isMine = true)
         send(WatchWireMessage(type = "reaction", reaction = reaction.emoji))
@@ -562,20 +594,12 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
             _state.update { it.copy(chatError = "正在重连，连接恢复后再发送") }
             return false
         }
-        val text = raw.replace('\r', ' ')
-            .replace('\n', ' ')
-            .withoutControlCharacters()
-            .trim()
-        val error = when {
-            text.isEmpty() -> "请输入消息"
-            text.graphemeCount() > MAX_CHAT_GRAPHEMES -> "每条消息最多 30 字"
-            text.encodeToByteArray().size > MAX_CHAT_BYTES -> "消息内容过长"
-            else -> null
-        }
-        if (error != null) {
-            _state.update { it.copy(chatError = error) }
+        val validation = validateWatchChat(raw)
+        if (validation.error != null) {
+            _state.update { it.copy(chatError = validation.error) }
             return false
         }
+        val text = validation.text
         val clientMessageId = newClientMessageId()
         val pending = WatchChatMessage(
             id = nextLocalChatId--,
@@ -1065,6 +1089,11 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
                     ?.let { (it + unconfirmed).takeLast(MAX_CHAT_HISTORY) }
                     ?: current.chatMessages,
                 chatError = if (wire.type == "welcome") null else current.chatError,
+                reactionsSupported = if (wire.type == "welcome") {
+                    supportsWatchReactions(wire.capabilities)
+                } else {
+                    current.reactionsSupported
+                },
                 mediaKey = wire.mediaKey ?: current.mediaKey,
                 error = null,
                 syncWarning = if (handedOver) null else current.syncWarning,
@@ -1205,8 +1234,6 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         const val PING_INTERVAL_MS = 8_000L
         const val BASE_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 20_000L
-        const val MAX_CHAT_GRAPHEMES = 30
-        const val MAX_CHAT_BYTES = 768
         const val MAX_CHAT_HISTORY = 50
 
         /** Bubbles on screen at once. A room cannot grow this by reacting harder. */
@@ -1237,6 +1264,9 @@ class WatchTogetherClient(private val preferences: WatchTogetherPreferences) {
         }
     }
 }
+
+internal const val MAX_WATCH_CHAT_GRAPHEMES = 30
+internal const val MAX_WATCH_CHAT_BYTES = 768
 
 private fun String.toWebSocketUrl(): String? {
     val normalized = trim().trimEnd('/')

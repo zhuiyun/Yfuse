@@ -24,12 +24,14 @@ class PlayerComponent(
         startPositionTicks = startPositionTicks,
         mediaSourceId = mediaSourceId,
     )
-    private val preparedStore = PreparedPlaybackRegistry.get(preloadKey)
+    private val preparedStore = PreparedPlaybackRegistry.claim(preloadKey)
 
     /**
-     * A detail page starts this exact Store before the tap. Borrowing it preserves both a
+     * A detail page starts this exact Store before the tap. Claiming it preserves both a
      * completed queue and an in-flight request, so pressing 播放 never throws that work away and
-     * starts the same item/episode/MediaSources resolution again.
+     * starts the same item/episode/MediaSources resolution again. The claim also removes it from
+     * the registry: its play-session ids belong to this launch and must never be reused by the
+     * next PlayerActivity after this one's asynchronous cleanup starts.
      */
     val store = preparedStore
         ?: PlayerStoreFactory(
@@ -43,10 +45,9 @@ class PlayerComponent(
         ).create()
 
     init {
-        // The detail component owns a prepared Store so it remains reusable after returning from
-        // PlayerActivity. A fallback Store created here has this component's ordinary lifecycle.
-        if (preparedStore == null) {
-            lifecycle.doOnDestroy(store::dispose)
-        }
+        // Claiming transfers ownership from DetailComponent. Both claimed and fallback stores now
+        // have this component's ordinary lifecycle; the launch request has already copied their
+        // resolved queue before this transient component is popped.
+        lifecycle.doOnDestroy(store::dispose)
     }
 }

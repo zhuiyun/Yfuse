@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!--
       样式在资源限定符之间是「整体替换」而不是「逐条合并」:values-v31 以前重新声明
       Theme.Yfuse,就把 windowBackground 整条丢掉了。所以这里只保留 values 和
@@ -14,14 +14,14 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">@bool/launch_light_status_bar</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="27">shortEdges</item>
         <!--
           图标是全透明的:开屏图形由 Compose 画,系统开屏只负责底色。时长设 0,系统就在
           首帧画出来的瞬间交棒,而不是先白等 300ms。
         -->
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_transparent</item>
-        <item name="android:windowSplashScreenBackground">@color/launch_surface</item>
-        <item name="android:windowSplashScreenAnimationDuration">0</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@drawable/ic_splash_transparent</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/launch_surface</item>
+        <item name="android:windowSplashScreenAnimationDuration" tools:targetApi="31">0</item>
     </style>
 
     <style name="Theme.Yfuse.Player" parent="android:Theme.Material.NoActionBar">

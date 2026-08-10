@@ -375,6 +375,7 @@ class SearchStoreFactory(
                 searchedQuery = msg.query,
                 loading = true,
                 error = null,
+                type = SearchType.All,
                 // A fresh query invalidates both the cast row and any person opened from
                 // the previous one.
                 people = emptyList(),
