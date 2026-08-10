@@ -42,6 +42,9 @@ if mode == "pre":
     print("phase2b3 pre-fixup applied")
     raise SystemExit(0)
 
+# A DetailComponent may hand PlayerComponent a Store that started loading before the tap. Give
+# that preloaded Store the same exact-media failover request/health dependencies; otherwise only
+# the slower non-preloaded path could switch servers.
 detail_component = "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailComponent.kt"
 text = read(detail_component)
 if 'import com.yfuse.core.data.PlaybackFailoverPlan\n' not in text:
@@ -96,10 +99,34 @@ if old not in text:
 text = text.replace(old, new, 1)
 write(detail_component, text)
 
+# Failover chooses one concrete non-null server after the existing null guard. MediaSourceIds are
+# server-local, so reset the selected source id when a fallback server takes over.
 player_store = "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt"
 text = read(player_store)
+text = text.replace('var server = primaryServer', 'var server = requireNotNull(primaryServer)', 1)
 text = text.replace('mediaSourceId = mediaSourceId,', 'mediaSourceId = effectiveMediaSourceId,')
 write(player_store, text.rstrip() + "\n")
+
+# Home's new NextUp shelf follows the user's accent rather than a fixed brand blue.
+home_screen = "composeApp/src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt"
+text = read(home_screen)
+if 'import com.yfuse.core.designsystem.LocalAccent\n' not in text:
+    text = text.replace(
+        'import com.yfuse.core.designsystem.LocalAccessibilityOptions\n',
+        'import com.yfuse.core.designsystem.LocalAccessibilityOptions\nimport com.yfuse.core.designsystem.LocalAccent\n',
+        1,
+    )
+write(home_screen, text)
+
+# ThemeMode belongs to the design-system package; it was moved with the extracted settings
+# composables but the generated import still pointed at core.data.
+settings = "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt"
+text = read(settings)
+text = text.replace(
+    'import com.yfuse.core.data.ThemeMode\n',
+    'import com.yfuse.core.designsystem.ThemeMode\n',
+)
+write(settings, text.rstrip() + "\n")
 
 for relative in (
     "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DownloadsScreen.kt",
