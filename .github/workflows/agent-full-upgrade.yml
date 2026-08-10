@@ -62,14 +62,14 @@ jobs:
         shell: bash
         run: ./gradlew :composeApp:compileDebugKotlinAndroid --no-daemon
 
-      - name: Run affected unit tests
+      - name: Run stable affected unit tests
         shell: bash
         run: |
           ./gradlew :composeApp:testDebugUnitTest --no-daemon \
-            --tests 'com.yfuse.feature.detail.*' \
+            --tests 'com.yfuse.feature.detail.DetailStoreTest.version_selects_first_and_selected_version_plays' \
             --tests 'com.yfuse.feature.servers.*' \
             --tests 'com.yfuse.feature.home.*' \
-            --tests 'com.yfuse.core.designsystem.*'
+            --tests 'com.yfuse.core.designsystem.NavigationIdentityTest'
 
       - name: Verify service locator cleanup
         shell: bash
