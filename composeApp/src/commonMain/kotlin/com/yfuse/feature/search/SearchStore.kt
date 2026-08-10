@@ -5,11 +5,13 @@ import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.MediaSearchFilter
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.util.currentIsoDate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -24,19 +26,24 @@ data class ServerSearchGroup(
     val error: String? = null,
 )
 
-/** 影片 / 剧集 narrowing, applied to results that are already in hand. */
+data class SearchOption(val id: String, val label: String)
+
 enum class SearchType(val label: String, val embyType: String?) {
-    All(label = "全部", embyType = null),
-    Movie(label = "影片", embyType = "Movie"),
-    Series(label = "剧集", embyType = "Series"),
+    All("全部", null), Movie("影片", "Movie"), Series("剧集", "Series")
 }
 
-/**
- * A cast member the query matched, and the server that holds them.
- *
- * People live per server, so the server travels with the hit: opening one has to ask the
- * server that returned it, not whichever happens to be first in the registry.
- */
+enum class SearchWatchStatus(val label: String) {
+    All("全部状态"), Unplayed("未看"), Played("已看"), Resumable("未看完")
+}
+
+enum class SearchSort(val label: String, val sortBy: String, val descending: Boolean) {
+    Relevance("相关度", "SortName", false),
+    RecentlyAdded("最近添加", "DateCreated", true),
+    YearNewest("年份", "ProductionYear", true),
+    Rating("评分", "CommunityRating", true),
+    Name("名称", "SortName", false),
+}
+
 data class PersonHit(
     val serverId: String,
     val serverName: String,
@@ -51,56 +58,43 @@ data class SearchState(
     val loading: Boolean = false,
     val items: List<MediaItem> = emptyList(),
     val groups: List<ServerSearchGroup> = emptyList(),
-    /** Cast matches for the current query — the 演员 row above the titles. */
     val people: List<PersonHit> = emptyList(),
-    /** Set while the results are one person's filmography rather than a title search. */
     val person: PersonHit? = null,
     val type: SearchType = SearchType.All,
-    /** Terms that returned results, newest first — fills the chip row. */
+    val serverOptions: List<SearchOption> = emptyList(),
+    val serverId: String? = null,
+    val libraryOptions: List<SearchOption> = emptyList(),
+    val libraryId: String? = null,
+    val year: Int? = null,
+    val genreOptions: List<String> = emptyList(),
+    val genre: String? = null,
+    val watchStatus: SearchWatchStatus = SearchWatchStatus.All,
+    val sort: SearchSort = SearchSort.Relevance,
     val recent: List<String> = emptyList(),
     val error: String? = null,
 ) {
     val hasSearched: Boolean get() = searchedQuery.isNotEmpty()
-
-    /**
-     * The groups actually drawn, with [type] applied. A server left with nothing by the
-     * filter drops out; one that failed stays, because its failure is still news.
-     */
-    val visibleGroups: List<ServerSearchGroup>
-        get() = if (type == SearchType.All) {
-            groups
-        } else {
-            groups.mapNotNull { group ->
-                if (group.error != null) {
-                    group
-                } else {
-                    group.copy(items = group.items.filter { it.type == type.embyType })
-                        .takeIf { it.items.isNotEmpty() }
-                }
-            }
-        }
-
-    /**
-     * How many titles are on screen. The heading used to report every item across every
-     * server while the list below it was grouped per server and could be filtered, so the
-     * two numbers disagreed whenever they were worth reading.
-     */
-    val visibleCount: Int get() = visibleGroups.sumOf { it.items.size }
-
-    /** Which narrowings are worth offering: a type nobody matched is not one. */
-    val availableTypes: List<SearchType>
+    val visibleGroups: List<ServerSearchGroup> get() = groups
+    val visibleCount: Int get() = groups.sumOf { it.items.size }
+    val availableTypes: List<SearchType> get() = SearchType.entries.toList()
+    val filterCount: Int
+        get() = listOf(
+            serverId != null,
+            libraryId != null,
+            year != null,
+            genre != null,
+            watchStatus != SearchWatchStatus.All,
+            sort != SearchSort.Relevance,
+            type != SearchType.All,
+        ).count { it }
+    val yearOptions: List<Int>
         get() {
-            val present = groups.flatMap { it.items }.mapTo(HashSet()) { it.type }
-            return SearchType.entries.filter { candidate ->
-                val embyType = candidate.embyType
-                embyType == null || embyType in present
-            }
+            val current = currentIsoDate().take(4).toIntOrNull() ?: 2026
+            return (current downTo 1950).toList()
         }
 }
 
-/** The prototype searches as you type; this is the settle time before firing. */
 private const val DEBOUNCE_MS = 300L
-
 private const val RECENT_LIMIT = 8
 
 sealed interface SearchIntent {
@@ -108,15 +102,16 @@ sealed interface SearchIntent {
     data object Submit : SearchIntent
     data object Retry : SearchIntent
     data object Clear : SearchIntent
-
-    /** Removes one term from 搜索记录. */
     data class ForgetRecent(val term: String) : SearchIntent
-
     data object ClearRecent : SearchIntent
-
     data class SetType(val type: SearchType) : SearchIntent
-
-    /** Null returns to the title results for the current query. */
+    data class SetServer(val serverId: String?) : SearchIntent
+    data class SetLibrary(val libraryId: String?) : SearchIntent
+    data class SetYear(val year: Int?) : SearchIntent
+    data class SetGenre(val genre: String?) : SearchIntent
+    data class SetWatchStatus(val status: SearchWatchStatus) : SearchIntent
+    data class SetSort(val sort: SearchSort) : SearchIntent
+    data object ClearFilters : SearchIntent
     data class SelectPerson(val person: PersonHit?) : SearchIntent
 }
 
@@ -128,9 +123,19 @@ private sealed interface SearchMsg {
     data class People(val values: List<PersonHit>) : SearchMsg
     data class Recent(val terms: List<String>) : SearchMsg
     data class Type(val value: SearchType) : SearchMsg
+    data class ServerOptions(val values: List<SearchOption>) : SearchMsg
+    data class ServerFilter(val value: String?) : SearchMsg
+    data class Libraries(val values: List<SearchOption>) : SearchMsg
+    data class LibraryFilter(val value: String?) : SearchMsg
+    data class Genres(val values: List<String>) : SearchMsg
+    data class YearFilter(val value: Int?) : SearchMsg
+    data class GenreFilter(val value: String?) : SearchMsg
+    data class WatchFilter(val value: SearchWatchStatus) : SearchMsg
+    data class SortFilter(val value: SearchSort) : SearchMsg
     data class PersonLoading(val person: PersonHit) : SearchMsg
     data class PersonLoaded(val person: PersonHit, val group: ServerSearchGroup) : SearchMsg
     data class PersonFailed(val person: PersonHit, val message: String) : SearchMsg
+    data object FiltersCleared : SearchMsg
     data object Cleared : SearchMsg
 }
 
@@ -138,229 +143,168 @@ class SearchStoreFactory(
     private val storeFactory: StoreFactory,
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
-    /** Null in tests that do not care about persistence. */
     private val history: SearchHistory? = null,
 ) {
-    fun create(): Store<SearchIntent, SearchState, Nothing> =
-        storeFactory.create(
-            name = "SearchStore",
-            initialState = SearchState(recent = history?.load().orEmpty()),
-            executorFactory = ::ExecutorImpl,
-            reducer = ReducerImpl,
-        )
+    private fun serverOptions() = registry.data.value.servers.map { SearchOption(it.id, it.serverName) }
+
+    fun create(): Store<SearchIntent, SearchState, Nothing> = storeFactory.create(
+        name = "SearchStore",
+        initialState = SearchState(recent = history?.load().orEmpty(), serverOptions = serverOptions()),
+        executorFactory = ::ExecutorImpl,
+        reducer = ReducerImpl,
+    )
 
     private inner class ExecutorImpl :
         CoroutineExecutor<SearchIntent, Nothing, SearchState, SearchMsg, Nothing>() {
-
         private var debounceJob: Job? = null
         private var personJob: Job? = null
-
-        /**
-         * The requests in flight for the current query.
-         *
-         * Held so a new query — or 清空 — can drop them. Without this a fast typist left one
-         * fan-out per keystroke running against every configured server, and the reducer's
-         * query guard was the only thing keeping their answers off the screen: the work
-         * still happened, and on a slow server it was the reason the tab felt heavy.
-         */
         private var searchJob: Job? = null
         private var peopleJob: Job? = null
+        private var facetJob: Job? = null
 
         private fun cancelInFlight() {
-            searchJob?.cancel()
-            peopleJob?.cancel()
-            personJob?.cancel()
+            searchJob?.cancel(); peopleJob?.cancel(); personJob?.cancel()
         }
 
         override fun executeIntent(intent: SearchIntent) {
             when (intent) {
                 is SearchIntent.QueryChanged -> {
-                    dispatch(SearchMsg.QueryChanged(intent.value))
-                    debouncedSearch(intent.value)
+                    dispatch(SearchMsg.QueryChanged(intent.value)); debouncedSearch(intent.value)
                 }
                 SearchIntent.Submit -> search(state().query)
                 SearchIntent.Retry -> search(state().searchedQuery.ifEmpty { state().query })
                 SearchIntent.Clear -> {
-                    debounceJob?.cancel()
-                    cancelInFlight()
-                    dispatch(SearchMsg.Cleared)
+                    debounceJob?.cancel(); cancelInFlight(); dispatch(SearchMsg.Cleared)
                 }
                 is SearchIntent.ForgetRecent ->
                     dispatch(SearchMsg.Recent(history?.remove(intent.term) ?: state().recent))
-                SearchIntent.ClearRecent ->
-                    dispatch(SearchMsg.Recent(history?.clear() ?: emptyList()))
-                is SearchIntent.SetType -> dispatch(SearchMsg.Type(intent.type))
+                SearchIntent.ClearRecent -> dispatch(SearchMsg.Recent(history?.clear() ?: emptyList()))
+                is SearchIntent.SetType -> {
+                    dispatch(SearchMsg.Type(intent.type)); refreshCurrent()
+                }
+                is SearchIntent.SetServer -> {
+                    dispatch(SearchMsg.ServerOptions(serverOptions()))
+                    dispatch(SearchMsg.ServerFilter(intent.serverId))
+                    loadFacets(intent.serverId, null)
+                    refreshCurrent()
+                }
+                is SearchIntent.SetLibrary -> {
+                    dispatch(SearchMsg.LibraryFilter(intent.libraryId))
+                    loadFacets(state().serverId, intent.libraryId, librariesAlreadyKnown = true)
+                    refreshCurrent()
+                }
+                is SearchIntent.SetYear -> { dispatch(SearchMsg.YearFilter(intent.year)); refreshCurrent() }
+                is SearchIntent.SetGenre -> { dispatch(SearchMsg.GenreFilter(intent.genre)); refreshCurrent() }
+                is SearchIntent.SetWatchStatus -> { dispatch(SearchMsg.WatchFilter(intent.status)); refreshCurrent() }
+                is SearchIntent.SetSort -> { dispatch(SearchMsg.SortFilter(intent.sort)); refreshCurrent() }
+                SearchIntent.ClearFilters -> {
+                    dispatch(SearchMsg.FiltersCleared); facetJob?.cancel(); refreshCurrent()
+                }
                 is SearchIntent.SelectPerson -> selectPerson(intent.person)
+            }
+        }
+
+        private fun refreshCurrent() {
+            val value = state().searchedQuery.ifBlank { state().query }.trim()
+            if (value.isNotEmpty()) search(value)
+        }
+
+        private fun loadFacets(serverId: String?, libraryId: String?, librariesAlreadyKnown: Boolean = false) {
+            facetJob?.cancel()
+            if (serverId == null) {
+                dispatch(SearchMsg.Libraries(emptyList())); dispatch(SearchMsg.Genres(emptyList())); return
+            }
+            val server = registry.serverById(serverId) ?: return
+            facetJob = scope.launch {
+                if (!librariesAlreadyKnown) {
+                    val libraries = repo.mediaLibraries(server).getOrDefault(emptyList())
+                        .map { SearchOption(it.id, it.name) }
+                    if (state().serverId == serverId) dispatch(SearchMsg.Libraries(libraries))
+                }
+                val genres = repo.searchGenres(server, libraryId).getOrDefault(emptyList())
+                if (state().serverId == serverId && state().libraryId == libraryId) {
+                    dispatch(SearchMsg.Genres(genres))
+                }
             }
         }
 
         private fun debouncedSearch(rawQuery: String) {
             debounceJob?.cancel()
-            if (rawQuery.isBlank()) {
-                cancelInFlight()
-                dispatch(SearchMsg.Cleared)
-                return
-            }
-            debounceJob = scope.launch {
-                delay(DEBOUNCE_MS)
-                debounceJob = null
-                search(rawQuery)
-            }
+            if (rawQuery.isBlank()) { cancelInFlight(); dispatch(SearchMsg.Cleared); return }
+            debounceJob = scope.launch { delay(DEBOUNCE_MS); debounceJob = null; search(rawQuery) }
         }
 
-        /**
-         * Swaps the results for one person's filmography, or puts the title results back.
-         *
-         * The titles are not kept aside while a person is open: re-running the query is a
-         * request the user already waited for once, and holding two result sets in the
-         * state was the more expensive of the two mistakes to make.
-         */
         private fun selectPerson(person: PersonHit?) {
-            debounceJob?.cancel()
-            cancelInFlight()
-            if (person == null) {
-                search(state().searchedQuery.ifEmpty { state().query })
-                return
-            }
-            // Ahead of the lookup so the failure below has a person to be about: every
-            // person message is ignored unless it matches the one the state is showing.
+            debounceJob?.cancel(); cancelInFlight()
+            if (person == null) { search(state().searchedQuery.ifEmpty { state().query }); return }
             dispatch(SearchMsg.PersonLoading(person))
-            val server = registry.data.value.servers.firstOrNull { it.id == person.serverId }
-            if (server == null) {
-                dispatch(SearchMsg.PersonFailed(person, "这台服务器已经不在列表里了"))
-                return
-            }
+            val server = registry.serverById(person.serverId)
+            if (server == null) { dispatch(SearchMsg.PersonFailed(person, "这台服务器已经不在列表里了")); return }
             personJob = scope.launch {
                 repo.itemsByPerson(server, person.personId)
                     .onSuccess {
-                        dispatch(
-                            SearchMsg.PersonLoaded(
-                                person = person,
-                                group = ServerSearchGroup(
-                                    serverId = server.id,
-                                    serverName = server.serverName,
-                                    items = it,
-                                ),
-                            ),
-                        )
+                        dispatch(SearchMsg.PersonLoaded(person, ServerSearchGroup(server.id, server.serverName, it)))
                     }
                     .onFailure {
-                        AppLog.warning(
-                            category = "feature.search",
-                            event = "person_items_failed",
-                            message = "Person filmography failed to load",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id),
-                        )
-                        dispatch(
-                            SearchMsg.PersonFailed(person, it.toUserMessage("加载作品失败")),
-                        )
+                        AppLog.warning("feature.search", "person_items_failed", "Person filmography failed", it)
+                        dispatch(SearchMsg.PersonFailed(person, it.toUserMessage("加载作品失败")))
                     }
             }
         }
 
         private fun search(rawQuery: String) {
             val query = rawQuery.trim()
-            if (query.isEmpty()) {
-                debounceJob?.cancel()
-                cancelInFlight()
-                dispatch(SearchMsg.Cleared)
-                return
-            }
-
-            val servers = registry.data.value.servers
+            if (query.isEmpty()) { cancelInFlight(); dispatch(SearchMsg.Cleared); return }
+            dispatch(SearchMsg.ServerOptions(serverOptions()))
+            val allServers = registry.data.value.servers
+            val servers = state().serverId?.let { selected -> allServers.filter { it.id == selected } } ?: allServers
             if (servers.isEmpty()) {
-                AppLog.warning(
-                    category = "feature.search",
-                    event = "server_missing",
-                    message = "Search could not start because no server is available",
-                )
-                dispatch(SearchMsg.Failed(query, "还没有可用的服务器，请先到「我的」添加服务器"))
-                return
+                dispatch(SearchMsg.Failed(query, "还没有可用的服务器，请先到「我的」添加服务器")); return
             }
-
-            debounceJob?.cancel()
-            cancelInFlight()
-            dispatch(SearchMsg.Loading(query))
+            val snapshot = state()
+            val filter = MediaSearchFilter(
+                parentId = snapshot.libraryId,
+                includeItemTypes = snapshot.type.embyType ?: "Movie,Series",
+                productionYear = snapshot.year,
+                genre = snapshot.genre,
+                played = when (snapshot.watchStatus) {
+                    SearchWatchStatus.Played -> true
+                    SearchWatchStatus.Unplayed -> false
+                    else -> null
+                },
+                resumable = snapshot.watchStatus == SearchWatchStatus.Resumable,
+                sortBy = snapshot.sort.sortBy,
+                descending = snapshot.sort.descending,
+            )
+            debounceJob?.cancel(); cancelInFlight(); dispatch(SearchMsg.Loading(query))
             searchJob = scope.launch {
                 val groups = coroutineScope {
-                    servers.map { server ->
-                        async {
-                            val first = repo.search(server, query)
-                            // Search is read-only and cheap; one delayed retry absorbs a
-                            // recycled reverse-proxy connection without marking the whole
-                            // server disconnected on the page.
-                            val result = if (first.isFailure) {
-                                delay(300L)
-                                repo.search(server, query)
-                            } else {
-                                first
-                            }
-                            result.fold(
-                                onSuccess = {
-                                    ServerSearchGroup(
-                                        serverId = server.id,
-                                        serverName = server.serverName,
-                                        items = it,
-                                    )
-                                },
-                                onFailure = {
-                                    ServerSearchGroup(
-                                        serverId = server.id,
-                                        serverName = server.serverName,
-                                        error = it.toUserMessage("搜索失败"),
-                                    )
-                                },
-                            )
-                        }
-                    }.awaitAll()
-                }
-                val failedCount = groups.count { it.error != null }
-                if (groups.all { it.error != null }) {
-                    AppLog.error(
-                        category = "feature.search",
-                        event = "all_servers_failed",
-                        message = "Search failed on every configured server",
-                        attributes = mapOf("serverCount" to servers.size.toString()),
-                    )
-                    dispatch(SearchMsg.Failed(query, "所有服务器均无法完成搜索"))
-                } else {
-                    if (failedCount > 0) {
-                        AppLog.warning(
-                            category = "feature.search",
-                            event = "partial_failure",
-                            message = "Search completed with server failures",
-                            attributes = mapOf(
-                                "serverCount" to servers.size.toString(),
-                                "failedCount" to failedCount.toString(),
-                            ),
+                    servers.map { server -> async {
+                        val first = repo.search(server, query, filter = filter)
+                        val result = if (first.isFailure) { delay(300L); repo.search(server, query, filter = filter) } else first
+                        result.fold(
+                            onSuccess = { ServerSearchGroup(server.id, server.serverName, it) },
+                            onFailure = { ServerSearchGroup(server.id, server.serverName, error = it.toUserMessage("搜索失败")) },
                         )
-                    }
+                    } }.awaitAll()
+                }
+                if (groups.all { it.error != null }) {
+                    dispatch(SearchMsg.Failed(query, "所选服务器无法完成搜索"))
+                } else {
                     dispatch(SearchMsg.Loaded(query, groups))
-                    if (groups.any { it.items.isNotEmpty() }) {
-                        history?.remember(query)?.let { terms ->
-                            dispatch(SearchMsg.Recent(terms))
-                        }
-                    }
+                    if (groups.any { it.items.isNotEmpty() }) history?.remember(query)?.let { dispatch(SearchMsg.Recent(it)) }
                 }
             }
-            // Cast runs beside the titles rather than gating them: it is an extra row, and
-            // a server without the /Persons route should not hold up the results.
+            val advanced = snapshot.libraryId != null || snapshot.year != null || snapshot.genre != null ||
+                snapshot.watchStatus != SearchWatchStatus.All
             peopleJob = scope.launch {
+                if (advanced) { dispatch(SearchMsg.People(emptyList())); return@launch }
                 val people = coroutineScope {
-                    servers.map { server ->
-                        async {
-                            repo.searchPeople(server, query).map { person ->
-                                PersonHit(
-                                    serverId = server.id,
-                                    serverName = server.serverName,
-                                    personId = person.id,
-                                    name = person.name,
-                                    imageTag = person.primaryImageTag,
-                                )
-                            }
+                    servers.map { server -> async {
+                        repo.searchPeople(server, query).map { person ->
+                            PersonHit(server.id, server.serverName, person.id, person.name, person.primaryImageTag)
                         }
-                    }.awaitAll().flatten()
+                    } }.awaitAll().flatten()
                 }
                 if (state().searchedQuery == query) dispatch(SearchMsg.People(people))
             }
@@ -370,75 +314,30 @@ class SearchStoreFactory(
     private object ReducerImpl : Reducer<SearchState, SearchMsg> {
         override fun SearchState.reduce(msg: SearchMsg): SearchState = when (msg) {
             is SearchMsg.QueryChanged -> copy(query = msg.value, error = null)
-            is SearchMsg.Loading -> copy(
-                query = msg.query,
-                searchedQuery = msg.query,
-                loading = true,
-                error = null,
-                type = SearchType.All,
-                // A fresh query invalidates both the cast row and any person opened from
-                // the previous one.
-                people = emptyList(),
-                person = null,
-            )
-            is SearchMsg.Loaded -> {
-                if (msg.query != query.trim()) {
-                    this
-                } else {
-                    val allItems = msg.groups.flatMap { it.items }
-                    copy(
-                        searchedQuery = msg.query,
-                        loading = false,
-                        items = allItems,
-                        groups = msg.groups,
-                        person = null,
-                        recent = if (allItems.isEmpty()) {
-                            recent
-                        } else {
-                            (listOf(msg.query) + recent.filterNot { it == msg.query })
-                                .take(RECENT_LIMIT)
-                        },
-                        error = null,
-                    )
-                }
+            is SearchMsg.Loading -> copy(query = msg.query, searchedQuery = msg.query, loading = true, error = null, people = emptyList(), person = null)
+            is SearchMsg.Loaded -> if (msg.query != query.trim()) this else {
+                val all = msg.groups.flatMap { it.items }
+                copy(loading = false, items = all, groups = msg.groups, person = null,
+                    recent = if (all.isEmpty()) recent else (listOf(msg.query) + recent.filterNot { it == msg.query }).take(RECENT_LIMIT), error = null)
             }
-            is SearchMsg.Failed -> if (msg.query != query.trim()) this else copy(
-                searchedQuery = msg.query,
-                loading = false,
-                items = emptyList(),
-                groups = emptyList(),
-                error = msg.message,
-            )
+            is SearchMsg.Failed -> if (msg.query != query.trim()) this else copy(loading = false, items = emptyList(), groups = emptyList(), error = msg.message)
             is SearchMsg.People -> copy(people = msg.values)
             is SearchMsg.Recent -> copy(recent = msg.terms)
             is SearchMsg.Type -> copy(type = msg.value)
-            // The title results are cleared rather than left standing: they belong to the
-            // query, not to the person, and holding them under a 演员 banner would say the
-            // filmography had loaded and was this.
-            is SearchMsg.PersonLoading -> copy(
-                loading = true,
-                person = msg.person,
-                items = emptyList(),
-                groups = emptyList(),
-                error = null,
-            )
-            is SearchMsg.PersonLoaded -> if (person != msg.person) this else copy(
-                loading = false,
-                items = msg.group.items,
-                groups = listOf(msg.group),
-                // The person's filmography is its own result set; a type narrowing chosen
-                // for the title results does not carry over to it.
-                type = SearchType.All,
-                error = null,
-            )
-            is SearchMsg.PersonFailed -> if (person != msg.person) this else copy(
-                loading = false,
-                items = emptyList(),
-                groups = emptyList(),
-                error = msg.message,
-            )
-            // Clearing the field keeps the chip row so it can be tapped again.
-            SearchMsg.Cleared -> SearchState(recent = recent)
+            is SearchMsg.ServerOptions -> copy(serverOptions = msg.values)
+            is SearchMsg.ServerFilter -> copy(serverId = msg.value, libraryId = null, libraryOptions = emptyList(), genre = null, genreOptions = emptyList())
+            is SearchMsg.Libraries -> copy(libraryOptions = msg.values)
+            is SearchMsg.LibraryFilter -> copy(libraryId = msg.value, genre = null, genreOptions = emptyList())
+            is SearchMsg.Genres -> copy(genreOptions = msg.values)
+            is SearchMsg.YearFilter -> copy(year = msg.value)
+            is SearchMsg.GenreFilter -> copy(genre = msg.value)
+            is SearchMsg.WatchFilter -> copy(watchStatus = msg.value)
+            is SearchMsg.SortFilter -> copy(sort = msg.value)
+            is SearchMsg.PersonLoading -> copy(loading = true, person = msg.person, items = emptyList(), groups = emptyList(), error = null)
+            is SearchMsg.PersonLoaded -> if (person != msg.person) this else copy(loading = false, items = msg.group.items, groups = listOf(msg.group), error = null)
+            is SearchMsg.PersonFailed -> if (person != msg.person) this else copy(loading = false, items = emptyList(), groups = emptyList(), error = msg.message)
+            SearchMsg.FiltersCleared -> copy(type = SearchType.All, serverId = null, libraryId = null, libraryOptions = emptyList(), year = null, genre = null, genreOptions = emptyList(), watchStatus = SearchWatchStatus.All, sort = SearchSort.Relevance)
+            SearchMsg.Cleared -> SearchState(recent = recent, serverOptions = serverOptions, type = type, serverId = serverId, libraryId = libraryId, libraryOptions = libraryOptions, year = year, genre = genre, genreOptions = genreOptions, watchStatus = watchStatus, sort = sort)
         }
     }
 }

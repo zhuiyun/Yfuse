@@ -708,15 +708,64 @@ class EmbyRepository(private val client: HttpClient) {
         return dto.Items.firstOrNull()
     }
 
-    /** Title search, used by the search tab and to match TMDB picks to the library. */
-    suspend fun search(server: SavedServer, query: String, limit: Int = 24): Result<List<MediaItem>> =
+    /** Libraries available to advanced search filters. */
+    suspend fun mediaLibraries(server: SavedServer): Result<List<MediaLibrary>> =
+        call("search_libraries") { fetchViews(server) }
+
+    /** Genre facet for search; parentId narrows it to one library when selected. */
+    suspend fun searchGenres(server: SavedServer, parentId: String? = null): Result<List<String>> =
+        call("search_genres") {
+            val dto: ItemsResponseDto = client.get("${server.baseUrl}/Genres") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("UserId", server.userId)
+                parentId?.let { parameter("ParentId", it) }
+                parameter("IncludeItemTypes", "Movie,Series")
+                parameter("SortBy", "SortName")
+                parameter("SortOrder", "Ascending")
+                parameter("Limit", LIBRARY_GENRE_LIMIT)
+            }.body()
+            dedupeBilingualGenreLabels(dto.Items.mapNotNull { it.Name?.takeIf(String::isNotBlank) })
+        }
+
+    /** Server-wide next episodes for the 首页「下一集」shelf. */
+    suspend fun nextUpEpisodes(server: SavedServer, limit: Int = 12): Result<List<MediaItem>> =
+        call("next_up") {
+            val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/NextUp") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("UserId", server.userId)
+                parameter("Limit", limit)
+                parameter(
+                    "Fields",
+                    "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+                        "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+                )
+                parameter("EnableImageTypes", "Primary,Backdrop")
+                parameter("ImageTypeLimit", 2)
+            }.body()
+            dto.Items.map { it.toMediaItem() }
+        }
+
+    /** Title search with filters executed by Emby rather than against a truncated client list. */
+    suspend fun search(
+        server: SavedServer,
+        query: String,
+        limit: Int = 24,
+        filter: MediaSearchFilter = MediaSearchFilter(),
+    ): Result<List<MediaItem>> =
         call("search") {
         suspend fun request(term: String): ItemsResponseDto =
             client.get("${server.baseUrl}/Users/${server.userId}/Items") {
                 header("X-Emby-Token", server.accessToken)
                 parameter("SearchTerm", term)
                 parameter("Recursive", true)
-                parameter("IncludeItemTypes", "Movie,Series")
+                parameter("IncludeItemTypes", filter.includeItemTypes)
+                filter.parentId?.let { parameter("ParentId", it) }
+                filter.productionYear?.let { parameter("ProductionYear", it) }
+                filter.genre?.takeIf { it.isNotBlank() }?.let { parameter("Genres", it) }
+                filter.played?.let { parameter("IsPlayed", it) }
+                if (filter.resumable) parameter("Filters", "IsResumable")
+                parameter("SortBy", filter.sortBy)
+                parameter("SortOrder", if (filter.descending) "Descending" else "Ascending")
                 parameter(
                     "Fields",
                     "ProductionYear,Overview,ProviderIds,BackdropImageTags," +

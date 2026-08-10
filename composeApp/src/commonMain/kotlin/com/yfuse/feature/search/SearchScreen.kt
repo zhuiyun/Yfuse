@@ -57,6 +57,7 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalAccent
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
@@ -132,6 +133,7 @@ private fun SearchHomeScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val routeVisible = LocalRouteVisible.current
+    var filterSheet by remember { mutableStateOf<SearchFilterSheet?>(null) }
     StatusBarIconStyle(darkIcons = !palette.isDark)
     ScrollToTopOnReselect(component.listState)
 
@@ -160,6 +162,21 @@ private fun SearchHomeScreen(
                     onClear = { store.accept(SearchIntent.Clear) },
                     focusRequester = fieldFocusRequester,
                 )
+            }
+            item {
+                SearchFilterBar(
+                    state = state,
+                    onOpen = { filterSheet = it },
+                    onClear = { store.accept(SearchIntent.ClearFilters) },
+                )
+                filterSheet?.let { sheet ->
+                    SearchFilterDialog(
+                        state = state,
+                        sheet = sheet,
+                        onIntent = store::accept,
+                        onDismiss = { filterSheet = null },
+                    )
+                }
             }
 
             // 演员 sits above the titles: a cast match is a different kind of answer, and
@@ -256,6 +273,7 @@ private fun SearchField(
     focusRequester: FocusRequester,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccent.current.color
     val shape = continuousRounded(25.dp)
     Row(
         Modifier
@@ -263,12 +281,12 @@ private fun SearchField(
             .padding(horizontal = Dimens.pageHorizontal)
             .heightIn(min = 50.dp)
             .shadow(Shadows.searchBarFocused, shape)
-            .glass(shape, palette.card3, Brand.Primary.copy(alpha = 0.4f))
+            .glass(shape, palette.card3, accent.copy(alpha = 0.4f))
             .padding(horizontal = 16.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(AppIcons.Search, null, tint = Brand.Primary, modifier = Modifier.size(15.dp))
+        Icon(AppIcons.Search, null, tint = accent, modifier = Modifier.size(15.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) {
                 Text("搜索电影、剧集、演员", style = mr(13f, 400), color = palette.sub2)
@@ -278,7 +296,7 @@ private fun SearchField(
                 onValueChange = onQueryChange,
                 singleLine = true,
                 textStyle = mr(13f, 400).copy(color = palette.text),
-                cursorBrush = SolidColor(Brand.Primary),
+                cursorBrush = SolidColor(accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),

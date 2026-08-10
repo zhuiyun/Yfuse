@@ -76,6 +76,7 @@ data class DetailState(
     val related: List<MediaItem> = emptyList(),
     val error: String? = null,
     val actionMessage: String? = null,
+    val sourceFailure: SourceSelectionFailure? = null,
 )
 
 sealed interface DetailIntent {
@@ -134,22 +135,9 @@ private data class EpisodeCoordinate(
     val episodeNumber: Int?,
 )
 
-private data class SeriesCatalog(
-    val seasons: List<Season>,
-    val selectedSeasonId: String?,
-    val episodes: List<Episode>,
-)
-
 private const val SOURCE_SELECTION_MAX_ATTEMPTS = 3
 private const val SOURCE_SELECTION_RETRY_BASE_DELAY_MS = 250L
 private const val SOURCE_SELECTION_TIMEOUT_MS = 45_000L
-
-private class SourceSelectionTimeoutException : Exception("Cross-server source selection timed out")
-
-private class EpisodeUnavailableException(
-    val seasonNumber: Int?,
-    val episodeNumber: Int?,
-) : Exception("The selected source does not contain the current episode")
 
 private sealed interface DetailMsg {
     data object Loading : DetailMsg
@@ -176,6 +164,7 @@ private sealed interface DetailMsg {
         val value: Boolean,
     ) : DetailMsg
     data class ActionMessage(val value: String?) : DetailMsg
+    data class SourceFailure(val value: SourceSelectionFailure?) : DetailMsg
     data class PlaybackSelectionLoaded(
         val server: SavedServer,
         val sourceDetail: MediaDetail,
@@ -228,6 +217,8 @@ class DetailStoreFactory(
         private var playFromStartWhenSelectionReady = false
         private var sourceLoadGeneration = 0L
         private var relatedLoadGeneration = 0L
+        private val sourceCoordinator = SourceSelectionCoordinator(repo)
+        private val seriesCatalogLoader = SeriesCatalogLoader(repo)
 
         override fun executeAction(action: DetailAction) = load()
 
@@ -602,17 +593,7 @@ class DetailStoreFactory(
             seriesId: String,
             target: MediaDetail,
             allEpisodes: List<Episode>?,
-        ): SeriesCatalog {
-            val seasons = repo.seasons(server, seriesId).getOrThrow()
-            val targetEpisode = allEpisodes?.firstOrNull { it.id == target.id }
-            val selectedSeasonId = targetEpisode?.seasonId
-                ?: seasons.firstOrNull { it.indexNumber == target.seasonNumber }?.id
-                ?: seasons.firstOrNull()?.id
-            val episodes = allEpisodes
-                ?.filter { selectedSeasonId == null || it.seasonId == selectedSeasonId }
-                ?: repo.episodes(server, seriesId, selectedSeasonId).getOrThrow()
-            return SeriesCatalog(seasons, selectedSeasonId, episodes)
-        }
+        ): SeriesCatalog = seriesCatalogLoader.load(server, seriesId, target, allEpisodes)
 
         private fun dispatchPlaybackSelection(
             selection: ResolvedPlaybackSelection,
@@ -702,11 +683,7 @@ class DetailStoreFactory(
                                     "operation" to operation.toString(),
                                 ),
                             )
-                            dispatch(
-                                DetailMsg.ActionMessage(
-                                    "资源切换失败：${it.toSourceSelectionUserMessage()}",
-                                ),
-                            )
+                            dispatch(DetailMsg.SourceFailure(it.toSourceSelectionFailure()))
                         }
                 } finally {
                     if (operation == sourceSelectionOperation) {
@@ -730,50 +707,17 @@ class DetailStoreFactory(
             preferredPlaybackItemId: String?,
             operation: Long,
         ): Result<ResolvedPlaybackSelection> {
-            var attempt = 1
-            while (true) {
-                val result = repo.itemDetail(server, sourceItemId).fold(
-                    onSuccess = { sourceDetail ->
-                        resolvePlaybackSelection(
-                            server = server,
-                            sourceDetail = sourceDetail,
-                            preferredEpisode = coordinate,
-                            preferredPlaybackItemId = preferredPlaybackItemId,
-                        )
-                    },
-                    onFailure = { Result.failure(it) },
+            return sourceCoordinator.resolve(
+                server = server,
+                sourceItemId = sourceItemId,
+                stillCurrent = { operation == sourceSelectionOperation },
+            ) { sourceDetail ->
+                resolvePlaybackSelection(
+                    server = server,
+                    sourceDetail = sourceDetail,
+                    preferredEpisode = coordinate,
+                    preferredPlaybackItemId = preferredPlaybackItemId,
                 )
-                val failure = result.exceptionOrNull()
-                if (
-                    result.isSuccess ||
-                    attempt >= SOURCE_SELECTION_MAX_ATTEMPTS ||
-                    failure?.isTransientSourceFailure() != true
-                ) {
-                    return result
-                }
-
-                val retryDelayMs = SOURCE_SELECTION_RETRY_BASE_DELAY_MS shl (attempt - 1)
-                AppLog.info(
-                    category = "feature.detail",
-                    event = "source_selection_retry",
-                    message = "Retrying a transient cross-server resource failure",
-                    attributes = mapOf(
-                        "serverId" to server.id,
-                        "itemId" to sourceItemId,
-                        "attempt" to attempt.toString(),
-                        "nextAttempt" to (attempt + 1).toString(),
-                        "delayMs" to retryDelayMs.toString(),
-                    ),
-                )
-                delay(retryDelayMs)
-
-                // A newer operation owns the pending state. Normally cancelling its Job
-                // reaches this coroutine first; the id is a second guard for non-cooperative
-                // engines and future code that may do work without suspension.
-                if (operation != sourceSelectionOperation) {
-                    return result
-                }
-                attempt++
             }
         }
 
@@ -1150,7 +1094,7 @@ class DetailStoreFactory(
                 error = msg.message,
             )
             is DetailMsg.Resolving -> copy(resolvingPlay = msg.value)
-            is DetailMsg.SelectionLoading -> copy(selectionLoading = msg.value)
+            is DetailMsg.SelectionLoading -> copy(selectionLoading = msg.value, sourceFailure = if (msg.value) null else sourceFailure)
             is DetailMsg.VersionSelected -> withSelectedVersion(msg.versionId)
             is DetailMsg.EpisodeSelected -> copy(
                 selectedEpisodeId = msg.itemId,
@@ -1196,6 +1140,7 @@ class DetailStoreFactory(
                 this
             }
             is DetailMsg.ActionMessage -> copy(actionMessage = msg.value)
+            is DetailMsg.SourceFailure -> copy(sourceFailure = msg.value, selectionLoading = false)
             is DetailMsg.AudioLanguageSelected -> copy(preferredAudioLanguage = msg.language)
             is DetailMsg.SubtitleLanguageSelected -> copy(preferredSubtitleLanguage = msg.language)
             is DetailMsg.PlaybackSelectionLoaded -> {
@@ -1230,6 +1175,7 @@ class DetailStoreFactory(
                     selectionLoading = false,
                     related = if (sourceChanged) emptyList() else related,
                     actionMessage = null,
+                    sourceFailure = null,
                 ).withSelectedVersion(versionId)
             }
         }
@@ -1257,32 +1203,6 @@ private fun Throwable.isTransientSourceFailure(): Boolean =
         EmbyError.Network -> true
         is EmbyError.Server -> error.code in 500..599
         else -> false
-    }
-
-private fun Throwable.toSourceSelectionUserMessage(): String =
-    when {
-        this is SourceSelectionTimeoutException -> "切换等待超时，请检查网络后再试"
-        this is EpisodeUnavailableException -> {
-            val coordinate = if (seasonNumber != null && episodeNumber != null) {
-                "第 ${seasonNumber} 季第 ${episodeNumber} 集"
-            } else {
-                "当前剧集"
-            }
-            "该资源没有$coordinate，请选择其他资源"
-        }
-        else -> when (val error = (this as? EmbyErrorException)?.error) {
-            EmbyError.Network -> "网络连接不稳定，已自动重试，请检查网络后再试"
-            EmbyError.Unauthorized -> "登录已失效，请在服务器管理中重新登录"
-            is EmbyError.AccessDenied -> error.toUserMessage()
-            is EmbyError.Server ->
-                "服务器暂时异常（HTTP ${error.code}），已自动重试，请稍后再试"
-            is EmbyError.Unknown -> if (error.message.startsWith("HTTP ")) {
-                "服务器拒绝请求（${error.message}），请刷新资源后重试"
-            } else {
-                "服务器返回的数据无法解析，请刷新资源后重试"
-            }
-            null -> "请稍后重试"
-        }
     }
 
 private suspend inline fun <T> cancellableResult(

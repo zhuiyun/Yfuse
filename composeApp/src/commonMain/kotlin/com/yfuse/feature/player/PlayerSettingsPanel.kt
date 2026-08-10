@@ -40,6 +40,15 @@ import com.yfuse.core.designsystem.shadow
  * only exists once someone has asked for it. Nothing here runs while the film plays.
  */
 
+internal enum class Tab(val label: String) {
+    Playback("播放"),
+    Tracks("音轨"),
+    Picture("画面"),
+    Danmaku("弹幕"),
+    Cast("投屏"),
+    Advanced("高级"),
+}
+
 /**
  * Settings panel — `right:120px; bottom:70px; width:230px`, `rgba(255,255,255,.92)`,
  * `radius:18px`, `padding:6px 0 12px`, `0 20px 50px -12px rgba(30,40,70,.3)`.
@@ -68,6 +77,8 @@ internal fun SettingsPanel(
     remoteSubtitleActions: RemoteSubtitleActions,
     onSelectAudio: (String) -> Unit,
     onSpeed: (Float) -> Unit,
+    filled: Boolean,
+    onToggleFill: () -> Unit,
     onSelectEngine: (Int) -> Unit,
     onTranscode: () -> Unit,
     onDiscoverCast: () -> Unit,
@@ -84,13 +95,12 @@ internal fun SettingsPanel(
     onDismiss: () -> Unit,
 ) {
     val tabs = buildList {
+        add(Tab.Playback)
+        if (state.subtitleTracks.isNotEmpty() || state.audioTracks.size > 1) add(Tab.Tracks)
+        add(Tab.Picture)
         add(Tab.Danmaku)
-        // A lone audio track is not a choice — matching the chip's condition keeps the
-        // tab from appearing with nothing switchable in it.
-        if (state.subtitleTracks.isNotEmpty() || state.audioTracks.size > 1) add(Tab.Subtitle)
         add(Tab.Cast)
-        add(Tab.Diagnostics)
-        add(Tab.More)
+        add(Tab.Advanced)
     }
     val shape = continuousRounded(20.dp)
 
@@ -176,7 +186,7 @@ internal fun SettingsPanel(
                         onOpenSend = onOpenDanmakuSend,
                     )
 
-                    Tab.Subtitle -> {
+                    Tab.Tracks -> {
                         if (state.subtitleTracks.isNotEmpty()) {
                             GroupLabel("字幕")
                             OptionRow(
@@ -236,7 +246,7 @@ internal fun SettingsPanel(
                         }
                     }
 
-                    Tab.More -> {
+                    Tab.Playback -> {
                         // 剧集列表与画面比例都在顶栏有常驻圆钮，这里不再重复列一遍；
                         // 只留顶栏没有的入口。
                         GroupLabel("播放")
@@ -260,6 +270,15 @@ internal fun SettingsPanel(
                             }
                         }
 
+                        GroupLabel("播放速度")
+                        speeds.forEach { speed ->
+                            OptionRow(speedLabel(speed), speed == state.speed, onClick = { onSpeed(speed) })
+                        }
+
+                    }
+
+                    Tab.Advanced -> {
+                        GroupLabel("高级播放")
                         // Only for a series: an opening belongs to the show, and there is
                         // nothing sensible to hang a film's times off. Setting a boundary
                         // from where playback already is beats typing seconds at a
@@ -346,11 +365,6 @@ internal fun SettingsPanel(
                             }
                         }
 
-                        GroupLabel("播放速度")
-                        speeds.forEach { speed ->
-                            OptionRow(speedLabel(speed), speed == state.speed, onClick = { onSpeed(speed) })
-                        }
-
                         if (engineOptions.isNotEmpty() || transcodeLabel != null) {
                             GroupLabel("播放器内核")
                         }
@@ -360,9 +374,8 @@ internal fun SettingsPanel(
                         if (transcodeLabel != null) {
                             OptionRow(transcodeLabel, transcodeActive, onClick = onTranscode)
                         }
-                    }
 
-                    Tab.Diagnostics -> {
+                        GroupLabel("诊断")
                         val diagnostics = state.diagnostics
                         GroupLabel("实时播放信息")
                         DiagnosticRow("内核", diagnostics.engine.ifBlank { "未知" })
@@ -404,6 +417,15 @@ internal fun SettingsPanel(
                             DiagnosticRow("房间", watch.roomCode ?: "—")
                             DiagnosticRow("身份", if (watch.isHost) "房主" else "参与者")
                             DiagnosticRow("在线", "${watch.participantCount} 人")
+                        }
+                    }
+
+                    Tab.Picture -> {
+                        GroupLabel("画面")
+                        OptionRow(if (filled) "填充屏幕" else "适应画面", filled, onClick = onToggleFill)
+                        if (transcodeLabel != null) {
+                            GroupLabel("兼容播放")
+                            OptionRow(transcodeLabel, transcodeActive, onClick = onTranscode)
                         }
                     }
 

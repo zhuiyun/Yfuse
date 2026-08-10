@@ -266,7 +266,7 @@ fun DetailScreen(component: DetailComponent) {
     val share = rememberShareHandler()
     var shareSheetOpen by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
-    var sourceListOpen by remember { mutableStateOf(false) }
+    var playbackVersionOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
 
     // Mirroring the player's selection is a one-shot per *new* selection, not a standing
@@ -504,56 +504,17 @@ fun DetailScreen(component: DetailComponent) {
                     }
                 }
 
-                if (playableVersions.isNotEmpty()) {
-                    item(key = "versions") {
-                        VersionSection(
-                            versions = playableVersions,
-                            selectedId = state.selectedVersionId,
-                            accent = detailAccent,
-                            onSelect = {
-                                component.store.accept(DetailIntent.SelectVersion(it))
-                            },
-                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                        )
-                    }
-                }
-
-                // The tracks of whatever file will actually open. A film's own, or, for a
-                // series, the episode 继续观看 resolves to — the same copy the 杜比 badge
-                // above describes.
-                val playableVersion = selectedVersion
-                if (playableVersion != null &&
-                    (playableVersion.audioTracks.size > 1 ||
-                        playableVersion.subtitleTracks.isNotEmpty())
-                ) {
-                    item(key = "tracks") {
-                        TrackSection(
-                            version = playableVersion,
-                            audioLanguage = state.preferredAudioLanguage,
-                            subtitleLanguage = state.preferredSubtitleLanguage,
-                            accent = detailAccent,
-                            onSelectAudio = {
-                                component.store.accept(DetailIntent.SelectAudioLanguage(it))
-                            },
-                            onSelectSubtitle = {
-                                component.store.accept(DetailIntent.SelectSubtitleLanguage(it))
-                            },
-                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                        )
-                    }
-                }
-
-                if (comparableSources.any { it.reachable && it.source != null && it.itemId != null }) {
-                    item(key = "sources") {
-                        SourceSection(
-                            sources = comparableSources,
-                            selectedServerId = state.selectedSourceServerId,
-                            selectedItemId = state.selectedSourceItemId,
-                            accent = detailAccent,
-                            onSelect = { serverId, itemId ->
-                                component.store.accept(DetailIntent.SelectSource(serverId, itemId))
-                            },
-                            onSeeAll = { sourceListOpen = true },
+                if (playableVersions.isNotEmpty() || comparableSources.any { it.reachable && it.itemId != null }) {
+                    item(key = "playback-version") {
+                        PlaybackVersionSection(
+                            summary = playbackVersionSummary(
+                                serverName = state.playServer?.serverName,
+                                version = selectedVersion,
+                                audioLanguage = state.preferredAudioLanguage,
+                                subtitleLanguage = state.preferredSubtitleLanguage,
+                            ),
+                            switching = state.selectionLoading,
+                            onClick = { playbackVersionOpen = true },
                             modifier = Modifier.padding(top = Dimens.sectionGap),
                         )
                     }
@@ -689,19 +650,24 @@ fun DetailScreen(component: DetailComponent) {
             }
         }
 
-        if (sourceListOpen) {
-            SourceListDialog(
+        if (playbackVersionOpen && detail != null) {
+            PlaybackVersionDialog(
+                title = detail.title,
                 sources = comparableSources,
                 selectedServerId = state.selectedSourceServerId,
                 selectedItemId = state.selectedSourceItemId,
-                accent = detailAccent,
-                onSelect = { serverId, itemId ->
-                    val willPlay = state.selectedSourceServerId == serverId &&
-                        state.selectedSourceItemId == itemId
-                    if (willPlay) sourceListOpen = false
+                versions = playableVersions,
+                selectedVersionId = state.selectedVersionId,
+                selectedAudioLanguage = state.preferredAudioLanguage,
+                selectedSubtitleLanguage = state.preferredSubtitleLanguage,
+                switching = state.selectionLoading,
+                onSelectSource = { serverId, itemId ->
                     component.store.accept(DetailIntent.SelectSource(serverId, itemId))
                 },
-                onDismiss = { sourceListOpen = false },
+                onSelectVersion = { component.store.accept(DetailIntent.SelectVersion(it)) },
+                onSelectAudio = { component.store.accept(DetailIntent.SelectAudioLanguage(it)) },
+                onSelectSubtitle = { component.store.accept(DetailIntent.SelectSubtitleLanguage(it)) },
+                onDismiss = { playbackVersionOpen = false },
             )
         }
 
@@ -767,7 +733,7 @@ fun DetailScreen(component: DetailComponent) {
         // pushed 简介 and everything under it down the moment a tap was confirmed,
         // and it stayed there until some other action happened to replace it.
         ActionToast(
-            message = state.actionMessage,
+            message = state.actionMessage ?: state.sourceFailure?.toDetailMessage(),
             onDismiss = { component.store.accept(DetailIntent.DismissMessage) },
             accent = detailAccent,
             modifier = Modifier.padding(bottom = 28.dp),

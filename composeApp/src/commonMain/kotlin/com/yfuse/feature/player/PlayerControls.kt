@@ -138,14 +138,6 @@ private const val HOLD_SEEK_FAST_STEP_MS = 9_000L
 private const val HOLD_SEEK_RAMP_MS = 3_000L
 
 /** Settings use one consistent floating panel and one consistent chip family. */
-internal enum class Tab(val label: String) {
-    Danmaku("弹幕"),
-    Subtitle("字幕"),
-    Cast("投屏"),
-    Diagnostics("诊断"),
-    More("更多"),
-}
-
 /**
  * The player chrome, transcribed from the prototype's landscape player: a gradient
  * top bar, a centred transport cluster, a gradient bottom bar with the scrubber and
@@ -747,6 +739,8 @@ internal fun PlayerControls(
                 remoteSubtitleActions = remoteSubtitleActions,
                 onSelectAudio = { onSelectAudio(it); settingsTab = null },
                 onSpeed = { onSpeed(it); settingsTab = null },
+                filled = filled,
+                onToggleFill = onToggleFill,
                 onSelectEngine = { onSelectEngine(it); settingsTab = null },
                 onTranscode = { onTranscode(); settingsTab = null },
                 onDiscoverCast = onDiscoverCast,
@@ -1015,101 +1009,6 @@ internal fun PlayerControls(
                         .padding(end = 22.dp, bottom = 96.dp),
                 )
             }
-        }
-    }
-}
-
-/** How long before the end 下一集 announces itself. */
-private const val NEXT_UP_WINDOW_MS = 10_000L
-
-/**
- * 片尾自动连播 — the countdown the spec drew and nobody built.
- *
- * [PlayerTokens.nextUpFill], `nextUpRing`, `nextUpRingTrack` and `nextUpCore` were all
- * declared for this card and referenced nowhere in the app; what shipped instead was one
- * line of text reading 「下一集将在 N 秒后播放」, with no way to start it early and no way
- * to stop it. The ring drains as the episode does, the core starts the next one on tap,
- * and 取消 leaves the credits alone.
- */
-@Composable
-private fun NextUpCard(
-    title: String,
-    remainingMs: Long,
-    onPlayNow: () -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val progress = (remainingMs.toFloat() / NEXT_UP_WINDOW_MS).coerceIn(0f, 1f)
-    Row(
-        modifier
-            .shadow(Shadows.tabBar, GlassShapes.card)
-            .glass(
-                shape = GlassShapes.card,
-                fill = PlayerTokens.nextUpFill,
-                border = PlayerTokens.hairline,
-            )
-            .padding(horizontal = 14.dp, vertical = 11.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(horizontalAlignment = Alignment.Start) {
-            Text("即将播放", style = mr(9.5f, 700), color = PlayerTokens.footerText)
-            if (title.isNotBlank()) {
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    title,
-                    style = sc(12f, 700),
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 190.dp),
-                )
-            }
-        }
-        Text(
-            "取消",
-            style = sc(11.5f, 600),
-            color = PlayerTokens.timeText,
-            modifier = Modifier
-                .pressable(onClick = onDismiss)
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-        )
-        Box(
-            Modifier.size(38.dp).pressable(haptic = HapticSignal.Confirm, onClick = onPlayNow),
-            contentAlignment = Alignment.Center,
-        ) {
-            Canvas(Modifier.fillMaxSize()) {
-                val stroke = 2.5.dp.toPx()
-                val radius = (size.minDimension - stroke) / 2f
-                drawCircle(
-                    color = PlayerTokens.nextUpCore,
-                    radius = radius - stroke / 2f,
-                )
-                drawCircle(
-                    color = PlayerTokens.nextUpRingTrack,
-                    radius = radius,
-                    style = Stroke(width = stroke),
-                )
-                // Drains clockwise from the top as the episode runs out.
-                drawArc(
-                    color = PlayerTokens.nextUpRing,
-                    startAngle = -90f,
-                    sweepAngle = -360f * (1f - progress),
-                    useCenter = false,
-                    topLeft = Offset(
-                        (size.width - radius * 2f) / 2f,
-                        (size.height - radius * 2f) / 2f,
-                    ),
-                    size = Size(radius * 2f, radius * 2f),
-                    style = Stroke(width = stroke, cap = StrokeCap.Round),
-                )
-            }
-            Icon(
-                AppIcons.Play,
-                contentDescription = "立即播放下一集",
-                tint = Color.White,
-                modifier = Modifier.size(13.dp),
-            )
         }
     }
 }
@@ -1594,7 +1493,7 @@ private fun BottomBar(
                     "更多",
                     26.dp,
                     12.dp,
-                    onClick = { onOpenTab(Tab.More) },
+                    onClick = { onOpenTab(Tab.Playback) },
                 )
             }
         }
