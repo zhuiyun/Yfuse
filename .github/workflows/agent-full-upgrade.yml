@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          before="$(git status --porcelain)"
+          sed -i 's/version.ref = "activity"/version.ref = "androidx-activity"/g' scripts/agent_full_upgrade_phase1.py
           python3 scripts/agent_full_upgrade_phase1.py
           git diff --check
           if [[ -n "$(git status --porcelain composeApp gradle/libs.versions.toml)" ]]; then
