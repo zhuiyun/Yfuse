@@ -1,5 +1,6 @@
 package com.yfuse.core.designsystem
 
+import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,7 +35,7 @@ actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {
 @Composable
 actual fun PlatformPredictiveBackHandler(
     enabled: Boolean,
-    onProgress: (Float) -> Unit,
+    onProgress: (Float, PredictiveBackSwipeEdge) -> Unit,
     onCancel: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -46,7 +47,14 @@ actual fun PlatformPredictiveBackHandler(
     val back by rememberUpdatedState(onBack)
     PredictiveBackHandler(enabled = enabled) { events ->
         try {
-            events.collect { event -> progress(event.progress) }
+            events.collect { event ->
+                val edge = if (event.swipeEdge == BackEventCompat.EDGE_RIGHT) {
+                    PredictiveBackSwipeEdge.Right
+                } else {
+                    PredictiveBackSwipeEdge.Left
+                }
+                progress(event.progress, edge)
+            }
             back()
         } catch (cancellation: CancellationException) {
             cancel()

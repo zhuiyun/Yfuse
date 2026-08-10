@@ -5,7 +5,6 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -32,6 +31,7 @@ import android.view.KeyEvent
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
@@ -2482,7 +2482,7 @@ internal fun updatedVersionAttempts(
 
 @Composable
 private fun rememberWindowBrightness(): Pair<Float, (Float) -> Unit> {
-    val activity = LocalContext.current as? Activity
+    val activity = LocalActivity.current
     var level by remember(activity) {
         val current = activity?.window?.attributes?.screenBrightness ?: -1f
         mutableFloatStateOf(if (current in 0f..1f) current else 0.5f)

@@ -251,7 +251,9 @@ fun App(root: RootComponent) {
         val backGesture = rememberPredictiveBackState()
         PlatformPredictiveBackHandler(
             enabled = childCanGoBack || active != Tab.Home,
-            onProgress = { if (childCanGoBack) backGesture.onProgress(it) },
+            onProgress = { progress, edge ->
+                if (childCanGoBack) backGesture.onProgress(progress, edge)
+            },
             onCancel = { backGesture.onCancel() },
             onBack = { backGesture.onCommit(goBack) },
         )

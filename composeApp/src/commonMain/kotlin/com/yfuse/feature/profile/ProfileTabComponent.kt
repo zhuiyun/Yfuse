@@ -33,7 +33,8 @@ class ProfileTabComponent(
         source = navigation,
         serializer = Config.serializer(),
         initialConfiguration = Config.Home,
-        handleBackButton = true,
+        // The Compose shell owns system/predictive back so only the visible tab can pop.
+        handleBackButton = false,
         childFactory = ::child,
     )
 

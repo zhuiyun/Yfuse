@@ -319,7 +319,18 @@ internal fun PlayerControls(
         }
     }
 
-    PlatformBackHandler(enabled = watchChatOpen, onBack = closeWatchChat)
+    // Non-Dialog chrome must consume back before PlayerActivity does. Platform Dialogs own
+    // their separate window callback, so they are deliberately not included here.
+    val dismissiblePanelOpen = watchChatOpen || danmakuSearchOpen ||
+        settingsTab != null || drawerOpen
+    PlatformBackHandler(enabled = dismissiblePanelOpen) {
+        when {
+            watchChatOpen -> closeWatchChat()
+            danmakuSearchOpen -> danmakuSearchOpen = false
+            settingsTab != null -> settingsTab = null
+            drawerOpen -> drawerOpen = false
+        }
+    }
 
     LaunchedEffect(
         visible,

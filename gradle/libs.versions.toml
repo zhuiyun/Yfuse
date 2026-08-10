@@ -2,7 +2,7 @@
 kotlin = "2.1.21"
 agp = "8.11.1"
 compose = "1.7.3"
-androidx-activity = "1.9.3"
+androidx-activity = "1.13.0"
 decompose = "3.2.2"
 mvikotlin = "4.2.0"
 ktor = "3.0.3"
