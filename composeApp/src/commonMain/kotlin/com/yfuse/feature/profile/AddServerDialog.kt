@@ -1,6 +1,8 @@
 package com.yfuse.feature.profile
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,7 +64,7 @@ fun AddServerDialog(
     val form = state.form
     val editing = state.editingServerId != null
 
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss, scrollable = false) {
         OverlayHeader(
             title = if (editing) "编辑服务器" else "添加服务器",
             subtitle = if (editing) {
@@ -73,10 +75,13 @@ fun AddServerDialog(
             onClose = onDismiss,
         )
 
-        // No height cap of its own: [GlassDialog] scrolls whatever it cannot fit, and it is
-        // the only one that knows how much screen there actually is.
+        // Only the fields scroll. The header, validation message, and submit button remain
+        // visible even on a short screen or while the IME is open.
         Column(
-            Modifier.fillMaxWidth(),
+            Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FieldLabel("局域网发现") {

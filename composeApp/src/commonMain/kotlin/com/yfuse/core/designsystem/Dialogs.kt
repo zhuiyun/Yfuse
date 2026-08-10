@@ -128,6 +128,7 @@ private fun ReportOverlayVisible() {
 fun GlassDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    scrollable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // The dismissal the *caller* asked for, held until the exit animation has played.
@@ -168,6 +169,7 @@ fun GlassDialog(
                     .pointerInput(requestDismiss) { detectTapGestures { requestDismiss() } },
                 contentAlignment = Alignment.Center,
             ) {
+                val panelScrollState = rememberScrollState()
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -215,7 +217,13 @@ fun GlassDialog(
                         // scrolls instead of growing past the screen. Callers used to cap
                         // themselves at a fixed height — 420dp, 460dp — which is a number
                         // taller than the landscape screen those dialogs also open on.
-                        .verticalScroll(rememberScrollState()),
+                        .then(
+                            if (scrollable) {
+                                Modifier.verticalScroll(panelScrollState)
+                            } else {
+                                Modifier
+                            },
+                        ),
                     content = content,
                 )
             }
