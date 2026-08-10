@@ -7,7 +7,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -65,6 +64,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.touchTarget
@@ -119,12 +119,10 @@ fun HomeScreen(component: HomeComponent) {
     // this tab is the one where tapping the tab again matters most.
     ScrollToTopOnReselect(listState)
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Continue Watching is the highest-value shelf once it exists, so the hero gives it
-        // enough room to peek into the first viewport. Empty accounts keep the more cinematic
-        // treatment. Bounds protect compact phones and tablets from extreme proportions.
-        val heroHeight = (maxHeight * if (state.resume.isNotEmpty()) 0.43f else 0.48f)
-            .coerceIn(320.dp, 390.dp)
+    Box(Modifier.fillMaxSize()) {
+        // 首页 and 媒体库 share one featured-image geometry. Keeping this in a token means a
+        // future size change cannot leave the two roots looking like different products.
+        val heroHeight = MediaSizing.heroHeight
         PullToRefreshBox(
             isRefreshing = state.refreshing,
             onRefresh = { component.store.accept(HomeIntent.Refresh) },
@@ -695,8 +693,8 @@ private fun ContinueWatching(
                     // overlay can briefly outlive the disposed detail image and flash blank.
                     sharedKey = null,
                     onClick = { onClick(entry) },
-                    modifier = Modifier.width(150.dp),
-                    posterModifier = Modifier.fillMaxWidth().height(90.dp),
+                    modifier = Modifier.width(MediaSizing.landscapeCardWidth),
+                    posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
                 )
             }
         }
@@ -757,7 +755,7 @@ private fun Recommended(
                     // one shared element (which made the duplicate turn blank).
                     sharedKey = null,
                     onClick = { onClick(item) },
-                    modifier = Modifier.width(132.dp),
+                    modifier = Modifier.width(MediaSizing.posterRailWidth),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )
             }

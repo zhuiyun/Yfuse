@@ -67,6 +67,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
@@ -97,13 +98,13 @@ import kotlinx.coroutines.launch
  * Hero carousel height. The status-bar switch threshold used to repeat this as a literal,
  * so resizing the hero silently moved the point where the status bar flips its icons.
  */
-private val HeroHeight = 432.dp
+private val HeroHeight = MediaSizing.heroHeight
 
 /** How far the content column is pulled up over the lower edge of the hero. */
 private val HeroLift = 52.dp
 
 /** Poster rail column width, shared by the real rails and the loading skeleton. */
-private val PosterWidth = 104.dp
+private val PosterWidth = MediaSizing.posterRailWidth
 
 /** `transparent 320px` — how far the artwork's tint reaches into the content. */
 private val ContentWashHeight = 320.dp
@@ -847,8 +848,8 @@ private fun PlaybackHistory(
                     // [CategorySection] for what that costs.
                     sharedKey = "media-poster-resume-${item.id}",
                     onClick = { onItemClick(item) },
-                    modifier = Modifier.width(190.dp),
-                    posterModifier = Modifier.fillMaxWidth().height(114.dp),
+                    modifier = Modifier.width(MediaSizing.landscapeCardWidth),
+                    posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
                 )
             }
         }

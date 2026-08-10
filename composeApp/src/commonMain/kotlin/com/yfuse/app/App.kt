@@ -558,10 +558,13 @@ private fun GlassTabBar(
             // over the icons.
             .drawBehind {
                 val cell = size.width / tabs.size
-                val pillWidth = cell * 0.66f
-                val pillHeight = size.height * 0.68f
+                // Search/Profile sit over quiet page backgrounds, where the former 12% pill
+                // nearly disappeared. A slightly larger, stronger indicator stays legible over both
+                // artwork-heavy roots and plain roots without turning into a filled button.
+                val pillWidth = cell * 0.72f
+                val pillHeight = size.height * 0.72f
                 drawRoundRect(
-                    color = Brand.Primary.copy(alpha = 0.12f),
+                    color = Brand.Primary.copy(alpha = if (palette.isDark) 0.28f else 0.20f),
                     topLeft = Offset(
                         x = cell * indicator + (cell - pillWidth) / 2f,
                         y = (size.height - pillHeight) / 2f,

@@ -55,6 +55,46 @@ object GlassShapes {
 }
 
 /**
+ * Opaque counterparts used by 减少透明效果.
+ *
+ * The old accessibility path flattened every light-theme glass surface to pure white. That
+ * erased the hierarchy between cards, chips and accent-tinted controls; in the profile page
+ * several pale icons then sat on equally pale buttons. Preserve the intended surface family
+ * and colour tint, but make the result fully opaque.
+ */
+private fun reducedTransparencyFill(
+    fill: Color,
+    palette: Palette,
+    over: Color = palette.background,
+): Color = when (fill) {
+    palette.card -> if (palette.isDark) Color(0xFF1A2437) else Color(0xFFF6F8FC)
+    palette.card2 -> if (palette.isDark) Color(0xFF151F31) else Color(0xFFEEF2F7)
+    palette.card3 -> if (palette.isDark) Color(0xFF202D43) else Color(0xFFF3F6FA)
+    palette.sheet -> if (palette.isDark) Color(0xFF131D2D) else Color(0xFFF4F7FB)
+    palette.glass -> if (palette.isDark) Color(0xFF172235) else Color(0xFFEDF2F8)
+    palette.glassStrong -> if (palette.isDark) Color(0xFF1B273B) else Color(0xFFE8EEF7)
+    else -> {
+        // Translucent white is overwhelmingly used for controls over artwork/player chrome.
+        // Making it opaque white would hide their white glyphs, so reduced transparency uses
+        // a solid dark plate instead. Other tinted fills keep their hue by compositing once.
+        val translucentWhite = fill.alpha < 0.55f &&
+            fill.red > 0.90f && fill.green > 0.90f && fill.blue > 0.90f
+        if (translucentWhite) {
+            if (palette.isDark) Color(0xFF273246) else Color(0xFF303A4D)
+        } else {
+            fill.compositeOver(over).copy(alpha = 1f)
+        }
+    }
+}
+
+private fun reducedTransparencyBorder(border: Color?, palette: Palette): Color? = when {
+    border == null -> null
+    border == palette.border || border == palette.tabbarBorder ->
+        if (palette.isDark) Color.White.copy(alpha = 0.24f) else Color(0xFFD3DBE7)
+    else -> border
+}
+
+/**
  * Primary liquid-glass surface. A translucent diagonal sheen, single-colour edge and
  * ambient tint preserve depth without a platform-specific blur dependency.
  */
@@ -67,9 +107,14 @@ fun Modifier.glass(
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
     val resolvedFill = if (accessibility.reduceTransparency) {
-        if (palette.isDark) Color(0xFF182235) else Color.White
+        reducedTransparencyFill(fill, palette)
     } else {
         fill
+    }
+    val resolvedBorder = if (accessibility.reduceTransparency) {
+        reducedTransparencyBorder(border, palette)
+    } else {
+        border
     }
     val sheen = if (palette.isDark) {
         Color.White.copy(alpha = 0.13f)
@@ -91,7 +136,7 @@ fun Modifier.glass(
         .clip(shape)
         .background(surface)
         .let { modifier ->
-            if (border != null) modifier.border(Dimens.hairline, border, shape) else modifier
+            if (resolvedBorder != null) modifier.border(Dimens.hairline, resolvedBorder, shape) else modifier
         }
 }
 
@@ -110,15 +155,20 @@ fun Modifier.flatGlass(
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
     val resolvedFill = if (accessibility.reduceTransparency) {
-        if (palette.isDark) Color(0xFF182235) else Color.White
+        reducedTransparencyFill(fill, palette)
     } else {
         fill
+    }
+    val resolvedBorder = if (accessibility.reduceTransparency) {
+        reducedTransparencyBorder(border, palette)
+    } else {
+        border
     }
     return this
         .clip(shape)
         .background(resolvedFill)
         .let { modifier ->
-            if (border != null) modifier.border(Dimens.hairline, border, shape) else modifier
+            if (resolvedBorder != null) modifier.border(Dimens.hairline, resolvedBorder, shape) else modifier
         }
 }
 
@@ -138,9 +188,14 @@ fun Modifier.solidGlass(
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
     val resolvedFill = if (accessibility.reduceTransparency) {
-        if (palette.isDark) Color(0xFF182235) else Color.White
+        reducedTransparencyFill(fill, palette)
     } else {
         fill
+    }
+    val resolvedBorder = if (accessibility.reduceTransparency) {
+        reducedTransparencyBorder(border, palette)
+    } else {
+        border
     }
     val surface = if (accessibility.reduceTransparency) {
         Brush.linearGradient(listOf(resolvedFill, resolvedFill))
@@ -157,7 +212,7 @@ fun Modifier.solidGlass(
         .clip(shape)
         .background(surface)
         .let { modifier ->
-            if (border != null) modifier.border(Dimens.hairline, border, shape) else modifier
+            if (resolvedBorder != null) modifier.border(Dimens.hairline, resolvedBorder, shape) else modifier
         }
 }
 
@@ -198,8 +253,9 @@ fun Modifier.liquidGlass(
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
     if (accessibility.reduceTransparency) {
-        val flat = if (palette.isDark) Color(0xFF182235) else Color.White
-        return this.clip(shape).background(flat).border(Dimens.hairline, border, shape)
+        val flat = reducedTransparencyFill(fill, palette, over)
+        val edge = reducedTransparencyBorder(border, palette) ?: border
+        return this.clip(shape).background(flat).border(Dimens.hairline, edge, shape)
     }
     // The theme is the wrong signal here — the play key is pale glass under both, and 返回
     // is dense glass over artwork on the light one. What the fill composites to is the right
