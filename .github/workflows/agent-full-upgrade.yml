@@ -22,6 +22,7 @@ jobs:
           ref: agent/unify-home-tab-reduce-transparency
           fetch-depth: 1
 
+      # Phase 2B upgrades downloads/tracking/profile IA; phase 3 adds exact-media failover.
       - name: Apply product workflows
         id: patch
         shell: bash
