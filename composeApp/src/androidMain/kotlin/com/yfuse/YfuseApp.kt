@@ -17,6 +17,7 @@ import com.yfuse.core.logging.SafeLogcatOutputGate
 import com.yfuse.core.network.imageCacheKeyForUrl
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.core.offline.offlineApplicationContext
+import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.di.appModule
 import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
 import com.yfuse.feature.player.PlaybackSourcePreloader
@@ -31,6 +32,7 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         imageCacheContext = this
         offlineApplicationContext = this
+        initializeCastApplicationContext(this)
         val prefs = getSharedPreferences("yfuse", MODE_PRIVATE)
         // Before anything can reach the network: every Emby request carries the device id,
         // and it has to be the same one across launches for sessions to be reapable.
@@ -58,6 +60,7 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
                             context = this@YfuseApp,
                             playbackPreferences = get(),
                             userAgentPreferences = get(),
+                            themePreferences = get(),
                         )
                     }
                 },

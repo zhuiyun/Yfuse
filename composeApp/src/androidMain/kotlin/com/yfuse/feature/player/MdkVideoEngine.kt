@@ -7,6 +7,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.model.PlaybackMethod
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,7 +62,9 @@ class MdkVideoEngine(
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
      *  rest of the season. */
-    private val transcodedIndices = mutableSetOf<Int>()
+    private val transcodedIndices = items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
+        index.takeIf { item.playMethod == PlaybackMethod.Transcode }
+    }
     private val progressiveIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private var fallbackJob: Job? = null
@@ -72,7 +75,8 @@ class MdkVideoEngine(
             diagnostics = PlaybackDiagnostics(
                 engine = "MDK",
                 decoder = decoderMode.label,
-                playMethod = "直播放",
+                playMethod = items.getOrNull(startIndex)?.playMethod?.label
+                    ?: PlaybackMethod.DirectPlay.label,
             ),
         ),
     )
@@ -195,7 +199,11 @@ class MdkVideoEngine(
                 transcoding = transcoding,
                 fallbacksExhausted = false,
                 diagnostics = it.diagnostics.copy(
-                    playMethod = if (transcoding) "服务器转码" else "直播放",
+                    playMethod = if (transcoding) {
+                        PlaybackMethod.Transcode.label
+                    } else {
+                        items.getOrNull(index)?.playMethod?.label ?: PlaybackMethod.DirectPlay.label
+                    },
                     bufferedDurationMs = 0L,
                 ),
             )

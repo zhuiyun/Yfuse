@@ -62,6 +62,10 @@ internal fun SettingsPanel(
     onOpenDanmakuSend: () -> Unit,
     onTab: (Tab) -> Unit,
     onSelectSubtitle: (String) -> Unit,
+    subtitleControls: SubtitleControlState,
+    subtitleActions: SubtitleControlActions,
+    remoteSubtitles: RemoteSubtitlePanelState,
+    remoteSubtitleActions: RemoteSubtitleActions,
     onSelectAudio: (String) -> Unit,
     onSpeed: (Float) -> Unit,
     onSelectEngine: (Int) -> Unit,
@@ -182,6 +186,46 @@ internal fun SettingsPanel(
                             )
                             state.subtitleTracks.forEach { track ->
                                 OptionRow(track.label, track.selected, onClick = { onSelectSubtitle(track.id) })
+                            }
+                            GroupLabel("字幕时间偏移")
+                            listOf(-5_000L, -2_000L, 0L, 2_000L, 5_000L).forEach { offset ->
+                                val label = when {
+                                    offset < 0L -> "提前 ${-offset / 1000} 秒"
+                                    offset > 0L -> "延后 ${offset / 1000} 秒"
+                                    else -> "同步"
+                                }
+                                OptionRow(
+                                    label,
+                                    subtitleControls.offsetMs == offset,
+                                    onClick = { subtitleActions.onOffset(offset) },
+                                )
+                            }
+                            GroupLabel("字幕大小")
+                            listOf(0.8f to "小", 1f to "标准", 1.25f to "大", 1.5f to "特大")
+                                .forEach { (scale, label) ->
+                                    OptionRow(
+                                        label,
+                                        subtitleControls.scale == scale,
+                                        onClick = { subtitleActions.onScale(scale) },
+                                    )
+                                }
+                            GroupLabel("第三方字幕")
+                            OptionRow(
+                                if (remoteSubtitles.loading) "正在搜索中文字幕…" else "搜索中文字幕",
+                                false,
+                                onClick = remoteSubtitleActions.onSearch,
+                            )
+                            remoteSubtitles.results.forEach { result ->
+                                OptionRow(
+                                    label = listOf(result.label, result.detail)
+                                        .filter(String::isNotBlank)
+                                        .joinToString(" · "),
+                                    selected = remoteSubtitles.downloadingId == result.id,
+                                    onClick = { remoteSubtitleActions.onDownload(result.id) },
+                                )
+                            }
+                            remoteSubtitles.message?.let { message ->
+                                Text(message, style = mr(10.5f, 500), color = Color.White.copy(alpha = 0.68f))
                             }
                         }
                         if (state.audioTracks.isNotEmpty()) {

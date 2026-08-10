@@ -34,13 +34,16 @@ class PlayerStoreTest {
             addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
         }
         val repo = testRepo { request ->
-            if (request.url.encodedPath.contains("/Shows/s1/Episodes")) {
-                json(
+            when {
+                request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                    json("""{"MediaSources":[],"PlaySessionId":"session-e2"}""")
+                request.url.encodedPath.contains("/Shows/s1/Episodes") -> json(
                     """{"Items":[{"Id":"e1","Name":"开场","Type":"Episode","IndexNumber":1,"ParentIndexNumber":2},""" +
                         """{"Id":"e2","Name":"转折","Type":"Episode","IndexNumber":2,"ParentIndexNumber":2}]}""",
                 )
-            } else {
-                json("""{"Id":"e2","Name":"转折","Type":"Episode","SeriesId":"s1","SeriesName":"某剧"}""")
+                else -> json(
+                    """{"Id":"e2","Name":"转折","Type":"Episode","SeriesId":"s1","SeriesName":"某剧"}""",
+                )
             }
         }
         val store = PlayerStoreFactory(
@@ -68,6 +71,9 @@ class PlayerStoreTest {
         }
         val repo = testRepo { request ->
             when {
+                request.url.encodedPath.endsWith("/PlaybackInfo") -> json(
+                    """{"MediaSources":[],"PlaySessionId":"session-e1"}""",
+                )
                 request.url.encodedPath.contains("/Shows/s1/Episodes") -> json(
                     """{"Items":[
                         {"Id":"e1","Name":"一","Type":"Episode","IndexNumber":1,"ParentIndexNumber":1,

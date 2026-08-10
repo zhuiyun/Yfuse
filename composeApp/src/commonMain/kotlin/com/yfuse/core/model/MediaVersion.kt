@@ -30,6 +30,13 @@ data class MediaVersion(
     val video: VideoStreamInfo? = null,
     val audioTracks: List<AudioTrackInfo> = emptyList(),
     val subtitleTracks: List<SubtitleTrackInfo> = emptyList(),
+    /** Server-approved playback capabilities from PlaybackInfo, when negotiated. */
+    val supportsDirectPlay: Boolean? = null,
+    val supportsDirectStream: Boolean? = null,
+    val supportsTranscoding: Boolean? = null,
+    val directStreamUrl: String? = null,
+    val addApiKeyToDirectStreamUrl: Boolean = true,
+    val transcodingUrl: String? = null,
 ) {
     /** `4K` / `1080P`, or null when the server reported no video stream. */
     val resolutionLabel: String?
@@ -239,15 +246,21 @@ data class AudioTrackInfo(
 
 /** One subtitle stream of a [MediaVersion]. */
 data class SubtitleTrackInfo(
+    val index: Int? = null,
     val codec: String?,
     val language: String?,
     /** True for a track the server marks as burned into the picture. */
     val forced: Boolean = false,
+    val external: Boolean = false,
+    val default: Boolean = false,
 ) {
     val label: String
         get() = listOfNotNull(language, codec?.uppercase(), "强制".takeIf { forced })
             .joinToString(" · ")
             .ifBlank { "未知字幕" }
+
+    val requiresStyledRenderer: Boolean
+        get() = codec?.lowercase() in setOf("ass", "ssa", "pgs", "pgssub", "dvdsub", "dvbsub")
 }
 
 private fun formatBytes(bytes: Long): String {

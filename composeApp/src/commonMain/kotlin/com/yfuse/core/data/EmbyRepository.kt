@@ -3,13 +3,17 @@ package com.yfuse.core.data
 import com.yfuse.core.data.dto.AuthRequestDto
 import com.yfuse.core.data.dto.AuthResultDto
 import com.yfuse.core.data.dto.BaseItemDto
+import com.yfuse.core.data.dto.DeviceProfileDto
 import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.ItemCountsDto
 import com.yfuse.core.data.dto.MediaSourceDto
 import com.yfuse.core.data.dto.PublicInfoDto
 import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.data.dto.PlaybackReportDto
+import com.yfuse.core.data.dto.PlaybackInfoRequestDto
+import com.yfuse.core.data.dto.PlaybackInfoResponseDto
 import com.yfuse.core.data.dto.PlaylistCreatedDto
+import com.yfuse.core.data.dto.RemoteSubtitleInfoDto
 import com.yfuse.core.data.dto.ViewsDto
 import com.yfuse.core.data.dto.toEpisode
 import com.yfuse.core.data.dto.toMediaDetail
@@ -17,6 +21,7 @@ import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.data.dto.toPerson
 import com.yfuse.core.data.dto.toSeason
 import com.yfuse.core.data.dto.toSourceInfo
+import com.yfuse.core.data.dto.bestTrickplay
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.HomeContent
@@ -33,6 +38,7 @@ import com.yfuse.core.model.Person
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.SourceInfo
+import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.model.compareSourceInfoBestFirst
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
@@ -52,13 +58,19 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.content.TextContent
 import io.ktor.http.contentType
+import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /** Result of a successful authentication, ready to persist as a [SavedServer]. */
 data class AuthedServer(
@@ -90,6 +102,7 @@ internal const val FAVORITES_COLLECTION_ID = "__yfuse_favorites__"
 internal const val WATCH_LATER_COLLECTION_ID = "__yfuse_watch_later__"
 
 private const val PERSONAL_COLLECTION_PREVIEW_LIMIT = 16
+private val playbackRequestJson = Json { encodeDefaults = true }
 
 /**
  * How many titles one 「查看更多」 request asks for. Small enough that the first screenful
@@ -286,6 +299,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId: String,
         positionTicks: Long,
         isPaused: Boolean,
+        playMethod: String = "DirectPlay",
     ): Result<Unit> = reportPlayback(
         server = server,
         path = "/Sessions/Playing",
@@ -293,6 +307,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId = playSessionId,
         positionTicks = positionTicks,
         isPaused = isPaused,
+        playMethod = playMethod,
     )
 
     suspend fun reportPlaybackProgress(
@@ -301,6 +316,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId: String,
         positionTicks: Long,
         isPaused: Boolean,
+        playMethod: String = "DirectPlay",
     ): Result<Unit> = reportPlayback(
         server = server,
         path = "/Sessions/Playing/Progress",
@@ -308,6 +324,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId = playSessionId,
         positionTicks = positionTicks,
         isPaused = isPaused,
+        playMethod = playMethod,
     )
 
     suspend fun reportPlaybackStopped(
@@ -316,6 +333,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId: String,
         positionTicks: Long,
         isPaused: Boolean,
+        playMethod: String = "DirectPlay",
     ): Result<Unit> = reportPlayback(
         server = server,
         path = "/Sessions/Playing/Stopped",
@@ -323,7 +341,41 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId = playSessionId,
         positionTicks = positionTicks,
         isPaused = isPaused,
+        playMethod = playMethod,
     )
+
+    /**
+     * Negotiates the actual source URL and playback method with the server.
+     * Metadata endpoints describe files; PlaybackInfo applies this device profile and is
+     * the authoritative answer for DirectPlay, DirectStream, or Transcode.
+     */
+    suspend fun playbackInfo(
+        server: SavedServer,
+        itemId: String,
+        mediaSourceId: String? = null,
+        startPositionTicks: Long = 0L,
+        playSessionId: String,
+    ): Result<PlaybackInfoResponseDto> = call("playback_info") {
+        // Pre-encode the device profile. Ktor's deferred request-body serializer can deadlock
+        // when this call is made from an unconfined UI/test dispatcher and the engine starts
+        // consuming the body on that same dispatcher.
+        val requestJson = playbackRequestJson.encodeToString(
+            PlaybackInfoRequestDto(
+                Id = itemId,
+                UserId = server.userId,
+                DeviceProfile = DeviceProfileDto.yfuseAndroid(),
+                StartTimeTicks = startPositionTicks.coerceAtLeast(0L),
+                MediaSourceId = mediaSourceId,
+                CurrentPlaySessionId = playSessionId,
+            ),
+        )
+        withContext(Dispatchers.Default) {
+            client.post("${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/PlaybackInfo") {
+                header("X-Emby-Token", server.accessToken)
+                setBody(TextContent(requestJson, ContentType.Application.Json))
+            }.body()
+        }
+    }
 
     /** Aggregates the home screen: continue-watching, latest-per-library, featured. */
     suspend fun homeContent(server: SavedServer): Result<HomeContent> = call("home_content") {
@@ -1160,6 +1212,46 @@ class EmbyRepository(private val client: HttpClient) {
         dto.Items.map { it.toEpisode() }
     }
 
+    /** Optional Jellyfin storyboard metadata; failure is intentionally isolated from playback. */
+    suspend fun trickplayInfo(server: SavedServer, itemId: String): Result<TrickplayInfo?> =
+        call("trickplay_info") {
+            val dto: BaseItemDto = client.get(
+                "${server.baseUrl}/Users/${server.userId}/Items/$itemId",
+            ) {
+                header("X-Emby-Token", server.accessToken)
+                parameter("Fields", "Trickplay")
+            }.body()
+            dto.bestTrickplay()
+        }
+
+    suspend fun searchRemoteSubtitles(
+        server: SavedServer,
+        itemId: String,
+        language: String = "zh",
+    ): Result<List<RemoteSubtitleInfoDto>> = call("remote_subtitle_search") {
+        client.get(
+            "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
+                language.encodeURLPathPart(),
+        ) {
+            header("X-Emby-Token", server.accessToken)
+            parameter("IsPerfectMatch", false)
+        }.body()
+    }
+
+    suspend fun downloadRemoteSubtitle(
+        server: SavedServer,
+        itemId: String,
+        subtitleId: String,
+    ): Result<Unit> = call("remote_subtitle_download") {
+        client.post(
+            "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
+                subtitleId.encodeURLPathPart(),
+        ) {
+            header("X-Emby-Token", server.accessToken)
+        }
+        Unit
+    }
+
     private suspend fun findWatchLaterPlaylistId(server: SavedServer): String? {
         val playlists: ItemsResponseDto =
             client.get("${server.baseUrl}/Users/${server.userId}/Items") {
@@ -1315,6 +1407,7 @@ class EmbyRepository(private val client: HttpClient) {
         playSessionId: String,
         positionTicks: Long,
         isPaused: Boolean,
+        playMethod: String,
     ): Result<Unit> = call("report_playback") {
         client.post("${normalizeBaseUrl(server.baseUrl)}$path") {
             header("X-Emby-Token", server.accessToken)
@@ -1325,6 +1418,7 @@ class EmbyRepository(private val client: HttpClient) {
                     PlaySessionId = playSessionId,
                     PositionTicks = positionTicks.coerceAtLeast(0L),
                     IsPaused = isPaused,
+                    PlayMethod = playMethod,
                 ),
             )
         }

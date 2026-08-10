@@ -32,4 +32,5 @@ data class Episode(
     val providerIds: Map<String, String> = emptyMap(),
     /** Present only when the caller explicitly asks the episode list for MediaSources. */
     val versions: List<MediaVersion> = emptyList(),
+    val trickplay: TrickplayInfo? = null,
 )

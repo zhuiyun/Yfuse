@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -58,6 +59,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -83,6 +85,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 import kotlin.math.abs
 import kotlinx.coroutines.delay
+import coil3.compose.AsyncImage
 
 /**
  * How long the player's own chrome takes to arrive or leave.
@@ -167,8 +170,13 @@ internal fun PlayerControls(
     onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
     onSelectSubtitle: (String) -> Unit,
+    subtitleControls: SubtitleControlState = SubtitleControlState(),
+    subtitleActions: SubtitleControlActions = SubtitleControlActions(),
+    remoteSubtitles: RemoteSubtitlePanelState = RemoteSubtitlePanelState(),
+    remoteSubtitleActions: RemoteSubtitleActions = RemoteSubtitleActions(),
     onSpeed: (Float) -> Unit,
     onToggleFill: () -> Unit,
+    trickplay: TrickplayStoryboard? = null,
     /**
      * System volume, 0f..1f, and its setter — read by the right-edge drag gesture and by the
      * slider the volume rocker raises. There is no on-screen volume control any more.
@@ -644,6 +652,7 @@ internal fun PlayerControls(
                 onCancelAutoSkip = { poke(); skipActions.onCancelAuto() },
                 onSeek = { poke(); onSeek(it) },
                 onScrub = { interactions++ },
+                trickplay = trickplay,
                 onOpenTab = { poke(); settingsTab = it },
                 danmakuEnabled = danmaku.enabled,
                 onOpenDanmaku = {
@@ -721,6 +730,10 @@ internal fun PlayerControls(
                 },
                 onTab = { settingsTab = it },
                 onSelectSubtitle = { onSelectSubtitle(it); settingsTab = null },
+                subtitleControls = subtitleControls,
+                subtitleActions = subtitleActions,
+                remoteSubtitles = remoteSubtitles,
+                remoteSubtitleActions = remoteSubtitleActions,
                 onSelectAudio = { onSelectAudio(it); settingsTab = null },
                 onSpeed = { onSpeed(it); settingsTab = null },
                 onSelectEngine = { onSelectEngine(it); settingsTab = null },
@@ -1454,6 +1467,7 @@ private fun BottomBar(
     onCancelAutoSkip: () -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
+    trickplay: TrickplayStoryboard?,
     onOpenTab: (Tab) -> Unit,
     danmakuEnabled: Boolean,
     onOpenDanmaku: () -> Unit,
@@ -1483,6 +1497,15 @@ private fun BottomBar(
             )
             .padding(start = 22.dp, end = 22.dp, top = 14.dp, bottom = 16.dp),
     ) {
+        if (scrubbed != null && trickplay != null) {
+            TrickplayPreview(
+                storyboard = trickplay,
+                positionMs = shownPosition,
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(bottom = 8.dp),
+            )
+        }
         // Progress row — `gap:10px`, `400 11px Manrope`, `rgba(255,255,255,.75)`.
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1564,6 +1587,45 @@ private fun BottomBar(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun TrickplayPreview(
+    storyboard: TrickplayStoryboard,
+    positionMs: Long,
+    modifier: Modifier = Modifier,
+) {
+    val frame = storyboard.frameAt(positionMs)
+    val previewWidth = 160.dp
+    val previewHeight = (previewWidth.value * storyboard.height / storyboard.width.coerceAtLeast(1)).dp
+    Box(
+        modifier
+            .size(previewWidth, previewHeight)
+            .clip(continuousRounded(8.dp))
+            .background(Color.Black),
+    ) {
+        AsyncImage(
+            model = frame.url,
+            contentDescription = "${formatTime(positionMs)} 预览",
+            contentScale = ContentScale.FillBounds,
+            modifier = Modifier
+                .width((previewWidth.value * storyboard.tileColumns).dp)
+                .height((previewHeight.value * storyboard.tileRows).dp)
+                .offset(
+                    x = -(previewWidth.value * frame.column).dp,
+                    y = -(previewHeight.value * frame.row).dp,
+                ),
+        )
+        Text(
+            formatTime(positionMs),
+            style = mr(10f, 700),
+            color = Color.White,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .background(Color.Black.copy(alpha = 0.68f), continuousRounded(4.dp))
+                .padding(horizontal = 5.dp, vertical = 2.dp),
+        )
     }
 }
 

@@ -21,6 +21,30 @@ internal interface PlaybackEventSink {
     suspend fun progress(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean)
     suspend fun stopped(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean)
 
+    suspend fun startedWithMethod(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+        playMethod: String,
+    ) = started(itemId, sessionId, positionTicks, isPaused)
+
+    suspend fun progressWithMethod(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+        playMethod: String,
+    ) = progress(itemId, sessionId, positionTicks, isPaused)
+
+    suspend fun stoppedWithMethod(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+        playMethod: String,
+    ) = stopped(itemId, sessionId, positionTicks, isPaused)
+
     /** Ends only the server's encoder job; the logical playback session remains active. */
     suspend fun stopEncoding(sessionId: String): Boolean = true
 }
@@ -42,6 +66,37 @@ internal class EmbyPlaybackEventSink(
         // Belt and braces. `Playing/Stopped` is the polite request; some server versions
         // leave the ffmpeg process running anyway, and an orphaned encoding is what makes
         // the *next* attempt at the same file fail with a 4xx instead of playing.
+        stopEncoding(sessionId)
+    }
+
+    override suspend fun startedWithMethod(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+        playMethod: String,
+    ) {
+        repo.reportPlaybackStarted(server, itemId, sessionId, positionTicks, isPaused, playMethod)
+    }
+
+    override suspend fun progressWithMethod(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+        playMethod: String,
+    ) {
+        repo.reportPlaybackProgress(server, itemId, sessionId, positionTicks, isPaused, playMethod)
+    }
+
+    override suspend fun stoppedWithMethod(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+        playMethod: String,
+    ) {
+        repo.reportPlaybackStopped(server, itemId, sessionId, positionTicks, isPaused, playMethod)
         stopEncoding(sessionId)
     }
 
@@ -86,6 +141,7 @@ internal class PlaybackProgressReporter(
     private var activeSessionId = ""
     private var activePositionMs = 0L
     private var activePaused = true
+    private var activePlayMethod = "DirectPlay"
     private var reportedPositionMs = Long.MIN_VALUE
     private var terminalIndex = -1
 
@@ -182,9 +238,16 @@ internal class PlaybackProgressReporter(
             activePaused = !state.playing
             reportedPositionMs = state.positionMs
             val item = items[index]
+            activePlayMethod = state.playMethodFor(item)
             activeItemId = item.id
             activeBindingSessionId = item.playSessionId
-            sink.started(item.id, activeSessionId, state.positionMs.toTicks(), activePaused)
+            sink.startedWithMethod(
+                item.id,
+                activeSessionId,
+                state.positionMs.toTicks(),
+                activePaused,
+                activePlayMethod,
+            )
             if (!terminal) return
         }
 
@@ -199,6 +262,7 @@ internal class PlaybackProgressReporter(
         val seeked = abs(state.positionMs - activePositionMs) >= SEEK_THRESHOLD_MS
         activePositionMs = state.positionMs
         val paused = !state.playing
+        activePlayMethod = state.playMethodFor(items[index])
         val pauseChanged = paused != activePaused
         val positionDue = reportedPositionMs == Long.MIN_VALUE ||
             abs(state.positionMs - reportedPositionMs) >= REPORT_INTERVAL_MS
@@ -206,7 +270,13 @@ internal class PlaybackProgressReporter(
             activePaused = paused
             reportedPositionMs = state.positionMs
             val item = items[index]
-            sink.progress(item.id, activeSessionId, state.positionMs.toTicks(), paused)
+            sink.progressWithMethod(
+                item.id,
+                activeSessionId,
+                state.positionMs.toTicks(),
+                paused,
+                activePlayMethod,
+            )
         }
     }
 
@@ -255,11 +325,12 @@ internal class PlaybackProgressReporter(
         val itemId = activeItemId.ifBlank { items.getOrNull(activeIndex)?.id.orEmpty() }
         try {
             if (activeIndex >= 0 && itemId.isNotBlank()) {
-                sink.stopped(
+                sink.stoppedWithMethod(
                     itemId = itemId,
                     sessionId = activeSessionId,
                     positionTicks = activePositionMs.toTicks(),
                     isPaused = activePaused,
+                    playMethod = activePlayMethod,
                 )
             }
         } finally {
@@ -270,6 +341,7 @@ internal class PlaybackProgressReporter(
             activeItemId = ""
             activeBindingSessionId = ""
             activeSessionId = ""
+            activePlayMethod = "DirectPlay"
             reportedPositionMs = Long.MIN_VALUE
         }
     }
@@ -293,3 +365,6 @@ internal class PlaybackProgressReporter(
 
 private fun List<PlayerMediaItem>.reportingBinding(): List<Pair<String, String>> =
     map { it.id to it.playSessionId }
+
+private fun PlaybackState.playMethodFor(item: PlayerMediaItem): String =
+    if (transcoding) "Transcode" else item.playMethod.embyValue

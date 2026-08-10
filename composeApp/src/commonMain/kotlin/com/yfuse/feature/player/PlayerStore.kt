@@ -7,15 +7,19 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackSegment
+import com.yfuse.core.model.PlaybackMethod
+import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 
 /**
@@ -59,6 +63,8 @@ data class PlayerMediaVersion(
     val sourceBitrateBps: Int? = null,
     /** Lets an engine distinguish a genuinely silent file from a missing audio track. */
     val audioTrackCount: Int = 0,
+    /** Initial method approved by PlaybackInfo for [url]. */
+    val playMethod: PlaybackMethod = PlaybackMethod.DirectPlay,
     /**
      * The id already baked into the three URLs above, so the playback reports can name the
      * same session the server started an encoding for. See [EmbyStream.newPlaySessionId].
@@ -90,8 +96,9 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
     baseUrl: String,
     itemId: String,
     token: String,
+    negotiatedPlaySessionId: String? = null,
 ): List<PlayerMediaVersion> = map { version ->
-    val urls = EmbyStream.streamUrls(
+    val generated = EmbyStream.streamUrls(
         baseUrl = baseUrl,
         itemId = itemId,
         token = token,
@@ -99,14 +106,55 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
         sourceWidth = version.video?.width,
         sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
     )
+    val sessionId = negotiatedPlaySessionId?.takeIf { it.isNotBlank() }
+        ?: generated.playSessionId
+    val directStream = version.directStreamUrl?.let { raw ->
+        EmbyStream.negotiatedUrl(
+            baseUrl = baseUrl,
+            rawUrl = raw,
+            token = token,
+            playSessionId = sessionId,
+            addApiKey = version.addApiKeyToDirectStreamUrl,
+        )
+    }
+    val negotiatedTranscode = version.transcodingUrl?.let { raw ->
+        EmbyStream.negotiatedUrl(
+            baseUrl = baseUrl,
+            rawUrl = raw,
+            token = token,
+            playSessionId = sessionId,
+        )
+    }
+    val hlsTranscode = when {
+        negotiatedTranscode != null -> negotiatedTranscode
+        version.supportsTranscoding == false -> ""
+        else -> generated.transcode.withPlaySessionId(sessionId)
+    }
+    val method = when {
+        version.supportsDirectPlay != false -> PlaybackMethod.DirectPlay
+        version.supportsDirectStream == true && directStream != null -> PlaybackMethod.DirectStream
+        version.supportsTranscoding == true && hlsTranscode.isNotBlank() -> PlaybackMethod.Transcode
+        else -> PlaybackMethod.DirectPlay
+    }
+    val primaryUrl = when (method) {
+        PlaybackMethod.DirectPlay -> generated.direct.withPlaySessionId(sessionId)
+        PlaybackMethod.DirectStream -> requireNotNull(directStream)
+        PlaybackMethod.Transcode -> hlsTranscode
+    }
+    val progressiveTranscode = if (version.supportsTranscoding == false) {
+        ""
+    } else {
+        generated.progressiveTranscode.withPlaySessionId(sessionId)
+    }
     PlayerMediaVersion(
         id = version.id,
         label = version.name,
         detail = version.summary,
-        url = urls.direct,
-        transcodeUrl = urls.transcode,
-        fallbackTranscodeUrl = urls.progressiveTranscode,
-        playSessionId = urls.playSessionId,
+        url = primaryUrl,
+        transcodeUrl = hlsTranscode,
+        fallbackTranscodeUrl = progressiveTranscode,
+        playSessionId = sessionId,
+        playMethod = method,
         container = version.container?.uppercase(),
         dolbyVision = version.isDolbyVision,
         dolbyAtmos = version.hasDolbyAtmos,
@@ -166,6 +214,8 @@ data class PlayerMediaItem(
     val caption: String? = null,
     /** See [PlayerMediaVersion.playSessionId]; this is the active version's. */
     val playSessionId: String = "",
+    val playMethod: PlaybackMethod = PlaybackMethod.DirectPlay,
+    val trickplay: TrickplayStoryboard? = null,
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.
@@ -195,9 +245,36 @@ data class PlayerMediaItem(
             // Moves with the URLs: each version's addresses were built with their own id,
             // and reporting one session's id against another's stream ends the wrong job.
             playSessionId = version.playSessionId,
+            playMethod = version.playMethod,
         )
     }
 }
+
+@Serializable
+data class TrickplayStoryboard(
+    val urlPattern: String,
+    val width: Int,
+    val height: Int,
+    val tileColumns: Int,
+    val tileRows: Int,
+    val intervalMs: Long,
+    val thumbnailCount: Int,
+) {
+    fun frameAt(positionMs: Long): TrickplayFrame {
+        val frame = (positionMs.coerceAtLeast(0L) / intervalMs.coerceAtLeast(1L))
+            .coerceAtMost((thumbnailCount - 1).coerceAtLeast(0).toLong())
+            .toInt()
+        val perSheet = (tileColumns * tileRows).coerceAtLeast(1)
+        val local = frame % perSheet
+        return TrickplayFrame(
+            url = urlPattern.replace("{index}", (frame / perSheet).toString()),
+            column = local % tileColumns.coerceAtLeast(1),
+            row = local / tileColumns.coerceAtLeast(1),
+        )
+    }
+}
+
+data class TrickplayFrame(val url: String, val column: Int, val row: Int)
 
 private fun String.withPlaySessionId(sessionId: String): String {
     if (isBlank()) return this
@@ -314,6 +391,10 @@ class PlayerStoreFactory(
                     return@launch
                 }
 
+                var negotiatedVersions: List<MediaVersion> = emptyList()
+                var negotiatedSessionId: String? = null
+                var negotiatedTrickplay: TrickplayInfo? = null
+
                 fun itemOf(
                     id: String,
                     title: String,
@@ -329,10 +410,16 @@ class PlayerStoreFactory(
                     progress: Float? = null,
                     caption: String? = null,
                 ): PlayerMediaItem {
-                  val playerVersions = versions.toPlayerMediaVersions(
+                  val effectiveVersions = if (id == itemId && negotiatedVersions.isNotEmpty()) {
+                      negotiatedVersions
+                  } else {
+                      versions
+                  }
+                  val playerVersions = effectiveVersions.toPlayerMediaVersions(
                       baseUrl = server.baseUrl,
                       itemId = id,
                       token = server.accessToken,
+                      negotiatedPlaySessionId = negotiatedSessionId.takeIf { id == itemId },
                   )
                   // The file the detail page picked, else the server's first — which is
                   // also what an unqualified stream request would have returned anyway.
@@ -360,6 +447,24 @@ class PlayerStoreFactory(
                     title = title,
                     fallbackTranscodeUrl = unqualified.fallbackTranscodeUrl,
                     playSessionId = unqualified.playSessionId,
+                    playMethod = unqualified.playMethod,
+                    trickplay = (if (id == itemId) negotiatedTrickplay else null)?.let { info ->
+                        TrickplayStoryboard(
+                            urlPattern = EmbyStream.trickplayTilePattern(
+                                baseUrl = server.baseUrl,
+                                itemId = id,
+                                mediaSourceId = unqualified.id,
+                                width = info.width,
+                                token = server.accessToken,
+                            ),
+                            width = info.width,
+                            height = info.height,
+                            tileColumns = info.tileColumns,
+                            tileRows = info.tileRows,
+                            intervalMs = info.intervalMs,
+                            thumbnailCount = info.thumbnailCount,
+                        )
+                    },
                     serverId = server.id,
                     playbackSegments = playbackSegments,
                     seasonNumber = seasonNumber,
@@ -411,6 +516,54 @@ class PlayerStoreFactory(
                     )
                 }
                 val detail = detailResult.getOrNull()
+                val requestedSessionId = EmbyStream.newPlaySessionId()
+                val playbackInfoResult = withTimeoutOrNull(5_000L) {
+                    repo.playbackInfo(
+                        server = server,
+                        itemId = itemId,
+                        mediaSourceId = mediaSourceId,
+                        startPositionTicks = startPositionTicks,
+                        playSessionId = requestedSessionId,
+                    )
+                }
+                if (playbackInfoResult == null) {
+                    AppLog.warning(
+                        category = "feature.player",
+                        event = "playback_negotiation_timeout",
+                        message = "PlaybackInfo timed out; using compatibility URL ladder",
+                        attributes = mapOf("serverId" to server.id),
+                    )
+                } else {
+                    playbackInfoResult.onSuccess { playbackInfo ->
+                        negotiatedVersions = playbackInfo.MediaSources.mapIndexed { index, source ->
+                            source.toMediaVersion(fallbackId = itemId, ordinal = index)
+                        }
+                        negotiatedSessionId = playbackInfo.PlaySessionId
+                            ?.takeIf { it.isNotBlank() }
+                            ?: requestedSessionId
+                        AppLog.info(
+                            category = "feature.player",
+                            event = "playback_negotiated",
+                            message = "PlaybackInfo selected server-approved playback capabilities",
+                            attributes = mapOf(
+                                "serverId" to server.id,
+                                "sourceCount" to negotiatedVersions.size.toString(),
+                            ),
+                        )
+                    }.onFailure { error ->
+                        AppLog.warning(
+                            category = "feature.player",
+                            event = "playback_negotiation_failed",
+                            message = "PlaybackInfo failed; using compatibility URL ladder",
+                            throwable = error,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                    }
+                }
+                // The shared Ktor client already enforces a request timeout. Wrapping a second
+                // request in a coroutine timeout here can strand MockEngine/UI continuations
+                // on the caller dispatcher, so the optional metadata relies on that budget.
+                negotiatedTrickplay = repo.trickplayInfo(server, itemId).getOrNull()
                 val seriesId = detail?.seriesId
 
                 if (detail?.type == "Episode" && seriesId != null) {

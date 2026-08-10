@@ -21,6 +21,9 @@ import com.yfuse.core.util.pickForDay
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
@@ -53,8 +56,8 @@ data class HomeState(
      * server while these items still belonged to the old one, and every card went blank.
      */
     val server: SavedServer? = null,
-    /** 继续观看 — [server]'s in-progress items. */
-    val resume: List<MediaItem> = emptyList(),
+    /** 继续观看 — aggregated from every signed-in server. */
+    val resume: List<HomeResumeEntry> = emptyList(),
     val resolving: Boolean = false,
     val error: String? = null,
     /** A live refresh failed, but the last bounded cache is still usable. */
@@ -84,6 +87,11 @@ data class HomeState(
         }
 }
 
+data class HomeResumeEntry(
+    val item: MediaItem,
+    val server: SavedServer,
+)
+
 sealed interface HomeIntent {
     data object Retry : HomeIntent
 
@@ -98,11 +106,11 @@ sealed interface HomeIntent {
     data class Favorite(val item: TmdbItem) : HomeIntent
 
     /** Tapping a 继续观看 card goes straight to the library item. */
-    data class OpenResume(val item: MediaItem) : HomeIntent
+    data class OpenResume(val entry: HomeResumeEntry) : HomeIntent
 }
 
 sealed interface HomeLabel {
-    data class OpenEmbyItem(val itemId: String) : HomeLabel
+    data class OpenEmbyItem(val serverId: String, val itemId: String) : HomeLabel
     data class OpenTmdbItem(val item: TmdbItem, val embyItemId: String?) : HomeLabel
 }
 
@@ -111,14 +119,14 @@ private sealed interface Action {
     data object Load : Action
 
     /** The signed-in server, and every change to it while this store is alive. */
-    data class DefaultServer(val server: SavedServer?) : Action
+    data class Servers(val default: SavedServer?, val servers: List<SavedServer>) : Action
 }
 
 private sealed interface Msg {
     data class Loading(val refresh: Boolean) : Msg
     data class Cached(val content: TmdbHome) : Msg
     data class Loaded(val content: TmdbHome) : Msg
-    data class ResumeLoaded(val items: List<MediaItem>) : Msg
+    data class ResumeLoaded(val items: List<HomeResumeEntry>) : Msg
     data class Server(val value: SavedServer?) : Msg
     data class Failed(val message: String) : Msg
     data class Resolving(val value: Boolean) : Msg
@@ -174,9 +182,9 @@ class HomeStoreFactory(
                 // this store's feet: 媒体库's 切换服务器 writes straight to the registry.
                 // Read once at startup, this row outlived the server it came from.
                 registry.data
-                    .map { it.defaultServer }
+                    .map { it.defaultServer to it.servers }
                     .distinctUntilChanged()
-                    .onEach { dispatch(Action.DefaultServer(it)) }
+                    .onEach { (default, servers) -> dispatch(Action.Servers(default, servers)) }
                     .launchIn(this)
             },
             executorFactory = ::ExecutorImpl,
@@ -190,15 +198,15 @@ class HomeStoreFactory(
         private var recommendationJob: Job? = null
         private val recommendationCacheWriter = RecommendationCacheWriter { cache.write(it) }
         private var resumeGeneration = 0L
-        private var resumeConnection: HomeServerConnection? = null
+        private var resumeConnection: List<HomeServerConnection> = emptyList()
         private var resumeJob: Job? = null
 
         override fun executeAction(action: Action) {
             when (action) {
                 Action.Load -> loadRecommendations()
-                is Action.DefaultServer -> {
-                    dispatch(Msg.Server(action.server))
-                    loadResume(action.server)
+                is Action.Servers -> {
+                    dispatch(Msg.Server(action.default))
+                    loadResume(action.servers)
                 }
             }
         }
@@ -207,16 +215,18 @@ class HomeStoreFactory(
             when (intent) {
                 HomeIntent.Retry -> {
                     loadRecommendations()
-                    loadResume(state().server, force = true)
+                    loadResume(registry.data.value.servers, force = true)
                 }
                 HomeIntent.Refresh -> {
                     loadRecommendations(refresh = true)
-                    loadResume(state().server, force = true)
+                    loadResume(registry.data.value.servers, force = true)
                 }
                 HomeIntent.DismissMessage -> dispatch(Msg.ActionMessage(null))
                 is HomeIntent.Open -> open(intent.item)
                 is HomeIntent.Favorite -> favorite(intent.item)
-                is HomeIntent.OpenResume -> publish(HomeLabel.OpenEmbyItem(intent.item.id))
+                is HomeIntent.OpenResume -> publish(
+                    HomeLabel.OpenEmbyItem(intent.entry.server.id, intent.entry.item.id),
+                )
             }
         }
 
@@ -257,51 +267,44 @@ class HomeStoreFactory(
             }
         }
 
-        /**
-         * 继续观看 comes from the signed-in server; a failure here just leaves the row
-         * empty rather than failing the whole screen. The reducer has already dropped the
-         * previous server's items, so a failure leaves nothing stale behind either.
-         */
-        private fun loadResume(server: SavedServer?, force: Boolean = false) {
-            val connection = server?.homeConnection()
+        /** Loads every server independently so one slow or offline endpoint cannot blank the row. */
+        private fun loadResume(servers: List<SavedServer>, force: Boolean = false) {
+            val availableServers = servers.filter { it.knownUnavailableEndpointReason() == null }
+            val connection = availableServers.map(SavedServer::homeConnection)
             if (!force && connection == resumeConnection) return
             resumeConnection = connection
             resumeJob?.cancel()
             val generation = ++resumeGeneration
-            if (server == null || connection == null) {
+            if (availableServers.isEmpty()) {
                 resumeJob = null
-                return
-            }
-            server.knownUnavailableEndpointReason()?.let { reason ->
-                resumeJob = null
-                AppLog.warning(
-                    category = "feature.home",
-                    event = "resume_load_skipped_unavailable_endpoint",
-                    message = "Continue-watching load skipped for a known unavailable endpoint",
-                    attributes = mapOf(
-                        "serverId" to server.id,
-                        "reason" to reason,
-                    ),
-                )
+                dispatch(Msg.ResumeLoaded(emptyList()))
                 return
             }
             resumeJob = scope.launch {
                 try {
-                    emby.homeContent(server)
-                        .onSuccess {
-                            if (!ownsResumeLoad(generation, connection)) return@onSuccess
-                            dispatch(Msg.ResumeLoaded(it.resume))
-                        }
-                        .onFailure { error ->
-                            if (!ownsResumeLoad(generation, connection)) return@onFailure
-                            AppLog.warning(
-                                category = "feature.home",
-                                event = "resume_load_failed",
-                                message = "Continue-watching row failed to load",
-                                throwable = error,
-                                attributes = mapOf("serverId" to server.id),
-                            )
-                        }
+                    val entries = coroutineScope {
+                        availableServers.map { server ->
+                            async {
+                                emby.homeContent(server)
+                                    .onFailure { error ->
+                                        AppLog.warning(
+                                            category = "feature.home",
+                                            event = "resume_load_failed",
+                                            message = "One server's continue-watching row failed to load",
+                                            throwable = error,
+                                            attributes = mapOf("serverId" to server.id),
+                                        )
+                                    }
+                                    .getOrNull()
+                                    ?.resume
+                                    .orEmpty()
+                                    .map { HomeResumeEntry(it, server) }
+                            }
+                        }.awaitAll().flatten()
+                    }
+                    if (ownsResumeLoad(generation, connection)) {
+                        dispatch(Msg.ResumeLoaded(entries))
+                    }
                 } finally {
                     if (generation == resumeGeneration) resumeJob = null
                 }
@@ -310,11 +313,13 @@ class HomeStoreFactory(
 
         private fun ownsResumeLoad(
             generation: Long,
-            connection: HomeServerConnection,
+            connection: List<HomeServerConnection>,
         ): Boolean =
             generation == resumeGeneration &&
                 resumeConnection == connection &&
-                state().server?.homeConnection() == connection
+                registry.data.value.servers
+                    .filter { it.knownUnavailableEndpointReason() == null }
+                    .map(SavedServer::homeConnection) == connection
 
         private fun open(item: TmdbItem) {
             if (state().resolving) return
@@ -406,12 +411,9 @@ class HomeStoreFactory(
                 recommendationNotice = null,
             )
             is Msg.ResumeLoaded -> copy(resume = msg.items)
-            // Items and the server they are addressed against move together: anything the
-            // previous server served would be requested from one that never held it.
-            is Msg.Server -> copy(
-                server = msg.value,
-                resume = if (msg.value?.id == server?.id) resume else emptyList(),
-            )
+            // Resume entries carry their own server, so changing the default only changes
+            // recommendation resolution and the server opened from the library tab.
+            is Msg.Server -> copy(server = msg.value)
             is Msg.Failed -> if (content.isEmpty) {
                 copy(
                     loading = false,

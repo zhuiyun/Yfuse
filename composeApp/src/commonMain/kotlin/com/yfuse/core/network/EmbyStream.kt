@@ -22,6 +22,44 @@ data class StreamUrls(
 /** Builds Emby playback URLs. */
 object EmbyStream {
 
+    fun trickplayTilePattern(
+        baseUrl: String,
+        itemId: String,
+        mediaSourceId: String,
+        width: Int,
+        token: String,
+    ): String = "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/Trickplay/$width/{index}.jpg" +
+        "?MediaSourceId=${mediaSourceId.queryValue()}&api_key=${token.queryValue()}"
+
+    /**
+     * Resolves a relative URL returned by PlaybackInfo and completes its authentication.
+     * Servers differ on whether they include the token and session in DirectStreamUrl;
+     * adding only missing parameters keeps both Emby and Jellyfin responses usable.
+     */
+    fun negotiatedUrl(
+        baseUrl: String,
+        rawUrl: String,
+        token: String,
+        playSessionId: String,
+        addApiKey: Boolean = true,
+    ): String {
+        var value = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+            rawUrl
+        } else {
+            "${normalizeBaseUrl(baseUrl)}/${rawUrl.trimStart('/')}"
+        }
+        if (addApiKey && !value.hasQueryParameter("api_key") && !value.hasQueryParameter("X-Emby-Token")) {
+            value = value.withQueryParameter("api_key", token.queryValue())
+        }
+        if (!value.hasQueryParameter("DeviceId")) {
+            value = value.withQueryParameter("DeviceId", deviceId().queryValue())
+        }
+        if (playSessionId.isNotBlank() && !value.hasQueryParameter("PlaySessionId")) {
+            value = value.withQueryParameter("PlaySessionId", playSessionId.queryValue())
+        }
+        return value
+    }
+
     /**
      * The addresses for one file, with the transcode ladder aimed at the source.
      *
@@ -216,6 +254,12 @@ object EmbyStream {
         }
 
     private fun String.queryValue(): String = encodeURLParameter()
+
+    private fun String.hasQueryParameter(name: String): Boolean =
+        Regex("(?:[?&])${Regex.escape(name)}=", RegexOption.IGNORE_CASE).containsMatchIn(this)
+
+    private fun String.withQueryParameter(name: String, encodedValue: String): String =
+        "$this${if ('?' in this) '&' else '?'}$name=$encodedValue"
 
     /** Rewrites the generated HLS cap without rebuilding the authenticated URL. */
     fun withQuality(url: String, quality: PlaybackQuality): String {

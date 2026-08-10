@@ -97,6 +97,7 @@ data class MediaDetail(
     val providerIds: Map<String, String> = emptyMap(),
     /** Intro and credits markers supplied by Emby chapter metadata. */
     val playbackSegments: List<PlaybackSegment> = emptyList(),
+    val trickplay: TrickplayInfo? = null,
 )
 
 /** A concrete, playable target resolved from a detail item. */

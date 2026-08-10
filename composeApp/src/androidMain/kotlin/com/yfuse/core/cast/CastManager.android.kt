@@ -1,5 +1,14 @@
 package com.yfuse.core.cast
 
+import android.content.Context
+import android.net.wifi.WifiManager
+import androidx.mediarouter.media.MediaRouteSelector
+import androidx.mediarouter.media.MediaRouter
+import com.google.android.gms.cast.CastMediaControlIntent
+import com.google.android.gms.cast.MediaInfo
+import com.google.android.gms.cast.MediaLoadRequestData
+import com.google.android.gms.cast.MediaMetadata
+import com.google.android.gms.cast.framework.CastContext
 import com.yfuse.core.logging.AppLog
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -9,24 +18,51 @@ import java.net.URI
 import java.net.URL
 import java.net.SocketTimeoutException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
-actual fun createCastManager(): CastManager = DlnaCastManager()
+private lateinit var castApplicationContext: Context
+
+fun initializeCastApplicationContext(context: Context) {
+    castApplicationContext = context.applicationContext
+}
+
+actual fun createCastManager(): CastManager = AndroidCastManager(castApplicationContext)
 
 private data class DlnaTarget(val public: CastDevice, val controlUrl: String)
 
-private class DlnaCastManager : CastManager {
+private class AndroidCastManager(private val context: Context) : CastManager {
     private val mutableState = MutableStateFlow(CastState())
     override val state = mutableState.asStateFlow()
     private val targets = linkedMapOf<String, DlnaTarget>()
+    private val castRoutes = linkedMapOf<String, MediaRouter.RouteInfo>()
+    private val mediaRouter by lazy { MediaRouter.getInstance(context) }
+    private val castSelector = MediaRouteSelector.Builder()
+        .addControlCategory(
+            CastMediaControlIntent.categoryForCast(
+                CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID,
+            ),
+        )
+        .build()
+    private val routeCallback = object : MediaRouter.Callback() {
+        override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) = refreshCastRoutes()
+        override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) = refreshCastRoutes()
+        override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) = refreshCastRoutes()
+    }
 
     override suspend fun discover() = withContext(Dispatchers.IO) {
         mutableState.value = mutableState.value.copy(discovering = true, error = null)
         val locations = linkedSetOf<String>()
         runCatching {
-            DatagramSocket().use { socket ->
+            val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            val multicastLock = wifi?.createMulticastLock("yfuse-dlna")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            try {
+                DatagramSocket().use { socket ->
                 socket.soTimeout = 350
                 val request = (
                     "M-SEARCH * HTTP/1.1\r\n" +
@@ -56,6 +92,9 @@ private class DlnaCastManager : CastManager {
                     Regex("""(?im)^location:\s*(.+)\s*$""").find(response)
                         ?.groupValues?.get(1)?.trim()?.let(locations::add)
                 }
+                }
+            } finally {
+                multicastLock?.takeIf { it.isHeld }?.release()
             }
             var descriptionFailures = 0
             locations.forEach { location ->
@@ -92,15 +131,26 @@ private class DlnaCastManager : CastManager {
             )
             mutableState.value = mutableState.value.copy(error = "未发现可用的 DLNA 投屏设备")
         }
+        withContext(Dispatchers.Main.immediate) {
+            mediaRouter.removeCallback(routeCallback)
+            mediaRouter.addCallback(
+                castSelector,
+                routeCallback,
+                MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
+            )
+            refreshCastRoutes()
+        }
         mutableState.value = mutableState.value.copy(
             discovering = false,
-            devices = targets.values.map(DlnaTarget::public),
-            error = if (targets.isEmpty()) "未发现可用的 DLNA 投屏设备" else null,
+            devices = allDevices(),
+            error = if (targets.isEmpty() && castRoutes.isEmpty()) "未发现可用的投屏设备" else null,
         )
     }
 
     override suspend fun play(deviceId: String, mediaUrl: String, title: String) =
-        withContext(Dispatchers.IO) {
+        if (deviceId.startsWith(CAST_PREFIX)) {
+            playChromecast(deviceId, mediaUrl, title)
+        } else withContext(Dispatchers.IO) {
             val target = targets[deviceId] ?: run {
                 AppLog.warning(
                     category = "cast",
@@ -115,7 +165,7 @@ private class DlnaCastManager : CastManager {
                     "SetAVTransportURI",
                     "<InstanceID>0</InstanceID>" +
                         "<CurrentURI>${mediaUrl.xmlEscape()}</CurrentURI>" +
-                        "<CurrentURIMetaData></CurrentURIMetaData>",
+                        "<CurrentURIMetaData>${dlnaMetadata(mediaUrl, title).xmlEscape()}</CurrentURIMetaData>",
                 )
                 soap(
                     target.controlUrl,
@@ -143,6 +193,17 @@ private class DlnaCastManager : CastManager {
         }
 
     override suspend fun stop() = withContext(Dispatchers.IO) {
+        if (mutableState.value.activeDeviceId?.startsWith(CAST_PREFIX) == true) {
+            withContext(Dispatchers.Main.immediate) {
+                runCatching {
+                    val castContext = CastContext.getSharedInstance(context)
+                    castContext.sessionManager.currentCastSession?.remoteMediaClient?.stop()
+                    castContext.sessionManager.endCurrentSession(true)
+                }
+                mutableState.value = mutableState.value.copy(activeDeviceId = null)
+            }
+            return@withContext
+        }
         val target = targets[mutableState.value.activeDeviceId] ?: return@withContext
         runCatching {
             soap(target.controlUrl, "Stop", "<InstanceID>0</InstanceID>")
@@ -161,6 +222,58 @@ private class DlnaCastManager : CastManager {
             )
         }
         mutableState.value = mutableState.value.copy(activeDeviceId = null)
+    }
+
+    private fun refreshCastRoutes() {
+        castRoutes.clear()
+        mediaRouter.routes
+            .filter { !it.isDefault && it.matchesSelector(castSelector) }
+            .forEach { castRoutes[CAST_PREFIX + it.id] = it }
+        mutableState.value = mutableState.value.copy(devices = allDevices())
+    }
+
+    private fun allDevices(): List<CastDevice> =
+        targets.values.map(DlnaTarget::public) + castRoutes.map { (id, route) ->
+            CastDevice(id, "${route.name} · Chromecast")
+        }
+
+    private suspend fun playChromecast(deviceId: String, mediaUrl: String, title: String) {
+        val route = castRoutes[deviceId] ?: return
+        withContext(Dispatchers.Main.immediate) {
+            runCatching {
+                mediaRouter.selectRoute(route)
+                val castContext = CastContext.getSharedInstance(context)
+                var client = castContext.sessionManager.currentCastSession?.remoteMediaClient
+                var attempts = 0
+                while (client == null && attempts < 20) {
+                    delay(250L)
+                    client = castContext.sessionManager.currentCastSession?.remoteMediaClient
+                    attempts++
+                }
+                val remote = requireNotNull(client) { "Chromecast 会话建立超时" }
+                val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
+                    putString(MediaMetadata.KEY_TITLE, title)
+                }
+                val info = MediaInfo.Builder(mediaUrl)
+                    .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
+                    .setContentType(mediaUrl.contentType())
+                    .setMetadata(metadata)
+                    .build()
+                remote.load(
+                    MediaLoadRequestData.Builder()
+                        .setMediaInfo(info)
+                        .setAutoplay(true)
+                        .build(),
+                )
+            }.onSuccess {
+                mutableState.value = mutableState.value.copy(activeDeviceId = deviceId, error = null)
+            }.onFailure { error ->
+                AppLog.error("cast", "chromecast_play_failed", "Chromecast playback failed", error)
+                mutableState.value = mutableState.value.copy(
+                    error = "Chromecast 投屏失败：${error.message ?: "连接失败"}",
+                )
+            }
+        }
     }
 
     private fun readTarget(location: String): DlnaTarget? {
@@ -198,6 +311,17 @@ private class DlnaCastManager : CastManager {
         connection.inputStream.close()
     }
 }
+
+private const val CAST_PREFIX = "chromecast:"
+
+private fun String.contentType(): String = when {
+    substringBefore('?').endsWith(".m3u8", true) -> "application/x-mpegURL"
+    substringBefore('?').endsWith(".webm", true) -> "video/webm"
+    else -> "video/mp4"
+}
+
+private fun dlnaMetadata(url: String, title: String): String =
+    """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="0" parentID="0" restricted="1"><dc:title>${title.xmlEscape()}</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="http-get:*:${url.contentType()}:*">${url.xmlEscape()}</res></item></DIDL-Lite>"""
 
 private fun String.xmlEscape() = replace("&", "&amp;")
     .replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")

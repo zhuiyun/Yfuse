@@ -34,6 +34,23 @@ class EmbyRepositoryTest {
     }
 
     @Test
+    fun playback_info_posts_device_profile_and_parses_negotiated_source() = runTest {
+        val repo = testRepo { request ->
+            assertEquals(HttpMethod.Post, request.method)
+            assertTrue(request.url.encodedPath.endsWith("/Items/m1/PlaybackInfo"))
+            json(
+                """{"PlaySessionId":"session-1","MediaSources":[{"Id":"source-1","SupportsDirectPlay":true}]}""",
+            )
+        }
+
+        val result = repo.playbackInfo(server, "m1", playSessionId = "requested-session")
+
+        assertTrue(result.isSuccess, result.toString())
+        assertEquals("session-1", result.getOrThrow().PlaySessionId)
+        assertEquals("source-1", result.getOrThrow().MediaSources.single().Id)
+    }
+
+    @Test
     fun authenticate_success_returns_server_with_name() = runTest {
         val repo = testRepo { req -> authRoutes(req) }
 

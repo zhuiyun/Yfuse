@@ -94,8 +94,8 @@ class HomeTabComponent(
                 tmdb = tmdb,
                 emby = repo,
                 registry = registry,
-                onOpenEmbyItem = {
-                    navigation.push(Config.Detail(registry.defaultServer?.id, it))
+                onOpenEmbyItem = { serverId, itemId ->
+                    navigation.push(Config.Detail(serverId, itemId))
                 },
                 onOpenTmdbItem = { item, embyItemId ->
                     navigation.push(Config.Info(item, embyItemId))
