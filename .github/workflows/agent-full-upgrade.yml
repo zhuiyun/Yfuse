@@ -22,13 +22,13 @@ jobs:
           ref: agent/unify-home-tab-reduce-transparency
           fetch-depth: 1
 
-      - name: Apply phase 2A
+      - name: Apply product workflows
         id: patch
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/agent_full_upgrade_phase2a.py
-          python3 scripts/agent_full_upgrade_phase2a_fixup.py
+          python3 scripts/agent_full_upgrade_phase2b.py
+          python3 scripts/agent_full_upgrade_phase3.py
           git diff --check
           if [[ -n "$(git status --porcelain composeApp)" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -53,8 +53,6 @@ jobs:
           fi
           chmod +x gradlew scripts/fetch-engines.sh
           scripts/fetch-engines.sh
-          test -f composeApp/libs/libmpv-release.aar
-          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
 
       - name: Compile Android
         shell: bash
@@ -64,11 +62,12 @@ jobs:
         shell: bash
         run: |
           ./gradlew :composeApp:testDebugUnitTest --no-daemon \
-            --tests 'com.yfuse.core.data.GenreFacetNormalizationTest' \
-            --tests 'com.yfuse.core.designsystem.NavigationIdentityTest' \
-            --tests 'com.yfuse.feature.library.LibraryGridStoreTest.genres_fill_the_filter_row_and_a_selection_narrows_the_query'
+            --tests 'com.yfuse.feature.player.PlaybackFailoverPolicyTest' \
+            --tests 'com.yfuse.feature.servers.*' \
+            --tests 'com.yfuse.feature.home.*' \
+            --tests 'com.yfuse.core.designsystem.NavigationIdentityTest'
 
-      - name: Commit phase 2A source
+      - name: Commit product workflow source
         if: steps.patch.outputs.changed == 'true'
         shell: bash
         run: |
@@ -77,5 +76,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add composeApp/src
           git diff --cached --check
-          git commit -m "feat: unify playback selection and search filters"
+          git commit -m "feat: upgrade downloads tracking and playback resilience"
           git push origin HEAD:agent/unify-home-tab-reduce-transparency
