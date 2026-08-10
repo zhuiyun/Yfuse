@@ -1,0 +1,95 @@
+name: Agent full Yfuse upgrade
+
+on:
+  push:
+    branches:
+      - agent/unify-home-tab-reduce-transparency
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-full-yfuse-upgrade
+  cancel-in-progress: true
+
+jobs:
+  build-and-apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/unify-home-tab-reduce-transparency
+          fetch-depth: 0
+
+      - name: Apply phase 1
+        id: patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          before="$(git status --porcelain)"
+          python3 scripts/agent_full_upgrade_phase1.py
+          git diff --check
+          if [[ -n "$(git status --porcelain composeApp gradle/libs.versions.toml)" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y p7zip-full
+          fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+          test -f composeApp/libs/libmpv-release.aar
+          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+
+      - name: Compile Android
+        shell: bash
+        run: ./gradlew :composeApp:compileDebugKotlinAndroid --no-daemon
+
+      - name: Run affected unit tests
+        shell: bash
+        run: |
+          ./gradlew :composeApp:testDebugUnitTest --no-daemon \
+            --tests 'com.yfuse.feature.servers.*' \
+            --tests 'com.yfuse.feature.home.*' \
+            --tests 'com.yfuse.core.designsystem.*'
+
+      - name: Verify service locator cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          refs="$(git grep -n 'GlobalContext.get()' -- \
+            composeApp/src/commonMain/kotlin/com/yfuse/app \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/detail \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/home \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/profile || true)"
+          if [[ -n "$refs" ]]; then
+            printf '%s\n' "$refs"
+            exit 1
+          fi
+
+      - name: Commit phase 1 source
+        if: steps.patch.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add composeApp gradle/libs.versions.toml
+          git diff --cached --check
+          git commit -m "refactor: modernize app architecture and camera"
+          git push origin HEAD:agent/unify-home-tab-reduce-transparency
