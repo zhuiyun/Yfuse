@@ -36,7 +36,7 @@ text = text.replace(
     'label = listOfNotNull(source.serverName, source.source?.let { it.qualityLabel }).joinToString(" · "),',
     'label = source.serverName,',
 )
-path.write_text(text, encoding="utf-8")
+path.write_text(text.rstrip() + "\n", encoding="utf-8")
 
 # Search filters are navigation chips; give the dialog list a scroll container so a large
 # server/library facet stays usable on compact landscape devices.
@@ -51,7 +51,7 @@ text = text.replace(
     'private fun optionList(values: List<SearchOption>, selected: String, onSelect: (String) -> Unit) {\n    Column {',
     'private fun optionList(values: List<SearchOption>, selected: String, onSelect: (String) -> Unit) {\n    Column(Modifier.verticalScroll(rememberScrollState())) {',
 )
-path.write_text(text, encoding="utf-8")
+path.write_text(text.rstrip() + "\n", encoding="utf-8")
 
 # The countdown window is consumed by PlayerControls while the drawing function lives in the
 # extracted file, so it is package-visible. The new Canvas file also needs fillMaxSize.
@@ -64,6 +64,6 @@ if 'import androidx.compose.foundation.layout.fillMaxSize\n' not in text:
         1,
     )
 text = text.replace('private const val NEXT_UP_WINDOW_MS = 10_000L', 'internal const val NEXT_UP_WINDOW_MS = 10_000L')
-path.write_text(text, encoding="utf-8")
+path.write_text(text.rstrip() + "\n", encoding="utf-8")
 
 print("phase2a fixup applied")
