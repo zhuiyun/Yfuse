@@ -242,7 +242,8 @@ fun App(root: RootComponent) {
                     ) {
                         // Top-level tabs are a real Navigation 3 back stack: every non-Home root
                         // previews Home during the system gesture, while each tab's nested host
-                        // continues to own its child routes. No transition is overridden here.
+                        // continues to own its child routes. The shared host supplies the same
+                        // edge-reveal back transition used by nested destinations.
                         OfficialNavDisplay(
                             backStack = topLevelBackStack(active),
                             onBack = { root.selectTab(Tab.Home) },
