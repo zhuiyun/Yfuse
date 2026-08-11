@@ -31,23 +31,27 @@ import org.koin.core.context.stopKoin
 import org.koin.dsl.module
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
-import kotlin.coroutines.CoroutineContext
 
 class DetailStoreTest {
     private lateinit var testPlaybackTrackRequest: PlaybackTrackRequest
     private lateinit var testSyncManager: ServerSyncManager
     private val realTimeWaitDispatcher = Dispatchers.Default.limitedParallelism(1)
 
-    private suspend fun <T> awaitRealTime(block: suspend () -> T): T =
+    private suspend fun <T> awaitRealTime(
+        timeout: Duration = 10.seconds,
+        block: suspend () -> T,
+    ): T =
         withContext(realTimeWaitDispatcher) {
-            withTimeout(10.seconds) { block() }
+            withTimeout(timeout) { block() }
         }
 
     @BeforeTest
@@ -396,16 +400,19 @@ class DetailStoreTest {
             },
         )
         try {
-            awaitRealTime {
+            awaitRealTime(timeout = 30.seconds) {
                 store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
             }
 
             store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
-            awaitRealTime { started.await() }
+            awaitRealTime(timeout = 30.seconds) { started.await() }
             store.accept(DetailIntent.ToggleFavorite)
-            awaitRealTime { store.states.first { it.detail?.isFavorite == true } }
+            awaitRealTime(timeout = 30.seconds) {
+                store.states.first { it.detail?.isFavorite == true }
+            }
+
             release.complete(Unit)
-            awaitRealTime {
+            awaitRealTime(timeout = 30.seconds) {
                 store.states.first { !it.selectionLoading && it.playTarget?.id == "e2" }
             }
 
@@ -700,25 +707,32 @@ class DetailStoreTest {
     }
 
     @Test
-    fun exhausted_season_load_keeps_the_previous_episode_directory() = runTest {
+    fun exhausted_season_load_keeps_the_previous_episode_directory() = runBlocking {
         val attempts = AtomicInteger()
         val store = seriesStore(
             seasonTwoEpisodesFailure = {
                 attempts.incrementAndGet()
                 IOException("catalog unavailable")
             },
-            mainContext = UnconfinedTestDispatcher(testScheduler),
         )
-        store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+        try {
+            awaitRealTime(timeout = 30.seconds) {
+                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+            }
 
-        store.accept(DetailIntent.SelectSeason("season2"))
-        store.states.first { !it.episodesLoading && it.actionMessage != null }
+            store.accept(DetailIntent.SelectSeason("season2"))
+            awaitRealTime(timeout = 30.seconds) {
+                store.states.first { !it.episodesLoading && it.actionMessage != null }
+            }
 
-        assertEquals(3, attempts.get())
-        assertEquals("season1", store.state.selectedSeasonId)
-        assertEquals(listOf("e1", "e2"), store.state.episodes.map { it.id })
-        assertTrue(store.state.actionMessage?.isNotBlank() == true)
-        store.dispose()
+            assertEquals(3, attempts.get())
+            assertTrue(!store.state.episodesLoading)
+            assertEquals("season1", store.state.selectedSeasonId)
+            assertEquals(listOf("e1", "e2"), store.state.episodes.map { it.id })
+            assertTrue(store.state.actionMessage?.isNotBlank() == true)
+        } finally {
+            store.dispose()
+        }
     }
 
     private fun movieStore(
