@@ -1,12 +1,7 @@
 package com.yfuse.app
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -21,9 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -52,54 +47,49 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
-import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.AccessibilityOptions
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackdropState
-import com.yfuse.core.designsystem.backdropBlur
-import com.yfuse.core.designsystem.backdropSource
-import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalOverlayVisibility
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.LocalTabReselected
 import com.yfuse.core.designsystem.LocalTabIdentity
+import com.yfuse.core.designsystem.LocalTabReselected
 import com.yfuse.core.designsystem.MinTouchTarget
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.MiniPlayerTokens
-import com.yfuse.core.designsystem.OverlayVisibility
-import com.yfuse.core.designsystem.PlatformBackGestureHandler
-import com.yfuse.core.designsystem.PlatformBackHandler
-import com.yfuse.core.designsystem.LocalBackGesture
-import com.yfuse.core.designsystem.rememberBackGestureState
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.OverlayVisibility
+import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Shadows
-import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
-import com.yfuse.core.designsystem.mr
+import com.yfuse.core.designsystem.backdropBlur
+import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.overlayGlass
+import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.library.LibraryScreen
+import com.yfuse.feature.player.ActivePlayback
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.profile.ProfileTabScreen
-import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.feature.search.SearchScreen
-import com.yfuse.feature.player.ActivePlayback
 import com.yfuse.feature.watch.InviteResolution
-import com.yfuse.feature.watch.WatchInviteResolver
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
-import kotlinx.coroutines.launch
 
 private data class TabItem(val tab: Tab, val label: String, val icon: ImageVector)
 
@@ -109,9 +99,6 @@ private val tabs = listOf(
     TabItem(Tab.Search, "搜索", AppIcons.SearchTab),
     TabItem(Tab.Profile, "我的", AppIcons.User),
 )
-
-/** `.tab` inactive tint. */
-private val TabInactive = Color(0xFF95A0B3)
 
 /** Space scrollable content leaves for the floating bar — `padding-bottom:100px`. */
 val TabBarInset = Dimens.contentBottom
@@ -216,35 +203,14 @@ fun App(root: RootComponent) {
             Tab.Search -> searchStack.active.instance is SearchComponent.Child.Home
             Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
         }
-        val childCanGoBack = !atRoot
         // The bar belongs to the roots and nothing else: it used to also ride along on the
         // library's grid, and to slide away under scroll, which left "is the bar there?"
         // depending on where the user happened to have scrolled to.
         val showBottomBar = atRoot
-        val navigateChildBack: () -> Unit = {
-            when (active) {
-                Tab.Home -> root.home.navigateBack()
-                Tab.Browse -> root.browse.navigateBack()
-                Tab.Search -> root.search.navigateBack()
-                Tab.Profile -> root.profile.navigateBack()
-            }
-        }
 
-        // AndroidX supplies the gesture clock. Only an actual child route intercepts progress;
-        // Home root is deliberately left to the system so Android can render back-to-home.
-        val backGesture = rememberBackGestureState()
-        PlatformBackGestureHandler(
-            enabled = childCanGoBack,
-            onProgress = backGesture::update,
-            onCancel = backGesture::cancel,
-            onBack = {
-                backGesture.commit()
-                navigateChildBack()
-            },
-        )
-        // Returning from another root tab to Home is a navigation decision, not a route preview.
-        // Keep it commit-only instead of fabricating an animation for a destination underneath.
-        PlatformBackHandler(enabled = !childCanGoBack && active != Tab.Home) {
+        // Navigation3 owns child-route and overlay back gestures. At a non-Home root there is
+        // no previous route to preview, so this one shell-level decision remains commit-only.
+        PlatformBackHandler(enabled = atRoot && active != Tab.Home) {
             root.selectTab(Tab.Home)
         }
 
@@ -272,43 +238,19 @@ fun App(root: RootComponent) {
         CompositionLocalProvider(
             LocalOverlayVisibility provides overlays,
             LocalTabReselected provides root.tabReselected,
-            LocalBackGesture provides backGesture,
         ) {
-            AppBackdrop {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .backdropSource(backdrop),
-                ) {
-                    // 平级切 tab — 0.986 缩放淡入, §3.1.
-                    //
-                    // This was a bare `when (active)`, so the one transition the spec writes
-                    // out for switching tabs did not exist and `Motion.TAB_SCALE_FROM` was
-                    // referenced nowhere in the app. The pill and the tint crossfaded over
-                    // 260ms while the content they frame was replaced between two frames,
-                    // which made the cut more obvious rather than less.
-                    //
-                    // No slide and almost no scale: tabs are siblings, not a stack, and
-                    // anything with direction in it would imply one tab is "after" another.
-                    AnimatedContent(
-                        targetState = active,
-                        modifier = Modifier.fillMaxSize(),
-                        transitionSpec = {
-                            val duration = if (reduceMotion) 0 else Motion.TAB
-                            val fade = tween<Float>(duration, easing = Motion.Curve)
-                            fadeIn(fade) togetherWith fadeOut(fade) using
-                                // Every tab fills the same screen, so there is no size to
-                                // transition — and the default one clips to an animating
-                                // box, which would crop the incoming page for 260ms.
-                                null
-                        },
-                        label = "tab",
-                    ) { tab ->
-                        // The name rather than the enum: the key has to survive a Bundle
-                        // round trip, and a String is the one thing guaranteed to.
-                        CompositionLocalProvider(LocalTabIdentity provides tab.name) {
-                            tabStates.SaveableStateProvider(tab.name) {
-                                when (tab) {
+            SkeletonPulseProvider {
+                AppBackdrop {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .backdropSource(backdrop),
+                    ) {
+                        // Compose only the selected tab so exactly one navigation host owns system
+                        // back. SaveableStateProvider still restores each tab's UI state on return.
+                        CompositionLocalProvider(LocalTabIdentity provides active.name) {
+                            tabStates.SaveableStateProvider(active.name) {
+                                when (active) {
                                     Tab.Home -> HomeTabScreen(root.home)
                                     Tab.Browse -> LibraryScreen(root.browse)
                                     Tab.Search -> SearchScreen(root.search)
@@ -317,86 +259,90 @@ fun App(root: RootComponent) {
                             }
                         }
                     }
-                }
 
-                if (showBottomBar && !overlays.any) {
-                    GlassTabBar(
-                        active = active,
-                        onSelect = { tab ->
-                            // Tapping the tab you are already on is not a no-op — see
-                            // [RootComponent.reselectTab].
-                            if (tab == active) root.reselectTab(tab, atRoot) else root.selectTab(tab)
-                        },
-                        backdrop = backdrop,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding(),
-                    )
-                    // One slot above the tab bar, and the two things that can occupy it
-                    // never coexist: while a player is alive the mini player carries the
-                    // room note itself, and the room bar is for exactly the case where it
-                    // isn't — the player closed, the room still up.
-                    val bottomStackSlot = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(horizontal = Dimens.tabBarInset)
-                        .padding(bottom = Dimens.tabBarHeight + 22.dp)
-                    // Video backgrounding is represented by Android PiP. The old long,
-                    // music-like mini controller duplicated transport controls and only
-                    // appeared at tab roots, so it is intentionally not rendered here.
-                    if (!miniPlayback.active && watchRoomNote != null && !roomBarHidden) {
-                        WatchRoomBar(
-                            note = watchRoomNote,
-                            attention = watchState.reconnecting ||
-                                watchState.syncWarning != null,
-                            onEnter = root::enterWatchRoom,
-                            onView = { roomInfoOpen = true },
-                            onClose = { hiddenRoomCode = watchState.roomCode },
+                    if (showBottomBar && !overlays.any) {
+                        GlassTabBar(
+                            active = active,
+                            onSelect = { tab ->
+                                // Tapping the tab you are already on is not a no-op — see
+                                // [RootComponent.reselectTab].
+                                if (tab == active) {
+                                    root.reselectTab(tab, atRoot)
+                                } else {
+                                    root.selectTab(tab)
+                                }
+                            },
                             backdrop = backdrop,
-                            modifier = bottomStackSlot,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding(),
+                        )
+                        // One slot above the tab bar, and the two things that can occupy it
+                        // never coexist: while a player is alive the mini player carries the
+                        // room note itself, and the room bar is for exactly the case where it
+                        // isn't — the player closed, the room still up.
+                        val bottomStackSlot = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(horizontal = Dimens.tabBarInset)
+                            .padding(bottom = Dimens.tabBarHeight + 22.dp)
+                        // Video backgrounding is represented by Android PiP. The old long,
+                        // music-like mini controller duplicated transport controls and only
+                        // appeared at tab roots, so it is intentionally not rendered here.
+                        if (!miniPlayback.active && watchRoomNote != null && !roomBarHidden) {
+                            WatchRoomBar(
+                                note = watchRoomNote,
+                                attention = watchState.reconnecting ||
+                                    watchState.syncWarning != null,
+                                onEnter = root::enterWatchRoom,
+                                onView = { roomInfoOpen = true },
+                                onClose = { hiddenRoomCode = watchState.roomCode },
+                                backdrop = backdrop,
+                                modifier = bottomStackSlot,
+                            )
+                        }
+                    }
+
+                    if (roomInfoOpen) {
+                        WatchRoomInfoDialog(
+                            state = watchState,
+                            resolver = inviteResolver,
+                            onEnter = root::enterWatchRoom,
+                            onDismiss = { roomInfoOpen = false },
                         )
                     }
-                }
 
-                if (roomInfoOpen) {
-                    WatchRoomInfoDialog(
-                        state = watchState,
-                        resolver = inviteResolver,
-                        onEnter = root::enterWatchRoom,
-                        onDismiss = { roomInfoOpen = false },
-                    )
-                }
-
-                pendingInvite?.let { invite ->
-                    WatchInviteSheet(
-                        roomCode = invite.roomCode,
-                        resolution = inviteResolution,
-                        unfamiliarEndpoint = invite.endpoint
-                            ?.takeIf { it.trimEnd('/') != watchEndpoint.trimEnd('/') },
-                        onJoin = {
-                            // Join, and let the room say what it is playing.
-                            //
-                            // This used to resolve `invite.mediaKey` and navigate to that.
-                            // A link is written when the room is created, which for a show
-                            // is before the host has started an episode — so its key names
-                            // the *show*, and resolving it landed the guest on the series,
-                            // which auto-plays whatever episode *they* were up to. Two
-                            // people, two different episodes, every time.
-                            //
-                            // The room's own timeline names the episode, and the shell
-                            // already follows it (see the effect above), so joining is the
-                            // whole of the work. The invite's key keeps its other job:
-                            // naming the title in the sheet before any of this happens.
-                            watchTogether.joinRoomFromInvite(
-                                endpoint = invite.endpoint ?: watchEndpoint,
-                                roomCode = invite.roomCode,
-                                mediaKey = invite.mediaKey.orEmpty(),
-                            )
-                            root.dismissInvite()
-                        },
-                        onSearchByName = root::openSearchForInvite,
-                        onDismiss = root::dismissInvite,
-                    )
+                    pendingInvite?.let { invite ->
+                        WatchInviteSheet(
+                            roomCode = invite.roomCode,
+                            resolution = inviteResolution,
+                            unfamiliarEndpoint = invite.endpoint
+                                ?.takeIf { it.trimEnd('/') != watchEndpoint.trimEnd('/') },
+                            onJoin = {
+                                // Join, and let the room say what it is playing.
+                                //
+                                // This used to resolve `invite.mediaKey` and navigate to that.
+                                // A link is written when the room is created, which for a show
+                                // is before the host has started an episode — so its key names
+                                // the *show*, and resolving it landed the guest on the series,
+                                // which auto-plays whatever episode *they* were up to. Two
+                                // people, two different episodes, every time.
+                                //
+                                // The room's own timeline names the episode, and the shell
+                                // already follows it (see the effect above), so joining is the
+                                // whole of the work. The invite's key keeps its other job:
+                                // naming the title in the sheet before any of this happens.
+                                watchTogether.joinRoomFromInvite(
+                                    endpoint = invite.endpoint ?: watchEndpoint,
+                                    roomCode = invite.roomCode,
+                                    mediaKey = invite.mediaKey.orEmpty(),
+                                )
+                                root.dismissInvite()
+                            },
+                            onSearchByName = root::openSearchForInvite,
+                            onDismiss = root::dismissInvite,
+                        )
+                    }
                 }
             }
         }
@@ -431,6 +377,7 @@ private fun WatchRoomBar(
     backdrop: BackdropState,
     modifier: Modifier = Modifier,
 ) {
+    val accent = LocalAccentColors.current
     Row(
         modifier
             .fillMaxWidth()
@@ -462,7 +409,7 @@ private fun WatchRoomBar(
             )
             Text(
                 note,
-                style = mr(11f, 600),
+                style = AppTypography.caption.strong,
                 color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -471,8 +418,8 @@ private fun WatchRoomBar(
         }
         Text(
             "查看",
-            style = mr(11f, 700),
-            color = Brand.Primary,
+            style = AppTypography.caption.strong,
+            color = accent.accent,
             maxLines = 1,
             modifier = Modifier
                 .pressable(onClick = onView)
@@ -511,6 +458,7 @@ private fun GlassTabBar(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val selectedIndex = tabs.indexOfFirst { it.tab == active }.coerceAtLeast(0)
     // The pill travels between cells rather than appearing under the new one. Tabs are
@@ -550,7 +498,7 @@ private fun GlassTabBar(
                 val pillWidth = cell * 0.72f
                 val pillHeight = size.height * 0.72f
                 drawRoundRect(
-                    color = Brand.Primary.copy(alpha = if (palette.isDark) 0.28f else 0.20f),
+                    color = accent.container,
                     topLeft = Offset(
                         x = cell * indicator + (cell - pillWidth) / 2f,
                         y = (size.height - pillHeight) / 2f,
@@ -573,12 +521,14 @@ private fun GlassTabBar(
  */
 @Composable
 private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> Unit) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     // The tint used to cut straight from grey to accent while the pill slid underneath it;
     // crossfading them puts the two halves of the same transition on the same clock — which
     // now means the same spring, so the tint tracks the pill even through rapid taps.
     val tint by animateColorAsState(
-        targetValue = if (selected) Brand.Primary else TabInactive,
+        targetValue = if (selected) accent.accent else palette.sub2,
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "tabTint",
     )
@@ -607,6 +557,6 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
     ) {
         Icon(item.icon, contentDescription = item.label, tint = tint, modifier = Modifier.size(20.dp))
         Spacer(Modifier.height(3.dp))
-        Text(item.label, style = mr(9.5f, 500), color = tint)
+        Text(item.label, style = AppTypography.caption.medium, color = tint)
     }
 }

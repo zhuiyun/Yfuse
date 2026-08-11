@@ -18,12 +18,16 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
@@ -32,15 +36,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.liquidGlass
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.MediaVersion
@@ -256,12 +260,12 @@ internal fun MediaInfoSection(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 version.path?.let { path ->
-                    Text(path, style = mr(10f, 400), color = palette.sub2)
+                    Text(path, style = AppTypography.caption.regular, color = palette.sub2)
                 }
                 if (footer.isNotEmpty()) {
                     Text(
                         footer.joinToString(" · "),
-                        style = mr(10f, 500),
+                        style = AppTypography.caption.medium,
                         color = palette.sub2,
                     )
                 }
@@ -306,7 +310,7 @@ private fun SpecCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(icon, null, tint = palette.sub, modifier = Modifier.size(13.dp))
-            Text(title, style = sc(12.5f, 700), color = palette.text)
+            Text(title, style = AppTypography.body.strong, color = palette.text)
         }
         Spacer(Modifier.height(10.dp))
         rows.forEach { (label, value) ->
@@ -315,11 +319,11 @@ private fun SpecCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top,
             ) {
-                Text(label, style = mr(10.5f, 400), color = palette.sub2)
+                Text(label, style = AppTypography.caption.regular, color = palette.sub2)
                 Spacer(Modifier.width(10.dp))
                 Text(
                     value,
-                    style = mr(10.5f, 500),
+                    style = AppTypography.caption.medium,
                     color = palette.body,
                     textAlign = TextAlign.End,
                     maxLines = 2,
@@ -356,9 +360,10 @@ internal fun VersionSection(
             title = "版本",
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         ) {
-            Text("${versions.size} 个版本", style = mr(10.5f, 500), color = palette.sub2)
+            Text("${versions.size} 个版本", style = AppTypography.caption.medium, color = palette.sub2)
         }
         LazyRow(
+            modifier = Modifier.selectableGroup(),
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -448,6 +453,7 @@ private fun TrackChipRow(
 ) {
     val palette = LocalPalette.current
     LazyRow(
+        modifier = Modifier.selectableGroup(),
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -457,13 +463,19 @@ private fun TrackChipRow(
             val active = option.value == selected
             Text(
                 option.label,
-                style = sc(11.5f, if (active) 700 else 500),
+                style = if (active) AppTypography.body.strong else AppTypography.body.medium,
                 color = if (active) accent else palette.body,
                 maxLines = 1,
                 modifier = Modifier
                     // Match 外部链接: the same lifted liquid-glass body in both themes.
                     // Selection changes only the text and one solid-colour edge.
-                    .pressable(onClick = { onSelect(option.value) })
+                    .pressable(
+                        role = Role.RadioButton,
+                        onClickLabel = "选择${option.label}",
+                        onClick = { onSelect(option.value) },
+                    )
+                    .semantics { this.selected = active }
+                    .touchTarget()
                     .shadow(GlassLift.control, GlassShapes.chip)
                     .liquidGlass(
                         shape = GlassShapes.chip,
@@ -497,7 +509,12 @@ private fun VersionCard(
     Column(
         Modifier
             .width(150.dp)
-            .pressable(onClick = onSelect)
+            .pressable(
+                role = Role.RadioButton,
+                onClickLabel = "选择${version.name}版本",
+                onClick = onSelect,
+            )
+            .semantics { this.selected = selected }
             .solidGlass(
                 shape = GlassShapes.card,
                 fill = if (palette.isDark) {
@@ -514,7 +531,7 @@ private fun VersionCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 version.name,
-                style = sc(12f, 700),
+                style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -531,13 +548,13 @@ private fun VersionCard(
         }
         Text(
             version.qualityLabel,
-            style = mr(10.5f, 500),
+            style = AppTypography.caption.medium,
             color = accent,
             maxLines = 1,
         )
         Text(
             listOfNotNull(version.sizeLabel, version.bitrateLabel).joinToString(" · "),
-            style = mr(10f, 400),
+            style = AppTypography.caption.regular,
             color = palette.sub2,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -568,14 +585,15 @@ internal fun SourceSection(
         ) {
             Row(
                 Modifier
-                    .pressable(onClick = onSeeAll)
+                    .pressable(onClickLabel = "查看全部资源", onClick = onSeeAll)
+                    .touchTarget()
                     .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     "${availableSources.size} 个媒体库",
-                    style = mr(10.5f, 500),
+                    style = AppTypography.caption.medium,
                     color = palette.sub2,
                 )
                 Icon(
@@ -598,6 +616,7 @@ internal fun SourceSection(
         BoxWithConstraints {
             val cardWidth = (maxWidth - Dimens.pageHorizontal * 2 - 10.dp) / 2
             LazyRow(
+                modifier = Modifier.selectableGroup(),
                 contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -642,7 +661,12 @@ private fun SourceCard(
     Column(
         Modifier
             .width(width)
-            .pressable(onClick = onSelect)
+            .pressable(
+                role = Role.RadioButton,
+                onClickLabel = "选择${entry.serverName}资源",
+                onClick = onSelect,
+            )
+            .semantics { this.selected = selected }
             .solidGlass(
                 shape = GlassShapes.card,
                 fill = if (palette.isDark) {
@@ -670,13 +694,13 @@ private fun SourceCard(
             ) {
                 Text(
                     entry.serverName.take(1).uppercase(),
-                    style = mr(10f, 700),
+                    style = AppTypography.caption.strong,
                     color = Color.White,
                 )
             }
             Text(
                 entry.serverName,
-                style = sc(11.5f, 700),
+                style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -685,7 +709,7 @@ private fun SourceCard(
             if (best) {
                 Text(
                     "Best",
-                    style = mr(9f, 700),
+                    style = AppTypography.caption.strong,
                     color = Color(0xFF9A6B12),
                     modifier = Modifier
                         .clip(GlassShapes.chip)
@@ -710,7 +734,7 @@ private fun SourceCard(
             source?.quality?.takeIf { it.isNotBlank() && source.dolbyVision != true }?.let { quality ->
                 Text(
                     quality,
-                    style = mr(9f, 700),
+                    style = AppTypography.caption.strong,
                     color = if (selected) accent else palette.sub,
                     maxLines = 1,
                     modifier = Modifier
@@ -733,13 +757,13 @@ private fun SourceCard(
         ) {
             Text(
                 source?.size ?: "—",
-                style = mr(10f, 600),
+                style = AppTypography.caption.strong,
                 color = palette.body,
                 maxLines = 1,
             )
             Text(
                 source?.bitrate ?: "—",
-                style = mr(10f, 600),
+                style = AppTypography.caption.strong,
                 color = palette.body,
                 maxLines = 1,
             )
@@ -756,7 +780,7 @@ private fun CountChip(icon: androidx.compose.ui.graphics.vector.ImageVector, cou
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = palette.sub2, modifier = Modifier.size(11.dp))
-        Text(count.toString(), style = mr(9.5f, 600), color = palette.sub2)
+        Text(count.toString(), style = AppTypography.caption.strong, color = palette.sub2)
     }
 }
 

@@ -31,27 +31,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.motionAwareItem
-import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibrarySort
 
 /**
@@ -122,8 +125,9 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
             ) {
                 Box(
                     Modifier
+                        .pressable(onClickLabel = "返回上一页", onClick = component.onBack)
+                        .touchTarget()
                         .size(34.dp)
-                        .pressable(onClick = component.onBack)
                         .glass(GlassShapes.chip),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -136,7 +140,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 }
                 Text(
                     component.title,
-                    style = sc(22f, 800),
+                    style = AppTypography.display.strong,
                     color = palette.text,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -146,16 +150,17 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 // a number that climbed as the user scrolled was reporting the wrong thing.
                 Text(
                     "${state.totalCount.coerceAtLeast(state.items.size)} 部",
-                    style = mr(11f, 500),
+                    style = AppTypography.caption.medium,
                     color = palette.sub2,
                 )
                 if (state.sortable) {
                     Row(
                         Modifier
+                            .pressable(onClickLabel = "打开排序选项") { sortOpen = true }
+                            .touchTarget()
                             .height(34.dp)
-                            .pressable { sortOpen = true }
                             .glass(
-                                continuousRounded(17.dp),
+                                AppShapes.pill,
                                 palette.glassStrong,
                                 palette.tabbarBorder,
                             )
@@ -171,7 +176,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         )
                         Text(
                             sortLabels[state.sort].orEmpty(),
-                            style = sc(11.5f, 600),
+                            style = AppTypography.body.strong,
                             color = palette.text,
                         )
                     }
@@ -275,6 +280,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
 @Composable
 private fun GenreLoadErrorRow(message: String, onRetry: () -> Unit) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -284,7 +290,7 @@ private fun GenreLoadErrorRow(message: String, onRetry: () -> Unit) {
     ) {
         Text(
             text = message,
-            style = sc(11.5f, 400),
+            style = AppTypography.body.regular,
             color = palette.sub,
             modifier = Modifier.weight(1f),
             maxLines = 1,
@@ -292,14 +298,15 @@ private fun GenreLoadErrorRow(message: String, onRetry: () -> Unit) {
         )
         Text(
             text = "重试分类",
-            style = sc(11.5f, 700),
-            color = Brand.Primary,
+            style = AppTypography.body.strong,
+            color = accent.accent,
             modifier = Modifier
-                .pressable(onClick = onRetry)
+                .pressable(onClickLabel = "重新加载分类", onClick = onRetry)
+                .touchTarget()
                 .glass(
                     shape = GlassShapes.chip,
-                    fill = Brand.Primary.copy(alpha = 0.08f),
-                    border = Brand.Primary.copy(alpha = 0.28f),
+                    fill = accent.container,
+                    border = accent.border.copy(alpha = 0.28f),
                 )
                 .padding(horizontal = 14.dp, vertical = 7.dp),
         )
@@ -341,17 +348,24 @@ private fun GenreChip(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Text(
         label,
-        style = sc(11.5f, if (selected) 700 else 500),
-        color = if (selected) Brand.Primary else palette.body,
+        style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
+        color = if (selected) accent.accent else palette.body,
         maxLines = 1,
         modifier = modifier
-            .pressable(onClick = onClick)
+            .pressable(
+                role = Role.RadioButton,
+                onClickLabel = "选择分类",
+                onClick = onClick,
+            )
+            .semantics { this.selected = selected }
+            .touchTarget()
             .glass(
                 shape = GlassShapes.chip,
-                fill = if (selected) Brand.Primary.copy(alpha = 0.10f) else palette.card2,
-                border = if (selected) Brand.Primary.copy(alpha = 0.34f) else palette.border,
+                fill = if (selected) accent.container else palette.card2,
+                border = if (selected) accent.border.copy(alpha = 0.34f) else palette.border,
             )
             .padding(horizontal = 13.dp, vertical = 7.dp),
     )
@@ -380,28 +394,30 @@ private fun SkeletonGrid() {
 @Composable
 private fun GridFooter(error: String?, onRetry: () -> Unit) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Box(
         Modifier.fillMaxWidth().padding(vertical = 18.dp),
         contentAlignment = Alignment.Center,
     ) {
         if (error == null) {
-            Text("正在加载更多…", style = mr(11f, 500), color = palette.sub2)
+            Text("正在加载更多…", style = AppTypography.caption.medium, color = palette.sub2)
         } else {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(error, style = sc(11.5f, 400), color = palette.sub)
+                Text(error, style = AppTypography.body.regular, color = palette.sub)
                 Text(
                     "重试",
-                    style = sc(11.5f, 700),
-                    color = Brand.Primary,
+                    style = AppTypography.body.strong,
+                    color = accent.accent,
                     modifier = Modifier
-                        .pressable(onClick = onRetry)
+                        .pressable(onClickLabel = "重新加载更多内容", onClick = onRetry)
+                        .touchTarget()
                         .glass(
                             shape = GlassShapes.chip,
-                            fill = Brand.Primary.copy(alpha = 0.08f),
-                            border = Brand.Primary.copy(alpha = 0.28f),
+                            fill = accent.container,
+                            border = accent.border.copy(alpha = 0.28f),
                         )
                         .padding(horizontal = 14.dp, vertical = 7.dp),
                 )

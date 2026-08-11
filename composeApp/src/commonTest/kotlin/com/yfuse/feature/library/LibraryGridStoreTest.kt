@@ -7,24 +7,19 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class LibraryGridStoreTest {
-
-    @BeforeTest fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
-    @AfterTest fun tearDown() = Dispatchers.resetMain()
-
     private fun registry() = testRegistry().apply {
         addOrUpdate(SavedServer("id1", "http://host:8096", "我的服务器", "u1", "zhuiyun", "tok"))
     }
@@ -69,6 +64,7 @@ class LibraryGridStoreTest {
         assertFalse(second.canLoadMore)
         assertTrue(requested.contains("60"), "second page was not requested: $requested")
         store.dispose()
+        runCurrent()
     }
 
     @Test
@@ -84,7 +80,13 @@ class LibraryGridStoreTest {
                 json(page(from = 1, count = 2, total = 4))
             }
         }
-        val store = LibraryGridStoreFactory(DefaultStoreFactory(), repo, registry(), "lib1").create()
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "lib1",
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
         store.states.first { !it.loading && it.items.isNotEmpty() }
 
         store.accept(GridIntent.LoadMore)
@@ -92,6 +94,7 @@ class LibraryGridStoreTest {
         val merged = store.states.first { it.items.size > 2 }
         assertEquals(listOf("m0", "m1", "m2"), merged.items.map { it.id })
         store.dispose()
+        runCurrent()
     }
 
     @Test
@@ -110,7 +113,13 @@ class LibraryGridStoreTest {
                 }
             }
         }
-        val store = LibraryGridStoreFactory(DefaultStoreFactory(), repo, registry(), "lib1").create()
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "lib1",
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
         store.states.first { !it.loading && it.nextStartIndex == 2 }
 
         store.accept(GridIntent.LoadMore)
@@ -126,6 +135,7 @@ class LibraryGridStoreTest {
         assertFalse(completed.canLoadMore)
         assertEquals(listOf(0, 2, 4), requested)
         store.dispose()
+        runCurrent()
     }
 
     @Test
@@ -139,7 +149,13 @@ class LibraryGridStoreTest {
                 json(page(from = 0, count = 3, total = 3))
             }
         }
-        val store = LibraryGridStoreFactory(DefaultStoreFactory(), repo, registry(), "lib1").create()
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "lib1",
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
         store.states.first { !it.loading && it.items.isNotEmpty() }
 
         store.accept(GridIntent.SetSort(LibrarySort.Name))
@@ -148,6 +164,7 @@ class LibraryGridStoreTest {
         assertEquals(3, sorted.items.size)
         assertEquals(listOf<String?>("DateCreated", "SortName"), sorts)
         store.dispose()
+        runCurrent()
     }
 
     @Test
@@ -162,22 +179,37 @@ class LibraryGridStoreTest {
                 else -> json(page(from = 0, count = 2, total = 2))
             }
         }
-        val store = LibraryGridStoreFactory(DefaultStoreFactory(), repo, registry(), "lib1").create()
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "lib1",
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
         store.states.first { !it.loading && it.items.size == 2 && it.genres.isNotEmpty() }
 
+        val failedState = async(start = CoroutineStart.UNDISPATCHED) {
+            store.states.first { it.genre == "科幻" && it.error != null }
+        }
         store.accept(GridIntent.SetGenre("科幻"))
 
-        val failed = store.states.first { it.genre == "科幻" && it.error != null }
+        val failed = failedState.await()
         assertTrue(failed.items.isEmpty())
         assertEquals(0, failed.totalCount)
         assertEquals(0, failed.nextStartIndex)
 
         failFilteredRequest = false
+        val recoveredState = async(start = CoroutineStart.UNDISPATCHED) {
+            store.states.first {
+                !it.loading && it.items.size == 2 && it.genre == "科幻" && it.error == null
+            }
+        }
         store.accept(GridIntent.Retry)
-        val recovered = store.states.first { !it.loading && it.items.size == 2 }
+        val recovered = recoveredState.await()
         assertEquals("科幻", recovered.genre)
         assertEquals(null, recovered.error)
         store.dispose()
+        runCurrent()
     }
 
     @Test
@@ -191,7 +223,13 @@ class LibraryGridStoreTest {
                 json(page(from = 0, count = 1, total = 1))
             }
         }
-        val store = LibraryGridStoreFactory(DefaultStoreFactory(), repo, registry(), "lib1").create()
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "lib1",
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
         store.states.first { it.genres.isNotEmpty() && !it.loading && it.items.isNotEmpty() }
 
         store.accept(GridIntent.SetGenre("科幻"))
@@ -199,6 +237,7 @@ class LibraryGridStoreTest {
         store.states.first { it.genre == "科幻" && !it.loading }
         assertEquals(listOf(null, "科幻"), genres)
         store.dispose()
+        runCurrent()
     }
 
     @Test
@@ -215,20 +254,34 @@ class LibraryGridStoreTest {
                 json(page(from = 0, count = 1, total = 1))
             }
         }
-        val store = LibraryGridStoreFactory(DefaultStoreFactory(), repo, registry(), "lib1").create()
-        val failed = store.states.first {
-            !it.loading && it.items.isNotEmpty() && it.genreLoadError != null
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "lib1",
+            mainContext = StandardTestDispatcher(testScheduler),
+        ).create()
+        val failedState = async(start = CoroutineStart.UNDISPATCHED) {
+            store.states.first {
+                !it.loading && it.items.isNotEmpty() && it.genreLoadError != null
+            }
         }
+        runCurrent()
+        val failed = failedState.await()
         assertTrue(store.state.genres.isEmpty())
         assertTrue(failed.genreLoadError!!.isNotBlank())
 
+        val recoveredState = async(start = CoroutineStart.UNDISPATCHED) {
+            store.states.first { it.genres == listOf("科幻") }
+        }
         store.accept(GridIntent.RetryGenres)
 
-        val recovered = store.states.first { it.genres == listOf("科幻") }
+        val recovered = recoveredState.await()
         assertEquals(2, genreAttempts)
         assertEquals(listOf("科幻"), recovered.genres)
         assertEquals(null, recovered.genreLoadError)
         store.dispose()
+        runCurrent()
     }
 
     @Test
@@ -241,15 +294,28 @@ class LibraryGridStoreTest {
                 else -> throw kotlinx.io.IOException("network down")
             }
         }
-        val store = LibraryGridStoreFactory(DefaultStoreFactory(), repo, registry(), "lib1").create()
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "lib1",
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
         store.states.first { !it.loading && it.items.isNotEmpty() }
 
+        // Register before the intent: an unconfined mock failure may complete before accept returns.
+        val failedState = async(start = CoroutineStart.UNDISPATCHED) {
+            store.states.first { !it.loadingMore && it.loadMoreError != null }
+        }
         store.accept(GridIntent.LoadMore)
 
-        val failed = store.states.first { it.loadMoreError != null }
+        val failed = failedState.await()
+        assertFalse(failed.loadingMore)
+        assertTrue(failed.loadMoreError?.isNotBlank() == true)
         assertEquals(2, failed.items.size)
         // The page-level failure must not become the whole screen's error state.
         assertEquals(null, failed.error)
         store.dispose()
+        runCurrent()
     }
 }

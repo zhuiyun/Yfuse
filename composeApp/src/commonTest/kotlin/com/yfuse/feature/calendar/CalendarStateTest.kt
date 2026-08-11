@@ -36,6 +36,9 @@ class CalendarStateTest {
     private fun state(vararg days: CalendarDay) = CalendarState(
         loading = false,
         days = days.toList(),
+        // Indexing tests exercise the complete oldest-first window. Production defaults to
+        // Today, which intentionally collapses that window to one visible day.
+        filter = CalendarFilter.All,
         today = "2026-08-01",
     )
 

@@ -6,6 +6,7 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -27,6 +28,59 @@ class PlayerStoreTest {
 
     @AfterTest
     fun tearDown() = Dispatchers.resetMain()
+
+    @Test
+    fun retry_after_initial_load_failure_enters_loading_and_recovers() = runTest {
+        val registry = testRegistry()
+        val allowSuccessfulLoad = CompletableDeferred<Unit>()
+        var requestCount = 0
+        val repo = testRepo { request ->
+            requestCount += 1
+            allowSuccessfulLoad.await()
+            when {
+                request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                    json("""{"MediaSources":[],"PlaySessionId":"session-retry"}""")
+                request.url.encodedPath.endsWith("/Items/movie") ->
+                    json("""{"Id":"movie","Name":"恢复播放","Type":"Movie"}""")
+                else -> json("{}")
+            }
+        }
+        val store = PlayerStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry,
+            itemId = "movie",
+            startPositionTicks = 12_340_000L,
+        ).create()
+
+        val failed = store.states.first { !it.loading }
+        assertEquals("没有可用的服务器", failed.error)
+        assertTrue(failed.items.isEmpty())
+        assertEquals(0, requestCount, "A missing server should fail before making HTTP calls")
+
+        registry.addOrUpdate(
+            SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"),
+        )
+        store.accept(PlayerIntent.Retry)
+
+        val retrying = store.states.first { it.loading }
+        assertNull(retrying.error)
+        assertTrue(retrying.items.isEmpty())
+        assertEquals(1, requestCount, "Retry should start exactly one queue rebuild")
+
+        // A second press while the first retry is in flight must not start a parallel load.
+        store.accept(PlayerIntent.Retry)
+        assertEquals(1, requestCount)
+
+        allowSuccessfulLoad.complete(Unit)
+        val recovered = store.states.first { !it.loading && it.error == null }
+
+        assertEquals(listOf("movie"), recovered.items.map { it.id })
+        assertEquals("恢复播放", recovered.items.single().title)
+        assertEquals(1_234L, recovered.startPositionMs)
+        assertTrue(requestCount >= 2)
+        store.dispose()
+    }
 
     @Test
     fun episode_loads_series_queue_and_resume_position() = runTest {

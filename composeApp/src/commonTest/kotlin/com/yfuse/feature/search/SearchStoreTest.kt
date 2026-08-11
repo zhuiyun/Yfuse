@@ -156,7 +156,12 @@ class SearchStoreTest {
         store.accept(SearchIntent.Submit)
         store.accept(SearchIntent.Clear)
 
-        assertEquals(SearchState(), store.state)
+        assertEquals(
+            SearchState(
+                serverOptions = listOf(SearchOption("id1", "我的服务器")),
+            ),
+            store.state,
+        )
         store.dispose()
     }
 

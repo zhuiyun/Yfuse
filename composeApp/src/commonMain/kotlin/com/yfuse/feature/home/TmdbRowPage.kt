@@ -26,13 +26,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.SystemBackGestureSurface
-import com.yfuse.core.designsystem.mr
+import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.TmdbImages
@@ -57,7 +57,7 @@ private val PosterMinWidth = 94.dp
  * detail page is one: the shelf's items are already loaded and already in the home store,
  * and a route would mean threading the same list through the navigation stack to show
  * something the page above it is already holding. The home page remains composed below this
- * layer, so predictive back can reveal that exact page while the grid follows the finger.
+ * layer, so dismissing it returns to the already composed home page.
  */
 @Composable
 internal fun TmdbRowPage(
@@ -69,7 +69,7 @@ internal fun TmdbRowPage(
 ) {
     val palette = LocalPalette.current
 
-    SystemBackGestureSurface(onBack = onDismiss) {
+    BackOverlay(onBack = onDismiss) {
         Box(Modifier.fillMaxSize().background(palette.background)) {
             Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Row(
@@ -85,15 +85,20 @@ internal fun TmdbRowPage(
                         contentDescription = "返回",
                         tint = palette.text,
                         modifier = Modifier
+                            .pressable(onClickLabel = "关闭全部内容", onClick = onDismiss)
+                            .touchTarget()
                             .size(36.dp)
-                            .pressable(onClick = onDismiss)
                             .solidGlass(CircleShape, palette.card2, palette.border)
                             .padding(10.dp),
                     )
                     Column(Modifier.weight(1f)) {
-                        Text(title, style = sc(17f, 800), color = palette.text)
+                        Text(title, style = AppTypography.section.strong, color = palette.text)
                         Spacer(Modifier.height(2.dp))
-                        Text("${items.size} 部", style = mr(10f, 400), color = palette.sub2)
+                        Text(
+                            "${items.size} 部",
+                            style = AppTypography.caption.regular,
+                            color = palette.sub2,
+                        )
                     }
                 }
 
@@ -127,7 +132,6 @@ internal fun TmdbRowPage(
                             // The same title can sit in two shelves at once, and this page is
                             // opened from one of them; a shared element would compete with the
                             // shelf poster still mounted underneath.
-                            sharedKey = null,
                             onClick = { onOpen(item) },
                             modifier = Modifier.fillMaxWidth(),
                             posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),

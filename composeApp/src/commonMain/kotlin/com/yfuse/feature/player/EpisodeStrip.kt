@@ -26,13 +26,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.cssLinearGradient
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.AppTypography
 
 /** One card in the strip. A projection of [PlayerMediaItem], so the strip needs nothing else. */
 internal data class EpisodeCard(
@@ -95,12 +94,12 @@ internal fun EpisodeStrip(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("剧集列表", style = sc(12.5f, 700), color = Color.White)
+            Text("剧集列表", style = AppTypography.body.strong, color = Color.White)
             Icon(
                 AppIcons.Close,
                 contentDescription = "关闭",
                 tint = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier.size(11.dp).noRippleClickable(onDismiss),
+                modifier = Modifier.noRippleClickable(onDismiss).size(11.dp),
             )
         }
         Spacer(Modifier.height(10.dp))
@@ -126,6 +125,7 @@ private fun EpisodeStripCard(
     current: Boolean,
     onClick: () -> Unit,
 ) {
+    val accent = rememberAccentColorsForSurface(dark = true)
     Column(
         Modifier
             .width(140.dp)
@@ -153,7 +153,7 @@ private fun EpisodeStripCard(
                         .background(Color.Black.copy(alpha = 0.45f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("正在播放", style = sc(10.5f, 700), color = Color.White)
+                    Text("正在播放", style = AppTypography.caption.strong, color = Color.White)
                 }
             }
             episode.progress?.let { progress ->
@@ -168,7 +168,7 @@ private fun EpisodeStripCard(
                         Modifier
                             .fillMaxWidth(progress.coerceIn(0f, 1f))
                             .height(3.dp)
-                            .background(Brand.PrimaryGradTop),
+                            .background(accent.accent),
                     )
                 }
             }
@@ -176,14 +176,14 @@ private fun EpisodeStripCard(
         Spacer(Modifier.height(6.dp))
         Text(
             episode.title,
-            style = sc(10.5f, if (current) 700 else 600),
+            style = if (current) AppTypography.caption.strong else AppTypography.caption.medium,
             color = if (current) Color.White else Color.White.copy(alpha = 0.82f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         episode.caption?.let {
             Spacer(Modifier.height(2.dp))
-            Text(it, style = mr(9f, 400), color = Color.White.copy(alpha = 0.45f), maxLines = 1)
+            Text(it, style = AppTypography.caption.regular, color = Color.White.copy(alpha = 0.45f), maxLines = 1)
         }
     }
 }

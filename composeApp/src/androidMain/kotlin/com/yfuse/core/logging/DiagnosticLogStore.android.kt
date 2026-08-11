@@ -12,12 +12,16 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Collections
+import java.util.LinkedHashMap
 import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -44,10 +48,146 @@ private data class DiagnosticEntry(
     val exception: DiagnosticException? = null,
 )
 
+internal const val DiagnosticMaxMessageChars = 4_000
+internal const val DiagnosticMaxAttributes = 32
+internal const val DiagnosticMaxAttributeChars = 1_000
+internal const val DiagnosticMaxStackTraceChars = 16_000
+internal const val DiagnosticMaxThrowableTypeChars = 256
+internal const val DiagnosticMaxThreadNameChars = 80
+internal const val DiagnosticMaxFingerprints = 256
+
+internal data class PreparedDiagnosticException(
+    val type: String,
+    val message: String?,
+    val stackTrace: String,
+)
+
+/**
+ * The complete payload retained by the asynchronous writer.
+ *
+ * Every string is redacted and capped, [attributes] is a defensive unmodifiable copy, and no
+ * Throwable survives preparation. A full queue therefore has a deterministic memory ceiling and
+ * cannot retain an exception's cause/suppressed-object graph.
+ */
+internal data class PreparedDiagnosticLog(
+    val timestamp: String,
+    val level: DiagnosticLevel,
+    val category: String,
+    val event: String,
+    val message: String,
+    val attributes: Map<String, String>,
+    val exception: PreparedDiagnosticException?,
+)
+
+internal fun prepareDiagnosticLog(
+    level: DiagnosticLevel,
+    category: String,
+    event: String,
+    message: String,
+    throwable: Throwable?,
+    attributes: Map<String, String>,
+    threadName: String,
+): PreparedDiagnosticLog {
+    val safeAttributes = LinkedHashMap<String, String>(DiagnosticMaxAttributes)
+    // Reserve one slot for the actual producer thread. Limiting before transformation also avoids
+    // copying an attacker-sized map merely to discard all but its first entries afterwards.
+    attributes.entries
+        .take(DiagnosticMaxAttributes - 1)
+        .forEach { (key, value) ->
+            val safeKey = normalizeDiagnosticName(key, "attribute")
+            if (safeKey == "thread") return@forEach
+            val safeValue = redactDiagnosticAttributes(mapOf(key to value))
+                .values
+                .first()
+                .take(DiagnosticMaxAttributeChars)
+            safeAttributes[safeKey] = safeValue
+        }
+    safeAttributes["thread"] = redactDiagnosticText(threadName)
+        .take(DiagnosticMaxThreadNameChars)
+
+    val safeException = throwable?.let {
+        PreparedDiagnosticException(
+            type = redactDiagnosticText(it.javaClass.name)
+                .take(DiagnosticMaxThrowableTypeChars),
+            message = it.message
+                ?.let(::redactDiagnosticText)
+                ?.take(DiagnosticMaxMessageChars),
+            stackTrace = redactDiagnosticText(it.stackTraceToString())
+                .take(DiagnosticMaxStackTraceChars),
+        )
+    }
+    return PreparedDiagnosticLog(
+        timestamp = Instant.now().toString(),
+        level = level,
+        category = normalizeDiagnosticName(category, "general"),
+        event = normalizeDiagnosticName(event, "unknown"),
+        message = redactDiagnosticText(message).take(DiagnosticMaxMessageChars),
+        attributes = Collections.unmodifiableMap(safeAttributes),
+        exception = safeException,
+    )
+}
+
+/** Fixed-capacity insertion-ordered history used by duplicate suppression. */
+internal class BoundedDiagnosticFingerprintHistory(
+    private val maxEntries: Int = DiagnosticMaxFingerprints,
+) {
+    private val entries = LinkedHashMap<String, Long>(maxEntries)
+
+    init {
+        require(maxEntries > 0)
+    }
+
+    fun record(
+        fingerprint: String,
+        nowElapsedMs: Long,
+        duplicateWindowMs: Long,
+        suppressDuplicates: Boolean,
+    ): Boolean {
+        val previous = entries[fingerprint]
+        if (
+            suppressDuplicates &&
+            previous != null &&
+            nowElapsedMs >= previous &&
+            nowElapsedMs - previous < duplicateWindowMs
+        ) {
+            return true
+        }
+
+        // Updating an existing fingerprint makes it newest. A new fingerprint evicts before
+        // insertion, so the collection never transiently exceeds its hard capacity.
+        entries.remove(fingerprint)
+        if (entries.size >= maxEntries) {
+            val oldest = entries.entries.iterator()
+            if (oldest.hasNext()) {
+                oldest.next()
+                oldest.remove()
+            }
+        }
+        entries[fingerprint] = nowElapsedMs
+        return false
+    }
+
+    fun clear() = entries.clear()
+
+    internal val size: Int get() = entries.size
+
+    internal fun contains(fingerprint: String): Boolean = fingerprint in entries
+}
+
+internal fun normalizeDiagnosticName(value: String, fallback: String): String =
+    value
+        .trim()
+        .lowercase()
+        .replace(Regex("[^a-z0-9_.-]+"), "_")
+        .trim('_')
+        .take(64)
+        .ifBlank { fallback }
+
 internal data class DiagnosticLogStats(
     val entryCount: Int,
     val totalBytes: Long,
     val fileCount: Int,
+    val droppedEntryCount: Long,
 )
 
 internal object DiagnosticLogStore {
@@ -56,19 +196,25 @@ internal object DiagnosticLogStore {
     private const val MaxTotalBytes = 5L * 1024L * 1024L
     private const val MaxFiles = 8
     private const val DuplicateWindowMs = 5_000L
-    private const val MaxMessageChars = 4_000
-    private const val MaxAttributeChars = 1_000
-    private const val MaxStackTraceChars = 16_000
+    /** Hard cap on already-bounded payloads awaiting disk persistence. */
+    private const val MaxQueuedWrites = 64
 
     private val json = Json { encodeDefaults = false }
     private val lock = Any()
-    private val executor: ExecutorService = Executors.newSingleThreadExecutor { task ->
-        Thread(task, "yfuse-diagnostics").apply { isDaemon = true }
-    }
+    private val executor = ThreadPoolExecutor(
+        1,
+        1,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(MaxQueuedWrites),
+        { task -> Thread(task, "yfuse-diagnostics").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy(),
+    )
     private val dayFormatter = DateTimeFormatter.BASIC_ISO_DATE
-    private val lastWriteByFingerprint = mutableMapOf<String, Long>()
+    private val fingerprints = BoundedDiagnosticFingerprintHistory()
     private val writeFailureCount = AtomicInteger(0)
     private val lastWriteFailure = AtomicReference<String?>(null)
+    private val droppedEntryCount = AtomicLong(0L)
 
     @Volatile
     private var initialized = false
@@ -111,26 +257,32 @@ internal object DiagnosticLogStore {
         attributes: Map<String, String> = emptyMap(),
     ) {
         if (!initialized) return
-        executor.execute {
-            runCatching {
-                writeBlocking(level, category, event, message, throwable, attributes)
-            }.onFailure { error ->
-                val failures = writeFailureCount.incrementAndGet()
-                lastWriteFailure.set(error.javaClass.name)
-                if (failures == 1 || failures % 25 == 0) {
-                    safeLogcat(
-                        priority = Log.ERROR,
-                        tag = LogTag,
-                        message = "Failed to persist diagnostic log entry (count=$failures)",
-                        throwable = error,
-                    )
-                }
+        val prepared = runCatching {
+            prepareDiagnosticLog(
+                level = level,
+                category = category,
+                event = event,
+                message = message,
+                throwable = throwable,
+                attributes = attributes,
+                threadName = Thread.currentThread().name,
+            )
+        }.getOrElse { error ->
+            recordWriteFailure(error)
+            return
+        }
+        try {
+            executor.execute {
+                runCatching { writeBlocking(prepared) }
+                    .onFailure(::recordWriteFailure)
             }
+        } catch (_: RejectedExecutionException) {
+            recordDroppedEntry()
         }
     }
 
     fun stats(): DiagnosticLogStats {
-        if (!initialized) return DiagnosticLogStats(0, 0L, 0)
+        if (!initialized) return DiagnosticLogStats(0, 0L, 0, droppedEntryCount.get())
         flushQueued()
         return synchronized(lock) {
             val files = logFilesLocked()
@@ -140,6 +292,7 @@ internal object DiagnosticLogStore {
                 },
                 totalBytes = files.sumOf(File::length),
                 fileCount = files.size,
+                droppedEntryCount = droppedEntryCount.get(),
             )
         }
     }
@@ -149,7 +302,7 @@ internal object DiagnosticLogStore {
         flushQueued()
         synchronized(lock) {
             logFilesLocked().forEach { it.delete() }
-            lastWriteByFingerprint.clear()
+            fingerprints.clear()
         }
     }
 
@@ -157,12 +310,15 @@ internal object DiagnosticLogStore {
         check(initialized) { "诊断日志尚未初始化" }
         flushQueued()
         writeBlocking(
-            level = DiagnosticLevel.Info,
-            category = "diagnostics",
-            event = "export_requested",
-            message = "Diagnostic package export requested",
-            throwable = null,
-            attributes = emptyMap(),
+            prepareDiagnosticLog(
+                level = DiagnosticLevel.Info,
+                category = "diagnostics",
+                event = "export_requested",
+                message = "Diagnostic package export requested",
+                throwable = null,
+                attributes = emptyMap(),
+                threadName = Thread.currentThread().name,
+            ),
         )
         synchronized(lock) {
             ZipOutputStream(output.buffered()).use { zip ->
@@ -192,12 +348,15 @@ internal object DiagnosticLogStore {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             runCatching {
                 writeBlocking(
-                    level = DiagnosticLevel.Critical,
-                    category = "crash",
-                    event = "uncaught_exception",
-                    message = "Uncaught exception terminated the application",
-                    throwable = throwable,
-                    attributes = mapOf("thread" to thread.name),
+                    prepareDiagnosticLog(
+                        level = DiagnosticLevel.Critical,
+                        category = "crash",
+                        event = "uncaught_exception",
+                        message = "Uncaught exception terminated the application",
+                        throwable = throwable,
+                        attributes = emptyMap(),
+                        threadName = thread.name,
+                    ),
                 )
             }
             if (previous != null) {
@@ -208,61 +367,43 @@ internal object DiagnosticLogStore {
         }
     }
 
-    private fun writeBlocking(
-        level: DiagnosticLevel,
-        category: String,
-        event: String,
-        message: String,
-        throwable: Throwable?,
-        attributes: Map<String, String>,
-    ) {
+    private fun writeBlocking(prepared: PreparedDiagnosticLog) {
         if (!initialized) return
         synchronized(lock) {
-            val safeCategory = normalizedName(category, "general")
-            val safeEvent = normalizedName(event, "unknown")
-            val safeMessage = redactDiagnosticText(message).take(MaxMessageChars)
             val fingerprint = listOf(
-                level.name,
-                safeCategory,
-                safeEvent,
-                safeMessage,
-                throwable?.javaClass?.name.orEmpty(),
+                prepared.level.name,
+                prepared.category,
+                prepared.event,
+                prepared.message,
+                prepared.exception?.type.orEmpty(),
             ).joinToString("|")
-            val nowElapsed = SystemClock.elapsedRealtime()
-            if (level != DiagnosticLevel.Error && level != DiagnosticLevel.Critical) {
-                val previous = lastWriteByFingerprint[fingerprint]
-                if (previous != null && nowElapsed - previous < DuplicateWindowMs) return
+            val suppressDuplicates = prepared.level != DiagnosticLevel.Error &&
+                prepared.level != DiagnosticLevel.Critical
+            if (
+                fingerprints.record(
+                    fingerprint = fingerprint,
+                    nowElapsedMs = SystemClock.elapsedRealtime(),
+                    duplicateWindowMs = DuplicateWindowMs,
+                    suppressDuplicates = suppressDuplicates,
+                )
+            ) {
+                return
             }
-            lastWriteByFingerprint[fingerprint] = nowElapsed
-            if (lastWriteByFingerprint.size > 256) {
-                val cutoff = nowElapsed - TimeUnit.MINUTES.toMillis(10)
-                lastWriteByFingerprint.entries.removeAll { it.value < cutoff }
-            }
-
-            val safeAttributes = redactDiagnosticAttributes(attributes)
-                .entries
-                .take(32)
-                .associate { (key, value) ->
-                    normalizedName(key, "attribute") to value.take(MaxAttributeChars)
-                }
-                .toMutableMap()
-                .apply { putIfAbsent("thread", Thread.currentThread().name.take(80)) }
-            val safeThrowable = throwable?.let {
+            val safeThrowable = prepared.exception?.let {
                 DiagnosticException(
-                    type = it.javaClass.name,
-                    message = it.message?.let(::redactDiagnosticText)?.take(MaxMessageChars),
-                    stackTrace = redactDiagnosticText(it.stackTraceToString())
-                        .take(MaxStackTraceChars),
+                    type = it.type,
+                    message = it.message,
+                    stackTrace = it.stackTrace,
                 )
             }
             val entry = DiagnosticEntry(
-                timestamp = Instant.now().toString(),
+                timestamp = prepared.timestamp,
                 session = sessionId,
-                level = level.name.uppercase(),
-                category = safeCategory,
-                event = safeEvent,
-                message = safeMessage.ifBlank { null },
-                attributes = safeAttributes,
+                level = prepared.level.name.uppercase(),
+                category = prepared.category,
+                event = prepared.event,
+                message = prepared.message.ifBlank { null },
+                attributes = prepared.attributes,
                 exception = safeThrowable,
             )
             val target = writableFileLocked()
@@ -317,6 +458,7 @@ internal object DiagnosticLogStore {
             },
             totalBytes = logFilesLocked().sumOf(File::length),
             fileCount = logFilesLocked().size,
+            droppedEntryCount = droppedEntryCount.get(),
         )
         return buildString {
             appendLine("Yfuse diagnostic package")
@@ -331,6 +473,7 @@ internal object DiagnosticLogStore {
             appendLine("logFiles=${stats.fileCount}")
             appendLine("logEntries=${stats.entryCount}")
             appendLine("logBytes=${stats.totalBytes}")
+            appendLine("logDroppedEntries=${stats.droppedEntryCount}")
             appendLine("logWriteFailures=${writeFailureCount.get()}")
             lastWriteFailure.get()?.let { appendLine("lastLogWriteFailure=$it") }
             appendLine("format=JSON Lines; one JSON object per line")
@@ -346,14 +489,29 @@ internal object DiagnosticLogStore {
         }
     }
 
-    private fun normalizedName(value: String, fallback: String): String =
-        value
-            .trim()
-            .lowercase()
-            .replace(Regex("[^a-z0-9_.-]+"), "_")
-            .trim('_')
-            .take(64)
-            .ifBlank { fallback }
+    private fun recordWriteFailure(error: Throwable) {
+        val failures = writeFailureCount.incrementAndGet()
+        lastWriteFailure.set(error.javaClass.name)
+        if (failures == 1 || failures % 25 == 0) {
+            safeLogcat(
+                priority = Log.ERROR,
+                tag = LogTag,
+                message = "Failed to persist diagnostic log entry (count=$failures)",
+                throwable = error,
+            )
+        }
+    }
+
+    private fun recordDroppedEntry() {
+        val dropped = droppedEntryCount.incrementAndGet()
+        if (dropped == 1L || dropped % 100L == 0L) {
+            safeLogcat(
+                priority = Log.WARN,
+                tag = LogTag,
+                message = "Diagnostic log queue full; dropped entry (count=$dropped)",
+            )
+        }
+    }
 }
 
 internal actual fun writeDiagnosticLog(

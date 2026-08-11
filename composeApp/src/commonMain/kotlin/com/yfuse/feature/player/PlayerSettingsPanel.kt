@@ -22,14 +22,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.SkipMode
-import com.yfuse.core.designsystem.continuousRounded
-import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 
 /**
@@ -85,6 +84,7 @@ internal fun SettingsPanel(
     onCastTo: (String) -> Unit,
     onStopCast: () -> Unit,
     onLock: () -> Unit,
+    onOpenGestureHelp: () -> Unit,
     watch: WatchRoomState,
     onOpenWatchTogether: () -> Unit,
     versions: List<Pair<String, String>>,
@@ -102,7 +102,7 @@ internal fun SettingsPanel(
         add(Tab.Cast)
         add(Tab.Advanced)
     }
-    val shape = continuousRounded(20.dp)
+    val shape = AppShapes.sheet
 
     // Dismiss catcher only — the old full-screen `rgba(0,0,0,.35)` scrim dimmed the film
     // itself every time a track list opened. The panel earns its separation from its own
@@ -134,7 +134,7 @@ internal fun SettingsPanel(
                     val active = entry == tab
                     Text(
                         entry.label,
-                        style = sc(12.5f, if (active) 700 else 500),
+                        style = if (active) AppTypography.body.strong else AppTypography.body.medium,
                         color = if (active) {
                             Color.White
                         } else {
@@ -235,7 +235,7 @@ internal fun SettingsPanel(
                                 )
                             }
                             remoteSubtitles.message?.let { message ->
-                                Text(message, style = mr(10.5f, 500), color = Color.White.copy(alpha = 0.68f))
+                                Text(message, style = AppTypography.caption.medium, color = Color.White.copy(alpha = 0.68f))
                             }
                         }
                         if (state.audioTracks.isNotEmpty()) {
@@ -251,6 +251,7 @@ internal fun SettingsPanel(
                         // 只留顶栏没有的入口。
                         GroupLabel("播放")
                         OptionRow("锁定控制", false, onClick = onLock)
+                        OptionRow("手势说明", false, onClick = onOpenGestureHelp)
                         OptionRow(
                             if (watch.connected) {
                                 "一起看 · ${watch.roomCode.orEmpty()}"
@@ -434,7 +435,7 @@ internal fun SettingsPanel(
                         if (castDiscovering) {
                             Text(
                                 "正在发现 DLNA 设备…",
-                                style = mr(11.5f, 500),
+                                style = AppTypography.caption.medium,
                                 color = Color.White.copy(alpha = 0.55f),
                                 modifier = Modifier.padding(vertical = 10.dp),
                             )
@@ -448,8 +449,8 @@ internal fun SettingsPanel(
                         if (castError != null) {
                             Text(
                                 castError,
-                                style = mr(10.5f, 500),
-                                color = Brand.Danger,
+                                style = AppTypography.caption.medium,
+                                color = DarkPalette.error,
                                 modifier = Modifier.padding(vertical = 8.dp),
                             )
                         }

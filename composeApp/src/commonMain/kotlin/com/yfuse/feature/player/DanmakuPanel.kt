@@ -46,9 +46,10 @@ import com.yfuse.core.data.DanmakuEpisode
 import com.yfuse.core.data.DanmakuSearchResult
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.activeOr
-import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.OverlayButton
@@ -56,8 +57,6 @@ import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 
 /**
  * Everything the 弹幕 tab and 搜索弹幕 sheet read, in one bundle.
@@ -165,8 +164,8 @@ internal fun DanmakuTab(
             state.count > 0 -> "弹幕条数：${state.count}"
             else -> "没有匹配到弹幕"
         },
-        style = mr(10.5f, 500),
-        color = if (state.error != null) Brand.Danger else Color.White.copy(alpha = 0.56f),
+        style = AppTypography.caption.medium,
+        color = if (state.error != null) DarkPalette.error else Color.White.copy(alpha = 0.56f),
         modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp),
     )
     // A failed load used to be a red line and nothing else: the only way to try again was
@@ -179,7 +178,7 @@ internal fun DanmakuTab(
     state.matchLabel?.let { label ->
         Text(
             label,
-            style = sc(10.5f, 600),
+            style = AppTypography.caption.medium,
             color = Color.White.copy(alpha = 0.82f),
             maxLines = 3,
             overflow = TextOverflow.Ellipsis,
@@ -263,12 +262,12 @@ internal fun DanmakuSearchPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("搜索弹幕", style = sc(13.5f, 700), color = Color.White)
+            Text("搜索弹幕", style = AppTypography.body.strong, color = Color.White)
             Icon(
                 AppIcons.Close,
                 contentDescription = "关闭",
                 tint = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier.size(12.dp).noRippleClickable(onDismiss),
+                modifier = Modifier.noRippleClickable(onDismiss).size(12.dp),
             )
         }
 
@@ -313,7 +312,7 @@ internal fun DanmakuSearchPanel(
                 )
                 Text(
                     result.title,
-                    style = sc(11.5f, 600),
+                    style = AppTypography.caption.medium,
                     color = Color.White.copy(alpha = 0.9f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -333,7 +332,7 @@ internal fun DanmakuSearchPanel(
                 )
             }
 
-            search.error != null -> PanelNote(search.error, Brand.Danger)
+            search.error != null -> PanelNote(search.error, DarkPalette.error)
 
             search.openResult != null -> if (search.episodes.isEmpty()) {
                 PanelNote("这个作品下没有可用的集", Color.White.copy(alpha = 0.5f))
@@ -370,7 +369,7 @@ internal fun DanmakuSearchPanel(
                 // landscape keyboard is the sort of chore a list of eight strings removes.
                 Text(
                     "最近搜索",
-                    style = mr(10f, 600),
+                    style = AppTypography.caption.medium,
                     color = Color.White.copy(alpha = 0.42f),
                     modifier = Modifier.padding(vertical = 2.dp),
                 )
@@ -430,7 +429,7 @@ internal fun DanmakuSendDialog(
         )
         if (error != null) {
             Spacer(Modifier.height(8.dp))
-            Text(error, style = mr(10.5f, 500), color = Brand.Danger)
+            Text(error, style = AppTypography.caption.medium, color = DarkPalette.error)
         }
         Row(
             Modifier.fillMaxWidth().padding(top = 16.dp),
@@ -466,7 +465,7 @@ private fun SearchField(
         Modifier
             .fillMaxWidth()
             .glass(
-                shape = continuousRounded(12.dp),
+                shape = AppShapes.control,
                 fill = Color.White.copy(alpha = 0.08f),
                 border = Color.White.copy(alpha = 0.20f),
             )
@@ -478,7 +477,7 @@ private fun SearchField(
             if (value.isEmpty()) {
                 Text(
                     placeholder,
-                    style = mr(12f, 500),
+                    style = AppTypography.body.medium,
                     color = Color.White.copy(alpha = 0.38f),
                     maxLines = 1,
                 )
@@ -487,7 +486,7 @@ private fun SearchField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = true,
-                textStyle = mr(12f, 500).copy(color = Color.White),
+                textStyle = AppTypography.body.medium.copy(color = Color.White),
                 cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
@@ -499,7 +498,7 @@ private fun SearchField(
                 icon,
                 contentDescription = "搜索",
                 tint = Color.White,
-                modifier = Modifier.size(16.dp).noRippleClickable(onSubmit),
+                modifier = Modifier.noRippleClickable(onSubmit).size(16.dp),
             )
         }
     }
@@ -509,7 +508,7 @@ private fun SearchField(
 private fun SourceChip(label: String, active: Boolean, onClick: () -> Unit) {
     Text(
         label,
-        style = sc(11f, if (active) 700 else 500),
+        style = if (active) AppTypography.caption.strong else AppTypography.caption.medium,
         color = if (active) Color.White else Color.White.copy(alpha = 0.62f),
         maxLines = 1,
         modifier = Modifier
@@ -538,14 +537,14 @@ private fun SearchRow(title: String, subtitle: String?, onClick: () -> Unit) {
     ) {
         Text(
             title,
-            style = sc(11.5f, 600),
+            style = AppTypography.caption.medium,
             color = Color.White.copy(alpha = 0.92f),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         subtitle?.let {
             Spacer(Modifier.height(3.dp))
-            Text(it, style = mr(10f, 400), color = Color.White.copy(alpha = 0.5f), maxLines = 1)
+            Text(it, style = AppTypography.caption.regular, color = Color.White.copy(alpha = 0.5f), maxLines = 1)
         }
     }
 }
@@ -554,7 +553,7 @@ private fun SearchRow(title: String, subtitle: String?, onClick: () -> Unit) {
 private fun PanelNote(text: String, color: Color) {
     Text(
         text,
-        style = mr(10.5f, 500),
+        style = AppTypography.caption.medium,
         color = color,
         modifier = Modifier.padding(horizontal = 2.dp, vertical = 8.dp),
     )

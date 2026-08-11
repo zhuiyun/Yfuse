@@ -77,11 +77,11 @@ fun DolbyBadge(
                 tint = tint,
                 modifier = Modifier.width(19.dp).height(14.dp),
             )
-            Text("Dolby", style = sc(13.5f, 700), color = tint, maxLines = 1)
+            Text("Dolby", style = AppTypography.body.strong, color = tint, maxLines = 1)
         }
         Text(
             caption,
-            style = mr(8f, 600).copy(letterSpacing = 2.4.sp),
+            style = AppTypography.caption.strong.copy(letterSpacing = 2.4.sp),
             color = tint,
             maxLines = 1,
         )
@@ -105,6 +105,6 @@ fun DolbyChip(caption: String, tint: Color, modifier: Modifier = Modifier) {
             tint = tint,
             modifier = Modifier.width(13.dp).height(10.dp),
         )
-        Text(caption, style = mr(9f, 700), color = tint, maxLines = 1)
+        Text(caption, style = AppTypography.caption.strong, color = tint, maxLines = 1)
     }
 }

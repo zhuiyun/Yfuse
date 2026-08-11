@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.GradleException
 import java.util.Properties
 
 plugins {
@@ -7,6 +8,82 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.serialization)
+}
+
+/**
+ * Keeps feature code on the semantic design-system surface. These are deliberately simple
+ * source checks: they catch the exact escape hatches that caused the audit drift while the
+ * compiler and unit tests cover behaviour and token math.
+ */
+val verifyDesignSystemUsage by tasks.registering {
+    group = "verification"
+    description = "Rejects raw UI typography, radii, and fixed functional colours."
+    val designSources = fileTree("src/commonMain/kotlin/com/yfuse") {
+        include("app/App.kt", "core/designsystem/**/*.kt", "feature/**/*.kt")
+        // These files define the low-level primitives or scale type from runtime geometry.
+        exclude(
+            "core/designsystem/ContinuousCorner.kt",
+            "core/designsystem/SemanticTypography.kt",
+            "core/designsystem/Tokens.kt",
+            "core/designsystem/WatchAvatar.kt",
+        )
+    }
+    inputs.files(designSources)
+
+    doLast {
+        val sourceRules = listOf(
+            "literal raw typography" to Regex("""\b(?:sc|mr)\(\s*\d"""),
+            "legacy Type typography" to Regex("""\bType\.\w+\("""),
+            "direct continuous radius" to Regex("""continuousRounded\("""),
+            "fixed danger colour" to Regex("""Brand\.Danger"""),
+            "legacy fixed-blue shadow" to Regex("""Shadows\.primaryButton(?!\s*\()"""),
+            "literal tween duration" to Regex("""\btween\(\s*\d"""),
+            "uncontrolled content-size animation" to Regex("""animateContentSize\(\s*\)"""),
+            // Scan the source occurrence itself, not only a same-line `color =` assignment:
+            // otherwise `val tint = Brand.Primary` and multiline arguments bypass the guard.
+            "fixed interactive brand colour" to Regex("""\bBrand\.Primary\b"""),
+        )
+        val violations = buildList {
+            designSources.files.sortedBy { it.path }.forEach { source ->
+                val original = source.readText()
+                // Preserve newlines while masking comments/imports so multiline calls are
+                // checked and diagnostics still point at the original source line.
+                val scanned = Regex("""(?s)/\*.*?\*/|//[^\r\n]*|(?m)^\s*import\b[^\r\n]*""")
+                    .replace(original) { match ->
+                        buildString(match.value.length) {
+                            match.value.forEach { char ->
+                                append(if (char == '\r' || char == '\n') char else ' ')
+                            }
+                        }
+                    }
+                val originalLines = original.lines()
+                sourceRules.forEach { (label, pattern) ->
+                    pattern.findAll(scanned).forEach { match ->
+                        val lineNumber = scanned
+                            .take(match.range.first)
+                            .count { it == '\n' } + 1
+                        val originalLine = originalLines.getOrElse(lineNumber - 1) { "" }
+                        val explicitlyBrandIdentity =
+                            "design-system: brand-identity" in originalLine
+                        if (
+                            !(label == "fixed interactive brand colour" && explicitlyBrandIdentity)
+                        ) {
+                            add("${source.relativeTo(projectDir)}:$lineNumber: $label")
+                        }
+                    }
+                }
+            }
+        }
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "Design-system contract violations:\n" + violations.joinToString("\n"),
+            )
+        }
+    }
+}
+
+tasks.matching { it.name == "check" }.configureEach {
+    dependsOn(verifyDesignSystemUsage)
 }
 
 kotlin {
@@ -27,6 +104,8 @@ kotlin {
 
             implementation(libs.decompose)
             implementation(libs.decompose.compose)
+            implementation(libs.androidx.navigation3.runtime)
+            implementation(libs.androidx.navigation3.ui)
             implementation(libs.mvikotlin)
             implementation(libs.mvikotlin.main)
             implementation(libs.mvikotlin.coroutines)

@@ -2,10 +2,10 @@ package com.yfuse.feature.detail
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -58,19 +59,22 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.WatchTogetherPreferences
-import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.BackdropState
@@ -100,12 +104,13 @@ import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.liquidGlass
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.WindowWidthTier
+import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
@@ -212,7 +217,7 @@ fun DetailScreen(component: DetailComponent) {
     // target before animation; doing the thresholded correction on every frame caused jumps.
     val detailAccent = rememberAnimatedArtworkAccent(
         url = resolvedHeroUrl,
-        fallback = Brand.Primary,
+        fallback = Brand.Primary, // design-system: brand-identity
         darkTheme = palette.isDark,
         identity = heroIdentity,
     )
@@ -322,7 +327,11 @@ fun DetailScreen(component: DetailComponent) {
         val density = LocalDensity.current
         // Enough artwork to feel cinematic while still exposing the title and primary
         // decision on compact phones. The old 60% crop hid too much of the useful page.
-        val heroHeight = maxHeight * 0.55f
+        val heroHeight = when (windowWidthTier(maxWidth)) {
+            WindowWidthTier.Compact -> (maxHeight * 0.55f).coerceIn(360.dp, 520.dp)
+            WindowWidthTier.Medium -> (maxHeight * 0.52f).coerceIn(420.dp, 600.dp)
+            WindowWidthTier.Expanded -> (maxHeight * 0.50f).coerceIn(460.dp, 640.dp)
+        }
         val heroHeightPx = with(density) { heroHeight.toPx() }
 
         // Lift the measured caption and the primary action over the artwork. The backdrop
@@ -403,7 +412,7 @@ fun DetailScreen(component: DetailComponent) {
                         title = displayTitle,
                         height = heroHeight,
                         surfaceColor = detailSurface,
-                        sharedKey = "media-backdrop-${detail.id}",
+                        animationKey = "detail-hero-${detail.id}",
                         scroll = heroScroll,
                         onResolvedUrl = { resolvedHeroUrl = it },
                     )
@@ -782,7 +791,7 @@ private fun RelatedSection(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         item.title,
-                        style = sc(12f, 700),
+                        style = AppTypography.body.strong,
                         color = palette.text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -791,7 +800,7 @@ private fun RelatedSection(
                     Text(
                         item.communityRating?.let { ((it * 10).toInt() / 10.0).toString() }
                             ?: item.year?.toString().orEmpty(),
-                        style = mr(12f, 700),
+                        style = AppTypography.caption.strong,
                         color = accent,
                         maxLines = 1,
                     )
@@ -902,15 +911,15 @@ private fun Hero(
     title: String,
     height: Dp,
     surfaceColor: Color,
-    sharedKey: String,
+    animationKey: String,
     scroll: State<Float>,
     onResolvedUrl: (String) -> Unit,
 ) {
     // 详情页顶图 1.14 → 1, §3.1. The parallax below has always been here; the entrance
     // it belongs to was not, so the artwork simply appeared at rest.
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    var entered by remember(sharedKey) { mutableStateOf(false) }
-    LaunchedEffect(sharedKey) { entered = true }
+    var entered by remember(animationKey) { mutableStateOf(false) }
+    LaunchedEffect(animationKey) { entered = true }
     val entrance by animateFloatAsState(
         targetValue = if (entered) 1f else 0f,
         animationSpec = tween(
@@ -1039,8 +1048,9 @@ private fun DetailTopBar(
                 contentDescription = "返回",
                 tint = lerp(Color.White, palette.text, p),
                 modifier = Modifier
-                    .size(38.dp)
                     .pressable(onClick = onBack)
+                    .touchTarget()
+                    .size(38.dp)
                     .liquidGlass(
                         shape = CircleShape,
                         fill = lerp(
@@ -1060,7 +1070,7 @@ private fun DetailTopBar(
             )
             Text(
                 title,
-                style = sc(14.5f, 700),
+                style = AppTypography.section.strong,
                 color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1073,6 +1083,7 @@ private fun DetailTopBar(
                     Modifier
                         .graphicsLayer { alpha = progress.value }
                         .pressable(enabled = solid, onClick = onPlay)
+                        .touchTarget()
                         .liquidGlass(
                             shape = GlassShapes.chip,
                             fill = accent.copy(alpha = 0.14f),
@@ -1086,7 +1097,7 @@ private fun DetailTopBar(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(AppIcons.Play, null, tint = accent, modifier = Modifier.size(10.dp))
-                    Text("播放", style = sc(11.5f, 700), color = accent)
+                    Text("播放", style = AppTypography.body.strong, color = accent)
                 }
             }
             if (showMore) {
@@ -1098,8 +1109,9 @@ private fun DetailTopBar(
                     contentDescription = "更多操作",
                     tint = lerp(Color.White, palette.text, p),
                     modifier = Modifier
-                        .size(38.dp)
                         .pressable(onClick = onMore)
+                        .touchTarget()
+                        .size(38.dp)
                         .liquidGlass(
                             shape = CircleShape,
                             fill = lerp(
@@ -1153,7 +1165,7 @@ private fun TitleBlock(
     ) {
         Text(
             title,
-            style = sc(23f, 800),
+            style = AppTypography.display.strong,
             color = ArtworkInk,
             textAlign = TextAlign.Start,
             maxLines = 2,
@@ -1167,7 +1179,7 @@ private fun TitleBlock(
             Spacer(Modifier.height(8.dp))
             Text(
                 facts.joinToString(" · "),
-                style = sc(12f, 400),
+                style = AppTypography.body.regular,
                 color = ArtworkInkSub,
                 textAlign = TextAlign.Start,
                 maxLines = 1,
@@ -1187,7 +1199,7 @@ private fun TitleBlock(
         }
         detail.genres.take(2).joinToString(" · ").takeIf { it.isNotBlank() }?.let { genre ->
             Spacer(Modifier.height(8.dp))
-            Text(genre, style = sc(11.5f, 500), color = ArtworkInkFaint, maxLines = 1)
+            Text(genre, style = AppTypography.body.medium, color = ArtworkInkFaint, maxLines = 1)
         }
         // Only what this copy actually carries. A page that always claims Dolby says
         // nothing; here the badge is the answer to "is this the good file", which on a
@@ -1258,8 +1270,8 @@ private fun RatingFigure(rating: Double, accent: Color) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("TMDB", style = sc(12f, 600), color = ArtworkInkSub)
-        Text(rating.toString(), style = mr(19f, 800), color = lerp(accent, Color.White, 0.38f))
+        Text("TMDB", style = AppTypography.body.strong, color = ArtworkInkSub)
+        Text(rating.toString(), style = AppTypography.section.strong, color = lerp(accent, Color.White, 0.38f))
     }
 }
 
@@ -1268,11 +1280,11 @@ private fun RatingFigure(rating: Double, accent: Color) {
 private fun CertificationBadge(label: String) {
     Text(
         label,
-        style = mr(10f, 600),
+        style = AppTypography.caption.strong,
         color = ArtworkInkSub,
         modifier = Modifier
             .solidGlass(
-                shape = continuousRounded(6.dp),
+                shape = AppShapes.micro,
                 fill = Color.Transparent,
                 border = ArtworkInkSub.copy(alpha = 0.42f),
             )
@@ -1356,14 +1368,14 @@ private fun DetailActionDock(
             Column(Modifier.weight(1f)) {
                 Text(
                     label,
-                    style = sc(if (detailLine == null) 14f else 13.5f, 750),
+                    style = AppTypography.body.strong,
                     color = Color.White,
                     maxLines = 1,
                 )
                 detailLine?.let {
                     Text(
                         it,
-                        style = mr(9.5f, 500),
+                        style = AppTypography.caption.medium,
                         color = Color.White.copy(alpha = 0.76f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1381,7 +1393,7 @@ private fun DetailActionDock(
         if (canPlayFromStart) {
             Text(
                 "从头播放",
-                style = sc(11.5f, 600),
+                style = AppTypography.body.strong,
                 color = palette.sub,
                 modifier = Modifier
                     .align(Alignment.End)
@@ -1477,7 +1489,7 @@ private fun GlassActionButton(
         }
         Text(
             label,
-            style = sc(12f, if (active) 700 else 600),
+            style = if (active) AppTypography.body.strong else AppTypography.body.medium,
             color = if (active) accent else palette.text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1501,7 +1513,7 @@ private fun GenreSection(genres: List<String>, modifier: Modifier = Modifier) {
             genres.take(6).forEach { genre ->
                 Text(
                     genre,
-                    style = sc(11.5f, 600),
+                    style = AppTypography.body.strong,
                     color = palette.body,
                     modifier = Modifier
                         .solidGlass(
@@ -1601,7 +1613,7 @@ private fun ExternalLinksSection(
                         tint = palette.sub,
                         modifier = Modifier.size(12.dp),
                     )
-                    Text(label, style = sc(11.5f, 600), color = palette.body)
+                    Text(label, style = AppTypography.body.strong, color = palette.body)
                 }
             }
         }
@@ -1635,7 +1647,7 @@ internal fun SectionHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = sc(15f, 700), color = LocalPalette.current.text)
+        Text(title, style = AppTypography.section.strong, color = LocalPalette.current.text)
         trailing()
     }
 }
@@ -1650,16 +1662,33 @@ private fun OverviewSection(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     var overflowed by remember(text) { mutableStateOf(false) }
+    val canToggle = overflowed || expanded
     Column(
         modifier
-            .animateContentSize()
-            .pointerInput(Unit) { detectTapGestures { onToggle() } },
+            .animateContentSize(
+                animationSpec = if (reduceMotion) snap() else Motion.settle(),
+            )
+            .then(
+                if (canToggle) {
+                    Modifier
+                        .pressable(
+                            onClickLabel = if (expanded) "收起剧情简介" else "展开剧情简介",
+                            onClick = onToggle,
+                        )
+                        .semantics {
+                            stateDescription = if (expanded) "已展开" else "已收起"
+                        }
+                } else {
+                    Modifier
+                },
+            ),
     ) {
         SectionHeader("剧情简介")
         Text(
             text,
-            style = sc(13f, 400, lineHeight = 13f * 1.65f),
+            style = AppTypography.body.regular.copy(lineHeight = 21.sp),
             color = palette.body,
             maxLines = if (expanded) Int.MAX_VALUE else 3,
             overflow = TextOverflow.Ellipsis,
@@ -1669,7 +1698,7 @@ private fun OverviewSection(
             Spacer(Modifier.height(6.dp))
             Text(
                 if (expanded) "收起" else "展开",
-                style = sc(11.5f, 700),
+                style = AppTypography.body.strong,
                 color = accent,
             )
         }
@@ -1695,8 +1724,17 @@ private fun EpisodeHeader(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    val rotation by animateFloatAsState(if (pickerOpen) 180f else 0f, label = "seasonChevron")
-    Column(modifier.animateContentSize()) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val rotation by animateFloatAsState(
+        targetValue = if (pickerOpen) 180f else 0f,
+        animationSpec = Motion.settle(reduceMotion),
+        label = "seasonChevron",
+    )
+    Column(
+        modifier.animateContentSize(
+            animationSpec = if (reduceMotion) snap() else Motion.settle(),
+        ),
+    ) {
         SectionHeader(seasonLabel) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1705,11 +1743,13 @@ private fun EpisodeHeader(
                 // 共 N 集 is the label and the way in: a rail shows four of them, and the
                 // count is exactly the promise the full list keeps.
                 Row(
-                    Modifier.pressable(onClick = onSeeAll),
+                    Modifier
+                        .pressable(onClick = onSeeAll)
+                        .heightIn(min = 44.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("共 $episodeCount 集", style = mr(10.5f, 500), color = palette.sub2)
+                    Text("共 $episodeCount 集", style = AppTypography.caption.medium, color = palette.sub2)
                     Icon(
                         AppIcons.ChevronRight,
                         contentDescription = "查看全部剧集",
@@ -1721,6 +1761,7 @@ private fun EpisodeHeader(
                     Row(
                         Modifier
                             .pressable(onClick = onTogglePicker)
+                            .heightIn(min = 44.dp)
                             .shadow(GlassLift.control, GlassShapes.thumb)
                             .liquidGlass(
                                 shape = GlassShapes.thumb,
@@ -1732,7 +1773,7 @@ private fun EpisodeHeader(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("切换季数", style = mr(11f, 500), color = accent)
+                        Text("切换季数", style = AppTypography.caption.medium, color = accent)
                         Icon(
                             AppIcons.ChevronDown,
                             null,
@@ -1755,7 +1796,7 @@ private fun EpisodeHeader(
                     val selected = id == selectedSeasonId
                     Text(
                         name,
-                        style = sc(11.5f, if (selected) 700 else 500),
+                        style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
                         color = if (selected) accent else palette.body,
                         maxLines = 1,
                         modifier = Modifier
@@ -1889,7 +1930,7 @@ private fun EpisodeCard(
             Text(
                 listOfNotNull(episode.indexNumber?.let { "第${it}集" }, episode.name)
                     .joinToString(" · "),
-                style = sc(12.5f, 700),
+                style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1898,7 +1939,7 @@ private fun EpisodeCard(
                 Spacer(Modifier.height(3.dp))
                 Text(
                     episode.overview,
-                    style = mr(10f, 400, lineHeight = 10f * 1.5f),
+                    style = AppTypography.caption.regular.copy(lineHeight = 16.5.sp),
                     color = palette.sub2,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1913,7 +1954,7 @@ private fun EpisodeCard(
                     if ((selected || watching) && runtime != null) append(" · ")
                     if (runtime != null) append(runtime)
                 },
-                style = mr(10.5f, 500),
+                style = AppTypography.caption.medium,
                 color = if (selected || watching) accent else palette.sub2,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1952,7 +1993,7 @@ private fun CastRow(
                     Spacer(Modifier.height(6.dp))
                     Text(
                         person.name,
-                        style = mr(10f, 500),
+                        style = AppTypography.caption.medium,
                         color = palette.body,
                         textAlign = TextAlign.Center,
                         maxLines = 2,
@@ -1962,7 +2003,7 @@ private fun CastRow(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             person.role,
-                            style = mr(9f, 400),
+                            style = AppTypography.caption.regular,
                             color = palette.hint,
                             textAlign = TextAlign.Center,
                             maxLines = 1,

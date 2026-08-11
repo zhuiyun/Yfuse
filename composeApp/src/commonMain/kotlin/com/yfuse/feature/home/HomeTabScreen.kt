@@ -1,10 +1,11 @@
 package com.yfuse.feature.home
 
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
-import com.yfuse.core.designsystem.SharedElementTransitionContainer
-import com.yfuse.core.designsystem.detailRouteIdentity
+import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.feature.calendar.CalendarScreen
 import com.yfuse.feature.detail.DetailScreen
 import com.yfuse.feature.player.PlayerScreen
@@ -12,12 +13,13 @@ import com.yfuse.feature.player.PlayerScreen
 @Composable
 fun HomeTabScreen(component: HomeTabComponent) {
     val stack by component.stack.subscribeAsState()
-    SharedElementTransitionContainer(
-        targetState = stack.active.instance,
-        routeKey = ::routeKey,
-        depth = stack.items.size,
-        previous = stack.backStack.lastOrNull()?.instance,
-    ) { instance ->
+    OfficialNavDisplay(
+        backStack = stack.items,
+        onBack = component::navigateBack,
+        contentKey = { routeKey(it.configuration) },
+        modifier = Modifier.fillMaxSize(),
+    ) { entry ->
+        val instance = entry.instance
         when (instance) {
             is HomeTabComponent.Child.Home -> HomeScreen(instance.component)
             is HomeTabComponent.Child.Detail -> DetailScreen(instance.component)
@@ -28,14 +30,5 @@ fun HomeTabScreen(component: HomeTabComponent) {
     }
 }
 
-/** Keeps each route's scrolled position while it waits in the back stack. */
-private fun routeKey(child: HomeTabComponent.Child): String = when (child) {
-    is HomeTabComponent.Child.Home -> "home"
-    is HomeTabComponent.Child.Detail -> detailRouteIdentity(
-        serverId = child.component.serverId,
-        itemId = child.component.itemId,
-    )
-    is HomeTabComponent.Child.Player -> "player"
-    is HomeTabComponent.Child.Info -> "info"
-    is HomeTabComponent.Child.Calendar -> "calendar"
-}
+/** Includes the complete immutable Decompose configuration in the saved-content identity. */
+private fun routeKey(configuration: HomeTabComponent.Config): String = "home:$configuration"

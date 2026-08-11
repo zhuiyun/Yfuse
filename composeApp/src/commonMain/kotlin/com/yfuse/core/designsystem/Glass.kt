@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Modifier
@@ -23,45 +25,58 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 
 /**
- * 设计说明文档 §8.4 — 圆角三档，不允许中间值.
- *
- * The names say where a radius is used, but all of them resolve to one of the three
- * steps; adding a fourth value is a spec violation, not a tweak.
- *
- * All three are [ContinuousRoundedCornerShape] rather than `RoundedCornerShape`. The radii
- * are unchanged — what changed is that the corner eases into the edge instead of meeting it
- * at a curvature step. It matters most at the 大 step, which is where the app's largest
- * surfaces live: the tab bar, sheets and the hero.
+ * Semantic shape roles. Small geometry uses [micro]/[track]; content surfaces stay on the
+ * 10/16/26dp ladder through [thumb], [card]/[control]/[chip], and [sheet].
+ */
+object AppShapes {
+    val micro = ContinuousRoundedCornerShape(4.dp)
+    val track = ContinuousRoundedCornerShape(3.dp)
+    val thumb = ContinuousRoundedCornerShape(Dimens.small)
+    val card = ContinuousRoundedCornerShape(Dimens.medium)
+    val control = ContinuousRoundedCornerShape(Dimens.medium)
+    val chip = ContinuousRoundedCornerShape(Dimens.medium)
+    val sheet = ContinuousRoundedCornerShape(Dimens.large)
+    val pill: Shape = CircleShape
+
+    /**
+     * Material's shape table requires [androidx.compose.foundation.shape.CornerBasedShape].
+     * Its standard contours therefore mirror the exact semantic radii above, while custom
+     * Yfuse surfaces keep using the continuous-corner originals directly.
+     */
+    val material = Shapes(
+        extraSmall = RoundedCornerShape(micro.radius),
+        small = RoundedCornerShape(thumb.radius),
+        medium = RoundedCornerShape(control.radius),
+        large = RoundedCornerShape(card.radius),
+        extraLarge = RoundedCornerShape(sheet.radius),
+    )
+}
+
+/**
+ * Compatibility aliases for existing liquid-glass call sites. New code should use
+ * [AppShapes] so a component names its semantic role rather than its visual implementation.
  */
 object GlassShapes {
-    /** 小 10px — 缩略图、内嵌小块. */
-    val thumb: Shape = ContinuousRoundedCornerShape(Dimens.small)
-
-    /** 中 16px — 海报、按钮、胶囊、菜单. */
-    val poster: Shape = ContinuousRoundedCornerShape(Dimens.medium)
-    val chip: Shape = ContinuousRoundedCornerShape(Dimens.medium)
-    val card: Shape = ContinuousRoundedCornerShape(Dimens.medium)
-    val menu: Shape = ContinuousRoundedCornerShape(Dimens.medium)
-
-    /** 大 26px — sheet、迷你播放器、tab bar. */
-    val sheet: Shape = ContinuousRoundedCornerShape(Dimens.large)
-    val hero: Shape = ContinuousRoundedCornerShape(Dimens.large)
-    val tabBar: Shape = ContinuousRoundedCornerShape(Dimens.large)
+    val thumb: Shape = AppShapes.thumb
+    val poster: Shape = AppShapes.card
+    val chip: Shape = AppShapes.chip
+    val card: Shape = AppShapes.card
+    val menu: Shape = AppShapes.control
+    val sheet: Shape = AppShapes.sheet
+    val hero: Shape = AppShapes.sheet
+    val tabBar: Shape = AppShapes.sheet
 
     /** The app mark and other square art that has to read as an icon. */
     val appIcon: Shape = ContinuousIconShape()
 
-    val circle: Shape = CircleShape
+    val circle: Shape = AppShapes.pill
 }
 
-/**
- * Opaque counterparts used by 减少透明效果.
- *
- * The old accessibility path flattened every light-theme glass surface to pure white. That
- * erased the hierarchy between cards, chips and accent-tinted controls; in the profile page
- * several pale icons then sat on equally pale buttons. Preserve the intended surface family
- * and colour tint, but make the result fully opaque.
- */
+/** Resolves a translucent semantic fill to the opaque colour it has over [background]. */
+internal fun opaqueComposite(fill: Color, background: Color): Color =
+    fill.compositeOver(background).copy(alpha = 1f)
+
+/** Opaque semantic counterparts used when the user requests reduced transparency. */
 private fun reducedTransparencyFill(
     fill: Color,
     palette: Palette,
@@ -74,15 +89,14 @@ private fun reducedTransparencyFill(
     palette.glass -> if (palette.isDark) Color(0xFF172235) else Color(0xFFEDF2F8)
     palette.glassStrong -> if (palette.isDark) Color(0xFF1B273B) else Color(0xFFE8EEF7)
     else -> {
-        // Translucent white is overwhelmingly used for controls over artwork/player chrome.
-        // Making it opaque white would hide their white glyphs, so reduced transparency uses
-        // a solid dark plate instead. Other tinted fills keep their hue by compositing once.
+        // White translucent controls carry white glyphs over artwork. A solid white plate
+        // would erase them, so use a dark opaque control surface in both themes.
         val translucentWhite = fill.alpha < 0.55f &&
             fill.red > 0.90f && fill.green > 0.90f && fill.blue > 0.90f
         if (translucentWhite) {
             if (palette.isDark) Color(0xFF273246) else Color(0xFF303A4D)
         } else {
-            fill.compositeOver(over).copy(alpha = 1f)
+            opaqueComposite(fill, opaqueComposite(over, palette.background))
         }
     }
 }
@@ -136,7 +150,11 @@ fun Modifier.glass(
         .clip(shape)
         .background(surface)
         .let { modifier ->
-            if (resolvedBorder != null) modifier.border(Dimens.hairline, resolvedBorder, shape) else modifier
+            if (resolvedBorder != null) {
+                modifier.border(Dimens.hairline, resolvedBorder, shape)
+            } else {
+                modifier
+            }
         }
 }
 
@@ -168,7 +186,11 @@ fun Modifier.flatGlass(
         .clip(shape)
         .background(resolvedFill)
         .let { modifier ->
-            if (resolvedBorder != null) modifier.border(Dimens.hairline, resolvedBorder, shape) else modifier
+            if (resolvedBorder != null) {
+                modifier.border(Dimens.hairline, resolvedBorder, shape)
+            } else {
+                modifier
+            }
         }
 }
 
@@ -212,7 +234,11 @@ fun Modifier.solidGlass(
         .clip(shape)
         .background(surface)
         .let { modifier ->
-            if (resolvedBorder != null) modifier.border(Dimens.hairline, resolvedBorder, shape) else modifier
+            if (resolvedBorder != null) {
+                modifier.border(Dimens.hairline, resolvedBorder, shape)
+            } else {
+                modifier
+            }
         }
 }
 
@@ -341,9 +367,7 @@ fun GlassCard(
 /**
  * The layers of the ambient field, bottom first.
  *
- * Exposed separately from [AppBackdrop] because a page lifted off the shell by a back gesture
- * has to carry its own copy during an interactive back gesture. Most pages are transparent over this,
- * so one taken out of the stack and put in its own layer has nothing behind it.
+ * Exposed separately from [AppBackdrop] for surfaces that need the same ambient field.
  */
 @Composable
 @ReadOnlyComposable
@@ -423,8 +447,9 @@ object Shadows {
     /** 用户卡 `0 8px 24px rgba(90,120,180,.12)` */
     val profileCard = CssShadow(0.dp, 8.dp, 24.dp, 0.dp, Color(0xFF5A78B4).copy(alpha = 0.12f))
 
-    /** 连接按钮 `0 10px 24px rgba(61,100,201,.3)` */
-    val primaryButton = CssShadow(0.dp, 10.dp, 24.dp, 0.dp, Brand.Primary.copy(alpha = 0.30f))
+    /** Emphasis-button lift tinted from the active semantic accent. */
+    fun primaryButton(accent: Color): CssShadow =
+        CssShadow(0.dp, 10.dp, 24.dp, 0.dp, accent.copy(alpha = 0.30f))
 
     /** 详情海报 `0 10px 24px rgba(0,0,0,.25)` */
     val detailPoster = CssShadow(0.dp, 10.dp, 24.dp, 0.dp, Color.Black.copy(alpha = 0.25f))
@@ -447,6 +472,12 @@ object Shadows {
     /** 迷你播放器 `0 14px 30px rgba(0,0,0,.3)` */
     val miniPlayer = CssShadow(0.dp, 14.dp, 30.dp, 0.dp, Color.Black.copy(alpha = 0.30f))
 }
+
+/** The active theme accent carried into an emphasis-button lift. */
+@Composable
+@ReadOnlyComposable
+fun semanticPrimaryButtonShadow(): CssShadow =
+    Shadows.primaryButton(LocalAccentColors.current.accent)
 
 /** A single `box-shadow` declaration. */
 data class CssShadow(

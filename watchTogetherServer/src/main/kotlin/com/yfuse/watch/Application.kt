@@ -246,6 +246,8 @@ private const val HOST_GRACE_MS = 20_000L
 private const val MAX_ROOMS = 500
 private const val DEFAULT_MAX_ACTIVE_ROOMS_PER_IP = 8
 private const val MAX_PARTICIPANTS_PER_ROOM = 12
+private const val MAX_CLIENT_ID_BYTES = 128
+private const val MAX_REMOVED_CLIENT_IDS_PER_ROOM = 256
 private const val MAX_MESSAGES_PER_WINDOW = 240
 private const val RATE_WINDOW_MS = 10_000L
 private const val AVATAR_COUNT = 8
@@ -397,8 +399,11 @@ fun Application.watchTogetherModule(
                                     "protocol_incompatible",
                                 )
                             }
-                            val clientId = message.clientId?.takeIf { it.isNotBlank() }
-                                ?: return@consumeEach sendError("缺少客户端标识")
+                            val clientId = normalizeClientId(message.clientId)
+                                ?: return@consumeEach sendError(
+                                    "客户端标识无效",
+                                    "client_id_invalid",
+                                )
                             val name = normalizeName(message.name)
                             val avatarId = normalizeAvatarId(message.avatarId, clientId)
 
@@ -551,7 +556,7 @@ fun Application.watchTogetherModule(
 
                         "grantControl" -> {
                             val room = joinedRoom ?: return@consumeEach
-                            val target = message.targetClientId?.takeIf { it.isNotBlank() }
+                            val target = normalizeClientId(message.targetClientId)
                                 ?: return@consumeEach
                             val handed = synchronized(room) {
                                 val isHost = room.hostId == joinedClientId
@@ -624,23 +629,35 @@ fun Application.watchTogetherModule(
                         "kickParticipant" -> {
                             val room = joinedRoom ?: return@consumeEach
                             val clientId = joinedClientId ?: return@consumeEach
-                            val target = message.targetClientId?.takeIf { it.isNotBlank() }
+                            val target = normalizeClientId(message.targetClientId)
                                 ?: return@consumeEach
                             var denied = false
+                            var removalLimitReached = false
                             val targetSession = synchronized(room) {
                                 if (room.hostId != clientId) {
                                     denied = true
                                     return@synchronized null
                                 }
                                 if (target == room.hostId) return@synchronized null
-                                val participant = room.participants.remove(target)
+                                val participant = room.participants[target]
                                     ?: return@synchronized null
+                                if (!rememberRemovedClientId(room.removedClientIds, target)) {
+                                    removalLimitReached = true
+                                    return@synchronized null
+                                }
+                                room.participants.remove(target)
                                 room.moderatorIds.remove(target)
-                                room.removedClientIds.add(target)
                                 participant.session
                             }
                             if (denied) {
                                 sendError("仅房主可以移出成员", "host_only")
+                                return@consumeEach
+                            }
+                            if (removalLimitReached) {
+                                sendError(
+                                    "当前房间移出记录已达上限，请创建新房间后继续",
+                                    "kick_limit_reached",
+                                )
                                 return@consumeEach
                             }
                             targetSession?.let { session ->
@@ -1171,6 +1188,28 @@ private fun normalizeChat(raw: String?): String? {
     if (text.toByteArray(Charsets.UTF_8).size > MAX_CHAT_BYTES) return null
     if (graphemeRegex.findAll(text).count() > MAX_CHAT_GRAPHEMES) return null
     return text
+}
+
+internal fun normalizeClientId(raw: String?): String? {
+    if (raw == null) return null
+    val value = raw.trim()
+    if (value.isEmpty() || value.toByteArray(Charsets.UTF_8).size > MAX_CLIENT_ID_BYTES) {
+        return null
+    }
+    if (value.any { it.code in 0x00..0x20 || it.code in 0x7F..0x9F }) return null
+    return value
+}
+
+internal fun rememberRemovedClientId(
+    removedClientIds: MutableSet<String>,
+    clientId: String,
+    limit: Int = MAX_REMOVED_CLIENT_IDS_PER_ROOM,
+): Boolean {
+    require(limit > 0) { "limit must be positive" }
+    if (clientId in removedClientIds) return true
+    if (removedClientIds.size >= limit) return false
+    removedClientIds.add(clientId)
+    return true
 }
 
 private fun normalizeClientMessageId(raw: String?): String? {

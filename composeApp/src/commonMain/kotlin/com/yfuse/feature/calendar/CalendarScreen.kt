@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -34,6 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
@@ -43,18 +47,20 @@ import com.yfuse.core.data.isToday
 import com.yfuse.core.data.missingCount
 import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.flatGlass as glass
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
@@ -75,6 +81,8 @@ import kotlinx.coroutines.launch
 fun CalendarScreen(component: CalendarComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val days = state.visibleDays
 
     Box(Modifier.fillMaxSize()) {
@@ -92,17 +100,18 @@ fun CalendarScreen(component: CalendarComponent) {
                     contentDescription = "返回",
                     tint = palette.text,
                     modifier = Modifier
+                        .pressable(onClickLabel = "返回", onClick = component.onBack)
+                        .touchTarget()
                         .size(36.dp)
-                        .pressable(onClick = component.onBack)
                         .solidGlass(CircleShape, palette.card2, palette.border)
                         .padding(10.dp),
                 )
                 Column(Modifier.weight(1f)) {
-                    Text("追剧中心", style = sc(17f, 800), color = palette.text)
+                    Text("追剧中心", style = AppTypography.section.strong, color = palette.text)
                     Spacer(Modifier.height(2.dp))
                     Text(
                         "按原产地播出日期",
-                        style = mr(10f, 400),
+                        style = AppTypography.caption.regular,
                         color = palette.sub2,
                     )
                 }
@@ -111,15 +120,19 @@ fun CalendarScreen(component: CalendarComponent) {
                 // again, and only they know it happened.
                 Box(
                     Modifier
+                        .pressable(
+                            enabled = !state.loading,
+                            onClickLabel = "刷新追剧日历",
+                        ) { component.store.accept(CalendarIntent.Refresh) }
+                        .touchTarget()
                         .size(36.dp)
-                        .pressable { component.store.accept(CalendarIntent.Refresh) }
                         .solidGlass(CircleShape, palette.card2, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (state.loading) {
                         CircularProgressIndicator(
                             Modifier.size(15.dp),
-                            color = Brand.Primary,
+                            color = accent.accent,
                             strokeWidth = 2.dp,
                         )
                     } else {
@@ -134,6 +147,7 @@ fun CalendarScreen(component: CalendarComponent) {
             }
 
             LazyRow(
+                modifier = Modifier.selectableGroup(),
                 contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -141,14 +155,16 @@ fun CalendarScreen(component: CalendarComponent) {
                     val active = filter == state.filter
                     Text(
                         filter.label,
-                        style = sc(11.5f, 600),
-                        color = if (active) Color.White else palette.body,
+                        style = AppTypography.caption.strong,
+                        color = if (active) accent.onAccent else palette.body,
                         modifier = Modifier
-                            .pressable {
+                            .pressable(role = Role.RadioButton) {
                                 component.store.accept(CalendarIntent.SelectFilter(filter))
                             }
+                            .semantics { this.selected = active }
+                            .touchTarget()
                             .clip(GlassShapes.chip)
-                            .background(if (active) Brand.Primary else Color.Transparent)
+                            .background(if (active) accent.accent else Color.Transparent)
                             .then(
                                 if (active) {
                                     Modifier
@@ -168,7 +184,7 @@ fun CalendarScreen(component: CalendarComponent) {
                     Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator(color = Brand.Primary)
+                    CircularProgressIndicator(color = accent.accent)
                 }
 
                 state.error != null && days.isEmpty() -> ErrorState(
@@ -215,7 +231,13 @@ fun CalendarScreen(component: CalendarComponent) {
                         days = days,
                         today = state.today,
                         onSelect = { index ->
-                            scope.launch { listState.animateScrollToItem(index) }
+                            scope.launch {
+                                if (reduceMotion) {
+                                    listState.scrollToItem(index)
+                                } else {
+                                    listState.animateScrollToItem(index)
+                                }
+                            }
                         },
                     )
                     Spacer(Modifier.height(12.dp))
@@ -245,18 +267,23 @@ fun CalendarScreen(component: CalendarComponent) {
                         if (awayFromToday) {
                             Text(
                                 "回到今天",
-                                style = sc(11.5f, 700),
-                                color = Color.White,
+                                style = AppTypography.caption.strong,
+                                color = accent.onAccent,
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .padding(bottom = TabBarInset + 12.dp)
                                     .pressable {
                                         scope.launch {
-                                            listState.animateScrollToItem(state.todayIndex)
+                                            if (reduceMotion) {
+                                                listState.scrollToItem(state.todayIndex)
+                                            } else {
+                                                listState.animateScrollToItem(state.todayIndex)
+                                            }
                                         }
                                     }
+                                    .touchTarget()
                                     .clip(GlassShapes.chip)
-                                    .background(Brand.Primary)
+                                    .background(accent.accent)
                                     .padding(horizontal = 16.dp, vertical = 8.dp),
                             )
                         }
@@ -278,6 +305,7 @@ fun CalendarScreen(component: CalendarComponent) {
 @Composable
 private fun DayStrip(days: List<CalendarDay>, today: String, onSelect: (Int) -> Unit) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     LazyRow(
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -288,9 +316,10 @@ private fun DayStrip(days: List<CalendarDay>, today: String, onSelect: (Int) -> 
                 Modifier
                     // The strip is rebuilt whenever the filter changes.
                     .then(motionAwareItem())
-                    .pressable { onSelect(index) }
+                    .pressable(onClickLabel = "跳到${dayLabel(day.date, today)}") { onSelect(index) }
+                    .touchTarget()
                     .clip(GlassShapes.chip)
-                    .background(if (isToday) Brand.Primary else Color.Transparent)
+                    .background(if (isToday) accent.accent else Color.Transparent)
                     .then(
                         if (isToday) {
                             Modifier
@@ -303,15 +332,15 @@ private fun DayStrip(days: List<CalendarDay>, today: String, onSelect: (Int) -> 
             ) {
                 Text(
                     if (isToday) "今天" else isoWeekdayLabel(day.date),
-                    style = sc(10.5f, 700),
-                    color = if (isToday) Color.White else palette.text,
+                    style = AppTypography.caption.strong,
+                    color = if (isToday) accent.onAccent else palette.text,
                     maxLines = 1,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     isoShortDate(day.date),
-                    style = mr(9f, 500),
-                    color = if (isToday) Color.White.copy(alpha = 0.8f) else palette.sub2,
+                    style = AppTypography.caption.medium,
+                    color = if (isToday) accent.onAccent.copy(alpha = 0.8f) else palette.sub2,
                     maxLines = 1,
                 )
                 // A day with gaps is the only one worth marking from up here; the count
@@ -322,7 +351,7 @@ private fun DayStrip(days: List<CalendarDay>, today: String, onSelect: (Int) -> 
                         Modifier
                             .size(4.dp)
                             .clip(CircleShape)
-                            .background(if (isToday) Color.White else Brand.Danger),
+                            .background(if (isToday) accent.onAccent else palette.error),
                     )
                 }
             }
@@ -333,6 +362,7 @@ private fun DayStrip(days: List<CalendarDay>, today: String, onSelect: (Int) -> 
 @Composable
 private fun DaySection(day: CalendarDay, today: String, onOpen: (CalendarEntry) -> Unit) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val isToday = day.isToday(today)
     Column {
         Row(
@@ -344,17 +374,22 @@ private fun DaySection(day: CalendarDay, today: String, onOpen: (CalendarEntry) 
         ) {
             Text(
                 dayLabel(day.date, today),
-                style = sc(14f, 800),
-                color = if (isToday) Brand.Primary else palette.text,
+                style = AppTypography.body.strong,
+                color = if (isToday) accent.accent else palette.text,
             )
-            Text(day.date, style = mr(10f, 400), color = palette.sub2, modifier = Modifier.weight(1f))
+            Text(
+                day.date,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                modifier = Modifier.weight(1f),
+            )
             // Only stated when there is something to act on; a zero would be noise on
             // every other row.
             if (day.missingCount > 0 && day.isPast(today) || day.missingCount > 0 && isToday) {
                 Text(
                     "${day.missingCount} 集未入库",
-                    style = mr(10f, 600),
-                    color = Brand.Danger,
+                    style = AppTypography.caption.strong,
+                    color = palette.error,
                 )
             }
         }
@@ -407,7 +442,7 @@ private fun EntryRow(entry: CalendarEntry, onOpen: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(
                 entry.episode.showTitle,
-                style = sc(12.5f, 700),
+                style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -415,7 +450,7 @@ private fun EntryRow(entry: CalendarEntry, onOpen: () -> Unit) {
             Spacer(Modifier.height(3.dp))
             Text(
                 entry.episode.episodeLabel,
-                style = mr(10.5f, 400),
+                style = AppTypography.caption.regular,
                 color = palette.sub,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -439,14 +474,14 @@ private fun StatusBadge(status: LibraryStatus) {
     val palette = LocalPalette.current
     val (label, tint) = when (status) {
         LibraryStatus.Unaired -> "未播出" to palette.sub2
-        LibraryStatus.Missing -> "未入库" to Brand.Danger
+        LibraryStatus.Missing -> "未入库" to palette.error
         LibraryStatus.Available -> "可播放" to Brand.Online
         LibraryStatus.Watched -> "已看" to palette.sub2
         LibraryStatus.Unknown -> "未知" to palette.sub2
     }
     Text(
         label,
-        style = mr(9.5f, 700),
+        style = AppTypography.caption.strong,
         color = tint,
         modifier = Modifier
             .clip(GlassShapes.chip)

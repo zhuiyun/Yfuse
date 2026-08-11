@@ -980,31 +980,22 @@ class PlayerActivity : ComponentActivity() {
 
     private fun ensureAudioFocus(): Boolean {
         if (hasAudioFocus) return true
-        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val request = audioFocusRequest ?: AudioFocusRequest.Builder(
-                AudioManager.AUDIOFOCUS_GAIN,
+        val request = audioFocusRequest ?: AudioFocusRequest.Builder(
+            AudioManager.AUDIOFOCUS_GAIN,
+        )
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build(),
             )
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                        .build(),
-                )
-                .setOnAudioFocusChangeListener(
-                    audioFocusChangeListener,
-                    Handler(Looper.getMainLooper()),
-                )
-                .build()
-                .also { audioFocusRequest = it }
-            audioManager.requestAudioFocus(request)
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(
+            .setOnAudioFocusChangeListener(
                 audioFocusChangeListener,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN,
+                Handler(Looper.getMainLooper()),
             )
-        }
+            .build()
+            .also { audioFocusRequest = it }
+        val result = audioManager.requestAudioFocus(request)
         hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         if (hasAudioFocus) {
             AppLog.info(
@@ -1025,13 +1016,8 @@ class PlayerActivity : ComponentActivity() {
 
     private fun abandonAudioFocus() {
         if (!hasAudioFocus && audioFocusRequest == null) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let(audioManager::abandonAudioFocusRequest)
-            audioFocusRequest = null
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.abandonAudioFocus(audioFocusChangeListener)
-        }
+        audioFocusRequest?.let(audioManager::abandonAudioFocusRequest)
+        audioFocusRequest = null
         hasAudioFocus = false
         resumeAfterTransientFocusLoss = false
     }

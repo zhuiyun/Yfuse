@@ -173,6 +173,7 @@ class HomeStoreFactory(
     private val emby: EmbyRepository,
     private val registry: ServerRegistry,
     private val cache: TmdbHomeCache,
+    private val cacheDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     fun create(): Store<HomeIntent, HomeState, HomeLabel> =
         storeFactory.create(
@@ -198,7 +199,10 @@ class HomeStoreFactory(
 
         private var recommendationGeneration = 0L
         private var recommendationJob: Job? = null
-        private val recommendationCacheWriter = RecommendationCacheWriter { cache.write(it) }
+        private val recommendationCacheWriter = RecommendationCacheWriter(
+            dispatcher = cacheDispatcher,
+            persist = { cache.write(it) },
+        )
         private var resumeGeneration = 0L
         private var resumeConnection: List<HomeServerConnection> = emptyList()
         private var resumeJob: Job? = null
@@ -244,7 +248,7 @@ class HomeStoreFactory(
             recommendationJob = scope.launch {
                 try {
                     if (shouldReadCache) {
-                        val cached = withContext(Dispatchers.Default) { cache.read() }
+                        val cached = withContext(cacheDispatcher) { cache.read() }
                         if (generation != recommendationGeneration) return@launch
                         cached?.let { dispatch(Msg.Cached(it)) }
                     }

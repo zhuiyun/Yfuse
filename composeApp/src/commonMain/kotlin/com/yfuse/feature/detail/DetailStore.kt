@@ -1161,21 +1161,28 @@ class DetailStoreFactory(
             is DetailMsg.AudioLanguageSelected -> copy(preferredAudioLanguage = msg.language)
             is DetailMsg.SubtitleLanguageSelected -> copy(preferredSubtitleLanguage = msg.language)
             is DetailMsg.PlaybackSelectionLoaded -> {
-                val sourceChanged = server?.id != msg.server.id || detail?.id != msg.sourceDetail.id
+                // Episode resolution captures sourceDetail before it suspends. Favorite/played
+                // mutations can commit while that request is in flight, so never replace the
+                // same committed source with the stale captured copy when the response returns.
+                val visibleSource = detail?.takeIf {
+                    server?.id == msg.server.id && it.id == msg.sourceDetail.id
+                }
+                val committedSource = playSourceDetail?.takeIf {
+                    playServer?.id == msg.server.id && it.id == msg.sourceDetail.id
+                }
+                val retainedSource = visibleSource ?: committedSource
+                val sourceChanged = retainedSource == null
+                val resolvedSource = retainedSource ?: msg.sourceDetail
                 val versionId = msg.preferredVersionId
                     ?.takeIf { preferred ->
                         msg.target.versions.any { it.id == preferred }
                     }
                     ?: msg.target.versions.firstOrNull()?.id
                 copy(
-                    detail = if (sourceChanged) msg.sourceDetail else detail ?: msg.sourceDetail,
+                    detail = resolvedSource,
                     server = msg.server,
                     playServer = msg.server,
-                    playSourceDetail = if (sourceChanged) {
-                        msg.sourceDetail
-                    } else {
-                        playSourceDetail ?: msg.sourceDetail
-                    },
+                    playSourceDetail = resolvedSource,
                     playTarget = msg.target,
                     playPositionTicks = msg.positionTicks,
                     selectedSourceServerId = msg.server.id,

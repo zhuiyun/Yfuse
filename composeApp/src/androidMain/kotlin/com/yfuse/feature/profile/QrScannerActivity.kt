@@ -144,8 +144,9 @@ class QrScannerActivity : ComponentActivity() {
                 this.addView(bottom, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
             },
         )
-        previewView.setOnTouchListener { _, event ->
+        previewView.setOnTouchListener { view, event ->
             if (event.action == MotionEvent.ACTION_UP) {
+                view.performClick()
                 focus(event.x, event.y)
                 true
             } else {
@@ -306,6 +307,7 @@ class QrScannerActivity : ComponentActivity() {
         }
         private var focusX = -1f
         private var focusY = -1f
+        private val frame = RectF()
 
         fun showFocus(x: Float, y: Float) {
             focusX = x
@@ -323,7 +325,7 @@ class QrScannerActivity : ComponentActivity() {
             val side = min(width, height) * ROI_FRACTION
             val left = (width - side) / 2f
             val top = (height - side) / 2f - 28.dp
-            val frame = RectF(left, top, left + side, top + side)
+            frame.set(left, top, left + side, top + side)
             canvas.drawRect(0f, 0f, width.toFloat(), frame.top, shadePaint)
             canvas.drawRect(0f, frame.bottom, width.toFloat(), height.toFloat(), shadePaint)
             canvas.drawRect(0f, frame.top, frame.left, frame.bottom, shadePaint)

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -37,6 +38,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
@@ -47,7 +52,8 @@ import com.yfuse.app.TabBarInset
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.WatchTogetherPreferences
-import com.yfuse.core.designsystem.continuousRounded
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.WatchAvatar
@@ -55,12 +61,12 @@ import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.flatGlass as glass
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.launch
 
 /** Mirrors the minimum the repository and the account service both enforce. */
@@ -94,16 +100,16 @@ internal fun AccountSettingsScreen(
                     ) {
                         CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(10.dp))
-                        Text("正在安全恢复账号…", style = sc(12f, 500), color = palette.sub)
+                        Text("正在安全恢复账号…", style = AppTypography.body.medium, color = palette.sub)
                     }
                 }
             }
 
             is AccountState.RestoreFailed -> item {
                 AccountCard {
-                    Text("暂时无法恢复账号", style = sc(14f, 700), color = palette.text)
+                    Text("暂时无法恢复账号", style = AppTypography.body.strong, color = palette.text)
                     Spacer(Modifier.height(6.dp))
-                    Text(current.message, style = mr(10.5f, 400), color = palette.sub)
+                    Text(current.message, style = AppTypography.caption.regular, color = palette.sub)
                     Spacer(Modifier.height(10.dp))
                     Button(onClick = account::retryRestore, modifier = Modifier.fillMaxWidth()) {
                         Text("重试")
@@ -122,19 +128,19 @@ internal fun AccountSettingsScreen(
 
         item {
             AccountCard {
-                Text("加密说明", style = sc(13f, 700), color = palette.text)
+                Text("加密说明", style = AppTypography.body.strong, color = palette.text)
                 Spacer(Modifier.height(7.dp))
                 Text(
                     "服务器令牌、弹幕源链接、绑定和同步设置会在本机使用 AES-256-GCM " +
                         "加密后上传，服务端数据库只保存密文；加密密钥由账号密码派生。",
-                    style = mr(11f, 400),
+                    style = AppTypography.caption.regular,
                     color = palette.sub,
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "主要降低数据库或备份泄露风险；不防在线账号服务器被完全控制。同步只手动执行，" +
                         "一起看设备 ID、缓存、离线文件、诊断日志和最近搜索不会同步。",
-                    style = mr(10.5f, 400),
+                    style = AppTypography.caption.regular,
                     color = palette.sub2,
                 )
             }
@@ -156,9 +162,13 @@ private fun SignedOutAccountCard(account: AccountRepository) {
     var error by remember { mutableStateOf<String?>(null) }
 
     AccountCard {
-        Text(if (registerMode) "创建 Yfuse 账号" else "登录 Yfuse 账号", style = sc(15f, 700), color = palette.text)
+        Text(
+            if (registerMode) "创建 Yfuse 账号" else "登录 Yfuse 账号",
+            style = AppTypography.body.strong,
+            color = palette.text,
+        )
         Spacer(Modifier.height(5.dp))
-        Text("账号服务：IP 直连 · HTTPS", style = mr(10.5f, 400), color = palette.sub2)
+        Text("账号服务：IP 直连 · HTTPS", style = AppTypography.caption.regular, color = palette.sub2)
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = username,
@@ -191,13 +201,13 @@ private fun SignedOutAccountCard(account: AccountRepository) {
                 enabled = !busy,
             )
             Spacer(Modifier.height(11.dp))
-            Text("头像", style = sc(11f, 600), color = palette.sub)
+            Text("头像", style = AppTypography.caption.strong, color = palette.sub)
             Spacer(Modifier.height(7.dp))
             AvatarPicker(avatarId, enabled = !busy, onSelect = { avatarId = it })
         }
         error?.let {
             Spacer(Modifier.height(9.dp))
-            Text(it, style = mr(10.5f, 500), color = Brand.Danger)
+            Text(it, style = AppTypography.caption.medium, color = palette.error)
         }
         Spacer(Modifier.height(13.dp))
         Button(
@@ -250,6 +260,7 @@ private fun SignedInAccountCard(
     state: AccountState.SignedIn,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val scope = rememberCoroutineScope()
     val user = state.session.user
     var nickname by rememberSaveable(user.id) { mutableStateOf(user.nickname) }
@@ -290,17 +301,17 @@ private fun SignedInAccountCard(
             Column(Modifier.weight(1f)) {
                 Text(
                     nickname.ifBlank { user.nickname },
-                    style = sc(15f, 700),
+                    style = AppTypography.body.strong,
                     color = palette.text,
                     maxLines = 1,
                 )
-                Text("@${user.username}", style = mr(10.5f, 400), color = palette.sub2)
+                Text("@${user.username}", style = AppTypography.caption.regular, color = palette.sub2)
             }
             Text(
                 if (nickname != user.nickname || avatarId != user.avatarId) "未保存" else "已登录",
-                style = mr(10.5f, 600),
+                style = AppTypography.caption.strong,
                 color = if (nickname != user.nickname || avatarId != user.avatarId) {
-                    Brand.Primary
+                    accent.accent
                 } else {
                     Brand.Online
                 },
@@ -411,12 +422,12 @@ private fun SignedInAccountCard(
 
     Spacer(Modifier.height(16.dp))
     AccountCard {
-        Text("加密同步", style = sc(13f, 700), color = palette.text)
+        Text("加密同步", style = AppTypography.body.strong, color = palette.text)
         Spacer(Modifier.height(5.dp))
         Text(
             "云端版本 ${state.syncVersion}" +
                 if (state.syncing) " · 正在同步…" else " · 手动同步",
-            style = mr(10.5f, 400),
+            style = AppTypography.caption.regular,
             color = palette.sub2,
         )
         // One status line that is always here.
@@ -430,10 +441,10 @@ private fun SignedInAccountCard(
         Spacer(Modifier.height(7.dp))
         Text(
             text = localError ?: state.message ?: syncIdleHint,
-            style = mr(10.5f, 500),
+            style = AppTypography.caption.medium,
             color = when {
-                localError != null -> Brand.Danger
-                state.message != null -> Brand.Primary
+                localError != null -> palette.error
+                state.message != null -> accent.accent
                 else -> palette.sub2
             },
             minLines = 2,
@@ -485,7 +496,7 @@ private fun SignedInAccountCard(
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy && !state.syncing,
         ) {
-            Text("退出 Yfuse 账号", color = Brand.Danger)
+            Text("退出 Yfuse 账号", color = palette.error)
         }
     }
 
@@ -574,16 +585,17 @@ private fun AccountHeader(onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
+                .pressable(onClickLabel = "返回", onClick = onBack)
+                .touchTarget()
                 .size(34.dp)
-                .pressable(onClick = onBack)
-                .glass(continuousRounded(12.dp), palette.card3, palette.border),
+                .glass(AppShapes.thumb, palette.card3, palette.border),
             contentAlignment = Alignment.Center,
         ) {
             Icon(AppIcons.ChevronLeft, "返回", tint = palette.text, modifier = Modifier.size(17.dp))
         }
         Column(Modifier.padding(start = 12.dp)) {
-            Text("账号与同步", style = sc(20f, 700), color = palette.text)
-            Text("IP HTTPS · 敏感数据加密同步", style = mr(10.5f, 400), color = palette.sub2)
+            Text("账号与同步", style = AppTypography.section.strong, color = palette.text)
+            Text("IP HTTPS · 敏感数据加密同步", style = AppTypography.caption.regular, color = palette.sub2)
         }
     }
 }
@@ -594,7 +606,7 @@ private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glass(continuousRounded(18.dp), palette.card, palette.border)
+            .glass(AppShapes.card, palette.card, palette.border)
             .padding(horizontal = 16.dp, vertical = 15.dp),
         content = content,
     )
@@ -610,18 +622,28 @@ private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
  */
 @Composable
 private fun AvatarPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyRow(
+        modifier = Modifier.selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         items(WatchTogetherPreferences.AVATAR_COUNT) { id ->
             // WatchAvatar carries its own selected ring, so there is no glass layer here.
             WatchAvatar(
                 avatarId = id,
                 size = 38.dp,
                 selected = id == selected,
-                modifier = Modifier.pressable(
-                    enabled = enabled,
-                    haptic = HapticSignal.Select,
-                    onClick = { onSelect(id) },
-                ),
+                modifier = Modifier
+                    .pressable(
+                        enabled = enabled,
+                        haptic = HapticSignal.Select,
+                        role = Role.RadioButton,
+                        onClick = { onSelect(id) },
+                    )
+                    .semantics {
+                        this.selected = id == selected
+                        contentDescription = "头像 ${id + 1}"
+                    }
+                    .touchTarget(),
             )
         }
     }
@@ -636,6 +658,7 @@ private fun AvatarPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Uni
  */
 @Composable
 private fun AccountAvatar(nickname: String, avatarId: Int) {
+    val accent = LocalAccentColors.current
     val initial = nickname.take(1)
     if (initial.isBlank()) {
         WatchAvatar(avatarId = avatarId, size = 44.dp)
@@ -645,13 +668,13 @@ private fun AccountAvatar(nickname: String, avatarId: Int) {
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
-            .glass(CircleShape, Brand.Primary.copy(alpha = 0.18f), Brand.Primary.copy(alpha = 0.45f)),
+            .glass(CircleShape, accent.container, accent.border),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             initial,
-            style = sc(16f, 700),
-            color = Brand.Primary,
+            style = AppTypography.section.strong,
+            color = accent.accent,
             textAlign = TextAlign.Center,
         )
     }

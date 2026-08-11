@@ -1,6 +1,7 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.snap
@@ -63,8 +64,10 @@ val PrimaryGradient: Brush = cssLinearGradient(
 // ---------------------------------------------------------------- theme palette
 
 /**
- * 设计说明文档 §8.2 色彩. Light / dark are one variable set switched under two themes;
- * there is exactly one accent ([Brand.Primary], `#3d64c9`) and no second saturated hue.
+ * 设计说明文档 §8.2 色彩. Light / dark are one variable set switched under two themes.
+ * [Brand.Primary] is the fixed product identity; user-selected interactive emphasis is
+ * exposed separately through [LocalAccentColors], so brand artwork never changes with a
+ * preference and controls never have to hard-code the brand blue.
  *
  * The product direction uses liquid glass as the primary material. Page backgrounds
  * carry the colour and depth; cards, sheets and controls remain translucent so the
@@ -79,6 +82,10 @@ data class Palette(
     /** `--pg-sub2` */ val sub2: Color,
     /** `--pg-body` */ val body: Color,
     /** `--pg-hint` */ val hint: Color,
+    /** Accessible error text/action colour on [background]. */ val error: Color,
+    /** Content drawn on a solid [error] fill. */ val onError: Color,
+    /** Quiet opaque error-state fill. */ val errorContainer: Color,
+    /** Content drawn on [errorContainer]. */ val onErrorContainer: Color,
     /** Primary content glass. */ val card: Color,
     /** `--pg-card2` */ val card2: Color,
     /** `--pg-card3` */ val card3: Color,
@@ -127,6 +134,11 @@ val LightPalette = Palette(
     body = Color(0xFF5A6472),
     // 1.93:1 → 4.57:1
     hint = Color(0xFF686F7D),
+    // 5.98:1 on the page background; Brand.Danger itself is only 3.86:1 here.
+    error = Color(0xFFB3261E),
+    onError = Color.White,
+    errorContainer = Color(0xFFF9E3E0),
+    onErrorContainer = Color(0xFF410E0B),
     card = Color.White.copy(alpha = 0.62f),
     card2 = Color.White.copy(alpha = 0.46f),
     card3 = Color.White.copy(alpha = 0.72f),
@@ -147,6 +159,11 @@ val DarkPalette = Palette(
     // 4.02:1 on this background → 4.76:1. The dark palette's other greys already cleared
     // 4.5:1 by a wide margin; this was the one that did not.
     hint = Color(0xFF767E8C),
+    // 11.45:1 on the page background and 10.07:1 against its dark on-error ink.
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF31111D),
+    errorContainer = Color(0xFF35171A),
+    onErrorContainer = Color(0xFFFFDAD6),
     card = Color(0xFF182235).copy(alpha = 0.62f),
     card2 = Color(0xFF111A2A).copy(alpha = 0.48f),
     card3 = Color(0xFF202D43).copy(alpha = 0.70f),
@@ -326,7 +343,7 @@ object Motion {
         spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
 
     /** [settle], or an instant cut under 减弱动态效果. */
-    fun <T> settle(reduceMotion: Boolean): AnimationSpec<T> =
+    fun <T> settle(reduceMotion: Boolean): FiniteAnimationSpec<T> =
         if (reduceMotion) snap() else settle<T>()
 
     /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */

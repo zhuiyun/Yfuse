@@ -895,6 +895,32 @@ class WatchTogetherServerTest {
             ),
         )
     }
+
+    @Test
+    fun hello_rejects_oversized_client_ids() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+
+        socketClient.webSocket("/watch") {
+            val oversized = "x".repeat(129)
+            send("""{"type":"hello","clientId":"$oversized","mediaKey":"tmdb:301"}""")
+            val error = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("error", error["type"]?.jsonPrimitive?.content)
+            assertEquals("client_id_invalid", error["errorCode"]?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test
+    fun removed_client_tombstones_have_a_strict_capacity() {
+        val removed = linkedSetOf<String>()
+
+        assertTrue(rememberRemovedClientId(removed, "one", limit = 3))
+        assertTrue(rememberRemovedClientId(removed, "two", limit = 3))
+        assertTrue(rememberRemovedClientId(removed, "three", limit = 3))
+        assertFalse(rememberRemovedClientId(removed, "four", limit = 3))
+        assertTrue(rememberRemovedClientId(removed, "one", limit = 3))
+        assertEquals(setOf("one", "two", "three"), removed)
+    }
 }
 
 private fun String.asJson(): JsonObject = Json.parseToJsonElement(this).jsonObject

@@ -14,6 +14,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -49,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -57,32 +60,47 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
-import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.touchTarget
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 import coil3.compose.AsyncImage
@@ -104,6 +122,7 @@ private const val CHROME_MS = Motion.STANDARD
 /** Controls fade out after this long without interaction, while playing. */
 private const val AUTO_HIDE_MS = 4_000L
 private const val CHAT_PREVIEW_MS = 4_000L
+private const val GESTURE_HUD_MS = 1_600L
 
 /**
  * How long the volume slider stays up after the last press or drag.
@@ -114,7 +133,7 @@ private const val CHAT_PREVIEW_MS = 4_000L
 private const val VOLUME_SLIDER_HIDE_MS = 1_600L
 
 /** A forgiving touch target around the visually slim playback track. */
-private val SeekBarTouchHeight = 28.dp
+private val SeekBarTouchHeight = 44.dp
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 
@@ -219,6 +238,7 @@ internal fun PlayerControls(
     var locked by remember { mutableStateOf(false) }
     var settingsTab by remember { mutableStateOf<Tab?>(null) }
     var drawerOpen by remember { mutableStateOf(false) }
+    var gestureHelpOpen by remember { mutableStateOf(false) }
     var watchDialogOpen by remember { mutableStateOf(false) }
     var watchChatOpen by remember { mutableStateOf(false) }
     var chatPreviewVisible by remember { mutableStateOf(false) }
@@ -228,6 +248,7 @@ internal fun PlayerControls(
     var danmakuSearchOpen by remember { mutableStateOf(false) }
     var danmakuSendOpen by remember { mutableStateOf(false) }
     var gestureHud by remember { mutableStateOf<String?>(null) }
+    var controlsHaveFocus by remember { mutableStateOf(false) }
     // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
     // is held. [holdSeekTarget] is where the timeline has run to, committed on release.
     var holdSeekDirection by remember { mutableIntStateOf(0) }
@@ -237,6 +258,7 @@ internal fun PlayerControls(
     // confirmed scrub and a refused one, played identically. [HapticSignal.Reject] existed
     // for exactly the locked case and had never been called from anywhere.
     val haptics = LocalHaptics.current
+    val accessibilityManager = LocalAccessibilityManager.current
     // Bumped by every interaction so the auto-hide timer restarts.
     var interactions by remember { mutableIntStateOf(0) }
     val latestPosition by rememberUpdatedState(state.positionMs)
@@ -301,6 +323,26 @@ internal fun PlayerControls(
         poke()
     }
 
+    fun openSettings(tab: Tab) {
+        drawerOpen = false
+        watchChatOpen = false
+        danmakuSearchOpen = false
+        danmakuSendOpen = false
+        watchDialogOpen = false
+        settingsTab = tab
+        poke()
+    }
+
+    fun openEpisodeDrawer() {
+        settingsTab = null
+        watchChatOpen = false
+        danmakuSearchOpen = false
+        danmakuSendOpen = false
+        watchDialogOpen = false
+        drawerOpen = true
+        poke()
+    }
+
     // Also stable for the life of the panel, and for the same reason: read through the
     // transcript rather than closing over this frame's copy of it.
     val latestChatMessages by rememberUpdatedState(watch.chatMessages)
@@ -308,19 +350,6 @@ internal fun PlayerControls(
         {
             watchChatOpen = false
             lastReadChatId = latestChatMessages.lastOrNull()?.id
-        }
-    }
-
-    // Non-Dialog chrome must consume back before PlayerActivity does. Platform Dialogs own
-    // their separate window callback, so they are deliberately not included here.
-    val dismissiblePanelOpen = watchChatOpen || danmakuSearchOpen ||
-        settingsTab != null || drawerOpen
-    PlatformBackHandler(enabled = dismissiblePanelOpen) {
-        when {
-            watchChatOpen -> closeWatchChat()
-            danmakuSearchOpen -> danmakuSearchOpen = false
-            settingsTab != null -> settingsTab = null
-            drawerOpen -> drawerOpen = false
         }
     }
 
@@ -334,16 +363,37 @@ internal fun PlayerControls(
         watchChatOpen,
         state.playing,
         interactions,
+        accessibilityManager,
+        controlsHaveFocus,
     ) {
-        val overlayOpen = settingsTab != null || drawerOpen || danmakuSearchOpen ||
-            danmakuSendOpen || watchChatOpen
-        if (!visible || !state.playing || overlayOpen) return@LaunchedEffect
-        delay(AUTO_HIDE_MS)
+        val overlayOpen = gestureHelpOpen || settingsTab != null || drawerOpen ||
+            danmakuSearchOpen || danmakuSendOpen || watchChatOpen
+        if (
+            !visible ||
+            !state.playing ||
+            overlayOpen ||
+            controlsHaveFocus
+        ) return@LaunchedEffect
+        val timeout = accessibilityManager?.calculateRecommendedTimeoutMillis(
+            originalTimeoutMillis = AUTO_HIDE_MS,
+            containsIcons = true,
+            containsText = true,
+            containsControls = true,
+        ) ?: AUTO_HIDE_MS
+        if (timeout == Long.MAX_VALUE) return@LaunchedEffect
+        delay(timeout)
         visible = false
     }
-    LaunchedEffect(gestureHud) {
+    LaunchedEffect(gestureHud, accessibilityManager) {
         if (gestureHud != null) {
-            delay(850)
+            val timeout = accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = GESTURE_HUD_MS,
+                containsIcons = false,
+                containsText = true,
+                containsControls = false,
+            ) ?: GESTURE_HUD_MS
+            if (timeout == Long.MAX_VALUE) return@LaunchedEffect
+            delay(timeout)
             gestureHud = null
         }
     }
@@ -352,6 +402,7 @@ internal fun PlayerControls(
         watch.chatMessages.lastOrNull()?.id,
         watchChatOpen,
         watch.chatPreviewEnabled,
+        accessibilityManager,
     ) {
         val latestId = watch.chatMessages.lastOrNull()?.id
         if (previewRoomCode != watch.roomCode) {
@@ -381,7 +432,14 @@ internal fun PlayerControls(
         if (watch.chatPreviewEnabled && latestId != null && latestId != lastPreviewedChatId) {
             lastPreviewedChatId = latestId
             chatPreviewVisible = true
-            delay(CHAT_PREVIEW_MS)
+            val timeout = accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = CHAT_PREVIEW_MS,
+                containsIcons = false,
+                containsText = true,
+                containsControls = false,
+            ) ?: CHAT_PREVIEW_MS
+            if (timeout == Long.MAX_VALUE) return@LaunchedEffect
+            delay(timeout)
             chatPreviewVisible = false
         }
     }
@@ -415,13 +473,25 @@ internal fun PlayerControls(
         if (volumeKeyPresses == 0L) return@LaunchedEffect
         volumeSliderVisible = true
     }
-    LaunchedEffect(volumeKeyPresses, volumeSliderTouches, volumeSliderVisible) {
+    LaunchedEffect(volumeKeyPresses, volumeSliderTouches, volumeSliderVisible, accessibilityManager) {
         if (!volumeSliderVisible) return@LaunchedEffect
-        delay(VOLUME_SLIDER_HIDE_MS)
+        val timeout = accessibilityManager?.calculateRecommendedTimeoutMillis(
+            originalTimeoutMillis = VOLUME_SLIDER_HIDE_MS,
+            containsIcons = true,
+            containsText = true,
+            containsControls = true,
+        ) ?: VOLUME_SLIDER_HIDE_MS
+        if (timeout == Long.MAX_VALUE) return@LaunchedEffect
+        delay(timeout)
         volumeSliderVisible = false
     }
 
-    Box(modifier.fillMaxSize()) {
+    Box(
+        modifier
+            .fillMaxSize()
+            .onFocusChanged { controlsHaveFocus = it.hasFocus }
+            .focusGroup(),
+    ) {
         if (watch.connected) {
             WatchChatDanmakuOverlay(
                 roomCode = watch.roomCode,
@@ -625,9 +695,8 @@ internal fun PlayerControls(
                 onBack = onBack,
                 onEnterPictureInPicture = onEnterPictureInPicture,
                 onOpenDrawer = {
-                    poke()
                     onRefreshEpisodes()
-                    drawerOpen = true
+                    openEpisodeDrawer()
                 },
                 onToggleFill = { poke(); onToggleFill() },
                 watchConnected = watch.connected,
@@ -656,12 +725,9 @@ internal fun PlayerControls(
                 onSeek = { poke(); onSeek(it) },
                 onScrub = { interactions++ },
                 trickplay = trickplay,
-                onOpenTab = { poke(); settingsTab = it },
+                onOpenTab = ::openSettings,
                 danmakuEnabled = danmaku.enabled,
-                onOpenDanmaku = {
-                    poke()
-                    settingsTab = Tab.Danmaku
-                },
+                onOpenDanmaku = { openSettings(Tab.Danmaku) },
             )
         }
 
@@ -703,13 +769,11 @@ internal fun PlayerControls(
             )
         }
 
-        // The panel outlives `settingsTab` by one animation, so the tab it was showing has to
-        // outlive it too — otherwise the content blanks on the frame the exit begins.
-        var lastSettingsTab by remember { mutableStateOf<Tab?>(null) }
-        LaunchedEffect(settingsTab) { settingsTab?.let { lastSettingsTab = it } }
-        ChromeVisibility(visible = settingsTab != null) {
-            lastSettingsTab?.let { tab ->
-            SettingsPanel(
+        settingsTab?.let { tab ->
+            BackOverlay(
+                onBack = { settingsTab = null },
+            ) {
+                SettingsPanel(
                 tab = tab,
                 state = state,
                 speeds = SPEEDS,
@@ -751,6 +815,10 @@ internal fun PlayerControls(
                     locked = true
                     visible = true
                 },
+                onOpenGestureHelp = {
+                    settingsTab = null
+                    gestureHelpOpen = true
+                },
                 watch = watch,
                 onOpenWatchTogether = {
                     settingsTab = null
@@ -764,8 +832,12 @@ internal fun PlayerControls(
                 // the picture behind it, and often two of the three in one visit.
                 skipActions = skipActions,
                 onDismiss = { settingsTab = null },
-            )
+                )
             }
+        }
+
+        if (gestureHelpOpen) {
+            PlayerGestureHelpOverlay(onDismiss = { gestureHelpOpen = false })
         }
 
         if (watchDialogOpen) {
@@ -795,23 +867,24 @@ internal fun PlayerControls(
             )
         }
 
-        ChromeVisibility(
-            visible = watchChatOpen && watch.connected,
-            edge = ChromeEdge.End,
-            modifier = Modifier.align(Alignment.CenterEnd),
-        ) {
-            WatchChatPanel(
-                participants = watch.participants,
-                messages = watch.chatMessages,
-                error = watch.chatError,
-                sendingEnabled = !watch.reconnecting,
-                danmakuEnabled = watch.chatDanmakuEnabled,
-                onSend = room.onSendChat,
-                onRetry = room.onRetryChat,
-                onClearError = room.onClearChatError,
-                onToggleDanmaku = room.onToggleChatDanmaku,
-                onDismiss = closeWatchChat,
-            )
+        if (watchChatOpen && watch.connected) {
+            BackOverlay(
+                onBack = closeWatchChat,
+            ) {
+                WatchChatPanel(
+                    participants = watch.participants,
+                    messages = watch.chatMessages,
+                    error = watch.chatError,
+                    sendingEnabled = !watch.reconnecting,
+                    danmakuEnabled = watch.chatDanmakuEnabled,
+                    onSend = room.onSendChat,
+                    onRetry = room.onRetryChat,
+                    onClearError = room.onClearChatError,
+                    onToggleDanmaku = room.onToggleChatDanmaku,
+                    onDismiss = closeWatchChat,
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                )
+            }
         }
 
         // The preview is what the panel replaces, so it is gated on the panel being shut
@@ -843,42 +916,44 @@ internal fun PlayerControls(
             )
         }
 
-        ChromeVisibility(
-            visible = drawerOpen,
-            edge = ChromeEdge.Bottom,
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            EpisodeStrip(
-                episodes = episodes,
-                currentIndex = state.currentIndex,
-                onSelect = if (watchLocked) {
-                    // Guests can still browse what's in the room's queue; picking is the
-                    // host's move, so tapping explains itself instead of doing nothing.
-                    { gestureHud = "房主控制播放" }
-                } else {
-                    { onSelectItem(it); drawerOpen = false }
-                },
-                onDismiss = { drawerOpen = false },
-            )
+        if (drawerOpen) {
+            BackOverlay(
+                onBack = { drawerOpen = false },
+            ) {
+                EpisodeStrip(
+                    episodes = episodes,
+                    currentIndex = state.currentIndex,
+                    onSelect = if (watchLocked) {
+                        // Guests can still browse what's in the room's queue; picking is the
+                        // host's move, so tapping explains itself instead of doing nothing.
+                        { gestureHud = "房主控制播放" }
+                    } else {
+                        { onSelectItem(it); drawerOpen = false }
+                    },
+                    onDismiss = { drawerOpen = false },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
         }
 
-        ChromeVisibility(
-            visible = danmakuSearchOpen,
-            edge = ChromeEdge.End,
-            modifier = Modifier.align(Alignment.CenterEnd),
-        ) {
-            DanmakuSearchPanel(
-                state = danmaku,
-                // Picking closes the sheet: the choice is made, and the result of it is
-                // the 弹幕 now running over the picture the sheet is covering.
-                actions = danmakuActions.copy(
-                    onPickEpisode = {
-                        danmakuActions.onPickEpisode(it)
-                        danmakuSearchOpen = false
-                    },
-                ),
-                onDismiss = { danmakuSearchOpen = false },
-            )
+        if (danmakuSearchOpen) {
+            BackOverlay(
+                onBack = { danmakuSearchOpen = false },
+            ) {
+                DanmakuSearchPanel(
+                    state = danmaku,
+                    // Picking closes the sheet: the choice is made, and the result of it is
+                    // the 弹幕 now running over the picture the sheet is covering.
+                    actions = danmakuActions.copy(
+                        onPickEpisode = {
+                            danmakuActions.onPickEpisode(it)
+                            danmakuSearchOpen = false
+                        },
+                    ),
+                    onDismiss = { danmakuSearchOpen = false },
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                )
+            }
         }
 
         if (danmakuSendOpen) {
@@ -904,15 +979,15 @@ internal fun PlayerControls(
             }
             Text(
                 roomNote,
-                style = sc(11.5f, 600),
-                color = Color.White.copy(alpha = 0.92f),
+                style = AppTypography.caption.medium,
+                color = if (watch.reconnecting) DarkPalette.onErrorContainer else Color.White.copy(alpha = 0.92f),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 74.dp)
                     .glass(
                         shape = GlassShapes.chip,
                         fill = if (watch.reconnecting) {
-                            Brand.Danger.copy(alpha = 0.42f)
+                            DarkPalette.errorContainer
                         } else {
                             Color.Black.copy(alpha = 0.52f)
                         },
@@ -970,12 +1045,13 @@ internal fun PlayerControls(
         gestureHud?.takeIf { !showResume }?.let { value ->
             Text(
                 value,
-                style = sc(15f, 700),
+                style = AppTypography.section.strong,
                 color = Color.White,
                 modifier = Modifier
                     .align(Alignment.Center)
+                    .semantics { liveRegion = LiveRegionMode.Polite }
                     .glass(
-                        shape = continuousRounded(22.dp),
+                        shape = AppShapes.pill,
                         fill = Color.Black.copy(alpha = 0.56f),
                         border = Color.White.copy(alpha = 0.24f),
                     )
@@ -999,7 +1075,7 @@ internal fun PlayerControls(
         if (state.hasNext && state.durationMs > 0L && !nextUpDismissed) {
             val remainingMs = state.durationMs - state.positionMs
             if (remainingMs in 1L..NEXT_UP_WINDOW_MS) {
-                NextUpCard(
+                PlayerControlsNextUpCard(
                     title = episodes.getOrNull(state.currentIndex + 1)?.title.orEmpty(),
                     remainingMs = remainingMs,
                     onPlayNow = { poke(); onNextItem() },
@@ -1009,6 +1085,103 @@ internal fun PlayerControls(
                         .padding(end = 22.dp, bottom = 96.dp),
                 )
             }
+        }
+    }
+}
+
+/**
+ * 片尾自动连播 — the countdown the spec drew and nobody built.
+ *
+ * [PlayerTokens.nextUpFill], `nextUpRing`, `nextUpRingTrack` and `nextUpCore` were all
+ * declared for this card and referenced nowhere in the app; what shipped instead was one
+ * line of text reading 「下一集将在 N 秒后播放」, with no way to start it early and no way
+ * to stop it. The ring drains as the episode does, the core starts the next one on tap,
+ * and 取消 leaves the credits alone.
+ */
+@Composable
+private fun PlayerControlsNextUpCard(
+    title: String,
+    remainingMs: Long,
+    onPlayNow: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accent = rememberAccentColorsForSurface(dark = true)
+    val progress = (remainingMs.toFloat() / NEXT_UP_WINDOW_MS).coerceIn(0f, 1f)
+    Row(
+        modifier
+            .shadow(Shadows.tabBar, GlassShapes.card)
+            .glass(
+                shape = GlassShapes.card,
+                fill = PlayerTokens.nextUpFill,
+                border = PlayerTokens.hairline,
+            )
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(horizontalAlignment = Alignment.Start) {
+            Text("即将播放", style = AppTypography.caption.strong, color = PlayerTokens.footerText)
+            if (title.isNotBlank()) {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    title,
+                    style = AppTypography.body.strong,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 190.dp),
+                )
+            }
+        }
+        Text(
+            "取消",
+            style = AppTypography.caption.medium,
+            color = PlayerTokens.timeText,
+            modifier = Modifier
+                .pressable(onClick = onDismiss)
+                .touchTarget()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+        Box(
+            Modifier
+                .pressable(haptic = HapticSignal.Confirm, onClick = onPlayNow)
+                .touchTarget()
+                .size(38.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.fillMaxSize()) {
+                val stroke = 2.5.dp.toPx()
+                val radius = (size.minDimension - stroke) / 2f
+                drawCircle(
+                    color = PlayerTokens.nextUpCore,
+                    radius = radius - stroke / 2f,
+                )
+                drawCircle(
+                    color = PlayerTokens.nextUpRingTrack,
+                    radius = radius,
+                    style = Stroke(width = stroke),
+                )
+                // Drains clockwise from the top as the episode runs out.
+                drawArc(
+                    color = accent.accent,
+                    startAngle = -90f,
+                    sweepAngle = -360f * (1f - progress),
+                    useCenter = false,
+                    topLeft = Offset(
+                        (size.width - radius * 2f) / 2f,
+                        (size.height - radius * 2f) / 2f,
+                    ),
+                    size = Size(radius * 2f, radius * 2f),
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+            }
+            Icon(
+                AppIcons.Play,
+                contentDescription = "立即播放下一集",
+                tint = Color.White,
+                modifier = Modifier.size(13.dp),
+            )
         }
     }
 }
@@ -1034,10 +1207,10 @@ private fun PlaybackErrorOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("播放遇到问题", style = sc(17f, 700), color = Color.White)
+            Text("播放遇到问题", style = AppTypography.section.strong, color = Color.White)
             Text(
                 message,
-                style = mr(12f, 400),
+                style = AppTypography.body.regular,
                 color = Color.White.copy(alpha = 0.72f),
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
@@ -1045,11 +1218,11 @@ private fun PlaybackErrorOverlay(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     "返回",
-                    style = sc(12f, 600),
+                    style = AppTypography.body.medium,
                     color = Color.White.copy(alpha = 0.82f),
                     modifier = Modifier
                         .glass(
-                            shape = continuousRounded(18.dp),
+                            shape = AppShapes.pill,
                             fill = Color.White.copy(alpha = 0.10f),
                             border = Color.White.copy(alpha = 0.28f),
                         )
@@ -1058,11 +1231,11 @@ private fun PlaybackErrorOverlay(
                 )
                 Text(
                     "重试",
-                    style = sc(12f, 700),
+                    style = AppTypography.body.strong,
                     color = Color(0xFF1B2436),
                     modifier = Modifier
                         .glass(
-                            shape = continuousRounded(18.dp),
+                            shape = AppShapes.pill,
                             fill = Color.White.copy(alpha = 0.68f),
                             border = Color.White.copy(alpha = 0.88f),
                         )
@@ -1128,7 +1301,7 @@ private fun TopBar(
                 ) {
                     Text(
                         title,
-                        style = sc(14f, 700),
+                        style = AppTypography.body.strong,
                         color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1143,7 +1316,7 @@ private fun TopBar(
                     Spacer(Modifier.height(2.dp))
                     Text(
                         subtitle,
-                        style = mr(10f, 500),
+                        style = AppTypography.caption.medium,
                         color = Color.White.copy(alpha = 0.55f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1268,54 +1441,90 @@ private fun TransportRow(
  */
 @Composable
 private fun VolumeSlider(volume: Float, onVolume: (Float) -> Unit, modifier: Modifier = Modifier) {
+    val accent = rememberAccentColorsForSurface(dark = true)
     val fraction = volume.coerceIn(0f, 1f)
     var height by remember { mutableIntStateOf(1) }
-    Column(
-        modifier
-            .glass(
-                shape = continuousRounded(22.dp),
-                fill = Color.Black.copy(alpha = 0.56f),
-                border = Color.White.copy(alpha = 0.24f),
-            )
-            .padding(horizontal = 12.dp, vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("${(fraction * 100).toInt()}", style = mr(11f, 700), color = Color.White)
-        Spacer(Modifier.height(10.dp))
+    var focused by remember { mutableStateOf(false) }
+    val adjust: (Float) -> Boolean = { target ->
+        onVolume(target.coerceIn(0f, 1f))
+        true
+    }
+    Box(modifier.width(44.dp)) {
+        Column(
+            Modifier
+                .align(Alignment.Center)
+                .glass(
+                    shape = AppShapes.pill,
+                    fill = Color.Black.copy(alpha = 0.56f),
+                    border = Color.White.copy(alpha = 0.24f),
+                )
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("${(fraction * 100).toInt()}", style = AppTypography.caption.strong, color = Color.White)
+            Spacer(Modifier.height(10.dp))
+            Box(
+                Modifier
+                    .width(6.dp)
+                    .height(140.dp)
+                    .clip(AppShapes.track)
+                    .background(Color.White.copy(alpha = 0.22f)),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                // Muted draws no fill at all rather than a zero-height sliver.
+                if (fraction > 0f) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(fraction)
+                            .clip(AppShapes.track)
+                            .background(Color.White),
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Icon(AppIcons.Volume, null, tint = Color.White, modifier = Modifier.size(14.dp))
+        }
+        // The painted rail stays 6dp. This sibling is the focus, semantics and hit layer.
         Box(
             Modifier
-                .width(6.dp)
+                .align(Alignment.Center)
+                .width(44.dp)
                 .height(140.dp)
-                .clip(continuousRounded(3.dp))
-                .background(Color.White.copy(alpha = 0.22f))
-                .onSizeChanged { height = it.height.coerceAtLeast(1) }
-                .pointerInput(Unit) {
-                    // Bottom of the track is 0, top is 1 — hence the inversion.
-                    detectTapGestures { offset ->
-                        onVolume((1f - offset.y / height).coerceIn(0f, 1f))
+                .then(
+                    if (focused) {
+                        Modifier.border(1.dp, accent.border, AppShapes.thumb)
+                    } else {
+                        Modifier
+                    },
+                )
+                .semantics {
+                    stateDescription = "音量 ${(fraction * 100).toInt()}%"
+                    progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f, 100)
+                    setProgress { adjust(it) }
+                }
+                .onKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (event.key) {
+                        Key.DirectionDown, Key.DirectionLeft -> adjust(fraction - 0.05f)
+                        Key.DirectionUp, Key.DirectionRight -> adjust(fraction + 0.05f)
+                        else -> false
                     }
+                }
+                .onFocusChanged { focused = it.isFocused }
+                .focusable()
+                .onSizeChanged { height = it.height.coerceAtLeast(1) }
+                .pointerInput(height) {
+                    // Bottom of the track is 0, top is 1 — hence the inversion.
+                    detectTapGestures { offset -> adjust(1f - offset.y / height) }
                 }
                 .pointerInput(Unit) {
                     detectVerticalDragGestures { change, _ ->
                         change.consume()
-                        onVolume((1f - change.position.y / height).coerceIn(0f, 1f))
+                        adjust(1f - change.position.y / height)
                     }
                 },
-            contentAlignment = Alignment.BottomCenter,
-        ) {
-            // Muted draws no fill at all rather than a zero-height sliver.
-            if (fraction > 0f) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(fraction)
-                        .clip(continuousRounded(3.dp))
-                        .background(Color.White),
-                )
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        Icon(AppIcons.Volume, null, tint = Color.White, modifier = Modifier.size(14.dp))
+        )
     }
 }
 
@@ -1330,11 +1539,11 @@ private fun VolumeSlider(volume: Float, onVolume: (Float) -> Unit, modifier: Mod
 private fun SkipPill(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Text(
         label,
-        style = sc(12.5f, 700),
+        style = AppTypography.body.strong,
         color = Color.White,
         modifier = modifier
             .glass(
-                shape = continuousRounded(18.dp),
+                shape = AppShapes.pill,
                 fill = Color.Black.copy(alpha = 0.64f),
                 border = Color.White.copy(alpha = 0.28f),
             )
@@ -1421,10 +1630,12 @@ private fun BottomBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(formatTime(shownPosition), style = mr(11f, 400), color = PlayerTokens.timeTextLandscape)
+            Text(formatTime(shownPosition), style = AppTypography.caption.regular, color = PlayerTokens.timeTextLandscape)
             SeekBar(
                 fraction = fraction,
                 bufferedFraction = bufferedFraction,
+                positionMs = shownPosition,
+                durationMs = state.durationMs,
                 enabled = !seekLocked && state.durationMs > 0L,
                 onScrubTo = {
                     scrubbed = it
@@ -1437,7 +1648,7 @@ private fun BottomBar(
                 onCancel = { scrubbed = null },
                 modifier = Modifier.weight(1f),
             )
-            Text(formatTime(state.durationMs), style = mr(11f, 400), color = PlayerTokens.timeTextLandscape)
+            Text(formatTime(state.durationMs), style = AppTypography.caption.regular, color = PlayerTokens.timeTextLandscape)
         }
 
         if (skipCountdownLabel != null) {
@@ -1512,7 +1723,7 @@ private fun TrickplayPreview(
     Box(
         modifier
             .size(previewWidth, previewHeight)
-            .clip(continuousRounded(8.dp))
+            .clip(AppShapes.thumb)
             .background(Color.Black),
     ) {
         AsyncImage(
@@ -1529,11 +1740,11 @@ private fun TrickplayPreview(
         )
         Text(
             formatTime(positionMs),
-            style = mr(10f, 700),
+            style = AppTypography.caption.strong,
             color = Color.White,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .background(Color.Black.copy(alpha = 0.68f), continuousRounded(4.dp))
+                .background(Color.Black.copy(alpha = 0.68f), AppShapes.micro)
                 .padding(horizontal = 5.dp, vertical = 2.dp),
         )
     }
@@ -1547,22 +1758,62 @@ private fun TrickplayPreview(
 private fun SeekBar(
     fraction: Float,
     bufferedFraction: Float,
+    positionMs: Long,
+    durationMs: Long,
     onScrubTo: (Float) -> Unit,
     onCommit: (Float) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
+    val accent = rememberAccentColorsForSurface(dark = true)
     var dragFraction by remember { mutableStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
     val latestOnScrubTo by rememberUpdatedState(onScrubTo)
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
+    val shownFraction = if (dragging) dragFraction else fraction.coerceIn(0f, 1f)
+    val keyStep = (5_000f / durationMs.coerceAtLeast(1L)).coerceIn(0.01f, 0.1f)
+    val commit: (Float) -> Boolean = { target ->
+        if (!enabled) {
+            false
+        } else {
+            latestOnCommit(target.coerceIn(0f, 1f))
+            true
+        }
+    }
 
     Box(
         modifier
-            // Keep the painted track at 4dp while the whole 28dp row accepts the gesture.
+            // Keep the painted track at 4dp while the whole 44dp row accepts the gesture.
             .height(SeekBarTouchHeight)
+            .then(
+                if (focused) {
+                    Modifier.border(1.dp, accent.border, AppShapes.thumb)
+                } else {
+                    Modifier
+                },
+            )
+            .semantics {
+                stateDescription = "播放进度 ${formatTime(positionMs)} / ${formatTime(durationMs)}"
+                progressBarRangeInfo = ProgressBarRangeInfo(shownFraction, 0f..1f)
+                if (enabled) {
+                    setProgress { commit(it) }
+                } else {
+                    disabled()
+                }
+            }
+            .onKeyEvent { event ->
+                if (!enabled || event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.DirectionLeft, Key.DirectionDown -> commit(shownFraction - keyStep)
+                    Key.DirectionRight, Key.DirectionUp -> commit(shownFraction + keyStep)
+                    else -> false
+                }
+            }
+            .onFocusChanged { focused = it.isFocused }
+            .focusable(enabled)
             .let { base ->
                 if (!enabled) return@let base
                 base
@@ -1594,29 +1845,29 @@ private fun SeekBar(
                             latestOnScrubTo(dragFraction)
                         }
                     }
-            }.padding(vertical = if (dragging) 11.dp else 12.dp),
+            }.padding(vertical = if (dragging) 19.dp else 20.dp),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
                 .fillMaxHeight()
                 .fillMaxWidth()
-                .clip(continuousRounded(2.dp))
+                .clip(AppShapes.track)
                 .background(PlayerTokens.trackFillLandscape),
         ) {
             Box(
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(bufferedFraction.coerceIn(0f, 1f))
-                    .clip(continuousRounded(2.dp))
+                    .clip(AppShapes.track)
                     .background(Color.White.copy(alpha = 0.44f)),
             )
             Box(
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                    .clip(continuousRounded(2.dp))
-                    .background(PlayerTokens.progress),
+                    .clip(AppShapes.track)
+                    .background(accent.accent),
             )
         }
     }
@@ -1639,7 +1890,7 @@ internal fun scrubPositionMs(
  */
 private val ChipHeight = 40.dp
 private val ChipMinWidth = 46.dp
-private val ChipShape = continuousRounded(14.dp)
+private val ChipShape = AppShapes.chip
 
 /** Labelled chip — `radius:14px`, `600 11.5px Manrope`, `rgba(255,255,255,.92)`. */
 @Composable
@@ -1648,23 +1899,24 @@ private fun Chip(
     active: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val accent = rememberAccentColorsForSurface(dark = true)
     Box(
         Modifier
+            .noRippleClickable(onClick)
             .height(ChipHeight)
             .widthIn(min = ChipMinWidth)
             .glass(
                 shape = ChipShape,
-                fill = if (active) Brand.Primary.copy(alpha = 0.7f) else PlayerTokens.chipFill,
-                border = Color.White.copy(alpha = if (active) 0.36f else 0.24f),
+                fill = if (active) accent.container else PlayerTokens.chipFill,
+                border = if (active) accent.border else Color.White.copy(alpha = 0.24f),
             )
-            .noRippleClickable(onClick)
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             label,
-            style = mr(11.5f, 600),
-            color = Color.White.copy(alpha = 0.92f),
+            style = AppTypography.caption.medium,
+            color = if (active) accent.accent else Color.White.copy(alpha = 0.92f),
             maxLines = 1,
         )
     }
@@ -1678,30 +1930,31 @@ private fun IconChip(
     active: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val accent = rememberAccentColorsForSurface(dark = true)
     Box(
         Modifier
+            .noRippleClickable(onClick)
             .width(ChipMinWidth)
             .height(ChipHeight)
             .glass(
                 shape = ChipShape,
                 fill = if (active) {
-                    Brand.Primary.copy(alpha = 0.7f)
+                    accent.container
                 } else {
                     PlayerTokens.chipFill
                 },
                 border = if (active) {
-                    Color.White.copy(alpha = 0.36f)
+                    accent.border
                 } else {
                     Color.White.copy(alpha = 0.24f)
                 },
-            )
-            .noRippleClickable(onClick),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             icon,
             contentDescription = description,
-            tint = Color.White,
+            tint = if (active) accent.accent else Color.White,
             modifier = Modifier.size(18.dp),
         )
     }
@@ -1726,9 +1979,11 @@ private fun CircleControl(
     // the middle of the picture is 48dp of picture you cannot see.
     Box(
         modifier
-            .size(size + ControlTouchPadding * 2)
             .graphicsLayer { alpha = if (enabled) 1f else 0.35f }
-            .let { if (enabled && interactive) it.noRippleClickable(onClick) else it },
+            .let {
+                if (enabled && interactive) it.noRippleClickable(onClick) else it.touchTarget()
+            }
+            .size(size + ControlTouchPadding * 2),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -1777,18 +2032,18 @@ private fun LockedOverlay(onUnlock: () -> Unit) {
             ) {
                 Icon(AppIcons.Lock, null, tint = Color.White, modifier = Modifier.size(20.dp))
             }
-            Text("屏幕已锁定", style = mr(12f, 500), color = Color.White.copy(alpha = 0.57f))
+            Text("屏幕已锁定", style = AppTypography.body.medium, color = Color.White.copy(alpha = 0.57f))
         }
 
         Text(
             "解锁",
-            style = sc(12f, 600),
+            style = AppTypography.body.medium,
             color = Color.White,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 22.dp, bottom = 40.dp)
                 .glass(
-                    shape = continuousRounded(20.dp),
+                    shape = AppShapes.pill,
                     fill = Color.White.copy(alpha = 0.10f),
                     border = Color.White.copy(alpha = 0.28f),
                 )
@@ -1813,10 +2068,10 @@ internal fun DiagnosticRow(label: String, value: String) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = mr(11f, 500), color = Color.White.copy(alpha = 0.54f))
+        Text(label, style = AppTypography.caption.medium, color = Color.White.copy(alpha = 0.54f))
         Text(
             value,
-            style = sc(11.5f, 600),
+            style = AppTypography.caption.medium,
             color = Color.White.copy(alpha = 0.90f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1850,17 +2105,17 @@ internal fun SegmentedRow(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
 ) {
+    val accent = rememberAccentColorsForSurface(dark = true)
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         options.forEachIndexed { index, label ->
             val active = index == selectedIndex
-            val accent = Brand.PrimaryGradTop
             Text(
                 label,
-                style = sc(11.5f, if (active) 700 else 500),
-                color = if (active) Color.White else Color.White.copy(alpha = 0.62f),
+                style = if (active) AppTypography.caption.strong else AppTypography.caption.medium,
+                color = if (active) accent.accent else Color.White.copy(alpha = 0.62f),
                 maxLines = 1,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
@@ -1868,12 +2123,12 @@ internal fun SegmentedRow(
                     .glass(
                         shape = GlassShapes.thumb,
                         fill = if (active) {
-                            accent.copy(alpha = 0.20f)
+                            accent.container
                         } else {
                             Color.White.copy(alpha = 0.06f)
                         },
                         border = if (active) {
-                            accent.copy(alpha = 0.38f)
+                            accent.border
                         } else {
                             Color.White.copy(alpha = 0.10f)
                         },
@@ -1890,7 +2145,7 @@ internal fun SegmentedRow(
 internal fun GroupLabel(text: String) {
     Text(
         text,
-        style = mr(11f, 600),
+        style = AppTypography.caption.medium,
         color = Color.White.copy(alpha = 0.48f),
         modifier = Modifier.padding(top = 6.dp, bottom = 6.dp),
     )
@@ -1898,8 +2153,7 @@ internal fun GroupLabel(text: String) {
 
 /**
  * `padding:9px 10px`, `radius:10px`. The panel reads on a dark glass plate over video,
- * so the selected row takes [Brand.PrimaryGradTop] — the accent's light end. The spec's
- * `#3D64C9` is a light-theme ink and goes muddy against this fill.
+ * so the selected row takes the current semantic accent rather than a fixed brand blue.
  */
 @Composable
 internal fun OptionRow(
@@ -1913,19 +2167,19 @@ internal fun OptionRow(
     actionLabel: String? = null,
     onAction: () -> Unit = {},
 ) {
-    val accent = Brand.PrimaryGradTop
+    val accent = rememberAccentColorsForSurface(dark = true)
     Row(
         Modifier
             .fillMaxWidth()
             .glass(
                 shape = GlassShapes.thumb,
                 fill = if (selected) {
-                    accent.copy(alpha = 0.20f)
+                    accent.container
                 } else {
                     Color.White.copy(alpha = 0.06f)
                 },
                 border = if (selected) {
-                    accent.copy(alpha = 0.38f)
+                    accent.border
                 } else {
                     Color.White.copy(alpha = 0.10f)
                 },
@@ -1937,8 +2191,8 @@ internal fun OptionRow(
     ) {
         Text(
             label,
-            style = sc(12.5f, if (selected) 700 else 500),
-            color = if (selected) accent else Color.White.copy(alpha = 0.86f),
+            style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
+            color = if (selected) accent.accent else Color.White.copy(alpha = 0.86f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
@@ -1946,15 +2200,15 @@ internal fun OptionRow(
         when {
             actionLabel != null -> Text(
                 actionLabel,
-                style = sc(11.5f, 600),
-                color = Brand.Danger,
+                style = AppTypography.caption.medium,
+                color = DarkPalette.error,
                 maxLines = 1,
                 modifier = Modifier
                     .noRippleClickable(onAction)
                     .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
             )
 
-            selected -> Icon(AppIcons.Check, null, tint = accent, modifier = Modifier.size(12.dp))
+            selected -> Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(12.dp))
         }
     }
 }
@@ -1968,7 +2222,7 @@ internal fun OptionRow(
  */
 @Composable
 internal fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier =
-    pressable(onClick = onClick)
+    pressable(onClick = onClick).touchTarget()
 
 /**
  * `alphatv · 1080P · EXO · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.

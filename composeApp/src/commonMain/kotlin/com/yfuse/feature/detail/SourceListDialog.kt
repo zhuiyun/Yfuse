@@ -22,15 +22,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.ServerSource
 
@@ -89,7 +88,7 @@ internal fun SourceListDialog(
             if (available.isEmpty()) {
                 Text(
                     "只有当前服务器有这个片子。",
-                    style = mr(11f, 400),
+                    style = AppTypography.caption.regular,
                     color = palette.sub2,
                     modifier = Modifier.padding(vertical = 12.dp),
                 )
@@ -145,13 +144,13 @@ private fun SourceRow(
             ) {
                 Text(
                     entry.serverName.take(1).uppercase(),
-                    style = mr(10.5f, 700),
+                    style = AppTypography.caption.strong,
                     color = Color.White,
                 )
             }
             Text(
                 entry.serverName,
-                style = sc(13f, 700),
+                style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -160,7 +159,7 @@ private fun SourceRow(
             if (best) {
                 Text(
                     "Best",
-                    style = mr(9f, 700),
+                    style = AppTypography.caption.strong,
                     color = Color(0xFF9A6B12),
                     modifier = Modifier
                         .clip(GlassShapes.chip)
@@ -171,7 +170,7 @@ private fun SourceRow(
             Spacer(Modifier.weight(1f))
             Text(
                 source?.size ?: "—",
-                style = mr(11f, 700),
+                style = AppTypography.caption.strong,
                 color = if (selected) accent else palette.body,
                 maxLines = 1,
             )
@@ -200,7 +199,7 @@ private fun FactChip(label: String) {
     val palette = LocalPalette.current
     Text(
         label,
-        style = mr(9.5f, 600),
+        style = AppTypography.caption.strong,
         color = palette.sub,
         maxLines = 1,
         modifier = Modifier
@@ -224,6 +223,6 @@ private fun CountFact(icon: androidx.compose.ui.graphics.vector.ImageVector, cou
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = palette.sub2, modifier = Modifier.size(11.dp))
-        Text(count.toString(), style = mr(9.5f, 600), color = palette.sub2)
+        Text(count.toString(), style = AppTypography.caption.strong, color = palette.sub2)
     }
 }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -41,15 +42,21 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.motionAwareItem
-import com.yfuse.core.designsystem.continuousRounded
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
@@ -57,18 +64,15 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.LocalAccent
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
-import com.yfuse.core.designsystem.SharedElementTransitionContainer
+import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
-import com.yfuse.core.designsystem.detailRouteIdentity
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.skeletonFill
 import com.yfuse.core.designsystem.pressable
@@ -82,12 +86,13 @@ import com.yfuse.feature.player.PlayerScreen
 fun SearchScreen(component: SearchComponent) {
     val focusRequest by component.focusRequest.subscribeAsState()
     val stack by component.stack.subscribeAsState()
-    SharedElementTransitionContainer(
-        targetState = stack.active.instance,
-        routeKey = ::routeKey,
-        depth = stack.items.size,
-        previous = stack.backStack.lastOrNull()?.instance,
-    ) { instance ->
+    OfficialNavDisplay(
+        backStack = stack.items,
+        onBack = component::navigateBack,
+        contentKey = { routeKey(it.configuration) },
+        modifier = Modifier.fillMaxSize(),
+    ) { entry ->
+        val instance = entry.instance
         when (instance) {
             is SearchComponent.Child.Home -> SearchHomeScreen(
                 component = instance.component,
@@ -100,15 +105,8 @@ fun SearchScreen(component: SearchComponent) {
     }
 }
 
-/** Keeps each route's scrolled position while it waits in the back stack. */
-private fun routeKey(child: SearchComponent.Child): String = when (child) {
-    is SearchComponent.Child.Home -> "home"
-    is SearchComponent.Child.Detail -> detailRouteIdentity(
-        serverId = child.component.serverId,
-        itemId = child.component.itemId,
-    )
-    is SearchComponent.Child.Player -> "player"
-}
+/** Includes the complete immutable Decompose configuration in the saved-content identity. */
+private fun routeKey(configuration: SearchComponent.Config): String = "search:$configuration"
 
 /**
  * The chips shown before anything has been typed.
@@ -273,33 +271,36 @@ private fun SearchField(
     focusRequester: FocusRequester,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccent.current.color
-    val shape = continuousRounded(25.dp)
+    val accent = LocalAccentColors.current
+    val shape = AppShapes.pill
     Row(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = Dimens.pageHorizontal)
             .heightIn(min = 50.dp)
             .shadow(Shadows.searchBarFocused, shape)
-            .glass(shape, palette.card3, accent.copy(alpha = 0.4f))
+            .glass(shape, palette.card3, accent.border)
             .padding(horizontal = 16.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(AppIcons.Search, null, tint = accent, modifier = Modifier.size(15.dp))
+        Icon(AppIcons.Search, null, tint = accent.accent, modifier = Modifier.size(15.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) {
-                Text("搜索电影、剧集、演员", style = mr(13f, 400), color = palette.sub2)
+                Text("搜索电影、剧集、演员", style = AppTypography.body.regular, color = palette.sub2)
             }
             BasicTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                textStyle = mr(13f, 400).copy(color = palette.text),
-                cursorBrush = SolidColor(accent),
+                textStyle = AppTypography.body.regular.copy(color = palette.text),
+                cursorBrush = SolidColor(accent.accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+                    .semantics { contentDescription = "搜索电影、剧集、演员" },
             )
         }
         if (query.isNotEmpty()) {
@@ -334,12 +335,15 @@ private fun ResultsHeading(
     ) {
         Text(
             if (count == 0) "搜索结果" else "共 $count 条结果",
-            style = mr(11f, 600),
+            style = AppTypography.caption.medium,
             color = palette.sub2,
         )
         // One type is no choice at all — the row only appears when both kinds matched.
         if (types.size > 1) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 types.forEach { type ->
                     TypeChip(
                         label = type.label,
@@ -355,16 +359,19 @@ private fun ResultsHeading(
 @Composable
 private fun TypeChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Text(
         label,
-        style = sc(11f, if (selected) 700 else 500),
-        color = if (selected) Brand.Primary else palette.body,
+        style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
+        color = if (selected) accent.accent else palette.body,
         modifier = Modifier
-            .pressable(onClick = onClick)
+            .pressable(role = Role.RadioButton, onClick = onClick)
+            .semantics { this.selected = selected }
+            .touchTarget()
             .glass(
                 shape = GlassShapes.chip,
-                fill = if (selected) Brand.Primary.copy(alpha = 0.10f) else palette.card2,
-                border = if (selected) Brand.Primary.copy(alpha = 0.34f) else palette.border,
+                fill = if (selected) accent.container else palette.card2,
+                border = if (selected) accent.border else palette.border,
             )
             .padding(horizontal = 11.dp, vertical = 5.dp),
     )
@@ -382,7 +389,7 @@ private fun PeopleRow(
     Column {
         Text(
             "演员",
-            style = sc(13f, 700),
+            style = AppTypography.body.strong,
             color = palette.text,
             modifier = Modifier
                 .padding(horizontal = Dimens.pageHorizontal)
@@ -425,7 +432,7 @@ private fun PeopleRow(
                     Spacer(Modifier.height(6.dp))
                     Text(
                         person.name,
-                        style = sc(11f, 600),
+                        style = AppTypography.caption.strong,
                         color = palette.text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -441,6 +448,7 @@ private fun PeopleRow(
 @Composable
 private fun PersonBanner(person: PersonHit, onClear: () -> Unit) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -452,7 +460,7 @@ private fun PersonBanner(person: PersonHit, onClear: () -> Unit) {
     ) {
         Text(
             "${person.name} · ${person.serverName}",
-            style = sc(12f, 600),
+            style = AppTypography.body.strong,
             color = palette.text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -460,9 +468,9 @@ private fun PersonBanner(person: PersonHit, onClear: () -> Unit) {
         )
         Text(
             "返回搜索结果",
-            style = sc(11.5f, 700),
-            color = Brand.Primary,
-            modifier = Modifier.pressable(onClick = onClear),
+            style = AppTypography.caption.strong,
+            color = accent.accent,
+            modifier = Modifier.pressable(onClick = onClear).touchTarget(),
         )
     }
 }
@@ -492,18 +500,18 @@ private fun ServerGroup(
                         .clip(CircleShape)
                         .background(if (group.error == null) Brand.Online else Brand.Offline),
                 )
-                Text(group.serverName, style = sc(14f, 700), color = palette.text)
+                Text(group.serverName, style = AppTypography.body.strong, color = palette.text)
             }
             Text(
                 if (group.error == null) "${group.items.size} 部" else "连接失败",
-                style = mr(10.5f, 600),
+                style = AppTypography.caption.strong,
                 color = palette.sub2,
             )
         }
         if (group.error != null) {
             Text(
                 group.error,
-                style = sc(11f, 400),
+                style = AppTypography.caption.regular,
                 color = palette.hint,
                 modifier = Modifier.fillMaxWidth().glass(GlassShapes.card).padding(12.dp),
             )
@@ -553,7 +561,7 @@ private fun EmptyResults(filtered: Boolean) {
             } else {
                 "所有服务器中都没有找到相关内容\n试试片名的一部分"
             },
-            style = sc(11.5f, 400, lineHeight = 19.5f),
+            style = AppTypography.caption.regular.copy(lineHeight = 19.5.sp),
             color = palette.hint,
             textAlign = TextAlign.Center,
         )
@@ -572,7 +580,7 @@ private fun SearchSkeleton() {
         Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        SkeletonBlock(Modifier.width(72.dp).height(12.dp), radius = 4.dp)
+        SkeletonBlock(Modifier.width(72.dp).height(12.dp), shape = AppShapes.micro)
         repeat(3) {
             Row(
                 Modifier
@@ -581,13 +589,13 @@ private fun SearchSkeleton() {
                     .padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
-                SkeletonBlock(Modifier.width(60.dp).height(90.dp), radius = Dimens.small)
+                SkeletonBlock(Modifier.width(60.dp).height(90.dp), shape = AppShapes.thumb)
                 Column(
                     Modifier.weight(1f).padding(top = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SkeletonBlock(Modifier.fillMaxWidth().height(13.dp), radius = 4.dp)
-                    SkeletonBlock(Modifier.width(80.dp).height(10.dp), radius = 4.dp)
+                    SkeletonBlock(Modifier.fillMaxWidth().height(13.dp), shape = AppShapes.micro)
+                    SkeletonBlock(Modifier.width(80.dp).height(10.dp), shape = AppShapes.micro)
                 }
             }
         }
@@ -607,6 +615,7 @@ private fun ResultRow(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Row(
         modifier
             .pressable(onClick = onClick)
@@ -620,13 +629,12 @@ private fun ResultRow(
             // accounts is two groups holding the same item ids. A shared-element key
             // repeated within one screen leaves one of its copies undrawn, so the group
             // it belongs to is part of the key.
-            sharedKey = "media-poster-$serverId-${item.id}",
             modifier = Modifier.width(60.dp).height(90.dp),
         )
         Column(Modifier.weight(1f).align(Alignment.CenterVertically)) {
             Text(
                 item.title,
-                style = sc(13f, 700),
+                style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -635,7 +643,7 @@ private fun ResultRow(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     item.subtitle,
-                    style = mr(10.5f, 400),
+                    style = AppTypography.caption.regular,
                     color = palette.sub2,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -644,12 +652,12 @@ private fun ResultRow(
         }
         Text(
             if (item.type == "Series") "剧集" else "影片",
-            style = mr(9.5f, 700),
-            color = Brand.Primary,
+            style = AppTypography.caption.strong,
+            color = accent.accent,
             modifier = Modifier
                 .align(Alignment.CenterVertically)
-                .clip(continuousRounded(8.dp))
-                .background(Brand.Primary.copy(alpha = 0.12f))
+                .clip(AppShapes.thumb)
+                .background(accent.container)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         )
     }
@@ -683,7 +691,7 @@ private fun RecentSearches(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, style = sc(13f, 700), color = palette.text)
+            Text(title, style = AppTypography.body.strong, color = palette.text)
             if (canEdit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     HistoryAction(
@@ -703,9 +711,12 @@ private fun RecentSearches(
                 Row(
                     Modifier
                         .pressable(
+                            onClickLabel = if (editing) "删除搜索记录" else "搜索",
                             onLongClick = { if (canEdit) onForget(term) },
+                            onLongClickLabel = if (canEdit) "删除搜索记录" else null,
                             onClick = { if (editing) onForget(term) else onSelect(term) },
                         )
+                        .touchTarget()
                         .glass(GlassShapes.chip, palette.card2)
                         .padding(horizontal = 13.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -713,7 +724,7 @@ private fun RecentSearches(
                 ) {
                     Text(
                         term,
-                        style = mr(11f, 500),
+                        style = AppTypography.caption.medium,
                         color = palette.body,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -735,16 +746,18 @@ private fun RecentSearches(
 @Composable
 private fun HistoryAction(label: String, accent: Boolean, onClick: () -> Unit) {
     val palette = LocalPalette.current
+    val accentColors = LocalAccentColors.current
     Text(
         label,
-        style = mr(11f, 600),
-        color = if (accent) Brand.Primary else palette.sub2,
+        style = AppTypography.caption.strong,
+        color = if (accent) accentColors.accent else palette.sub2,
         modifier = Modifier
             .pressable(onClick = onClick)
+            .touchTarget()
             .glass(
                 shape = GlassShapes.chip,
-                fill = if (accent) Brand.Primary.copy(alpha = 0.10f) else palette.card2,
-                border = if (accent) Brand.Primary.copy(alpha = 0.30f) else palette.border,
+                fill = if (accent) accentColors.container else palette.card2,
+                border = if (accent) accentColors.border else palette.border,
             )
             .padding(horizontal = 11.dp, vertical = 6.dp),
     )

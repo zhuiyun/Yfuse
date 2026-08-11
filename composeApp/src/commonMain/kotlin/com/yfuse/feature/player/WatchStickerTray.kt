@@ -170,14 +170,19 @@ internal fun WatchStickerTray(
     onPick: (WatchSticker) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val sharedClock = rememberInfiniteTransition(label = "sticker-tray-clock").animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(SHARED_CLOCK_MS, easing = LinearEasing),
-        ),
-        label = "sticker-tray-phase",
-    )
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val sharedClock = if (reduceMotion) {
+        null
+    } else {
+        rememberInfiniteTransition(label = "sticker-tray-clock").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(SHARED_CLOCK_MS, easing = LinearEasing),
+            ),
+            label = "sticker-tray-phase",
+        )
+    }
     CompositionLocalProvider(LocalStickerClock provides sharedClock) {
         LazyRow(
             modifier = modifier,

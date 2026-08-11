@@ -15,17 +15,27 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlin.math.PI
 import kotlin.math.cos
 
@@ -48,6 +58,7 @@ fun ErrorState(
     modifier: Modifier = Modifier,
     retryLabel: String = "重试",
 ) {
+    val palette = LocalPalette.current
     Column(
         modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -55,8 +66,8 @@ fun ErrorState(
     ) {
         Text(
             message,
-            style = sc(13f, 400, lineHeight = 13f * 1.6f),
-            color = LocalPalette.current.sub,
+            style = AppTypography.body.regular.copy(lineHeight = 21.sp),
+            color = palette.error,
             textAlign = TextAlign.Center,
         )
         AccentChipButton(label = retryLabel, onClick = onRetry)
@@ -101,7 +112,7 @@ fun PageHint(
         }
         Text(
             text,
-            style = sc(13f, 400, lineHeight = 13f * 1.6f),
+            style = AppTypography.body.regular.copy(lineHeight = 21.sp),
             color = palette.sub,
             textAlign = TextAlign.Center,
         )
@@ -114,16 +125,18 @@ fun PageHint(
 /** The accent-tinted chip both page states use to offer their one action. */
 @Composable
 private fun AccentChipButton(label: String, onClick: () -> Unit) {
+    val accent = LocalAccentColors.current
     Text(
         label,
-        style = sc(13f, 700),
-        color = Brand.Primary,
+        style = AppTypography.body.strong,
+        color = accent.accent,
         modifier = Modifier
             .pressable(onClick = onClick)
+            .touchTarget()
             .solidGlass(
                 shape = GlassShapes.chip,
-                fill = Brand.Primary.copy(alpha = 0.08f),
-                border = Brand.Primary.copy(alpha = 0.28f),
+                fill = accent.container,
+                border = accent.border,
             )
             .padding(horizontal = 18.dp, vertical = 9.dp),
     )
@@ -145,6 +158,26 @@ private const val SKELETON_PULSE_MS = 1_600f
 /** How far down the breath goes. Perceptible as motion, quiet enough not to flash. */
 private const val SKELETON_PULSE_FLOOR = 0.45f
 
+@Stable
+private class SkeletonPulseClock {
+    var consumerCount by mutableIntStateOf(0)
+        private set
+
+    /** Read from the graphics layer so frame updates do not recompose the provider tree. */
+    val alpha = mutableFloatStateOf(1f)
+
+    fun registerConsumer() {
+        consumerCount += 1
+    }
+
+    fun unregisterConsumer() {
+        consumerCount = (consumerCount - 1).coerceAtLeast(0)
+    }
+}
+
+/** Null is the intentional no-provider fallback: a still, fully opaque skeleton. */
+private val LocalSkeletonPulseClock = staticCompositionLocalOf<SkeletonPulseClock?> { null }
+
 /**
  * The breath every placeholder shares.
  *
@@ -161,14 +194,7 @@ private const val SKELETON_PULSE_FLOOR = 0.45f
  * with animations turned off in developer options gets a still skeleton for free; 减弱动态
  * 效果 is handled explicitly above it.
  */
-@Composable
-private fun skeletonPulse(): Float {
-    if (LocalAccessibilityOptions.current.reduceMotion) return 1f
-    val millis by produceState(0L) {
-        while (true) {
-            withInfiniteAnimationFrameMillis { value = it }
-        }
-    }
+private fun skeletonPulseAt(millis: Long): Float {
     // A cosine is its own easing — smooth at both ends, no curve to apply and no reversal
     // to schedule.
     val phase = (millis % SKELETON_PULSE_MS.toLong()) / SKELETON_PULSE_MS
@@ -176,14 +202,47 @@ private fun skeletonPulse(): Float {
     return SKELETON_PULSE_FLOOR + (1f - SKELETON_PULSE_FLOOR) * wave
 }
 
+/**
+ * Provides one animation clock to every skeleton below it. Install once at an app or preview
+ * root; without a provider skeletons remain safely static instead of starting per-block loops.
+ */
+@Composable
+fun SkeletonPulseProvider(content: @Composable () -> Unit) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val clock = remember { SkeletonPulseClock() }
+    val hasConsumers = clock.consumerCount > 0
+
+    LaunchedEffect(clock, reduceMotion, hasConsumers) {
+        if (reduceMotion || !hasConsumers) {
+            clock.alpha.floatValue = 1f
+            return@LaunchedEffect
+        }
+        while (true) {
+            withInfiniteAnimationFrameMillis { millis ->
+                clock.alpha.floatValue = skeletonPulseAt(millis)
+            }
+        }
+    }
+
+    CompositionLocalProvider(LocalSkeletonPulseClock provides clock, content = content)
+}
+
 /** One rounded placeholder block. Sized by the caller so it matches what it replaces. */
 @Composable
-fun SkeletonBlock(modifier: Modifier, radius: Dp = 6.dp) {
-    val pulse = skeletonPulse()
+fun SkeletonBlock(modifier: Modifier, shape: Shape = AppShapes.micro) {
+    val clock = LocalSkeletonPulseClock.current
+    DisposableEffect(clock) {
+        clock?.registerConsumer()
+        onDispose { clock?.unregisterConsumer() }
+    }
     Box(
         modifier
-            .clip(continuousRounded(radius))
-            .graphicsLayer { alpha = pulse }
+            .clip(shape)
+            .graphicsLayer {
+                // Snapshot reads in this layer callback invalidate only the layer, not the
+                // provider or the content tree on every animation frame.
+                alpha = clock?.alpha?.floatValue ?: 1f
+            }
             .background(skeletonFill()),
     )
 }
@@ -200,12 +259,12 @@ fun SkeletonPosterTile(modifier: Modifier = Modifier, posterHeight: Dp = 150.dp)
     Column(modifier) {
         SkeletonBlock(
             Modifier.fillMaxWidth().height(posterHeight),
-            radius = Dimens.medium,
+            shape = AppShapes.card,
         )
         Spacer(Modifier.height(7.dp))
-        SkeletonBlock(Modifier.fillMaxWidth().height(12.dp), radius = 4.dp)
+        SkeletonBlock(Modifier.fillMaxWidth().height(12.dp), shape = AppShapes.micro)
         Spacer(Modifier.height(5.dp))
-        SkeletonBlock(Modifier.width(42.dp).height(9.dp), radius = 4.dp)
+        SkeletonBlock(Modifier.width(42.dp).height(9.dp), shape = AppShapes.micro)
     }
 }
 

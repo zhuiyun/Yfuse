@@ -15,11 +15,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.delay
 
@@ -28,10 +28,12 @@ import kotlinx.coroutines.delay
 fun CopyableRoomCode(
     roomCode: String,
     modifier: Modifier = Modifier,
-    style: TextStyle = sc(24f, 800),
-    color: Color = Brand.Primary,
+    style: TextStyle = AppTypography.display.strong,
+    color: Color? = null,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val resolvedColor = color ?: accent.accent
     val shareHandler = rememberShareHandler()
     var copied by remember(roomCode) { mutableStateOf(false) }
     LaunchedEffect(copied) {
@@ -39,30 +41,33 @@ fun CopyableRoomCode(
         delay(1_600L)
         copied = false
     }
+    val copyCode = {
+        shareHandler.copyRoomCode(roomCode)
+        copied = true
+    }
 
     Column(
         modifier = modifier
             .pressable(
+                onClickLabel = "复制房间码",
                 onLongClickLabel = "复制房间码",
-                onLongClick = {
-                    shareHandler.copyRoomCode(roomCode)
-                    copied = true
-                },
-                onClick = {},
+                onLongClick = copyCode,
+                onClick = copyCode,
             )
+            .touchTarget()
             .padding(horizontal = 8.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = roomCode,
             style = style,
-            color = color,
+            color = resolvedColor,
             textAlign = TextAlign.Center,
         )
         Text(
-            text = if (copied) "已复制房间码" else "长按复制房间码",
-            style = mr(9f, 500),
-            color = if (copied) Brand.Primary else palette.sub2,
+            text = if (copied) "已复制房间码" else "点击或长按复制房间码",
+            style = AppTypography.caption.medium,
+            color = if (copied) accent.accent else palette.sub2,
             textAlign = TextAlign.Center,
             maxLines = 1,
         )

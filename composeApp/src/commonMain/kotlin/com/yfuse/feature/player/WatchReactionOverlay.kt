@@ -25,8 +25,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.sync.WatchReactionBurst
 import kotlinx.coroutines.delay
 
@@ -116,11 +115,11 @@ private fun BoxScope.ReactionBubble(
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(burst.reaction.emoji, style = sc(17f, 400))
+        Text(burst.reaction.emoji, style = AppTypography.section.regular)
         if (burst.name.isNotBlank() && !burst.isMine) {
             Text(
                 burst.name,
-                style = mr(10f, 600),
+                style = AppTypography.caption.medium,
                 color = PlayerTokens.timeText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

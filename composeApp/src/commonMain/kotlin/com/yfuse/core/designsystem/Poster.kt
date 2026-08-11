@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.decode.DataSource
 
@@ -154,8 +155,6 @@ fun Poster(
     shape: Shape = GlassShapes.poster,
     /** 0f..1f — draws the 3px `#5B7FD1` resume bar along the bottom edge. */
     progress: Float? = null,
-    /** Matching key used by list/hero and detail artwork for the route transition. */
-    sharedKey: String? = null,
     contentDescription: String? = title,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
@@ -167,7 +166,6 @@ fun Poster(
     }
     Box(
         modifier
-            .sharedMediaElement(sharedKey)
             .clip(shape)
             // 占位主色渐变 §3.1. The artwork's own colour cannot be known before the
             // artwork arrives, so this is the palette's placeholder tone with a slight
@@ -229,7 +227,8 @@ fun Poster(
             ) {
                 Text(
                     text = title,
-                    style = sc(11f, 600, lineHeight = 11f * 1.25f).copy(
+                    style = AppTypography.body.strong.copy(
+                        lineHeight = 16.sp,
                         shadow = Shadow(
                             color = Color.Black.copy(alpha = 0.5f),
                             offset = Offset(0f, 1f),
@@ -244,7 +243,7 @@ fun Poster(
                     Spacer(Modifier.height(2.dp))
                     Text(
                         text = year,
-                        style = mr(9.5f, 400),
+                        style = AppTypography.caption.regular,
                         color = Color.White.copy(alpha = 0.72f),
                         maxLines = 1,
                     )
@@ -279,7 +278,6 @@ fun CaptionedPoster(
     modifier: Modifier = Modifier,
     posterModifier: Modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
     progress: Float? = null,
-    sharedKey: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
@@ -295,14 +293,13 @@ fun CaptionedPoster(
             fallbackUrl = fallbackUrl,
             fallbackUrls = fallbackUrls,
             progress = progress,
-            sharedKey = sharedKey,
             contentDescription = title,
             modifier = posterModifier,
         )
         Spacer(Modifier.height(7.dp))
         Text(
             text = title,
-            style = sc(12f, 600),
+            style = AppTypography.body.strong,
             color = palette.text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -312,7 +309,7 @@ fun CaptionedPoster(
         if (year != null) {
             Text(
                 text = year,
-                style = mr(10f, 400),
+                style = AppTypography.caption.regular,
                 color = palette.sub2,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

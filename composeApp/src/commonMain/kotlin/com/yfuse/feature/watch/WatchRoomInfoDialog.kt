@@ -29,13 +29,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchParticipant
@@ -62,6 +63,7 @@ fun WatchRoomInfoDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val mediaKey = state.mediaKey?.takeIf { it.isNotBlank() }
 
     var resolution by remember(mediaKey) {
@@ -87,7 +89,7 @@ fun WatchRoomInfoDialog(
                 CopyableRoomCode(
                     roomCode = roomCode,
                     modifier = Modifier.fillMaxWidth(),
-                    style = sc(20f, 800),
+                    style = AppTypography.section.strong,
                 )
             }
             NowWatching(mediaKey = mediaKey, resolution = resolution)
@@ -112,7 +114,7 @@ fun WatchRoomInfoDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "参与者 · ${state.participantCount} 人",
-                    style = sc(12f, 700),
+                    style = AppTypography.body.strong,
                     color = palette.sub2,
                 )
                 state.participants.forEach { ParticipantRow(it) }
@@ -121,17 +123,18 @@ fun WatchRoomInfoDialog(
             if (state.connected) {
                 Text(
                     "进入房间",
-                    style = mr(12f, 700),
-                    color = Brand.Primary,
+                    style = AppTypography.body.strong,
+                    color = accent.accent,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .pressable {
+                        .pressable(onClickLabel = "进入房间") {
                             onDismiss()
                             onEnter()
                         }
+                        .touchTarget()
                         .clip(GlassShapes.chip)
-                        .background(Brand.Primary.copy(alpha = 0.12f))
+                        .background(accent.container)
                         .padding(vertical = 11.dp),
                 )
             }
@@ -186,10 +189,10 @@ private fun NowWatching(mediaKey: String?, resolution: InviteResolution) {
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("正在观看", style = sc(11f, 700), color = palette.sub2)
+            Text("正在观看", style = AppTypography.caption.strong, color = palette.sub2)
             Text(
                 title,
-                style = sc(14f, 700),
+                style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -197,7 +200,7 @@ private fun NowWatching(mediaKey: String?, resolution: InviteResolution) {
             if (subtitle.isNotBlank() && subtitle != title) {
                 Text(
                     subtitle,
-                    style = mr(11f, 400),
+                    style = AppTypography.caption.regular,
                     color = palette.sub2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -221,29 +224,31 @@ private fun ParticipantRow(participant: WatchParticipant) {
                 .clip(CircleShape)
                 .background(if (participant.ready) Brand.Online else Brand.Offline),
         )
-        Text(
-            if (participant.isSelf) "${participant.name}（我）" else participant.name,
-            style = sc(12.5f, 600),
-            color = palette.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(110.dp),
-        )
-        Text(
-            listOfNotNull(
-                if (participant.isHost) "房主" else null,
-                participant.playbackStatusLabel,
-            ).joinToString(" · "),
-            style = mr(11f, 400),
-            color = palette.sub2,
-            maxLines = 1,
-        )
-        Spacer(Modifier.weight(1f))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                if (participant.isSelf) "${participant.name}（我）" else participant.name,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                listOfNotNull(
+                    if (participant.isHost) "房主" else null,
+                    participant.playbackStatusLabel,
+                ).joinToString(" · "),
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Text(
             participant.networkStatusLabel,
-            style = mr(10.5f, 500),
+            style = AppTypography.caption.medium,
             color = palette.hint,
-            maxLines = 1,
+            maxLines = 2,
+            textAlign = TextAlign.End,
         )
     }
 }
@@ -256,11 +261,11 @@ private fun InfoRow(label: String, value: String) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top,
     ) {
-        Text(label, style = mr(11.5f, 400), color = palette.sub2)
+        Text(label, style = AppTypography.caption.regular, color = palette.sub2)
         Spacer(Modifier.width(12.dp))
         Text(
             value,
-            style = mr(11.5f, 600),
+            style = AppTypography.caption.strong,
             color = palette.body,
             textAlign = TextAlign.End,
             maxLines = 2,

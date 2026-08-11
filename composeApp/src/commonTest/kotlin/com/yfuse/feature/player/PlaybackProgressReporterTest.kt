@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -318,6 +319,66 @@ class PlaybackProgressReporterTest {
 
         assertTrue(events.isNotEmpty())
         assertTrue(events.all { it.sessionId.isNotBlank() }, events.toString())
+    }
+
+    @Test
+    fun slow_sink_coalesces_seek_storm_and_closes_with_the_latest_state() = runTest {
+        val events = mutableListOf<Event>()
+        val releaseStarted = CompletableDeferred<Unit>()
+        val sink = object : PlaybackEventSink {
+            override suspend fun started(
+                itemId: String,
+                sessionId: String,
+                positionTicks: Long,
+                isPaused: Boolean,
+            ) {
+                releaseStarted.await()
+                events += Event("started", itemId, sessionId, positionTicks, isPaused)
+            }
+
+            override suspend fun progress(
+                itemId: String,
+                sessionId: String,
+                positionTicks: Long,
+                isPaused: Boolean,
+            ) {
+                events += Event("progress", itemId, sessionId, positionTicks, isPaused)
+            }
+
+            override suspend fun stopped(
+                itemId: String,
+                sessionId: String,
+                positionTicks: Long,
+                isPaused: Boolean,
+            ) {
+                events += Event("stopped", itemId, sessionId, positionTicks, isPaused)
+            }
+        }
+        val reporter = PlaybackProgressReporter(
+            items = listOf(PlayerMediaItem("movie", "direct", "hls", "电影")),
+            sink = sink,
+            scope = this,
+        )
+
+        reporter.update(PlaybackState(playing = true, positionMs = 1_000L))
+        runCurrent()
+        repeat(2_000) { index ->
+            reporter.update(
+                PlaybackState(
+                    playing = true,
+                    positionMs = (index + 2L) * 6_000L,
+                ),
+            )
+        }
+        val finalPositionMs = 12_345_000L
+        reporter.close(PlaybackState(playing = false, positionMs = finalPositionMs))
+
+        releaseStarted.complete(Unit)
+        runCurrent()
+
+        assertEquals(listOf("started", "progress", "stopped"), events.map(Event::kind))
+        assertEquals(finalPositionMs * 10_000L, events[1].ticks)
+        assertEquals(finalPositionMs * 10_000L, events[2].ticks)
     }
 
     private data class Event(

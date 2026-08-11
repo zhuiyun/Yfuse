@@ -158,14 +158,16 @@ class DetailStoreTest {
         store.states.first { it.playTarget?.id == "m1" && it.sources.size == 2 }
 
         store.accept(DetailIntent.SelectSource("two", "m2"))
-        store.states.first { !it.selectionLoading && it.actionMessage != null }
+        store.states.first { !it.selectionLoading && it.sourceFailure != null }
 
         assertEquals(3, attempts.get())
         assertEquals("one", store.state.selectedSourceServerId)
         assertEquals("m1", store.state.selectedSourceItemId)
+        assertNull(store.state.actionMessage)
+        assertEquals(SourceSelectionFailure.NetworkUnavailable, store.state.sourceFailure)
         assertEquals(
-            "资源切换失败：网络连接不稳定，已自动重试，请检查网络后再试",
-            store.state.actionMessage,
+            "资源服务器暂时无法连接，已保留当前播放版本",
+            store.state.sourceFailure?.toDetailMessage(),
         )
         store.dispose()
     }
@@ -183,12 +185,17 @@ class DetailStoreTest {
         store.states.first { it.playTarget?.id == "m1" && it.sources.size == 2 }
 
         store.accept(DetailIntent.SelectSource("two", "m2"))
-        store.states.first { !it.selectionLoading && it.actionMessage != null }
+        store.states.first { !it.selectionLoading && it.sourceFailure != null }
 
         assertEquals(1, attempts.get())
+        assertNull(store.state.actionMessage)
         assertEquals(
-            "资源切换失败：访问被 Cloudflare 拦截，请更换网络或联系服务器管理员",
-            store.state.actionMessage,
+            SourceSelectionFailure.AccessDenied(provider = "Cloudflare"),
+            store.state.sourceFailure,
+        )
+        assertEquals(
+            "访问被 Cloudflare 拦截，请更换网络或联系服务器管理员",
+            store.state.sourceFailure?.toDetailMessage(),
         )
         store.dispose()
     }
@@ -252,9 +259,10 @@ class DetailStoreTest {
         firstStarted.await()
         store.accept(DetailIntent.SelectSource("three", "m3"))
         firstCancelled.await()
-        store.states.first { !it.selectionLoading && it.actionMessage != null }
+        store.states.first { !it.selectionLoading && it.sourceFailure != null }
 
         assertEquals(3, thirdAttempts)
+        assertEquals(SourceSelectionFailure.NetworkUnavailable, store.state.sourceFailure)
         assertEquals("one", store.state.selectedSourceServerId)
         assertEquals("m1", store.state.selectedSourceItemId)
         assertEquals("one", store.state.playServer?.id)
@@ -276,11 +284,12 @@ class DetailStoreTest {
 
         store.accept(DetailIntent.SelectSource("two", "m2"))
         started.await()
-        store.states.first { !it.selectionLoading && it.actionMessage != null }
+        store.states.first { !it.selectionLoading && it.sourceFailure != null }
 
+        assertEquals(SourceSelectionFailure.Timeout, store.state.sourceFailure)
         assertEquals(
-            "资源切换失败：切换等待超时，请检查网络后再试",
-            store.state.actionMessage,
+            "资源切换等待超时，请检查网络后再试",
+            store.state.sourceFailure?.toDetailMessage(),
         )
         assertEquals("m1", store.state.playTarget?.id)
         store.dispose()
@@ -617,15 +626,19 @@ class DetailStoreTest {
         }
 
         store.accept(DetailIntent.SelectSource("two", "s2"))
-        store.states.first { !it.selectionLoading && it.actionMessage != null }
+        store.states.first { !it.selectionLoading && it.sourceFailure != null }
 
         assertEquals(0, secondNextUpCalls)
+        assertEquals(
+            SourceSelectionFailure.EpisodeMissing(season = 1, episode = 1),
+            store.state.sourceFailure,
+        )
         assertEquals("one", store.state.selectedSourceServerId)
         assertEquals("s1", store.state.selectedSourceItemId)
         assertEquals("e1", store.state.playTarget?.id)
         assertEquals(
-            "资源切换失败：该资源没有第 1 季第 1 集，请选择其他资源",
-            store.state.actionMessage,
+            "该资源没有第 1 季第 1 集，请选择其他播放版本",
+            store.state.sourceFailure?.toDetailMessage(),
         )
         store.dispose()
     }
@@ -661,6 +674,7 @@ class DetailStoreTest {
                 attempts.incrementAndGet()
                 IOException("catalog unavailable")
             },
+            mainContext = UnconfinedTestDispatcher(testScheduler),
         )
         store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
 

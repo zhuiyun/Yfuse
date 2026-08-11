@@ -1,12 +1,12 @@
 package com.yfuse.feature.home
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -40,32 +40,34 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ActionToast
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
-import com.yfuse.core.designsystem.LocalAccent
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSizing
+import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.touchTarget
@@ -74,17 +76,15 @@ import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.Type
+import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
 import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.scrim
-import com.yfuse.core.designsystem.sharedMediaElement
+import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
@@ -92,6 +92,9 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private val HomeHeroIndicatorBottom = 7.dp
+private val HomeHeroContentBottom = HomeHeroIndicatorBottom + MinTouchTarget + 10.dp
 
 /**
  * 首页 — the prototype's `isHome` screen:
@@ -102,6 +105,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(component: HomeComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
+    val themeAccent = LocalAccentColors.current.accent
     val listState = component.listState
     val heroVisible by remember(listState) {
         derivedStateOf {
@@ -120,10 +124,24 @@ fun HomeScreen(component: HomeComponent) {
     // this tab is the one where tapping the tab again matters most.
     ScrollToTopOnReselect(listState)
 
-    Box(Modifier.fillMaxSize()) {
-        // 首页 and 媒体库 share one featured-image geometry. Keeping this in a token means a
-        // future size change cannot leave the two roots looking like different products.
-        val heroHeight = MediaSizing.heroHeight
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Continue Watching is the highest-value shelf once it exists, so the hero gives it
+        // enough room to peek into the first viewport. Empty accounts keep the more cinematic
+        // treatment. Bounds protect compact phones and tablets from extreme proportions.
+        val widthTier = windowWidthTier(maxWidth)
+        val heroHeight = when (widthTier) {
+            WindowWidthTier.Compact ->
+                (maxHeight * if (state.resume.isNotEmpty()) 0.43f else 0.48f)
+                    .coerceIn(320.dp, 390.dp)
+
+            WindowWidthTier.Medium ->
+                (maxHeight * if (state.resume.isNotEmpty()) 0.46f else 0.50f)
+                    .coerceIn(360.dp, 440.dp)
+
+            WindowWidthTier.Expanded ->
+                (maxHeight * if (state.resume.isNotEmpty()) 0.48f else 0.52f)
+                    .coerceIn(390.dp, 480.dp)
+        }
         PullToRefreshBox(
             isRefreshing = state.refreshing,
             onRefresh = { component.store.accept(HomeIntent.Refresh) },
@@ -183,17 +201,20 @@ fun HomeScreen(component: HomeComponent) {
                         ) {
                             Text(
                                 text = notice,
-                                style = sc(11.5f, 550),
+                                style = AppTypography.body.medium,
                                 color = palette.sub,
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
                                 text = "重新刷新",
-                                style = sc(11.5f, 700),
-                                color = Brand.Primary,
-                                modifier = Modifier.pressable {
-                                    component.store.accept(HomeIntent.Retry)
-                                },
+                                style = AppTypography.body.strong,
+                                color = themeAccent,
+                                modifier = Modifier
+                                    .pressable(
+                                        onClickLabel = "重新刷新首页",
+                                        onClick = { component.store.accept(HomeIntent.Retry) },
+                                    )
+                                    .touchTarget(),
                             )
                         }
                     }
@@ -289,30 +310,21 @@ private fun HomeHeroCarousel(
     val carouselScope = rememberCoroutineScope()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
-    // Tapping a dot is a statement that the user is choosing the slide, not watching a reel.
-    // Auto-advance stops for the session at that point and the dots become the only thing
-    // that moves it — the alternative is the carousel wandering off the slide they picked
-    // six seconds after they picked it.
-    var manuallySteered by remember { mutableStateOf(false) }
-
-    LaunchedEffect(carouselDragging) {
-        if (carouselDragging) manuallySteered = true
-    }
-    LaunchedEffect(manuallySteered) {
-        if (manuallySteered) {
-            delay(25_000L)
-            manuallySteered = false
-        }
-    }
+    // Any deliberate navigation pauses the reel. The adjacent pause/play control lets the
+    // user opt back in without leaving the screen.
+    var autoPlayEnabled by rememberSaveable(items.map { it.id }) { mutableStateOf(true) }
 
     LaunchedEffect(items.map { it.id }) {
         pagerState.scrollToPage(loopingCarouselStartPage(items.size))
     }
-    LaunchedEffect(items.size, carouselDragging, reduceMotion, manuallySteered, routeVisible, visible) {
+    LaunchedEffect(carouselDragging) {
+        if (carouselDragging) autoPlayEnabled = false
+    }
+    LaunchedEffect(items.size, carouselDragging, reduceMotion, autoPlayEnabled, routeVisible, visible) {
         // 390dp of artwork moving on its own is the largest single piece of motion in the
         // app, and it was the one thing 减弱动态效果 did not switch off — the setting was
         // honoured in fifteen places and not in the most conspicuous one.
-        if (!routeVisible || !visible || items.size <= 1 || carouselDragging || reduceMotion || manuallySteered) {
+        if (!routeVisible || !visible || items.size <= 1 || carouselDragging || reduceMotion || !autoPlayEnabled) {
             return@LaunchedEffect
         }
         while (true) {
@@ -352,22 +364,33 @@ private fun HomeHeroCarousel(
 
         if (items.size > 1) {
             HeroPageIndicator(
-                slideCount = items.size,
-                slideIndex = loopingCarouselItemIndex(pagerState.currentPage, items.size),
-                onSelectSlide = { targetIndex ->
-                    manuallySteered = true
+                pageCount = items.size,
+                selectedPage = loopingCarouselItemIndex(pagerState.currentPage, items.size),
+                onPageSelected = { targetIndex ->
+                    autoPlayEnabled = false
                     carouselScope.launch {
-                        pagerState.animateScrollToPage(
-                            page = loopingCarouselTargetPage(
-                                currentPage = pagerState.currentPage,
-                                targetIndex = targetIndex,
-                                itemCount = items.size,
-                            ),
-                            animationSpec = tween(Motion.EMPHASIZED, easing = Motion.Curve),
+                        val targetPage = loopingCarouselTargetPage(
+                            currentPage = pagerState.currentPage,
+                            targetIndex = targetIndex,
+                            itemCount = items.size,
                         )
+                        if (reduceMotion) {
+                            pagerState.scrollToPage(targetPage)
+                        } else {
+                            pagerState.animateScrollToPage(
+                                page = targetPage,
+                                animationSpec = tween(Motion.EMPHASIZED, easing = Motion.Curve),
+                            )
+                        }
                     }
                 },
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp),
+                autoPlayRunning = if (reduceMotion) null else autoPlayEnabled,
+                onToggleAutoPlay = if (reduceMotion) null else {
+                    { autoPlayEnabled = !autoPlayEnabled }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = HomeHeroIndicatorBottom),
             )
         }
     }
@@ -434,44 +457,6 @@ private fun HeroSlide(
     }
 }
 
-@Composable
-private fun HeroPageIndicator(
-    slideCount: Int,
-    slideIndex: Int,
-    onSelectSlide: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        repeat(slideCount) { index ->
-            val active = index == slideIndex
-            val width by animateFloatAsState(
-                targetValue = if (active) 16f else 6f,
-                animationSpec = Motion.settle<Float>(reduceMotion),
-                label = "home-hero-dot",
-            )
-            Box(
-                Modifier
-                    .pressable(
-                        role = Role.Tab,
-                        onClickLabel = "第 ${index + 1} 张",
-                        onClick = { onSelectSlide(index) },
-                    )
-                    // A 16×6dp dot was the smallest target in the app by a wide margin, and
-                    // there are five of them in a row. The dots keep their size; the regions
-                    // that answer to them are 44dp and now supply the row's spacing too,
-                    // which is why the explicit 4dp gap is gone.
-                    .touchTarget()
-                    .semantics { selected = active }
-                    .width(width.dp)
-                    .height(6.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = if (active) 0.92f else 0.42f)),
-            )
-        }
-    }
-}
-
 /**
  * Header row over the hero — `gap:10px`; left cluster `gap:9px` with the 30px mark,
  * `下午好` at `400 11px Manrope`, `继续你的旅程` at `800 17px`; 36px search + avatar.
@@ -499,10 +484,10 @@ private fun HeroHeader(
         ) {
             AppMark(Modifier.size(30.dp))
             Column {
-                Text("下午好", style = mr(11f, 400), color = Color.White.copy(alpha = 0.75f))
+                Text("下午好", style = AppTypography.caption.regular, color = Color.White.copy(alpha = 0.75f))
                 Text(
                     "继续你的旅程",
-                    style = sc(17f, 800),
+                    style = AppTypography.section.strong,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -549,7 +534,10 @@ private fun HeroHeader(
             }
         }
         Box(
-            Modifier.size(44.dp).pressable(onClick = onOpenProfile),
+            Modifier
+                .size(44.dp)
+                .pressable(onClickLabel = "打开个人中心", onClick = onOpenProfile)
+                .semantics { contentDescription = "个人中心" },
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.size(36.dp).clip(CircleShape).background(PrimaryGradient))
@@ -572,11 +560,15 @@ private fun HeroCaption(
     Column(
         modifier
             .fillMaxWidth()
-            .padding(start = Dimens.pageHorizontal, end = Dimens.pageHorizontal, bottom = 22.dp),
+            .padding(
+                start = Dimens.pageHorizontal,
+                end = Dimens.pageHorizontal,
+                bottom = HomeHeroContentBottom,
+            ),
     ) {
         Text(
             "✦ 今日精选",
-            style = mr(10f, 500),
+            style = AppTypography.caption.medium,
             color = Color.White,
             modifier = Modifier
                 .glass(
@@ -589,7 +581,7 @@ private fun HeroCaption(
         Spacer(Modifier.height(10.dp))
         Text(
             item.title,
-            style = sc(26f, 800),
+            style = AppTypography.display.strong,
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -598,7 +590,7 @@ private fun HeroCaption(
         Text(
             listOfNotNull(item.year, item.rating?.let { "评分 ${(it * 10).toInt() / 10.0}" })
                 .joinToString(" · "),
-            style = mr(11f, 400),
+            style = AppTypography.caption.regular,
             color = Color.White.copy(alpha = 0.75f),
         )
         Spacer(Modifier.height(14.dp))
@@ -636,7 +628,7 @@ private fun HeroCaption(
                         modifier = Modifier.size(13.dp),
                     )
                 }
-                Text("查看详情", style = Type.body(13f, 700), color = Color.White)
+                Text("查看详情", style = AppTypography.body.strong, color = Color.White)
             }
             HeroCircleButton(AppIcons.Add, "加入收藏", onFavorite)
         }
@@ -648,8 +640,9 @@ private fun HeroCaption(
 private fun HeroCircleButton(icon: ImageVector, label: String, onClick: () -> Unit = {}) {
     Box(
         Modifier
-            .size(42.dp)
             .pressable(onClick = onClick)
+            .touchTarget()
+            .size(42.dp)
             .glass(
                 shape = CircleShape,
                 fill = Color(0xFF11151F).copy(alpha = 0.38f),
@@ -668,6 +661,7 @@ private fun NextUpShelf(
     onClick: (HomeResumeEntry) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Column {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).padding(bottom = 10.dp),
@@ -675,10 +669,21 @@ private fun NextUpShelf(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text("下一集", style = Type.section(16f), color = palette.text)
-                Text("继续追你正在看的剧集", style = mr(10.5f, 400), color = palette.sub2)
+                Text("下一集", style = AppTypography.section.strong, color = palette.text)
+                Text(
+                    "继续追你正在看的剧集",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                )
             }
-            Text("追剧中心 ›", style = mr(11f, 600), color = LocalAccent.current.color, modifier = Modifier.pressable(onClick = onSeeAll))
+            Text(
+                "追剧中心 ›",
+                style = AppTypography.caption.strong,
+                color = accent.accent,
+                modifier = Modifier
+                    .pressable(onClickLabel = "打开追剧中心", onClick = onSeeAll)
+                    .touchTarget(),
+            )
         }
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
@@ -691,7 +696,6 @@ private fun NextUpShelf(
                     fallbackUrls = emptyList(),
                     title = item.title,
                     year = item.subtitle ?: item.year?.toString(),
-                    sharedKey = null,
                     onClick = { onClick(entry) },
                     modifier = Modifier.width(MediaSizing.landscapeCardWidth),
                     posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
@@ -718,13 +722,14 @@ private fun ContinueWatching(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("继续观看", style = Type.section(16f), color = palette.text)
+            Text("继续观看", style = AppTypography.section.strong, color = palette.text)
             Text(
                 "全部 ›",
-                style = mr(11f, 500),
+                style = AppTypography.caption.medium,
                 color = palette.sub2,
                 modifier = Modifier
                     .pressable(onClick = onSeeAll)
+                    .touchTarget()
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
@@ -754,7 +759,6 @@ private fun ContinueWatching(
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
                     // Keep the home content continuously rendered on pop. A shared-media
                     // overlay can briefly outlive the disposed detail image and flash blank.
-                    sharedKey = null,
                     onClick = { onClick(entry) },
                     modifier = Modifier.width(MediaSizing.landscapeCardWidth),
                     posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
@@ -780,13 +784,14 @@ private fun Recommended(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, style = Type.section(16f), color = palette.text)
+            Text(title, style = AppTypography.section.strong, color = palette.text)
             Text(
                 "全部 ›",
-                style = mr(11f, 500),
+                style = AppTypography.caption.medium,
                 color = palette.sub2,
                 modifier = Modifier
                     .pressable(onClick = onSeeAll)
+                    .touchTarget()
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
@@ -816,7 +821,6 @@ private fun Recommended(
                     // A shared-element key must be unique within a screen, so
                     // shelf posters use the route fade instead of competing for
                     // one shared element (which made the duplicate turn blank).
-                    sharedKey = null,
                     onClick = { onClick(item) },
                     modifier = Modifier.width(MediaSizing.posterRailWidth),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
@@ -840,13 +844,14 @@ private fun RecentAdded(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("最近添加", style = Type.section(16f), color = palette.text)
+            Text("最近添加", style = AppTypography.section.strong, color = palette.text)
             Text(
                 "全部 ›",
-                style = mr(11f, 500),
+                style = AppTypography.caption.medium,
                 color = palette.sub2,
                 modifier = Modifier
                     .pressable(onClick = onSeeAll)
+                    .touchTarget()
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
@@ -864,7 +869,6 @@ private fun RecentAdded(
                             TmdbImages.media(item.backdropPath, "w780"),
                         ),
                         title = item.title,
-                        sharedKey = null,
                         onClick = { onClick(item) },
                         modifier = Modifier.weight(1f).aspectRatio(2f / 3f),
                     )

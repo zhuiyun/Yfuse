@@ -13,6 +13,7 @@ sealed interface SourceSelectionFailure {
     data object Timeout : SourceSelectionFailure
     data object NetworkUnavailable : SourceSelectionFailure
     data object AuthRequired : SourceSelectionFailure
+    data class AccessDenied(val provider: String?) : SourceSelectionFailure
     data class Server(val code: Int) : SourceSelectionFailure
     data class EpisodeMissing(val season: Int?, val episode: Int?) : SourceSelectionFailure
     data object InvalidResponse : SourceSelectionFailure
@@ -27,7 +28,8 @@ internal fun Throwable.toSourceSelectionFailure(): SourceSelectionFailure = when
     is EpisodeUnavailableException -> SourceSelectionFailure.EpisodeMissing(seasonNumber, episodeNumber)
     else -> when (val error = (this as? EmbyErrorException)?.error) {
         EmbyError.Network -> SourceSelectionFailure.NetworkUnavailable
-        EmbyError.Unauthorized, is EmbyError.AccessDenied -> SourceSelectionFailure.AuthRequired
+        EmbyError.Unauthorized -> SourceSelectionFailure.AuthRequired
+        is EmbyError.AccessDenied -> SourceSelectionFailure.AccessDenied(error.provider)
         is EmbyError.Server -> SourceSelectionFailure.Server(error.code)
         else -> SourceSelectionFailure.InvalidResponse
     }
@@ -37,6 +39,11 @@ internal fun SourceSelectionFailure.toDetailMessage(): String = when (this) {
     SourceSelectionFailure.Timeout -> "资源切换等待超时，请检查网络后再试"
     SourceSelectionFailure.NetworkUnavailable -> "资源服务器暂时无法连接，已保留当前播放版本"
     SourceSelectionFailure.AuthRequired -> "资源服务器登录已失效，请到服务器管理重新登录"
+    is SourceSelectionFailure.AccessDenied -> if (provider == "Cloudflare") {
+        "访问被 Cloudflare 拦截，请更换网络或联系服务器管理员"
+    } else {
+        "资源服务器拒绝访问，请检查防火墙或反向代理访问策略"
+    }
     is SourceSelectionFailure.Server -> "资源服务器暂时异常（HTTP $code），请稍后再试"
     is SourceSelectionFailure.EpisodeMissing -> {
         val coordinate = if (season != null && episode != null) "第 ${season} 季第 ${episode} 集" else "当前剧集"

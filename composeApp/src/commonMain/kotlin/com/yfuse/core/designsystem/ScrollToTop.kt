@@ -61,7 +61,7 @@ fun ScrollToTopOnReselect(listState: LazyListState) {
                 event.occurrence > lastHandledOccurrence
             ) {
                 lastHandledOccurrence = event.occurrence
-                if (reduceMotion) listState.scrollToItem(0) else listState.animateScrollToItem(0)
+                listState.motionAwareScrollToItem(index = 0, reduceMotion = reduceMotion)
             }
         }
     }

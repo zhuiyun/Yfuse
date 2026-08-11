@@ -1454,9 +1454,7 @@ class AppUpdateManager(
 
     fun install(apk: File) {
         pendingInstall = apk
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            !appContext.packageManager.canRequestPackageInstalls()
-        ) {
+        if (!appContext.packageManager.canRequestPackageInstalls()) {
             AppLog.info(
                 category = "update",
                 event = "install_permission_required",
@@ -1515,9 +1513,7 @@ class AppUpdateManager(
 
     fun resumeInstall() {
         val apk = pendingInstall?.takeIf(File::isFile) ?: return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-            appContext.packageManager.canRequestPackageInstalls()
-        ) install(apk)
+        if (appContext.packageManager.canRequestPackageInstalls()) install(apk)
     }
 
     /**

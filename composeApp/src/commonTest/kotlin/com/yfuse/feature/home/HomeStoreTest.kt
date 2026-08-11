@@ -16,6 +16,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
@@ -42,7 +43,10 @@ class HomeStoreTest {
 
     @Test
     fun unavailable_recommendations_do_not_claim_the_emby_server_is_offline() = runTest {
-        val store = homeStore(TmdbHomeCache(MapSettings()))
+        val store = homeStore(
+            cache = TmdbHomeCache(MapSettings()),
+            cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+        )
 
         val state = store.states.first { !it.loading }
 
@@ -54,7 +58,7 @@ class HomeStoreTest {
     @Test
     fun cached_recommendations_remain_visible_when_live_refresh_fails() = runTest {
         val cache = TmdbHomeCache(MapSettings()).apply { write(CACHED_HOME) }
-        val store = homeStore(cache)
+        val store = homeStore(cache, UnconfinedTestDispatcher(testScheduler))
 
         val state = store.states.first { !it.loading }
 
@@ -124,6 +128,7 @@ class HomeStoreTest {
             },
             registry = registry,
             cache = TmdbHomeCache(MapSettings()),
+            cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
         ).create()
 
         advanceUntilIdle()
@@ -132,12 +137,16 @@ class HomeStoreTest {
         store.dispose()
     }
 
-    private fun homeStore(cache: TmdbHomeCache) = HomeStoreFactory(
+    private fun homeStore(
+        cache: TmdbHomeCache,
+        cacheDispatcher: CoroutineDispatcher,
+    ) = HomeStoreFactory(
         storeFactory = DefaultStoreFactory(),
         tmdb = unavailableTmdb(),
         emby = testRepo { homeRoutes(it) },
         registry = testRegistry(),
         cache = cache,
+        cacheDispatcher = cacheDispatcher,
     ).create()
 
     private fun unavailableTmdb(): TmdbRepository = TmdbRepository(

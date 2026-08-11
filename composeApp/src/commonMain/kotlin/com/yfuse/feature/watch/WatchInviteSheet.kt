@@ -21,16 +21,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.Poster
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.solidGlass
 
 /**
@@ -66,6 +67,7 @@ fun WatchInviteSheet(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "一起看邀请",
@@ -75,7 +77,7 @@ fun WatchInviteSheet(
         CopyableRoomCode(
             roomCode = roomCode,
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-            style = sc(18f, 800),
+            style = AppTypography.section.strong,
         )
 
         when (resolution) {
@@ -84,9 +86,13 @@ fun WatchInviteSheet(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(
+                    Modifier.size(18.dp),
+                    color = accent.accent,
+                    strokeWidth = 2.dp,
+                )
                 Spacer(Modifier.width(10.dp))
-                Text("正在你的服务器上查找…", style = sc(12.5f, 500), color = palette.sub)
+                Text("正在你的服务器上查找…", style = AppTypography.body.medium, color = palette.sub)
             }
 
             is InviteResolution.Found -> {
@@ -95,8 +101,8 @@ fun WatchInviteSheet(
                         .fillMaxWidth()
                         .solidGlass(
                             shape = GlassShapes.chip,
-                            fill = Brand.Primary.copy(alpha = 0.08f),
-                            border = Brand.Primary.copy(alpha = 0.24f),
+                            fill = accent.container,
+                            border = accent.border,
                         )
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -109,7 +115,7 @@ fun WatchInviteSheet(
                     Column(Modifier.weight(1f)) {
                         Text(
                             resolution.title,
-                            style = sc(14f, 700),
+                            style = AppTypography.body.strong,
                             color = palette.text,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -118,7 +124,7 @@ fun WatchInviteSheet(
                             Spacer(Modifier.height(3.dp))
                             Text(
                                 it,
-                                style = mr(10.5f, 400),
+                                style = AppTypography.caption.regular,
                                 color = palette.sub2,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -134,7 +140,7 @@ fun WatchInviteSheet(
                             )
                             Text(
                                 "在「${resolution.serverName}」找到",
-                                style = mr(10f, 500),
+                                style = AppTypography.caption.medium,
                                 color = palette.sub,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -149,7 +155,7 @@ fun WatchInviteSheet(
                     Spacer(Modifier.height(10.dp))
                     Text(
                         "这条邀请使用的一起看服务器是 $endpoint，与你当前配置的不同。加入即表示信任该服务器。",
-                        style = sc(10.5f, 400, lineHeight = 10.5f * 1.6f),
+                        style = AppTypography.caption.regular.copy(lineHeight = 16.8.sp),
                         color = palette.sub2,
                     )
                 }
@@ -169,7 +175,7 @@ fun WatchInviteSheet(
                         resolution.title?.let { append("《$it》") }
                         append("。一起看要求各自播放自己的文件，所以需要先在你的媒体库里有这部片。")
                     },
-                    style = sc(12.5f, 400, lineHeight = 12.5f * 1.65f),
+                    style = AppTypography.body.regular.copy(lineHeight = 20.6.sp),
                     color = palette.body,
                 )
                 OverlayButton(
@@ -184,8 +190,8 @@ fun WatchInviteSheet(
             is InviteResolution.Failed -> {
                 Text(
                     resolution.message,
-                    style = sc(12.5f, 400, lineHeight = 12.5f * 1.65f),
-                    color = Brand.Danger,
+                    style = AppTypography.body.regular.copy(lineHeight = 20.6.sp),
+                    color = palette.error,
                 )
                 OverlayButton(
                     label = "关闭",
@@ -224,6 +230,7 @@ fun WatchInviteShareSheet(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "邀请一起看",
@@ -235,8 +242,8 @@ fun WatchInviteShareSheet(
             error != null -> {
                 Text(
                     error,
-                    style = sc(11.5f, 500, lineHeight = 11.5f * 1.6f),
-                    color = Brand.Danger,
+                    style = AppTypography.caption.medium.copy(lineHeight = 18.4.sp),
+                    color = palette.error,
                 )
                 Row(
                     Modifier.fillMaxWidth().padding(top = 14.dp),
@@ -264,11 +271,15 @@ fun WatchInviteShareSheet(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(
+                        Modifier.size(16.dp),
+                        color = accent.accent,
+                        strokeWidth = 2.dp,
+                    )
                     Spacer(Modifier.width(10.dp))
                     Text(
                         if (connecting) "正在创建房间…" else "正在连接一起看服务…",
-                        style = sc(12f, 500),
+                        style = AppTypography.body.medium,
                         color = palette.sub,
                     )
                 }
@@ -280,8 +291,8 @@ fun WatchInviteShareSheet(
                         .fillMaxWidth()
                         .solidGlass(
                             shape = GlassShapes.chip,
-                            fill = Brand.Primary.copy(alpha = 0.08f),
-                            border = Brand.Primary.copy(alpha = 0.24f),
+                            fill = accent.container,
+                            border = accent.border,
                         )
                         .padding(vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -290,11 +301,11 @@ fun WatchInviteShareSheet(
                     CopyableRoomCode(
                         roomCode = roomCode,
                         modifier = Modifier.fillMaxWidth(),
-                        style = sc(26f, 800),
+                        style = AppTypography.display.strong,
                     )
                     Text(
                         if (participantCount > 1) "$participantCount 人在房间" else "等待对方加入",
-                        style = mr(10.5f, 500),
+                        style = AppTypography.caption.medium,
                         color = palette.sub2,
                     )
                 }
@@ -321,7 +332,7 @@ fun WatchInviteShareSheet(
                 )
                 Text(
                     "对方点开链接即可直接加入，无需手输房间码。你开始播放后，房间里的其他人会自动跟上。",
-                    style = sc(10.5f, 400, lineHeight = 10.5f * 1.6f),
+                    style = AppTypography.caption.regular.copy(lineHeight = 16.8.sp),
                     color = palette.sub2,
                     modifier = Modifier.padding(top = 10.dp),
                 )

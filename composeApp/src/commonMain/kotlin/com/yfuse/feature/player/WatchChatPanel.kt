@@ -39,15 +39,17 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.motionAwareItem
-import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DarkPalette
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.sync.ChatDeliveryState
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchParticipant
@@ -83,8 +85,10 @@ internal fun WatchChatPanel(
 ) {
     var draft by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val accent = rememberAccentColorsForSurface(dark = true)
 
-    LaunchedEffect(messages.lastOrNull()?.id) {
+    LaunchedEffect(messages.lastOrNull()?.id, reduceMotion) {
         if (messages.isEmpty()) return@LaunchedEffect
         // Follow the transcript only for someone already at the end of it. Scrolling back
         // through what was said and being thrown to the bottom because somebody typed is not
@@ -96,7 +100,13 @@ internal fun WatchChatPanel(
         val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
         when {
             last == null -> listState.scrollToItem(messages.lastIndex)
-            last.index >= messages.lastIndex - 1 -> listState.animateScrollToItem(messages.lastIndex)
+            last.index >= messages.lastIndex - 1 -> {
+                if (reduceMotion) {
+                    listState.scrollToItem(messages.lastIndex)
+                } else {
+                    listState.animateScrollToItem(messages.lastIndex)
+                }
+            }
         }
     }
 
@@ -126,10 +136,10 @@ internal fun WatchChatPanel(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text("房间聊天", style = sc(13.5f, 700), color = Color.White)
+                Text("房间聊天", style = AppTypography.body.strong, color = Color.White)
                 Text(
                     "${participants.size} 人在线 · ${participants.count { it.ready }} 人就绪 · 最近 50 条",
-                    style = mr(9.5f, 500),
+                    style = AppTypography.caption.medium,
                     color = Color.White.copy(alpha = 0.48f),
                 )
             }
@@ -139,18 +149,19 @@ internal fun WatchChatPanel(
             ) {
                 Text(
                     if (danmakuEnabled) "弹幕开" else "弹幕关",
-                    style = sc(9.5f, 650),
-                    color = if (danmakuEnabled) Color.White else Color.White.copy(alpha = 0.48f),
+                    style = AppTypography.caption.strong,
+                    color = if (danmakuEnabled) accent.accent else Color.White.copy(alpha = 0.48f),
                     modifier = Modifier
                         .pressable(onClick = onToggleDanmaku)
+                        .touchTarget()
                         .glass(
-                            continuousRounded(10.dp),
+                            AppShapes.thumb,
                             if (danmakuEnabled) {
-                                Brand.Primary.copy(alpha = 0.45f)
+                                accent.container
                             } else {
                                 Color.White.copy(alpha = 0.08f)
                             },
-                            Color.White.copy(alpha = 0.16f),
+                            if (danmakuEnabled) accent.border else Color.White.copy(alpha = 0.16f),
                         )
                         .padding(horizontal = 9.dp, vertical = 6.dp),
                 )
@@ -193,7 +204,7 @@ internal fun WatchChatPanel(
                                 participant.isHost -> "${participant.name} · 房主"
                                 else -> participant.name
                             },
-                            style = mr(8.5f, 500),
+                            style = AppTypography.caption.medium,
                             color = Color.White.copy(alpha = 0.62f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -201,11 +212,11 @@ internal fun WatchChatPanel(
                         )
                         Text(
                             participant.playbackStatusLabel,
-                            style = mr(7.5f, 500),
+                            style = AppTypography.caption.medium,
                             color = when {
-                                !participant.mediaAvailable -> Brand.Danger
+                                !participant.mediaAvailable -> DarkPalette.error
                                 participant.buffering -> Color(0xFFFFC857)
-                                participant.ready -> Brand.Primary
+                                participant.ready -> accent.accent
                                 else -> Color.White.copy(alpha = 0.42f)
                             },
                             maxLines = 1,
@@ -237,7 +248,7 @@ internal fun WatchChatPanel(
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
                     "还没有消息\n发一句开始聊天吧",
-                    style = mr(11f, 500),
+                    style = AppTypography.caption.medium,
                     color = Color.White.copy(alpha = 0.42f),
                 )
             }
@@ -257,8 +268,8 @@ internal fun WatchChatPanel(
         error?.let {
             Text(
                 it,
-                style = mr(9.5f, 500),
-                color = Brand.Danger,
+                style = AppTypography.caption.medium,
+                color = DarkPalette.error,
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
             )
         }
@@ -272,7 +283,7 @@ internal fun WatchChatPanel(
                 Modifier
                     .weight(1f)
                     .glass(
-                        continuousRounded(14.dp),
+                        AppShapes.control,
                         Color.White.copy(alpha = 0.1f),
                         Color.White.copy(alpha = 0.18f),
                     )
@@ -282,7 +293,7 @@ internal fun WatchChatPanel(
                     if (draft.isEmpty()) {
                         Text(
                             if (sendingEnabled) "说点什么…" else "重连后可发送",
-                            style = mr(11f, 500),
+                            style = AppTypography.caption.medium,
                             color = Color.White.copy(alpha = 0.35f),
                         )
                     }
@@ -298,8 +309,8 @@ internal fun WatchChatPanel(
                         },
                         singleLine = true,
                         enabled = sendingEnabled,
-                        textStyle = mr(11f, 500).copy(color = Color.White),
-                        cursorBrush = SolidColor(Brand.Primary),
+                        textStyle = AppTypography.caption.medium.copy(color = Color.White),
+                        cursorBrush = SolidColor(accent.accent),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(onSend = { submit() }),
                         modifier = Modifier.fillMaxWidth(),
@@ -307,27 +318,26 @@ internal fun WatchChatPanel(
                 }
                 Text(
                     "${draft.graphemeCount()}/$MAX_CHAT_GRAPHEMES",
-                    style = mr(8f, 500),
+                    style = AppTypography.caption.medium,
                     color = Color.White.copy(alpha = 0.3f),
                     modifier = Modifier.align(Alignment.End),
                 )
             }
             Text(
                 "发送",
-                style = sc(10.5f, 700),
+                style = AppTypography.caption.strong,
                 color = if (draft.isBlank() || !sendingEnabled) {
                     Color.White.copy(alpha = 0.3f)
                 } else {
-                    Color.White
+                    accent.onAccent
                 },
                 modifier = Modifier
                     .pressable(enabled = draft.isNotBlank() && sendingEnabled, onClick = ::submit)
+                    .touchTarget()
                     .glass(
-                        continuousRounded(13.dp),
-                        Brand.Primary.copy(
-                            alpha = if (draft.isBlank() || !sendingEnabled) 0.16f else 0.55f,
-                        ),
-                        Color.White.copy(alpha = 0.2f),
+                        AppShapes.control,
+                        if (draft.isBlank() || !sendingEnabled) accent.container else accent.accent,
+                        accent.border.copy(alpha = if (draft.isBlank() || !sendingEnabled) 0.38f else 1f),
                     )
                     .padding(horizontal = 13.dp, vertical = 13.dp),
             )
@@ -341,6 +351,7 @@ private fun WatchChatBubble(
     onRetry: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val accent = rememberAccentColorsForSurface(dark = true)
     Column(
         modifier.fillMaxWidth(),
         horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start,
@@ -353,7 +364,7 @@ private fun WatchChatBubble(
             Column(horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start) {
                 Text(
                     if (message.isMine) "我" else message.name,
-                    style = mr(8.5f, 600),
+                    style = AppTypography.caption.medium,
                     color = Color.White.copy(alpha = 0.48f),
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                 )
@@ -369,17 +380,17 @@ private fun WatchChatBubble(
                 } else {
                     Text(
                         message.text,
-                        style = mr(11f, 500),
-                        color = Color.White.copy(alpha = 0.94f),
+                        style = AppTypography.caption.medium,
+                        color = if (message.isMine) accent.accent else Color.White.copy(alpha = 0.94f),
                         modifier = Modifier
                             .glass(
-                                continuousRounded(12.dp),
+                                AppShapes.thumb,
                                 if (message.isMine) {
-                                    Brand.Primary.copy(alpha = 0.48f)
+                                    accent.container
                                 } else {
                                     Color.White.copy(alpha = 0.1f)
                                 },
-                                Color.White.copy(alpha = 0.16f),
+                                if (message.isMine) accent.border else Color.White.copy(alpha = 0.16f),
                             )
                             .padding(horizontal = 11.dp, vertical = 8.dp),
                     )
@@ -391,9 +402,9 @@ private fun WatchChatBubble(
                         } else {
                             "发送失败 · 点击重试"
                         },
-                        style = mr(8f, 500),
+                        style = AppTypography.caption.medium,
                         color = if (message.deliveryState == ChatDeliveryState.Failed) {
-                            Brand.Danger
+                            DarkPalette.error
                         } else {
                             Color.White.copy(alpha = 0.42f)
                         },
@@ -421,7 +432,7 @@ internal fun WatchChatPreview(
         modifier
             .width(260.dp)
             .glass(
-                continuousRounded(16.dp),
+                AppShapes.card,
                 Color.Black.copy(alpha = 0.58f),
                 Color.White.copy(alpha = 0.2f),
             )
@@ -437,7 +448,7 @@ internal fun WatchChatPreview(
                 WatchAvatar(message.avatarId, 23.dp)
                 Text(
                     "${if (message.isMine) "我" else message.name}  ${message.oneLineText}",
-                    style = mr(10f, 500),
+                    style = AppTypography.caption.medium,
                     color = Color.White.copy(alpha = 0.9f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

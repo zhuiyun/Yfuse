@@ -1,6 +1,5 @@
 package com.yfuse.feature.library
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,15 +47,22 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.data.FAVORITES_COLLECTION_ID
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
-import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.BurstIcon
@@ -64,10 +72,14 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSizing
+import com.yfuse.core.designsystem.MinTouchTarget
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageHint
@@ -80,13 +92,11 @@ import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
 import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedDominantColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.scrim
-import com.yfuse.core.designsystem.sharedMediaElement
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
@@ -99,6 +109,9 @@ import kotlinx.coroutines.launch
  * so resizing the hero silently moved the point where the status bar flips its icons.
  */
 private val HeroHeight = MediaSizing.heroHeight
+
+private val LibraryHeroIndicatorBottom = 14.dp
+private val LibraryHeroContentBottom = LibraryHeroIndicatorBottom + MinTouchTarget + 10.dp
 
 /** How far the content column is pulled up over the lower edge of the hero. */
 private val HeroLift = 52.dp
@@ -129,12 +142,16 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val slideIndex = loopingCarouselItemIndex(pagerState.currentPage, slides.size)
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
+    var autoPlayEnabled by rememberSaveable(slides.map { it.id }) { mutableStateOf(true) }
     val slide = slides.getOrNull(slideIndex)
     val slideUrl = slide?.let {
         EmbyImages.backdrop(baseUrl, it, accessToken = accessToken)
             ?: EmbyImages.poster(baseUrl, it, accessToken = accessToken)
     }
-    val accent = rememberAnimatedDominantColor(slideUrl, Brand.Primary)
+    val accent = rememberAnimatedDominantColor(
+        slideUrl,
+        Brand.Primary, // design-system: brand-identity
+    )
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState)
@@ -150,15 +167,21 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
-    LaunchedEffect(slides.size, carouselDragging, reduceMotion, routeVisible) {
+    LaunchedEffect(carouselDragging) {
+        if (carouselDragging) autoPlayEnabled = false
+    }
+    LaunchedEffect(slides.size, carouselDragging, reduceMotion, autoPlayEnabled, routeVisible) {
         // Same reasoning as 首页's reel: the largest moving thing on the page, and the one
         // 减弱动态效果 was not reaching.
-        if (!routeVisible || slides.size <= 1 || carouselDragging || reduceMotion) {
+        if (!routeVisible || slides.size <= 1 || carouselDragging || reduceMotion || !autoPlayEnabled) {
             return@LaunchedEffect
         }
         while (true) {
             delay(6_000)
-            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+            pagerState.animateScrollToPage(
+                page = pagerState.currentPage + 1,
+                animationSpec = tween(Motion.CAROUSEL, easing = Motion.Curve),
+            )
         }
     }
     ScrollToTopOnReselect(listState)
@@ -189,65 +212,88 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 ) {
                     if (slide != null) {
                         item {
-                            HorizontalPager(
-                                state = pagerState,
-                                modifier = Modifier.fillMaxWidth().height(HeroHeight),
-                                beyondViewportPageCount = 1,
-                                key = { page -> page },
-                            ) { page ->
-                                val animatedIndex = loopingCarouselItemIndex(page, slides.size)
-                                val animatedItem = slides.getOrNull(animatedIndex) ?: slide
-                                // Backdrop first, poster as the understudy: an item can
-                                // carry a backdrop id whose image the server no longer has,
-                                // and the hero used to go blank rather than fall back.
-                                val animatedUrls = listOf(
-                                    EmbyImages.backdrop(
-                                        baseUrl,
-                                        animatedItem,
-                                        accessToken = accessToken,
-                                    ),
-                                    EmbyImages.poster(
-                                        baseUrl,
-                                        animatedItem,
-                                        accessToken = accessToken,
-                                    ),
-                                )
-                                val animatedAccent = rememberAnimatedDominantColor(
-                                    animatedUrls.firstOrNull { it != null },
-                                    Brand.Primary,
-                                )
-                                HeroCarousel(
-                                    item = animatedItem,
-                                    urls = animatedUrls,
-                                    accent = animatedAccent,
-                                    slideCount = slides.size,
-                                    slideIndex = animatedIndex,
-                                    onSelectSlide = { targetIndex ->
-                                        carouselScope.launch {
-                                            pagerState.animateScrollToPage(
-                                                loopingCarouselTargetPage(
+                            Box(Modifier.fillMaxWidth().height(HeroHeight)) {
+                                HorizontalPager(
+                                    state = pagerState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    beyondViewportPageCount = 1,
+                                    key = { page -> page },
+                                ) { page ->
+                                    val animatedIndex = loopingCarouselItemIndex(page, slides.size)
+                                    val animatedItem = slides.getOrNull(animatedIndex) ?: slide
+                                    // Backdrop first, poster as the understudy: an item can
+                                    // carry a backdrop id whose image the server no longer has,
+                                    // and the hero used to go blank rather than fall back.
+                                    val animatedUrls = listOf(
+                                        EmbyImages.backdrop(
+                                            baseUrl,
+                                            animatedItem,
+                                            accessToken = accessToken,
+                                        ),
+                                        EmbyImages.poster(
+                                            baseUrl,
+                                            animatedItem,
+                                            accessToken = accessToken,
+                                        ),
+                                    )
+                                    val animatedAccent = rememberAnimatedDominantColor(
+                                        animatedUrls.firstOrNull { it != null },
+                                        Brand.Primary, // design-system: brand-identity
+                                    )
+                                    HeroCarousel(
+                                        item = animatedItem,
+                                        urls = animatedUrls,
+                                        accent = animatedAccent,
+                                        serverName = state.currentServer?.serverName.orEmpty(),
+                                        onClick = { component.onOpenItem(animatedItem.id) },
+                                        onToggleFavorite = {
+                                            store.accept(
+                                                LibraryIntent.ToggleFavorite(
+                                                    itemId = animatedItem.id,
+                                                    title = animatedItem.title,
+                                                    favorite = !animatedItem.isFavorite,
+                                                ),
+                                            )
+                                        },
+                                        onToggleServerMenu = {
+                                            serverMenuOpen = !serverMenuOpen
+                                        },
+                                    )
+                                }
+                                if (slides.size > 1) {
+                                    HeroPageIndicator(
+                                        pageCount = slides.size,
+                                        selectedPage = slideIndex,
+                                        onPageSelected = { targetIndex ->
+                                            autoPlayEnabled = false
+                                            carouselScope.launch {
+                                                val targetPage = loopingCarouselTargetPage(
                                                     currentPage = pagerState.currentPage,
                                                     targetIndex = targetIndex,
                                                     itemCount = slides.size,
-                                                ),
-                                            )
-                                        }
-                                    },
-                                    serverName = state.currentServer?.serverName.orEmpty(),
-                                    onClick = { component.onOpenItem(animatedItem.id) },
-                                    onToggleFavorite = {
-                                        store.accept(
-                                            LibraryIntent.ToggleFavorite(
-                                                itemId = animatedItem.id,
-                                                title = animatedItem.title,
-                                                favorite = !animatedItem.isFavorite,
-                                            ),
-                                        )
-                                    },
-                                    onToggleServerMenu = {
-                                        serverMenuOpen = !serverMenuOpen
-                                    },
-                                )
+                                                )
+                                                if (reduceMotion) {
+                                                    pagerState.scrollToPage(targetPage)
+                                                } else {
+                                                    pagerState.animateScrollToPage(
+                                                        page = targetPage,
+                                                        animationSpec = tween(
+                                                            Motion.EMPHASIZED,
+                                                            easing = Motion.Curve,
+                                                        ),
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        autoPlayRunning = if (reduceMotion) null else autoPlayEnabled,
+                                        onToggleAutoPlay = if (reduceMotion) null else {
+                                            { autoPlayEnabled = !autoPlayEnabled }
+                                        },
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .padding(bottom = LibraryHeroIndicatorBottom),
+                                    )
+                                }
                             }
                         }
                     }
@@ -361,7 +407,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 private fun LibraryCountFooter(movieCount: Int, seriesCount: Int) {
     Text(
         text = "电影 $movieCount 部 · 剧集 $seriesCount 部",
-        style = mr(11f, 500),
+        style = AppTypography.caption.medium,
         color = LocalPalette.current.sub2,
         textAlign = TextAlign.Center,
         modifier = Modifier
@@ -373,16 +419,13 @@ private fun LibraryCountFooter(movieCount: Int, seriesCount: Int) {
 /**
  * 432px hero — scrim `0deg rgba(10,14,26,.88) 0%, .55 42%, .05 62%, transparent`;
  * 正在流行 chip at `left/top 20/52`; server switcher at `right/top 20/52`;
- * copy block at `left/right 20`, `bottom 34`; dots at `left 20`, `bottom 14`.
+ * Copy and actions reserve the indicator's complete 44dp hit lane plus breathing room.
  */
 @Composable
 private fun HeroCarousel(
     item: MediaItem,
     urls: List<String?>,
     accent: Color,
-    slideCount: Int,
-    slideIndex: Int,
-    onSelectSlide: (Int) -> Unit,
     serverName: String,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -397,9 +440,7 @@ private fun HeroCarousel(
         FallbackImage(
             urls = urls,
             contentDescription = item.title,
-            modifier = Modifier
-                .fillMaxSize()
-                .sharedMediaElement("media-backdrop-${item.id}"),
+            modifier = Modifier.fillMaxSize(),
         )
         Box(
             Modifier.fillMaxSize().background(
@@ -422,11 +463,11 @@ private fun HeroCarousel(
             // 正在流行 — `500 10.5px Manrope`, white, `{accent}45%`, `padding:4px 10px`.
             Text(
                 "正在流行",
-                style = mr(10.5f, 500),
+                style = AppTypography.caption.medium,
                 color = Color.White,
                 modifier = Modifier
                     .glass(
-                        shape = continuousRounded(20.dp),
+                        shape = AppShapes.pill,
                         fill = accent.copy(alpha = 0.38f),
                         border = Color.White.copy(alpha = 0.30f),
                     )
@@ -437,7 +478,8 @@ private fun HeroCarousel(
             // `radius:14px`, `padding:7px 12px`, `gap:6px`.
             Row(
                 Modifier
-                    .pressable(onClick = onToggleServerMenu)
+                    .pressable(onClickLabel = "切换媒体服务器", onClick = onToggleServerMenu)
+                    .touchTarget()
                     .glass(
                         shape = GlassShapes.chip,
                         fill = Color(0xFF141826).copy(alpha = 0.36f),
@@ -450,7 +492,7 @@ private fun HeroCarousel(
                 Box(Modifier.size(6.dp).clip(CircleShape).background(Brand.Online))
                 Text(
                     serverName,
-                    style = sc(12f, 600),
+                    style = AppTypography.body.strong,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -468,11 +510,15 @@ private fun HeroCarousel(
             Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 20.dp, bottom = 46.dp),
+                .padding(
+                    start = 20.dp,
+                    end = 20.dp,
+                    bottom = LibraryHeroContentBottom,
+                ),
         ) {
             Text(
                 item.title,
-                style = sc(26f, 800),
+                style = AppTypography.display.strong,
                 color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -481,7 +527,7 @@ private fun HeroCarousel(
                 Spacer(Modifier.height(6.dp))
                 Text(
                     item.subtitle,
-                    style = mr(12f, 400),
+                    style = AppTypography.caption.regular,
                     color = Color.White.copy(alpha = 0.78f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -492,7 +538,7 @@ private fun HeroCarousel(
                 Spacer(Modifier.height(10.dp))
                 Text(
                     item.overview,
-                    style = sc(11.5f, 400, lineHeight = 11.5f * 1.6f),
+                    style = AppTypography.body.regular.copy(lineHeight = 20.8.sp),
                     color = Color.White.copy(alpha = 0.7f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -506,8 +552,9 @@ private fun HeroCarousel(
             ) {
                 Row(
                     Modifier
+                        .pressable(onClickLabel = "立即播放", onClick = onClick)
+                        .touchTarget()
                         .height(42.dp)
-                        .pressable(onClick = onClick)
                         .glass(
                             shape = GlassShapes.chip,
                             fill = Color(0xFF101722).copy(alpha = 0.30f),
@@ -534,7 +581,7 @@ private fun HeroCarousel(
                             modifier = Modifier.size(13.dp),
                         )
                     }
-                    Text("立即播放", style = sc(12f, 700), color = Color.White)
+                    Text("立即播放", style = AppTypography.body.strong, color = Color.White)
                 }
                 HeroCircleAction(
                     active = item.isFavorite,
@@ -543,38 +590,6 @@ private fun HeroCarousel(
                     onClick = onToggleFavorite,
                 )
                 HeroCircleAction(AppIcons.Info, "查看详情", onClick)
-            }
-        }
-
-        // Dots — active `16×6`, idle `6×6`, `radius:3px`, `gap:4px`.
-        Row(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 36.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            repeat(slideCount) { index ->
-                val active = index == slideIndex
-                val width by animateFloatAsState(
-                    targetValue = if (active) 16f else 6f,
-                    animationSpec = tween(250),
-                    label = "dot",
-                )
-                Box(
-                    Modifier
-                        .width(width.dp)
-                        .height(6.dp)
-                        .pressable { onSelectSlide(index) }
-                        .glass(
-                            shape = continuousRounded(3.dp),
-                            fill = if (active) {
-                                Color.White.copy(alpha = 0.88f)
-                            } else {
-                                Color.White.copy(alpha = 0.24f)
-                            },
-                            border = Color.White.copy(alpha = if (active) 0.84f else 0.28f),
-                        ),
-                )
             }
         }
     }
@@ -609,6 +624,7 @@ private fun ServerSheet(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val themeAccent = LocalAccentColors.current
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "切换服务器",
@@ -618,22 +634,31 @@ private fun ServerSheet(
         // A centred panel has no edge to grow against, so a long server list scrolls inside
         // the dialog instead of running off both ends of the screen. [GlassDialog] does that
         // itself now, against the screen it is actually on rather than a fixed maximum.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            modifier = Modifier.selectableGroup(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             servers.forEach { server ->
                 val isCurrent = server.id == currentId
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .pressable(enabled = !isCurrent) { onSelect(server.id) }
+                        .pressable(
+                            enabled = !isCurrent,
+                            role = Role.RadioButton,
+                            onClickLabel = "切换到${server.serverName}",
+                            onClick = { onSelect(server.id) },
+                        )
+                        .semantics { this.selected = isCurrent }
                         .glass(
                             shape = GlassShapes.chip,
                             fill = if (isCurrent) {
-                                Brand.Primary.copy(alpha = 0.10f)
+                                themeAccent.container
                             } else {
                                 palette.card2
                             },
                             border = if (isCurrent) {
-                                Brand.Primary.copy(alpha = 0.30f)
+                                themeAccent.border.copy(alpha = 0.30f)
                             } else {
                                 palette.border
                             },
@@ -645,20 +670,20 @@ private fun ServerSheet(
                     Box(
                         Modifier
                             .size(34.dp)
-                            .clip(continuousRounded(9.dp))
+                            .clip(AppShapes.thumb)
                             .background(serverTileColor(server.id)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             server.serverName.take(1).uppercase(),
-                            style = mr(12f, 700),
+                            style = AppTypography.caption.strong,
                             color = Color.White,
                         )
                     }
                     Column(Modifier.weight(1f)) {
                         Text(
                             server.serverName,
-                            style = sc(12.5f, 700),
+                            style = AppTypography.body.strong,
                             color = palette.text,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -678,7 +703,7 @@ private fun ServerSheet(
                             }
                             Text(
                                 if (isCurrent) "当前使用 · ${server.userName}" else server.userName,
-                                style = mr(10f, 400),
+                                style = AppTypography.caption.regular,
                                 color = palette.sub,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -689,11 +714,11 @@ private fun ServerSheet(
                         Icon(
                             AppIcons.Check,
                             contentDescription = "当前服务器",
-                            tint = Brand.Primary,
+                            tint = themeAccent.accent,
                             modifier = Modifier.size(13.dp),
                         )
                     } else {
-                        Text("切换", style = mr(11f, 600), color = Brand.Primary)
+                        Text("切换", style = AppTypography.caption.strong, color = themeAccent.accent)
                     }
                 }
             }
@@ -782,7 +807,7 @@ private fun CategoryCards(
                 )
                 Text(
                     row.title,
-                    style = sc(13f, 700),
+                    style = AppTypography.body.strong,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -792,7 +817,7 @@ private fun CategoryCards(
                 )
                 Text(
                     "${row.totalCount}部",
-                    style = mr(9.5f, 600),
+                    style = AppTypography.caption.strong,
                     color = Color.White.copy(alpha = 0.85f),
                     modifier = Modifier.align(Alignment.TopEnd).padding(end = 12.dp, top = 10.dp),
                 )
@@ -846,7 +871,6 @@ private fun PlaybackHistory(
                     // Scoped to this rail: a film that was just watched is also a film
                     // that was just added, so the same id is on screen twice — see
                     // [CategorySection] for what that costs.
-                    sharedKey = "media-poster-resume-${item.id}",
                     onClick = { onItemClick(item) },
                     modifier = Modifier.width(MediaSizing.landscapeCardWidth),
                     posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
@@ -877,7 +901,7 @@ private fun SectionHeader(
     ) {
         Text(
             title,
-            style = sc(15f, 700),
+            style = AppTypography.section.strong,
             color = palette.text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -890,12 +914,13 @@ private fun SectionHeader(
             // a floating label with a smudge behind it.
             Row(
                 Modifier
-                    .pressable(onClick = onSeeAll)
+                    .pressable(onClickLabel = "查看${title}的全部内容", onClick = onSeeAll)
+                    .touchTarget()
                     .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("更多", style = mr(11f, 500), color = palette.sub2)
+                Text("更多", style = AppTypography.caption.medium, color = palette.sub2)
                 Icon(
                     AppIcons.ChevronRight,
                     contentDescription = null,
@@ -939,7 +964,6 @@ private fun CategorySection(
                     // poster flash into place for one frame on the way out. The library
                     // id scopes the key to this rail; 首页 hit the same thing and answered
                     // it by dropping the key entirely (see HomeScreen's shelves).
-                    sharedKey = "media-poster-${row.libraryId}-${item.id}",
                     onClick = { onItemClick(item) },
                     modifier = Modifier.width(PosterWidth),
                 )
@@ -965,7 +989,7 @@ private fun SkeletonRow() {
 private fun CenterHint(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
-        style = sc(13f, 400),
+        style = AppTypography.body.regular,
         color = LocalPalette.current.sub,
         textAlign = TextAlign.Center,
         modifier = modifier.padding(24.dp),
@@ -987,7 +1011,6 @@ internal fun PosterCard(
         title = item.title,
         year = item.year?.toString(),
         progress = if (showProgress) item.playedPercentage?.let { (it / 100.0).toFloat() } else null,
-        sharedKey = "media-poster-${item.id}",
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
     )
@@ -1003,11 +1026,21 @@ private fun HeroCircleAction(
 ) {
     Box(
         Modifier
-            .size(34.dp)
             .pressable(
                 haptic = if (active != null) HapticSignal.Confirm else null,
+                role = if (active == null) Role.Button else Role.Checkbox,
+                onClickLabel = description,
                 onClick = onClick,
             )
+            .then(
+                if (active == null) {
+                    Modifier
+                } else {
+                    Modifier.semantics { toggleableState = ToggleableState(active) }
+                },
+            )
+            .touchTarget()
+            .size(34.dp)
             .glass(
                 shape = CircleShape,
                 fill = Color.White.copy(alpha = 0.14f),

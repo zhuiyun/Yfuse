@@ -24,14 +24,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
 
 /** How long before the end 下一集 announces itself. */
@@ -68,12 +67,12 @@ internal fun NextUpCard(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(horizontalAlignment = Alignment.Start) {
-            Text("即将播放", style = mr(9.5f, 700), color = PlayerTokens.footerText)
+            Text("即将播放", style = AppTypography.caption.strong, color = PlayerTokens.footerText)
             if (title.isNotBlank()) {
                 Spacer(Modifier.height(3.dp))
                 Text(
                     title,
-                    style = sc(12f, 700),
+                    style = AppTypography.body.strong,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -83,7 +82,7 @@ internal fun NextUpCard(
         }
         Text(
             "取消",
-            style = sc(11.5f, 600),
+            style = AppTypography.body.strong,
             color = PlayerTokens.timeText,
             modifier = Modifier
                 .pressable(onClick = onDismiss)

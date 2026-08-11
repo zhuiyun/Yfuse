@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -23,6 +24,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,11 +36,13 @@ import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.SkipMode
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
-import com.yfuse.core.designsystem.continuousRounded
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
@@ -43,9 +50,8 @@ import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.Palette
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.flatGlass as glass
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.feature.watch.CopyableRoomCode
 import com.yfuse.core.util.graphemeCount
@@ -71,6 +77,7 @@ internal fun UserAgentDialog(
     var draft by remember(current) { mutableStateOf(current) }
     val normalized = draft.trim()
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
 
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
@@ -81,14 +88,14 @@ internal fun UserAgentDialog(
         Column(
             Modifier
                 .fillMaxWidth()
-                .glass(continuousRounded(13.dp), palette.card2, palette.border)
+                .glass(AppShapes.control, palette.card2, palette.border)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
             Box(contentAlignment = Alignment.CenterStart) {
                 if (draft.isBlank()) {
                     Text(
                         "例如：Yfuse/Android",
-                        style = mr(12f, 500),
+                        style = AppTypography.body.medium,
                         color = palette.hint,
                         maxLines = 1,
                     )
@@ -99,16 +106,18 @@ internal fun UserAgentDialog(
                         draft = value.replace("\r", "").replace("\n", "").take(512)
                     },
                     singleLine = true,
-                    textStyle = mr(12f, 500).copy(color = palette.text),
-                    cursorBrush = SolidColor(Brand.Primary),
-                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = AppTypography.body.medium.copy(color = palette.text),
+                    cursorBrush = SolidColor(accent.accent),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "User-Agent" },
                 )
             }
         }
         Spacer(Modifier.height(8.dp))
         Text(
             "修改后新发起的请求立即生效；正在播放的媒体需重新进入播放器。",
-            style = mr(10.5f, 400),
+            style = AppTypography.caption.regular,
             color = palette.sub2,
         )
         Row(
@@ -176,7 +185,7 @@ internal fun DanmakuSourceDialog(
         val editing = draft
         if (editing == null) {
             Column(
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().selectableGroup(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 sources.forEach { source ->
@@ -192,7 +201,7 @@ internal fun DanmakuSourceDialog(
                 if (sources.isEmpty()) {
                     Text(
                         "还没有弹幕源。",
-                        style = mr(11f, 400),
+                        style = AppTypography.caption.regular,
                         color = palette.sub2,
                         modifier = Modifier.padding(vertical = 10.dp),
                     )
@@ -233,15 +242,15 @@ internal fun DanmakuSourceDialog(
             Spacer(Modifier.height(8.dp))
             Text(
                 "占位符：{id} 媒体 ID · {title} 标题 · {season} 季号 · {episode} 集号 · {serverId} 服务器 ID",
-                style = mr(10.5f, 400),
+                style = AppTypography.caption.regular,
                 color = palette.sub2,
             )
             if (normalizedUrl.isNotEmpty() && !valid) {
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "链接必须以 http:// 或 https:// 开头",
-                    style = sc(10.5f, 500),
-                    color = Brand.Danger,
+                    style = AppTypography.caption.medium,
+                    color = palette.error,
                 )
             }
             Row(
@@ -319,13 +328,13 @@ internal fun DanmakuBlockedDialog(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .glass(continuousRounded(13.dp), palette.card2, palette.border)
+                            .glass(AppShapes.control, palette.card2, palette.border)
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             word,
-                            style = sc(12f, 600),
+                            style = AppTypography.body.strong,
                             color = palette.text,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -333,10 +342,11 @@ internal fun DanmakuBlockedDialog(
                         )
                         Text(
                             "移除",
-                            style = sc(11f, 600),
-                            color = Brand.Danger,
+                            style = AppTypography.caption.strong,
+                            color = palette.error,
                             modifier = Modifier
                                 .pressable(onClick = { onRemove(word) })
+                                .touchTarget()
                                 .padding(horizontal = 6.dp, vertical = 4.dp),
                         )
                     }
@@ -373,14 +383,16 @@ private fun DanmakuSourceRow(
     onEdit: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Row(
         Modifier
             .fillMaxWidth()
-            .pressable(onClick = onSelect)
+            .pressable(role = Role.RadioButton, onClick = onSelect)
+            .semantics { this.selected = selected }
             .glass(
-                continuousRounded(13.dp),
-                if (selected) Brand.Primary.copy(alpha = 0.12f) else palette.card2,
-                if (selected) Brand.Primary.copy(alpha = 0.35f) else palette.border,
+                AppShapes.control,
+                if (selected) accent.container else palette.card2,
+                if (selected) accent.border else palette.border,
             )
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -389,7 +401,7 @@ private fun DanmakuSourceRow(
         Column(Modifier.weight(1f)) {
             Text(
                 source.name,
-                style = sc(12.5f, 700),
+                style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -398,7 +410,7 @@ private fun DanmakuSourceRow(
             Text(
                 // Templates and servers behave differently enough that the row says which.
                 if (source.isTemplate) "模板链接 · ${source.url}" else source.url,
-                style = mr(10f, 400),
+                style = AppTypography.caption.regular,
                 color = palette.sub2,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -408,15 +420,18 @@ private fun DanmakuSourceRow(
             Icon(
                 AppIcons.Check,
                 contentDescription = "使用中",
-                tint = Brand.Primary,
+                tint = accent.accent,
                 modifier = Modifier.size(13.dp),
             )
         }
         Text(
             "编辑",
-            style = sc(11f, 600),
-            color = Brand.Primary,
-            modifier = Modifier.pressable(onClick = onEdit).padding(horizontal = 6.dp, vertical = 4.dp),
+            style = AppTypography.caption.strong,
+            color = accent.accent,
+            modifier = Modifier
+                .pressable(onClickLabel = "编辑弹幕源", onClick = onEdit)
+                .touchTarget()
+                .padding(horizontal = 6.dp, vertical = 4.dp),
         )
     }
 }
@@ -429,17 +444,18 @@ private fun DanmakuField(
     onValueChange: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Box(
         Modifier
             .fillMaxWidth()
-            .glass(continuousRounded(13.dp), palette.card2, palette.border)
+            .glass(AppShapes.control, palette.card2, palette.border)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         if (value.isBlank()) {
             Text(
                 placeholder,
-                style = mr(12f, 500),
+                style = AppTypography.body.medium,
                 color = palette.hint,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -449,10 +465,12 @@ private fun DanmakuField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
-            textStyle = mr(12f, 500).copy(color = palette.text),
-            cursorBrush = SolidColor(Brand.Primary),
+            textStyle = AppTypography.body.medium.copy(color = palette.text),
+            cursorBrush = SolidColor(accent.accent),
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = placeholder },
         )
     }
 }
@@ -483,7 +501,7 @@ internal fun SkipSegmentDialog(
         Spacer(Modifier.height(10.dp))
         Text(
             "具体片头片尾边界只在播放对应影视时设置；个人中心不展示剧名、集数或时间。",
-            style = mr(10.5f, 400),
+            style = AppTypography.caption.regular,
             color = palette.sub2,
         )
         OverlayButton(
@@ -519,6 +537,7 @@ internal fun WatchJoinDialog(
     val parsed = remember(draft) { WatchInvite.parseFromText(draft) }
     val code = parsed?.roomCode ?: WatchInvite.normalizeCode(draft)
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
 
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
@@ -534,19 +553,19 @@ internal fun WatchJoinDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .glass(continuousRounded(13.dp), palette.card2, palette.border)
+                    .glass(AppShapes.control, palette.card2, palette.border)
                     .padding(vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 CopyableRoomCode(
                     roomCode = roomCode.orEmpty(),
-                    style = sc(22f, 800),
-                    color = Brand.Primary,
+                    style = AppTypography.display.strong,
+                    color = accent.accent,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "$participantCount 人在线",
-                    style = mr(10.5f, 500),
+                    style = AppTypography.caption.medium,
                     color = palette.sub2,
                 )
             }
@@ -565,7 +584,7 @@ internal fun WatchJoinDialog(
             // fine now that it has one that can fail.
             error?.let {
                 Spacer(Modifier.height(8.dp))
-                Text(it, style = sc(10.5f, 500), color = Brand.Danger)
+                Text(it, style = AppTypography.caption.medium, color = palette.error)
             }
             OverlayButton(
                 label = "退出房间",
@@ -577,14 +596,14 @@ internal fun WatchJoinDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .glass(continuousRounded(13.dp), palette.card2, palette.border)
+                    .glass(AppShapes.control, palette.card2, palette.border)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (draft.isBlank()) {
                         Text(
                             "房间码或邀请链接",
-                            style = mr(12f, 500),
+                            style = AppTypography.body.medium,
                             color = palette.hint,
                             maxLines = 1,
                         )
@@ -593,9 +612,11 @@ internal fun WatchJoinDialog(
                         value = draft,
                         onValueChange = { draft = it.take(300) },
                         singleLine = true,
-                        textStyle = mr(12f, 500).copy(color = palette.text),
-                        cursorBrush = SolidColor(Brand.Primary),
-                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = AppTypography.body.medium.copy(color = palette.text),
+                        cursorBrush = SolidColor(accent.accent),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = "房间码或邀请链接" },
                     )
                 }
             }
@@ -603,13 +624,13 @@ internal fun WatchJoinDialog(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "将加入房间 $code",
-                    style = mr(10.5f, 500),
+                    style = AppTypography.caption.medium,
                     color = palette.sub2,
                 )
             }
             error?.let {
                 Spacer(Modifier.height(6.dp))
-                Text(it, style = sc(10.5f, 500), color = Brand.Danger)
+                Text(it, style = AppTypography.caption.medium, color = palette.error)
             }
             Row(
                 Modifier.fillMaxWidth().padding(top = 16.dp),
@@ -642,6 +663,7 @@ internal fun WatchEndpointDialog(
     val isDefault = current.trimEnd('/') ==
         WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
 
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
@@ -652,14 +674,14 @@ internal fun WatchEndpointDialog(
         Column(
             Modifier
                 .fillMaxWidth()
-                .glass(continuousRounded(13.dp), palette.card2, palette.border)
+                .glass(AppShapes.control, palette.card2, palette.border)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
             Box(contentAlignment = Alignment.CenterStart) {
                 if (draft.isBlank()) {
                     Text(
                         "https://watch.example.com",
-                        style = mr(12f, 500),
+                        style = AppTypography.body.medium,
                         color = palette.hint,
                         maxLines = 1,
                     )
@@ -668,10 +690,12 @@ internal fun WatchEndpointDialog(
                     value = draft,
                     onValueChange = { draft = it.take(300) },
                     singleLine = true,
-                    textStyle = mr(12f, 500).copy(color = palette.text),
-                    cursorBrush = SolidColor(Brand.Primary),
+                    textStyle = AppTypography.body.medium.copy(color = palette.text),
+                    cursorBrush = SolidColor(accent.accent),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "一起看服务器地址" },
                 )
             }
         }
@@ -679,8 +703,8 @@ internal fun WatchEndpointDialog(
             Spacer(Modifier.height(6.dp))
             Text(
                 "地址必须以 http://、https://、ws:// 或 wss:// 开头",
-                style = sc(10.5f, 500),
-                color = Brand.Danger,
+                style = AppTypography.caption.medium,
+                color = palette.error,
             )
         }
         Row(
@@ -720,6 +744,7 @@ internal fun WatchProfileDialog(
     var selectedAvatar by remember(currentAvatarId) { mutableStateOf(currentAvatarId) }
     val normalized = draft.replace('\r', ' ').replace('\n', ' ').trim()
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
 
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
@@ -736,14 +761,14 @@ internal fun WatchProfileDialog(
             Column(
                 Modifier
                     .weight(1f)
-                    .glass(continuousRounded(13.dp), palette.card2, palette.border)
+                    .glass(AppShapes.control, palette.card2, palette.border)
                     .padding(horizontal = 14.dp, vertical = 11.dp),
             ) {
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (draft.isBlank()) {
                         Text(
                             WatchTogetherPreferences.DEFAULT_NICKNAME,
-                            style = mr(12f, 500),
+                            style = AppTypography.body.medium,
                             color = palette.hint,
                         )
                     }
@@ -759,14 +784,16 @@ internal fun WatchProfileDialog(
                                 )
                         },
                         singleLine = true,
-                        textStyle = mr(12f, 500).copy(color = palette.text),
-                        cursorBrush = SolidColor(Brand.Primary),
-                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = AppTypography.body.medium.copy(color = palette.text),
+                        cursorBrush = SolidColor(accent.accent),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = "昵称" },
                     )
                 }
                 Text(
                     "${draft.graphemeCount()}/${WatchTogetherPreferences.MAX_NICKNAME_GRAPHEMES}",
-                    style = mr(9f, 500),
+                    style = AppTypography.caption.medium,
                     color = palette.hint,
                     modifier = Modifier.align(Alignment.End),
                 )
@@ -774,9 +801,9 @@ internal fun WatchProfileDialog(
         }
 
         Spacer(Modifier.height(14.dp))
-        Text("选择头像", style = sc(11f, 700), color = palette.sub2)
+        Text("选择头像", style = AppTypography.caption.strong, color = palette.sub2)
         Column(
-            Modifier.fillMaxWidth().padding(top = 9.dp),
+            Modifier.fillMaxWidth().padding(top = 9.dp).selectableGroup(),
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             (0 until WatchTogetherPreferences.AVATAR_COUNT).chunked(4).forEach { row ->
@@ -789,7 +816,13 @@ internal fun WatchProfileDialog(
                             avatarId = avatarId,
                             size = 42.dp,
                             selected = avatarId == selectedAvatar,
-                            modifier = Modifier.pressable { selectedAvatar = avatarId },
+                            modifier = Modifier
+                                .pressable(role = Role.RadioButton) { selectedAvatar = avatarId }
+                                .semantics {
+                                    this.selected = avatarId == selectedAvatar
+                                    contentDescription = "头像 ${avatarId + 1}"
+                                }
+                                .touchTarget(),
                         )
                     }
                 }

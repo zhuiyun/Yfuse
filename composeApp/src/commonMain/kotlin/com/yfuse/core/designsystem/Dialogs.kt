@@ -45,6 +45,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
@@ -106,8 +107,9 @@ class OverlayVisibility {
 val LocalOverlayVisibility = staticCompositionLocalOf<OverlayVisibility?> { null }
 
 @Composable
-private fun ReportOverlayVisible() {
-    val visibility = LocalOverlayVisibility.current ?: return
+fun ReportOverlayVisible(enabled: Boolean = true) {
+    val visibility = LocalOverlayVisibility.current
+    if (!enabled || visibility == null) return
     DisposableEffect(visibility) {
         visibility.enter()
         onDispose { visibility.exit() }
@@ -143,9 +145,9 @@ fun GlassDialog(
     val requestDismiss = remember { { leaving = true } }
 
     Dialog(
-        // The system back button and the platform's own dismissals route through the same
-        // exit rather than skipping it.
-        onDismissRequest = requestDismiss,
+        // System back stays on Compose Dialog's official dismissal path. Delaying it for the
+        // app's own exit tween would append a second animation after predictive back commits.
+        onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
@@ -299,12 +301,12 @@ fun OverlayHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = sc(15f, 700), color = palette.text, maxLines = 1)
+            Text(title, style = AppTypography.section.strong, color = palette.text, maxLines = 1)
             if (subtitle != null) {
                 Spacer(Modifier.height(3.dp))
                 Text(
                     subtitle,
-                    style = mr(10.5f, 400),
+                    style = AppTypography.caption.regular,
                     color = palette.sub2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -342,22 +344,23 @@ fun OverlayButton(
     loading: Boolean = false,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     // Same 中 radius it always had; continuous now, like every other control.
     val shape = GlassShapes.chip
     val fill = when {
-        tone == OverlayButtonTone.Primary && enabled -> Brand.Primary.copy(alpha = 0.72f)
-        tone == OverlayButtonTone.Primary -> Brand.Primary.copy(alpha = 0.30f)
-        tone == OverlayButtonTone.Destructive -> Brand.Danger.copy(alpha = 0.12f)
+        tone == OverlayButtonTone.Primary && enabled -> accent.accent
+        tone == OverlayButtonTone.Primary -> accent.container
+        tone == OverlayButtonTone.Destructive -> palette.errorContainer
         else -> palette.card2
     }
     val border = when (tone) {
-        OverlayButtonTone.Primary -> Color.White.copy(alpha = if (enabled) 0.36f else 0.18f)
-        OverlayButtonTone.Destructive -> Brand.Danger.copy(alpha = 0.32f)
+        OverlayButtonTone.Primary -> accent.border.copy(alpha = if (enabled) 1f else 0.38f)
+        OverlayButtonTone.Destructive -> palette.error
         OverlayButtonTone.Plain -> palette.border
     }
     val ink = when (tone) {
-        OverlayButtonTone.Primary -> Color.White
-        OverlayButtonTone.Destructive -> Brand.Danger
+        OverlayButtonTone.Primary -> if (enabled) accent.onAccent else accent.accent
+        OverlayButtonTone.Destructive -> palette.error
         OverlayButtonTone.Plain -> palette.text
     }
     Box(
@@ -378,7 +381,7 @@ fun OverlayButton(
         } else {
             Text(
                 label,
-                style = sc(13f, 700),
+                style = AppTypography.body.strong,
                 color = if (enabled) ink else ink.copy(alpha = 0.55f),
                 maxLines = 1,
             )
@@ -431,11 +434,11 @@ fun ConfirmDialog(
 ) {
     val palette = LocalPalette.current
     GlassDialog(onDismiss = onDismiss) {
-        Text(title, style = sc(15f, 700), color = palette.text)
+        Text(title, style = AppTypography.section.strong, color = palette.text)
         Spacer(Modifier.height(8.dp))
         Text(
             message,
-            style = sc(12.5f, 400, lineHeight = 12.5f * 1.6f),
+            style = AppTypography.body.regular.copy(lineHeight = 21.sp),
             color = palette.body,
         )
         OverlayButtonRow(
@@ -463,8 +466,10 @@ fun OverlayOptionRow(
     destructive: Boolean = false,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val fill = when {
-        destructive -> Brand.Danger.copy(alpha = 0.08f)
+        destructive -> palette.errorContainer
+        selected -> accent.container
         else -> Color.Transparent
     }
     Row(
@@ -492,10 +497,14 @@ fun OverlayOptionRow(
         Column(Modifier.weight(1f)) {
             Text(
                 label,
-                style = sc(12.5f, if (selected || destructive) 700 else 500),
+                style = if (selected || destructive) {
+                    AppTypography.body.strong
+                } else {
+                    AppTypography.body.medium
+                },
                 color = when {
-                    destructive -> Brand.Danger
-                    selected -> Brand.Primary
+                    destructive -> palette.error
+                    selected -> accent.accent
                     else -> palette.text
                 },
                 maxLines = 1,
@@ -504,7 +513,7 @@ fun OverlayOptionRow(
                 Spacer(Modifier.height(3.dp))
                 Text(
                     description,
-                    style = mr(10f, 400),
+                    style = AppTypography.caption.regular,
                     color = palette.sub2,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -512,7 +521,7 @@ fun OverlayOptionRow(
             }
         }
         if (selected) {
-            Icon(AppIcons.Check, null, tint = Brand.Primary, modifier = Modifier.size(13.dp))
+            Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(13.dp))
         }
     }
 }

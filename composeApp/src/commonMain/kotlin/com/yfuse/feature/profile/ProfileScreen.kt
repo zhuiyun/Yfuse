@@ -2,8 +2,10 @@ package com.yfuse.feature.profile
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -21,12 +23,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,6 +41,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,7 +61,8 @@ import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
-import com.yfuse.core.designsystem.continuousRounded
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.Brand
@@ -64,30 +71,26 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.LocalAccent
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.LocalBackGesture
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
-import com.yfuse.core.designsystem.PlatformBackHandler
-import com.yfuse.core.designsystem.PlatformBackGestureHandler
-import com.yfuse.core.designsystem.SharedElementTransitionContainer
+import com.yfuse.core.designsystem.OfficialNavDisplay
+import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.SplashPreview
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.flatGlass as glass
-import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.rememberBackGestureState
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.WindowWidthTier
+import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.SavedServer
-import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineMedia
-import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.feature.player.PlayerLauncher
@@ -112,6 +115,7 @@ private enum class Sheet {
 }
 
 private enum class ProfilePage {
+    Root,
     Account,
     Playback,
     Danmaku,
@@ -121,22 +125,6 @@ private enum class ProfilePage {
     Downloads,
     Recovery,
     Splash,
-}
-
-/**
- * A real navigation identity for the profile tab's formerly local `pageStack`.
- *
- * Keeping this separate from [ProfilePage] gives the profile root a first-class route too, so
- * predictive back can keep and reveal the exact screen that a settings page will return to.
- */
-private sealed interface ProfileRoute {
-    data object Root : ProfileRoute
-    data class Page(val page: ProfilePage) : ProfileRoute
-}
-
-private fun profileRouteKey(route: ProfileRoute): String = when (route) {
-    ProfileRoute.Root -> "profile-root"
-    is ProfileRoute.Page -> "profile-${route.page.name}"
 }
 
 /** 个人中心 — `padding:52px 18px 100px; gap:18px`. */
@@ -189,14 +177,6 @@ fun ProfileScreen(component: ProfileComponent) {
     val mainListState = rememberLazyListState()
     ScrollToTopOnReselect(mainListState)
     val screenScope = rememberCoroutineScope()
-    val page = pageStack.lastOrNull()?.let { ProfilePage.valueOf(it) }
-    val activeRoute = page?.let { ProfileRoute.Page(it) } ?: ProfileRoute.Root
-    val previousRoute = when {
-        page == null -> null
-        pageStack.size == 1 -> ProfileRoute.Root
-        else -> ProfileRoute.Page(ProfilePage.valueOf(pageStack[pageStack.lastIndex - 1]))
-    }
-
     fun openPage(target: ProfilePage) {
         pageStack = pageStack + target.name
     }
@@ -211,44 +191,19 @@ fun ProfileScreen(component: ProfileComponent) {
     }
 
     StatusBarIconStyle(darkIcons = !palette.isDark)
-
-    // Modal surfaces always get first refusal. A predictive page gesture is disabled while one
-    // is open so a single back action closes exactly the topmost thing instead of moving the page
-    // underneath a dialog that is still visible.
-    val modalBackEnabled =
-        sheet != null || addServerOpen || confirmRemove != null || confirmClearCache
-    PlatformBackHandler(enabled = modalBackEnabled) {
-        when {
-            confirmClearCache -> confirmClearCache = false
-            confirmRemove != null -> confirmRemove = null
-            addServerOpen -> component.serversStore.accept(ServersIntent.DismissDialog)
-            sheet != null -> sheet = null
-        }
-    }
-
-    // Settings pages have a real previous route, so they follow the system back progress.
-    // Modal sheets remain commit-only and therefore disable this handler while open.
-    val pageBack = rememberBackGestureState()
-    PlatformBackGestureHandler(
-        enabled = page != null && !modalBackEnabled,
-        onProgress = pageBack::update,
-        onCancel = pageBack::cancel,
-        onBack = {
-            pageBack.commit()
-            closePage()
-        },
-    )
+    ReportOverlayVisible(enabled = pageStack.isNotEmpty())
 
     Box(Modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalBackGesture provides pageBack) {
-            SharedElementTransitionContainer(
-                targetState = activeRoute,
-                routeKey = ::profileRouteKey,
-                depth = pageStack.size + 1,
-                previous = previousRoute,
-            ) { route ->
-                when (route) {
-                    is ProfileRoute.Page -> when (val activePage = route.page) {
+        val navigationBackStack = remember(pageStack) {
+            listOf(ProfilePage.Root) + pageStack.map(ProfilePage::valueOf)
+        }
+        OfficialNavDisplay(
+            backStack = navigationBackStack,
+            onBack = ::closePage,
+            contentKey = ProfilePage::name,
+            modifier = Modifier.fillMaxSize(),
+        ) { activePage ->
+            when (activePage) {
                         ProfilePage.Account -> AccountSettingsScreen(
                             account = component.account,
                             onBack = ::closePage,
@@ -359,9 +314,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 component.recoveryItem(snapshot)?.let { recoveryToPlay = it to snapshot }
                             },
                         )
-                    }
-
-                    ProfileRoute.Root -> {
+                ProfilePage.Root -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize().statusBarsPadding(),
                             state = mainListState,
@@ -501,7 +454,6 @@ fun ProfileScreen(component: ProfileComponent) {
                             item { AppUpdateTools() }
                             item { AppVersionFooter() }
                         }
-                    }
                 }
             }
         }
@@ -827,9 +779,10 @@ private fun SettingsPageHeader(
     ) {
         Box(
             Modifier
+                .pressable(onClickLabel = "返回", onClick = onBack)
+                .touchTarget()
                 .size(34.dp)
-                .pressable(onClick = onBack)
-                .glass(continuousRounded(12.dp), palette.card3, palette.border),
+                .glass(AppShapes.thumb, palette.card3, palette.border),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -840,9 +793,9 @@ private fun SettingsPageHeader(
             )
         }
         Column(Modifier.padding(start = 12.dp)) {
-            Text(title, style = sc(20f, 700), color = palette.text)
+            Text(title, style = AppTypography.section.strong, color = palette.text)
             subtitle?.let {
-                Text(it, style = mr(10.5f, 400), color = palette.sub2)
+                Text(it, style = AppTypography.caption.regular, color = palette.sub2)
             }
         }
     }
@@ -868,6 +821,7 @@ private fun CollapsibleSummaryRow(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -885,25 +839,25 @@ private fun CollapsibleSummaryRow(
             Modifier
                 .size(34.dp)
                 .glass(
-                    shape = continuousRounded(10.dp),
-                    fill = Brand.Primary.copy(alpha = 0.10f),
-                    border = Brand.Primary.copy(alpha = 0.20f),
+                    shape = AppShapes.thumb,
+                    fill = accent.container,
+                    border = accent.border,
                 ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 AppIcons.Server,
                 contentDescription = null,
-                tint = Brand.Primary,
+                tint = accent.accent,
                 modifier = Modifier.size(16.dp),
             )
         }
         Column(Modifier.weight(1f)) {
-            Text(title, style = sc(12.5f, 700), color = palette.text)
+            Text(title, style = AppTypography.body.strong, color = palette.text)
             Spacer(Modifier.height(2.dp))
             Text(
                 subtitle,
-                style = mr(10.5f, 400),
+                style = AppTypography.caption.regular,
                 color = palette.sub2,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -911,13 +865,13 @@ private fun CollapsibleSummaryRow(
         }
         Text(
             if (expanded) "收起" else "展开",
-            style = mr(10.5f, 600),
-            color = Brand.Primary,
+            style = AppTypography.caption.strong,
+            color = accent.accent,
         )
         Icon(
             AppIcons.ChevronDown,
             contentDescription = if (expanded) "收起" else "展开",
-            tint = Brand.Primary,
+            tint = accent.accent,
             modifier = Modifier.size(12.dp),
         )
     }
@@ -935,20 +889,26 @@ internal fun Section(
     content: @Composable () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
         Row(
             Modifier.fillMaxWidth().padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, style = sc(12f, 700).copy(letterSpacing = 0.5.sp), color = palette.sub2)
+            Text(
+                title,
+                style = AppTypography.body.strong.copy(letterSpacing = 0.5.sp),
+                color = palette.sub2,
+            )
             if (action != null) {
                 Text(
                     action,
-                    style = mr(11f, 600),
-                    color = Brand.Primary,
+                    style = AppTypography.caption.strong,
+                    color = accent.accent,
                     modifier = Modifier
                         .pressable(onClick = onAction)
+                        .touchTarget()
                         .glass(
                             shape = GlassShapes.chip,
                             fill = palette.card2,
@@ -976,6 +936,7 @@ private fun ServerRow(
     onEdit: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val shape = GlassShapes.chip
     Row(
         Modifier
@@ -983,8 +944,8 @@ private fun ServerRow(
             .pressable(onLongClick = onLongClick, onClick = onClick)
             .glass(
                 shape = shape,
-                fill = if (isCurrent) Brand.Primary.copy(alpha = 0.1f) else palette.card2,
-                border = if (isCurrent) Brand.Primary.copy(alpha = 0.3f) else palette.border,
+                fill = if (isCurrent) accent.container else palette.card2,
+                border = if (isCurrent) accent.border else palette.border,
             )
             .padding(horizontal = 12.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
@@ -994,20 +955,20 @@ private fun ServerRow(
         Box(
             Modifier
                 .size(34.dp)
-                .clip(continuousRounded(9.dp))
+                .clip(AppShapes.thumb)
                 .background(serverColor(server.id)),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 server.serverName.take(1).uppercase(),
-                style = mr(12f, 700),
+                style = AppTypography.body.strong,
                 color = Color.White,
             )
         }
         Column(Modifier.weight(1f)) {
             Text(
                 server.serverName,
-                style = sc(12.5f, 700),
+                style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1037,7 +998,7 @@ private fun ServerRow(
                         server.userName.takeIf { it.isNotBlank() },
                         health?.summary,
                     ).joinToString(" · "),
-                    style = mr(10f, 400),
+                    style = AppTypography.caption.regular,
                     color = palette.sub,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1045,14 +1006,15 @@ private fun ServerRow(
             }
         }
         if (isCurrent) {
-            Icon(AppIcons.Check, null, tint = Brand.Primary, modifier = Modifier.size(13.dp))
+            Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(13.dp))
         } else {
-            Text("切换", style = mr(11f, 400), color = Brand.Offline)
+            Text("切换", style = AppTypography.caption.regular, color = Brand.Offline)
         }
         Box(
             Modifier
+                .pressable(onClickLabel = "编辑服务器", onClick = onEdit)
+                .touchTarget()
                 .size(22.dp)
-                .pressable(onClick = onEdit)
                 .clip(GlassShapes.chip),
             contentAlignment = Alignment.Center,
         ) {
@@ -1070,40 +1032,63 @@ internal fun SettingRow(
     onClick: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .let {
-                if (embedded) it else {
-                    it.glass(continuousRounded(13.dp), palette.card2, palette.border)
-                }
+    val largeText = LocalDensity.current.fontScale >= 1.3f
+    val rowModifier = Modifier
+        .fillMaxWidth()
+        .let {
+            if (embedded) it else {
+                it.glass(AppShapes.control, palette.card2, palette.border)
             }
-            .let { if (onClick != null) it.pressable(onClick = onClick) else it }
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(title, style = sc(13f, 500), color = palette.text, maxLines = 1)
-        Text(value, style = mr(12f, 400), color = palette.sub2, maxLines = 1)
+        }
+        .let { if (onClick != null) it.pressable(onClick = onClick) else it }
+        .padding(horizontal = 16.dp, vertical = 13.dp)
+    BoxWithConstraints(rowModifier) {
+        val stacked = largeText || windowWidthTier(maxWidth) == WindowWidthTier.Compact
+        if (stacked) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = AppTypography.body.medium, color = palette.text, maxLines = 2)
+                Text(value, style = AppTypography.body.regular, color = palette.sub2, maxLines = 2)
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    title,
+                    style = AppTypography.body.medium,
+                    color = palette.text,
+                    maxLines = 2,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    value,
+                    style = AppTypography.body.regular,
+                    color = palette.sub2,
+                    maxLines = 2,
+                    textAlign = TextAlign.End,
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () -> Unit) {
     val palette = LocalPalette.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .let {
-                if (embedded) it else {
-                    it.glass(continuousRounded(13.dp), palette.card2, palette.border)
-                }
+    val accent = LocalAccentColors.current
+    val largeText = LocalDensity.current.fontScale >= 1.3f
+    val rowModifier = Modifier
+        .fillMaxWidth()
+        .let {
+            if (embedded) it else {
+                it.glass(AppShapes.control, palette.card2, palette.border)
             }
-            .pressable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+        }
+        .pressable(onClick = onClick)
+        .padding(horizontal = 16.dp, vertical = 13.dp)
+    val label: @Composable () -> Unit = {
         Row(
             horizontalArrangement = Arrangement.spacedBy(9.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1111,12 +1096,35 @@ private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () ->
             Icon(
                 AppIcons.Download,
                 null,
-                tint = Brand.Primary,
+                tint = accent.accent,
                 modifier = Modifier.size(16.dp),
             )
-            Text("下载与离线库", style = sc(13f, 500), color = palette.text)
+            Text("下载与离线库", style = AppTypography.body.medium, color = palette.text)
         }
-        Text(value, style = mr(12f, 400), color = palette.sub2, maxLines = 1)
+    }
+    BoxWithConstraints(rowModifier) {
+        val stacked = largeText || windowWidthTier(maxWidth) == WindowWidthTier.Compact
+        if (stacked) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                label()
+                Text(value, style = AppTypography.body.regular, color = palette.sub2, maxLines = 2)
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.weight(1f)) { label() }
+                Text(
+                    value,
+                    style = AppTypography.body.regular,
+                    color = palette.sub2,
+                    maxLines = 2,
+                    textAlign = TextAlign.End,
+                )
+            }
+        }
     }
 }
 
@@ -1134,7 +1142,7 @@ private fun SplashSettingsScreen(
     prefs: ThemePreferences,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccent.current
+    val accent = LocalAccentColors.current
     val enabled by prefs.splashAnimation.collectAsState()
     val selected by prefs.splashVariant.collectAsState()
 
@@ -1152,9 +1160,10 @@ private fun SplashSettingsScreen(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier
+                        .pressable(onClickLabel = "返回", onClick = onBack)
+                        .touchTarget()
                         .size(34.dp)
-                        .pressable(onClick = onBack)
-                        .glass(continuousRounded(12.dp), palette.card3, palette.border),
+                        .glass(AppShapes.thumb, palette.card3, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -1166,7 +1175,7 @@ private fun SplashSettingsScreen(
                 }
                 Text(
                     "开屏动画",
-                    style = sc(20f, 700),
+                    style = AppTypography.section.strong,
                     color = palette.text,
                     modifier = Modifier.padding(start = 12.dp),
                 )
@@ -1183,13 +1192,14 @@ private fun SplashSettingsScreen(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .pressable { prefs.setSplashVariant(variant) }
-                        .clip(continuousRounded(18.dp))
+                        .pressable(role = Role.RadioButton) { prefs.setSplashVariant(variant) }
+                        .semantics { this.selected = active }
+                        .clip(AppShapes.card)
                         .background(palette.card2)
                         .border(
                             width = if (active) 2.dp else 1.dp,
-                            color = if (active) accent.color else palette.border,
-                            shape = continuousRounded(18.dp),
+                            color = if (active) accent.border else palette.border,
+                            shape = AppShapes.card,
                         )
                         .padding(horizontal = 14.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1203,14 +1213,14 @@ private fun SplashSettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             variant.label,
-                            style = sc(15f, if (active) 700 else 500),
-                            color = if (active) accent.color else palette.text,
+                            style = if (active) AppTypography.body.strong else AppTypography.body.medium,
+                            color = if (active) accent.accent else palette.text,
                         )
                         if (active) {
                             Icon(
                                 AppIcons.Check,
                                 null,
-                                tint = accent.color,
+                                tint = accent.accent,
                                 modifier = Modifier.padding(start = 6.dp).size(15.dp),
                             )
                         }
@@ -1218,7 +1228,7 @@ private fun SplashSettingsScreen(
                     Spacer(Modifier.height(4.dp))
                     Text(
                         variant.description,
-                        style = mr(12f, 400),
+                        style = AppTypography.body.regular,
                         color = palette.sub2,
                         textAlign = TextAlign.Center,
                     )
@@ -1237,20 +1247,33 @@ internal fun SwitchRow(
     onChange: (Boolean) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
             .let {
                 if (embedded) it else {
-                    it.glass(continuousRounded(13.dp), palette.card2, palette.border)
+                    it.glass(AppShapes.control, palette.card2, palette.border)
                 }
             }
-            .pressable { onChange(!checked) }
+            .toggleable(
+                value = checked,
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Switch,
+                onValueChange = onChange,
+            )
             .padding(horizontal = 16.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = sc(13f, 500), color = palette.text, maxLines = 1)
+        Text(
+            title,
+            style = AppTypography.body.medium,
+            color = palette.text,
+            maxLines = 2,
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+        )
         PillSwitch(checked)
     }
 }
@@ -1277,23 +1300,30 @@ private fun DescribedSwitchRow(
     onChange: (Boolean) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
-            .pressable { onChange(!checked) }
-            .glass(continuousRounded(13.dp), palette.card2, palette.border)
+            .toggleable(
+                value = checked,
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Switch,
+                onValueChange = onChange,
+            )
+            .glass(AppShapes.control, palette.card2, palette.border)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = sc(13f, 500), color = palette.text, maxLines = 1)
+            Text(title, style = AppTypography.body.medium, color = palette.text, maxLines = 2)
             Spacer(Modifier.height(3.dp))
             Text(
                 description,
-                style = sc(10.5f, 400),
+                style = AppTypography.caption.regular,
                 color = palette.sub2,
-                maxLines = 2,
+                maxLines = 3,
             )
         }
         PillSwitch(checked)
@@ -1323,7 +1353,6 @@ private fun ProfileUtilityScreen(
         return
     }
     Unit
-
 }
 
 @Composable
@@ -1334,6 +1363,7 @@ private fun RecoveryCenterScreen(
     onResumePlayback: (PlaybackRecoverySnapshot) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val sync by syncManager.state.collectAsState()
     val snapshot by playbackRecovery.snapshot.collectAsState()
     val scope = rememberCoroutineScope()
@@ -1359,9 +1389,10 @@ private fun RecoveryCenterScreen(
             ) {
                 Box(
                     Modifier
+                        .pressable(onClickLabel = "返回", onClick = onBack)
+                        .touchTarget()
                         .size(34.dp)
-                        .pressable(onClick = onBack)
-                        .glass(continuousRounded(12.dp), palette.card3, palette.border),
+                        .glass(AppShapes.thumb, palette.card3, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -1372,10 +1403,10 @@ private fun RecoveryCenterScreen(
                     )
                 }
                 Column(Modifier.padding(start = 12.dp)) {
-                    Text("播放恢复中心", style = sc(20f, 700), color = palette.text)
+                    Text("播放恢复中心", style = AppTypography.section.strong, color = palette.text)
                     Text(
                         "本地断点、服务器同步与冲突处理",
-                        style = mr(10.5f, 400),
+                        style = AppTypography.caption.regular,
                         color = palette.sub2,
                     )
                 }
@@ -1388,13 +1419,13 @@ private fun RecoveryCenterScreen(
                 if (current == null) {
                     Text(
                         "暂无可恢复的播放记录",
-                        style = mr(11.5f, 400),
+                        style = AppTypography.caption.regular,
                         color = palette.sub2,
                     )
                 } else {
                     Text(
                         current.title.ifBlank { "未命名视频" },
-                        style = sc(13f, 700),
+                        style = AppTypography.body.strong,
                         color = palette.text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1402,7 +1433,7 @@ private fun RecoveryCenterScreen(
                     Text(
                         "${current.positionMs.asRecoveryClock()} / " +
                             "${current.durationMs.asRecoveryClock()} · ${current.engine}",
-                        style = mr(10.5f, 400),
+                        style = AppTypography.caption.regular,
                         color = palette.sub2,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1422,7 +1453,7 @@ private fun RecoveryCenterScreen(
                 ) {
                     Text(
                         "${sync.statuses.size} 台服务器 · ${sync.pendingCount} 项待同步",
-                        style = mr(11f, 500),
+                        style = AppTypography.caption.medium,
                         color = palette.sub2,
                     )
                     RecoveryAction("立即同步") {
@@ -1430,7 +1461,7 @@ private fun RecoveryCenterScreen(
                     }
                 }
                 if (sync.statuses.isEmpty()) {
-                    Text("正在读取服务器状态…", style = mr(11f, 400), color = palette.hint)
+                    Text("正在读取服务器状态…", style = AppTypography.caption.regular, color = palette.hint)
                 }
                 sync.statuses.sortedBy { it.serverName }.forEach { status ->
                     Row(
@@ -1439,7 +1470,7 @@ private fun RecoveryCenterScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(status.serverName, style = sc(12f, 600), color = palette.text)
+                            Text(status.serverName, style = AppTypography.body.strong, color = palette.text)
                             Text(
                                 status.error ?: when {
                                     status.syncing -> "同步中…"
@@ -1447,8 +1478,8 @@ private fun RecoveryCenterScreen(
                                     status.online == false -> "离线"
                                     else -> "等待同步"
                                 },
-                                style = mr(10f, 400),
-                                color = if (status.error != null) Brand.Danger else palette.sub2,
+                                style = AppTypography.caption.regular,
+                                color = if (status.error != null) palette.error else palette.sub2,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -1460,8 +1491,8 @@ private fun RecoveryCenterScreen(
                                 status.online == false -> "离线"
                                 else -> "未知"
                             },
-                            style = sc(10.5f, 600),
-                            color = if (status.online == false) Brand.Danger else Brand.Primary,
+                            style = AppTypography.caption.strong,
+                            color = if (status.online == false) palette.error else accent.accent,
                         )
                     }
                 }
@@ -1479,7 +1510,7 @@ private fun RecoveryCenterScreen(
                                     SyncMutationKind.Played -> "已播放"
                                 }
                             } → ${if (operation.desired) "开启" else "关闭"}",
-                            style = mr(11f, 500),
+                            style = AppTypography.caption.medium,
                             color = palette.text,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -1496,13 +1527,13 @@ private fun RecoveryCenterScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
                                 conflict.mutation.title,
-                                style = sc(12f, 700),
+                                style = AppTypography.body.strong,
                                 color = palette.text,
                             )
                             Text(
                                 "本地：${if (conflict.mutation.desired) "开启" else "关闭"} · " +
                                     "服务器：${if (conflict.serverValue) "开启" else "关闭"}",
-                                style = mr(10.5f, 400),
+                                style = AppTypography.caption.regular,
                                 color = palette.sub2,
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1534,7 +1565,7 @@ private fun RecoverySectionCard(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        Text(title, style = sc(13f, 700), color = palette.text)
+        Text(title, style = AppTypography.body.strong, color = palette.text)
         content()
     }
 }
@@ -1542,12 +1573,14 @@ private fun RecoverySectionCard(
 @Composable
 private fun RecoveryAction(label: String, onClick: () -> Unit) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Text(
         label,
-        style = sc(10.5f, 700),
-        color = Brand.Primary,
+        style = AppTypography.caption.strong,
+        color = accent.accent,
         modifier = Modifier
             .pressable(onClick = onClick)
+            .touchTarget()
             .glass(GlassShapes.chip, palette.card2, palette.border)
             .padding(horizontal = 11.dp, vertical = 7.dp),
     )
@@ -1568,7 +1601,8 @@ private fun Long.asRecoveryClock(): String {
 @Composable
 private fun PillSwitch(checked: Boolean) {
     val palette = LocalPalette.current
-    val shape = continuousRounded(11.dp)
+    val accent = LocalAccentColors.current
+    val shape = AppShapes.pill
     Box(
         Modifier
             .width(38.dp)
@@ -1576,13 +1610,13 @@ private fun PillSwitch(checked: Boolean) {
             .glass(
                 shape,
                 if (checked) {
-                    Brand.Primary.copy(alpha = 0.72f)
+                    accent.accent
                 } else if (palette.isDark) {
                     Color.White.copy(alpha = 0.12f)
                 } else {
                     Color.White.copy(alpha = 0.38f)
                 },
-                if (checked) Color.White.copy(alpha = 0.44f) else palette.border,
+                if (checked) accent.border else palette.border,
             ),
         contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
     ) {

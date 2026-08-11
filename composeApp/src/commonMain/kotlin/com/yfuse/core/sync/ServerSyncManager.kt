@@ -44,6 +44,49 @@ data class PendingSyncMutation(
     val createdAtEpochMs: Long,
 )
 
+private const val MAX_PENDING_MUTATIONS = 512
+private const val MAX_PENDING_SERIALIZED_BYTES = 512 * 1024
+private const val MAX_PENDING_SERVER_ID_BYTES = 128
+private const val MAX_PENDING_ITEM_ID_BYTES = 512
+private const val MAX_PENDING_TITLE_CHARS = 256
+private val boundedPendingJson = Json { encodeDefaults = true }
+
+/** Keeps the newest distinct operations that fit both the entry and persisted-byte budgets. */
+internal fun boundPendingMutations(
+    value: List<PendingSyncMutation>,
+    maxEntries: Int = MAX_PENDING_MUTATIONS,
+    maxSerializedBytes: Int = MAX_PENDING_SERIALIZED_BYTES,
+): List<PendingSyncMutation> {
+    require(maxEntries > 0) { "maxEntries must be positive" }
+    require(maxSerializedBytes > 2) { "maxSerializedBytes must fit a JSON array" }
+    val seen = hashSetOf<Triple<String, String, SyncMutationKind>>()
+    val newestFirst = ArrayList<PendingSyncMutation>(minOf(value.size, maxEntries))
+    var serializedBytes = 2 // []
+    value.asReversed().forEach { mutation ->
+        val normalized = mutation.normalizedForPendingStorage() ?: return@forEach
+        val key = Triple(normalized.serverId, normalized.itemId, normalized.kind)
+        if (!seen.add(key) || newestFirst.size >= maxEntries) return@forEach
+        val entryBytes = boundedPendingJson
+            .encodeToString(PendingSyncMutation.serializer(), normalized)
+            .encodeToByteArray()
+            .size + if (newestFirst.isEmpty()) 0 else 1
+        if (serializedBytes + entryBytes > maxSerializedBytes) return@forEach
+        newestFirst += normalized
+        serializedBytes += entryBytes
+    }
+    return newestFirst.asReversed()
+}
+
+private fun PendingSyncMutation.normalizedForPendingStorage(): PendingSyncMutation? {
+    if (serverId.isBlank() || serverId.encodeToByteArray().size > MAX_PENDING_SERVER_ID_BYTES) {
+        return null
+    }
+    if (itemId.isBlank() || itemId.encodeToByteArray().size > MAX_PENDING_ITEM_ID_BYTES) {
+        return null
+    }
+    return copy(title = title.take(MAX_PENDING_TITLE_CHARS))
+}
+
 data class SyncConflict(
     val mutation: PendingSyncMutation,
     val serverValue: Boolean,
@@ -592,28 +635,57 @@ class ServerSyncManager(
     }
 
     private fun commitPending(value: List<PendingSyncMutation>) {
-        pending.value = value
+        val bounded = boundPendingMutations(value)
+        if (bounded.size < value.size) {
+            AppLog.warning(
+                category = "sync",
+                event = "pending_queue_trimmed",
+                message = "Synchronization queue reached its storage budget; oldest operations were removed",
+                attributes = mapOf(
+                    "requestedCount" to value.size.toString(),
+                    "storedCount" to bounded.size.toString(),
+                ),
+            )
+        }
+        pending.value = bounded
         runCatching {
-            settings.putString(PENDING_KEY, json.encodeToString(pendingSerializer, value))
+            if (bounded.isEmpty()) {
+                settings.remove(PENDING_KEY)
+            } else {
+                settings.putString(PENDING_KEY, json.encodeToString(pendingSerializer, bounded))
+            }
         }.onFailure {
             AppLog.error(
                 category = "sync",
                 event = "pending_persist_failed",
                 message = "Failed to persist queued synchronization mutations",
                 throwable = it,
-                attributes = mapOf("pendingCount" to value.size.toString()),
+                attributes = mapOf("pendingCount" to bounded.size.toString()),
             )
         }
         _state.value = _state.value.copy(
-            pendingCount = value.size,
-            pendingOperations = value,
+            pendingCount = bounded.size,
+            pendingOperations = bounded,
         )
     }
 
     private fun loadPending(): List<PendingSyncMutation> {
         val raw = settings.getStringOrNull(PENDING_KEY) ?: return emptyList()
+        if (
+            raw.length > MAX_PENDING_SERIALIZED_BYTES ||
+            raw.encodeToByteArray().size > MAX_PENDING_SERIALIZED_BYTES
+        ) {
+            settings.remove(PENDING_KEY)
+            AppLog.warning(
+                category = "sync",
+                event = "stored_pending_oversized",
+                message = "Stored synchronization queue exceeded its byte budget and was cleared",
+                attributes = mapOf("storedChars" to raw.length.toString()),
+            )
+            return emptyList()
+        }
         return runCatching {
-            json.decodeFromString(pendingSerializer, raw)
+            boundPendingMutations(json.decodeFromString(pendingSerializer, raw))
         }.onFailure {
             AppLog.error(
                 category = "sync",

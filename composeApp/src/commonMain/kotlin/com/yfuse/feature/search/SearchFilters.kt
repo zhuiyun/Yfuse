@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccent
@@ -21,7 +22,6 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
 
 internal enum class SearchFilterSheet { Server, Library, Year, Genre, Status, Sort }
 
@@ -56,7 +56,7 @@ internal fun SearchFilterBar(
             }
             Text(
                 label,
-                style = sc(12f, if (active) 700 else 500),
+                style = if (active) AppTypography.body.strong else AppTypography.body.medium,
                 color = if (active) accent else palette.body,
                 modifier = Modifier
                     .pressable(onClick = { onOpen(sheet) })
@@ -72,7 +72,7 @@ internal fun SearchFilterBar(
             item {
                 Text(
                     "清除 ${state.filterCount}",
-                    style = sc(12f, 600),
+                    style = AppTypography.body.strong,
                     color = Color.White,
                     modifier = Modifier
                         .pressable(onClick = onClear)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -23,26 +24,31 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yfuse.core.designsystem.continuousRounded
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.formDivider
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
 
@@ -61,6 +67,7 @@ fun AddServerDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val form = state.form
     val editing = state.editingServerId != null
 
@@ -90,6 +97,7 @@ fun AddServerDialog(
                         .pressable(enabled = !state.scanning) {
                             onIntent(ServersIntent.Scan)
                         }
+                        .touchTarget()
                         .glass(GlassShapes.thumb, palette.card2, palette.border)
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -98,14 +106,14 @@ fun AddServerDialog(
                     if (state.scanning) {
                         CircularProgressIndicator(
                             Modifier.size(10.dp),
-                            color = Brand.Primary,
+                            color = accent.accent,
                             strokeWidth = 1.5.dp,
                         )
                     }
                     Text(
                         if (state.scanning) "扫描中" else "扫描",
-                        style = mr(10.5f, 600),
-                        color = Brand.Primary,
+                        style = AppTypography.caption.strong,
+                        color = accent.accent,
                     )
                 }
             }
@@ -124,26 +132,26 @@ fun AddServerDialog(
                         Box(
                             Modifier
                                 .size(30.dp)
-                                .background(Brand.Primary, continuousRounded(9.dp)),
+                                .background(accent.accent, AppShapes.thumb),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 server.name.take(1).uppercase(),
-                                style = mr(11f, 700),
-                                color = Color.White,
+                                style = AppTypography.caption.strong,
+                                color = accent.onAccent,
                             )
                         }
                         Column(Modifier.weight(1f)) {
                             Text(
                                 server.name,
-                                style = sc(12f, 700),
+                                style = AppTypography.body.strong,
                                 color = palette.text,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 server.address,
-                                style = mr(10f, 400),
+                                style = AppTypography.caption.regular,
                                 color = palette.sub2,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -160,7 +168,7 @@ fun AddServerDialog(
 
                 !state.scanning -> Text(
                     "点击扫描查找同一网络下的服务器，或在下方手动填写。",
-                    style = mr(10.5f, 400, lineHeight = 10.5f * 1.6f),
+                    style = AppTypography.caption.regular.copy(lineHeight = 16.8.sp),
                     color = palette.hint,
                 )
             }
@@ -180,7 +188,10 @@ fun AddServerDialog(
                     divider = true,
                 ) { onIntent(ServersIntent.ServerNameChanged(it)) }
                 FormRow(label = "协议", divider = true, labelBottomPadding = 6.dp) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.selectableGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         ProtocolSegment("HTTPS", form.https, Modifier.weight(1f)) {
                             onIntent(ServersIntent.ProtocolChanged(true))
                         }
@@ -233,7 +244,10 @@ fun AddServerDialog(
             // Picking a discovered server loads its public users; offer them as one tap
             // instead of making the name be typed from memory.
             if (state.publicUsers.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.selectableGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     state.publicUsers
                         .map { it.Name }
                         .filter(String::isNotBlank)
@@ -242,21 +256,29 @@ fun AddServerDialog(
                             val selected = name == form.username
                             Text(
                                 name,
-                                style = sc(11f, if (selected) 700 else 500),
-                                color = if (selected) Brand.Primary else palette.body,
+                                style = if (selected) {
+                                    AppTypography.caption.strong
+                                } else {
+                                    AppTypography.caption.medium
+                                },
+                                color = if (selected) accent.accent else palette.body,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
-                                    .pressable { onIntent(ServersIntent.SelectPublicUser(name)) }
+                                    .pressable(role = Role.RadioButton) {
+                                        onIntent(ServersIntent.SelectPublicUser(name))
+                                    }
+                                    .semantics { this.selected = selected }
+                                    .touchTarget()
                                     .glass(
                                         shape = GlassShapes.thumb,
                                         fill = if (selected) {
-                                            Brand.Primary.copy(alpha = 0.13f)
+                                            accent.container
                                         } else {
                                             palette.card2
                                         },
                                         border = if (selected) {
-                                            Brand.Primary.copy(alpha = 0.28f)
+                                            accent.border
                                         } else {
                                             palette.border
                                         },
@@ -277,8 +299,8 @@ fun AddServerDialog(
         if (form.error != null) {
             Text(
                 form.error,
-                style = mr(10.5f, 500),
-                color = Brand.Danger,
+                style = AppTypography.caption.medium,
+                color = palette.error,
                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
             )
         }
@@ -305,7 +327,7 @@ private fun FieldLabel(text: String, trailing: @Composable (() -> Unit)? = null)
     ) {
         Text(
             text,
-            style = mr(10.5f, 600).copy(letterSpacing = 0.4.sp),
+            style = AppTypography.caption.strong.copy(letterSpacing = 0.4.sp),
             color = palette.sub2,
         )
         trailing?.invoke()
@@ -324,7 +346,7 @@ private fun FormRow(
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp)) {
         Text(
             label,
-            style = mr(9.5f, 400),
+            style = AppTypography.caption.regular,
             color = palette.sub2,
             modifier = Modifier.padding(bottom = labelBottomPadding),
         )
@@ -348,25 +370,28 @@ private fun FormInput(
     onValueChange: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     FormRow(label = label, divider = divider) {
         Box(contentAlignment = Alignment.CenterStart) {
             if (value.isEmpty() && placeholder != null) {
-                Text(placeholder, style = mr(12.5f, 500), color = palette.hint)
+                Text(placeholder, style = AppTypography.body.medium, color = palette.hint)
             }
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 enabled = enabled,
                 singleLine = true,
-                textStyle = mr(12.5f, 500).copy(color = palette.text),
-                cursorBrush = SolidColor(Brand.Primary),
+                textStyle = AppTypography.body.medium.copy(color = palette.text),
+                cursorBrush = SolidColor(accent.accent),
                 visualTransformation = if (password) {
                     PasswordVisualTransformation()
                 } else {
                     VisualTransformation.None
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = label },
             )
         }
     }
@@ -384,14 +409,17 @@ private fun ProtocolSegment(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     Box(
         modifier
-            .pressable(onClick = onClick)
+            .pressable(role = Role.RadioButton, onClick = onClick)
+            .semantics { this.selected = selected }
+            .touchTarget()
             .glass(
-                shape = continuousRounded(9.dp),
-                fill = if (selected) Brand.Primary.copy(alpha = 0.13f) else palette.card3,
+                shape = AppShapes.thumb,
+                fill = if (selected) accent.container else palette.card3,
                 border = if (selected) {
-                    Brand.Primary.copy(alpha = 0.24f)
+                    accent.border
                 } else {
                     palette.border.copy(alpha = 0.55f)
                 },
@@ -401,8 +429,8 @@ private fun ProtocolSegment(
     ) {
         Text(
             label,
-            style = mr(11.5f, if (selected) 700 else 500),
-            color = if (selected) Brand.Primary else palette.sub2,
+            style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
+            color = if (selected) accent.accent else palette.sub2,
         )
     }
 }

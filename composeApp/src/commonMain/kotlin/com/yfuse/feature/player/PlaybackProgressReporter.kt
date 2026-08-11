@@ -15,6 +15,7 @@ private const val REPORT_INTERVAL_MS = 10_000L
 private const val SEEK_THRESHOLD_MS = 5_000L
 private const val TICKS_PER_MILLISECOND = 10_000L
 private const val NEXT_SOURCE_PRELOAD_WINDOW_MS = 90_000L
+private const val MAX_PENDING_REPORT_COMMANDS = 8
 
 internal interface PlaybackEventSink {
     suspend fun started(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean)
@@ -125,7 +126,10 @@ internal class PlaybackProgressReporter(
 
     private var items = items
     private var observedBinding = items.reportingBinding()
-    private val commands = Channel<Command>(Channel.UNLIMITED)
+    private val commandLock = Any()
+    private val pendingCommands = ArrayDeque<Command>()
+    private val commandWakeups = Channel<Unit>(Channel.CONFLATED)
+    @Volatile
     private var closed = false
     private var observedIndex = -1
     private var observedPlaying: Boolean? = null
@@ -147,15 +151,22 @@ internal class PlaybackProgressReporter(
 
     init {
         scope.launch {
-            for (command in commands) {
-                when (command) {
-                    is Command.Update -> handleUpdate(command.state)
-                    is Command.Rebind -> handleRebind(command.items, command.state)
-                    is Command.Close -> {
-                        if (activeIndex >= 0 || !command.state.ended) {
-                            handleUpdate(command.state)
+            for (ignored in commandWakeups) {
+                while (true) {
+                    val command = synchronized(commandLock) {
+                        pendingCommands.removeFirstOrNull()
+                    } ?: break
+                    when (command) {
+                        is Command.Update -> handleUpdate(command.state)
+                        is Command.Rebind -> handleRebind(command.items, command.state)
+                        is Command.Close -> {
+                            if (activeIndex >= 0 || !command.state.ended) {
+                                handleUpdate(command.state)
+                            }
+                            stopActive()
+                            commandWakeups.close()
+                            return@launch
                         }
-                        stopActive()
                     }
                 }
             }
@@ -178,7 +189,7 @@ internal class PlaybackProgressReporter(
 
         if (itemChanged || playStateChanged || seeked || periodic) {
             enqueuedPositionMs = state.positionMs
-            commands.trySend(Command.Update(state))
+            enqueue(Command.Update(state))
         }
     }
 
@@ -210,14 +221,62 @@ internal class PlaybackProgressReporter(
         val binding = items.reportingBinding()
         if (binding == observedBinding) return
         observedBinding = binding
-        commands.trySend(Command.Rebind(items, state))
+        enqueue(Command.Rebind(items, state))
     }
 
     fun close(state: PlaybackState) {
         if (closed) return
         closed = true
-        commands.trySend(Command.Close(state))
-        commands.close()
+        enqueue(Command.Close(state))
+    }
+
+    /**
+     * Keeps report memory independent of seek frequency and server latency.
+     *
+     * Updates are snapshots, so only the newest pending one after a control command matters.
+     * A rebind carries its own state and supersedes older queued updates/rebinds. Close retains
+     * at most the latest rebind (its item metadata may be needed by the final state), discards
+     * stale progress, and becomes the next command after any request already in flight.
+     */
+    private fun enqueue(command: Command) {
+        val accepted = synchronized(commandLock) {
+            when (command) {
+                is Command.Update -> {
+                    if (pendingCommands.lastOrNull() is Command.Update) {
+                        pendingCommands.removeLast()
+                        pendingCommands.addLast(command)
+                        true
+                    } else if (pendingCommands.size < MAX_PENDING_REPORT_COMMANDS) {
+                        pendingCommands.addLast(command)
+                        true
+                    } else {
+                        val staleUpdate = pendingCommands.indexOfFirst { it is Command.Update }
+                        if (staleUpdate < 0) {
+                            false
+                        } else {
+                            pendingCommands.removeAt(staleUpdate)
+                            pendingCommands.addLast(command)
+                            true
+                        }
+                    }
+                }
+
+                is Command.Rebind -> {
+                    pendingCommands.removeAll { it is Command.Update || it is Command.Rebind }
+                    pendingCommands.addLast(command)
+                    true
+                }
+
+                is Command.Close -> {
+                    val latestRebind = pendingCommands.lastOrNull { it is Command.Rebind }
+                    pendingCommands.clear()
+                    latestRebind?.let(pendingCommands::addLast)
+                    pendingCommands.addLast(command)
+                    true
+                }
+            }
+        }
+        if (accepted) commandWakeups.trySend(Unit)
     }
 
     private suspend fun handleUpdate(state: PlaybackState) {

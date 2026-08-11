@@ -74,9 +74,30 @@ data class SearchState(
     val error: String? = null,
 ) {
     val hasSearched: Boolean get() = searchedQuery.isNotEmpty()
-    val visibleGroups: List<ServerSearchGroup> get() = groups
-    val visibleCount: Int get() = groups.sumOf { it.items.size }
-    val availableTypes: List<SearchType> get() = SearchType.entries.toList()
+    val visibleGroups: List<ServerSearchGroup>
+        get() = if (type == SearchType.All) {
+            groups
+        } else {
+            groups.mapNotNull { group ->
+                if (group.error != null) {
+                    group
+                } else {
+                    group.copy(items = group.items.filter { it.type == type.embyType })
+                        .takeIf { it.items.isNotEmpty() }
+                }
+            }
+        }
+    val visibleCount: Int get() = visibleGroups.sumOf { it.items.size }
+    val availableTypes: List<SearchType>
+        get() {
+            // A selected type is fetched remotely, so keep every type reachable while it is
+            // active. The unfiltered response can safely hide types that no server returned.
+            if (type != SearchType.All) return SearchType.entries.toList()
+            val presentTypes = groups.flatMap { it.items }.mapTo(HashSet()) { it.type }
+            return SearchType.entries.filter { candidate ->
+                candidate.embyType == null || candidate.embyType in presentTypes
+            }
+        }
     val filterCount: Int
         get() = listOf(
             serverId != null,
@@ -255,6 +276,8 @@ class SearchStoreFactory(
         private fun search(rawQuery: String) {
             val query = rawQuery.trim()
             if (query.isEmpty()) { cancelInFlight(); dispatch(SearchMsg.Cleared); return }
+            debounceJob?.cancel()
+            cancelInFlight()
             dispatch(SearchMsg.ServerOptions(serverOptions()))
             val allServers = registry.data.value.servers
             val servers = state().serverId?.let { selected -> allServers.filter { it.id == selected } } ?: allServers
@@ -276,7 +299,7 @@ class SearchStoreFactory(
                 sortBy = snapshot.sort.sortBy,
                 descending = snapshot.sort.descending,
             )
-            debounceJob?.cancel(); cancelInFlight(); dispatch(SearchMsg.Loading(query))
+            dispatch(SearchMsg.Loading(query))
             searchJob = scope.launch {
                 val groups = coroutineScope {
                     servers.map { server -> async {
@@ -313,14 +336,26 @@ class SearchStoreFactory(
 
     private object ReducerImpl : Reducer<SearchState, SearchMsg> {
         override fun SearchState.reduce(msg: SearchMsg): SearchState = when (msg) {
-            is SearchMsg.QueryChanged -> copy(query = msg.value, error = null)
+            is SearchMsg.QueryChanged -> copy(
+                query = msg.value,
+                error = null,
+                type = if (msg.value.trim() == query.trim()) type else SearchType.All,
+            )
             is SearchMsg.Loading -> copy(query = msg.query, searchedQuery = msg.query, loading = true, error = null, people = emptyList(), person = null)
             is SearchMsg.Loaded -> if (msg.query != query.trim()) this else {
                 val all = msg.groups.flatMap { it.items }
                 copy(loading = false, items = all, groups = msg.groups, person = null,
                     recent = if (all.isEmpty()) recent else (listOf(msg.query) + recent.filterNot { it == msg.query }).take(RECENT_LIMIT), error = null)
             }
-            is SearchMsg.Failed -> if (msg.query != query.trim()) this else copy(loading = false, items = emptyList(), groups = emptyList(), error = msg.message)
+            is SearchMsg.Failed -> if (msg.query != query.trim()) this else copy(
+                searchedQuery = msg.query,
+                loading = false,
+                items = emptyList(),
+                groups = emptyList(),
+                people = emptyList(),
+                person = null,
+                error = msg.message,
+            )
             is SearchMsg.People -> copy(people = msg.values)
             is SearchMsg.Recent -> copy(recent = msg.terms)
             is SearchMsg.Type -> copy(type = msg.value)

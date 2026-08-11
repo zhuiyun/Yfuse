@@ -1,12 +1,12 @@
 package com.yfuse.core.util
 
-import android.content.Context
+import android.app.Application
 import coil3.SingletonImageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Set once from `YfuseApp.onCreate`; Coil's singleton needs a platform context. */
-internal var imageCacheContext: Context? = null
+/** Set once from `YfuseApp.onCreate`; restricting this to Application prevents Activity leaks. */
+internal var imageCacheContext: Application? = null
 
 actual suspend fun clearImageCache() = withContext(Dispatchers.IO) {
     val context = imageCacheContext ?: return@withContext

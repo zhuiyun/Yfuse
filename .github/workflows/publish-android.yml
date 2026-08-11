@@ -313,6 +313,7 @@ jobs:
           set -euo pipefail
           ./gradlew \
             :composeApp:testDebugUnitTest \
+            :composeApp:verifyDesignSystemUsage \
             :watchTogetherServer:test \
             --no-daemon
 

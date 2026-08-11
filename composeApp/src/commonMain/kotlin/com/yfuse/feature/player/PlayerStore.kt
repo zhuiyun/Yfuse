@@ -347,11 +347,15 @@ data class PlayerState(
     val error: String? = null,
 )
 
-sealed interface PlayerIntent
+sealed interface PlayerIntent {
+    /** Rebuild the queue after an initial load failure without recreating the route. */
+    data object Retry : PlayerIntent
+}
 
 private sealed interface PlayerAction { data object Load : PlayerAction }
 
 private sealed interface PlayerMsg {
+    data object Loading : PlayerMsg
     data class Ready(val items: List<PlayerMediaItem>, val startIndex: Int, val startMs: Long) : PlayerMsg
     data class Failed(val message: String) : PlayerMsg
 }
@@ -385,6 +389,20 @@ class PlayerStoreFactory(
         CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
 
         override fun executeAction(action: PlayerAction) {
+            load()
+        }
+
+        override fun executeIntent(intent: PlayerIntent) {
+            when (intent) {
+                PlayerIntent.Retry -> {
+                    if (state().loading) return
+                    dispatch(PlayerMsg.Loading)
+                    load()
+                }
+            }
+        }
+
+        private fun load() {
             val primaryServer = serverId?.let(registry::serverById) ?: registry.defaultServer
             val startMs = startPositionTicks / 10_000L
             scope.launch {
@@ -706,19 +724,27 @@ class PlayerStoreFactory(
                 )
             }
         }
-
-        override fun executeIntent(intent: PlayerIntent) = Unit
     }
 
     private object ReducerImpl : Reducer<PlayerState, PlayerMsg> {
         override fun PlayerState.reduce(msg: PlayerMsg): PlayerState = when (msg) {
+            PlayerMsg.Loading -> copy(
+                loading = true,
+                items = emptyList(),
+                error = null,
+            )
             is PlayerMsg.Ready -> copy(
                 loading = false,
                 items = msg.items,
                 startIndex = msg.startIndex,
                 startPositionMs = msg.startMs,
+                error = null,
             )
-            is PlayerMsg.Failed -> copy(loading = false, error = msg.message)
+            is PlayerMsg.Failed -> copy(
+                loading = false,
+                items = emptyList(),
+                error = msg.message,
+            )
         }
     }
 }

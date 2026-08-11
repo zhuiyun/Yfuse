@@ -27,19 +27,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
-import com.yfuse.core.designsystem.SystemBackGestureSurface
+import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroScrim
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.Episode
 import com.yfuse.core.network.EmbyImages
 
@@ -55,8 +56,7 @@ import com.yfuse.core.network.EmbyImages
  * that owns this season, its artwork and its state; a route would mean the same
  * configuration threaded through three navigation stacks (库 / 首页 / 搜索 each own a
  * detail child) to show a list the detail store has already loaded. The detail page remains
- * composed underneath, so predictive back reveals that exact page while this page follows
- * the gesture instead of exposing the activity background.
+ * composed underneath, so dismissing this layer returns to that exact page.
  */
 @Composable
 internal fun SeasonEpisodesPage(
@@ -74,7 +74,7 @@ internal fun SeasonEpisodesPage(
 ) {
     val palette = LocalPalette.current
 
-    SystemBackGestureSurface(onBack = onDismiss) {
+    BackOverlay(onBack = onDismiss) {
         Box(Modifier.fillMaxSize().background(palette.background)) {
             LazyColumn(
                 Modifier.fillMaxSize(),
@@ -94,11 +94,16 @@ internal fun SeasonEpisodesPage(
                                 .padding(horizontal = Dimens.pageHorizontal)
                                 .padding(bottom = 18.dp),
                         ) {
-                            Text(seasonLabel, style = sc(26f, 800), color = palette.text, maxLines = 1)
+                            Text(
+                                seasonLabel,
+                                style = AppTypography.display.strong,
+                                color = palette.text,
+                                maxLines = 1,
+                            )
                             Spacer(Modifier.height(4.dp))
                             Text(
                                 seriesName,
-                                style = sc(13f, 500),
+                                style = AppTypography.body.medium,
                                 color = palette.sub,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -106,7 +111,7 @@ internal fun SeasonEpisodesPage(
                             Spacer(Modifier.height(12.dp))
                             Text(
                                 "${episodes.size} 剧集",
-                                style = mr(12f, 600),
+                                style = AppTypography.caption.strong,
                                 color = palette.sub2,
                                 maxLines = 1,
                             )
@@ -140,8 +145,9 @@ internal fun SeasonEpisodesPage(
                 Modifier
                     .statusBarsPadding()
                     .padding(start = Dimens.pageHorizontal, top = 10.dp)
+                    .pressable(onClickLabel = "关闭剧集列表", onClick = onDismiss)
+                    .touchTarget()
                     .size(34.dp)
-                    .pressable(onClick = onDismiss)
                     .glass(CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
@@ -234,7 +240,12 @@ private fun EpisodeRow(
                             tint = Color.White,
                             modifier = Modifier.size(8.dp),
                         )
-                        Text(remaining, style = mr(9.5f, 600), color = Color.White, maxLines = 1)
+                        Text(
+                            remaining,
+                            style = AppTypography.caption.strong,
+                            color = Color.White,
+                            maxLines = 1,
+                        )
                     }
                 }
             }
@@ -243,7 +254,7 @@ private fun EpisodeRow(
             Text(
                 listOfNotNull(episode.indexNumber?.let { "E$it." }, episode.name)
                     .joinToString(" "),
-                style = sc(13f, 700),
+                style = AppTypography.body.strong,
                 color = if (current) accent else palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -256,7 +267,7 @@ private fun EpisodeRow(
                 Spacer(Modifier.height(3.dp))
                 Text(
                     facts.joinToString(" · "),
-                    style = mr(10f, 400),
+                    style = AppTypography.caption.regular,
                     color = palette.sub2,
                     maxLines = 1,
                 )
@@ -265,7 +276,7 @@ private fun EpisodeRow(
                 Spacer(Modifier.height(5.dp))
                 Text(
                     episode.overview,
-                    style = mr(10.5f, 400, lineHeight = 10.5f * 1.55f),
+                    style = AppTypography.caption.regular.copy(lineHeight = 17.sp),
                     color = palette.sub,
                     // Three lines: enough to recognise an episode by, short enough that
                     // ten of them still scan as a list.

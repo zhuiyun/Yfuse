@@ -22,24 +22,24 @@ private class ViewHaptics(private val view: View) : Haptics {
         val constant = when (signal) {
             HapticSignal.Tap -> HapticFeedbackConstants.VIRTUAL_KEY
             HapticSignal.Select -> HapticFeedbackConstants.CLOCK_TICK
-            HapticSignal.Confirm -> apiThirtyOr(
-                HapticFeedbackConstants.CONFIRM,
-                HapticFeedbackConstants.VIRTUAL_KEY,
-            )
-            HapticSignal.Reject -> apiThirtyOr(
-                HapticFeedbackConstants.REJECT,
-                HapticFeedbackConstants.LONG_PRESS,
-            )
-            HapticSignal.Threshold -> apiThirtyOr(
-                HapticFeedbackConstants.GESTURE_START,
-                HapticFeedbackConstants.CLOCK_TICK,
-            )
+            HapticSignal.Confirm -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                HapticFeedbackConstants.CONFIRM
+            } else {
+                HapticFeedbackConstants.VIRTUAL_KEY
+            }
+            HapticSignal.Reject -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                HapticFeedbackConstants.REJECT
+            } else {
+                HapticFeedbackConstants.LONG_PRESS
+            }
+            HapticSignal.Threshold -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                HapticFeedbackConstants.GESTURE_START
+            } else {
+                HapticFeedbackConstants.CLOCK_TICK
+            }
         }
         view.performHapticFeedback(constant)
     }
-
-    private fun apiThirtyOr(preferred: Int, fallback: Int): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) preferred else fallback
 }
 
 @Composable

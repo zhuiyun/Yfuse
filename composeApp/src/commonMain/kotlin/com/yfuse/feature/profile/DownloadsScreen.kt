@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,21 +27,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccent
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Semantic
-import com.yfuse.core.designsystem.continuousRounded
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.OfflineMediaManager
@@ -104,22 +101,22 @@ internal fun DownloadsScreen(
             ) {
                 Box(
                     Modifier.size(36.dp).pressable(onClick = onBack)
-                        .glass(continuousRounded(12.dp), palette.card3, palette.border),
+                        .glass(AppShapes.control, palette.card3, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(AppIcons.ChevronLeft, "返回", tint = palette.text, modifier = Modifier.size(17.dp))
                 }
                 Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                    Text("下载中心", style = sc(20f, 700), color = palette.text)
+                    Text("下载中心", style = AppTypography.section.strong, color = palette.text)
                     Text(
                         "${items.size} 项 · $activeCount 进行中 · ${formatDownloadBytes(usedBytes)} 离线文件",
-                        style = mr(10.5f, 500),
+                        style = AppTypography.caption.medium,
                         color = palette.sub2,
                     )
                 }
                 Text(
                     if (selected.isEmpty()) "多选" else "完成",
-                    style = sc(12f, 700),
+                    style = AppTypography.body.strong,
                     color = accent,
                     modifier = Modifier.pressable {
                         selected = if (selected.isEmpty()) shown.mapTo(linkedSetOf()) { it.id } else emptySet()
@@ -136,8 +133,8 @@ internal fun DownloadsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("下载策略", style = sc(13f, 700), color = palette.text)
-                    Text(sort.label, style = mr(11f, 600), color = accent, modifier = Modifier.pressable {
+                    Text("下载策略", style = AppTypography.body.strong, color = palette.text)
+                    Text(sort.label, style = AppTypography.caption.strong, color = accent, modifier = Modifier.pressable {
                         sort = DownloadSort.entries[(DownloadSort.entries.indexOf(sort) + 1) % DownloadSort.entries.size]
                     })
                 }
@@ -147,10 +144,10 @@ internal fun DownloadsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
-                        Text("仅 Wi-Fi 下载", style = sc(12.5f, 600), color = palette.text)
-                        Text("关闭后可能使用蜂窝流量", style = mr(10.5f, 400), color = palette.sub2)
+                        Text("仅 Wi-Fi 下载", style = AppTypography.body.strong, color = palette.text)
+                        Text("关闭后可能使用蜂窝流量", style = AppTypography.caption.regular, color = palette.sub2)
                     }
-                    Text(if (wifiOnly) "已开启" else "已关闭", style = sc(11f, 700), color = if (wifiOnly) accent else palette.sub2)
+                    Text(if (wifiOnly) "已开启" else "已关闭", style = AppTypography.body.strong, color = if (wifiOnly) accent else palette.sub2)
                 }
             }
         }
@@ -164,7 +161,7 @@ internal fun DownloadsScreen(
                     val active = filter == value
                     Text(
                         value.label,
-                        style = sc(11.5f, if (active) 700 else 500),
+                        style = if (active) AppTypography.body.strong else AppTypography.body.medium,
                         color = if (active) accent else palette.body,
                         modifier = Modifier.pressable { filter = value }
                             .glass(
@@ -205,7 +202,7 @@ internal fun DownloadsScreen(
                     Spacer(Modifier.height(10.dp))
                     Text(
                         if (items.isEmpty()) "还没有下载任务\n在详情页选择下载后会出现在这里" else "当前筛选没有任务",
-                        style = sc(12f, 400, lineHeight = 19f),
+                        style = AppTypography.body.regular,
                         color = palette.hint,
                     )
                 }
@@ -236,7 +233,7 @@ private fun BatchAction(label: String, danger: Boolean = false, onClick: () -> U
     val accent = LocalAccent.current.color
     Text(
         label,
-        style = sc(11f, 700),
+        style = AppTypography.body.strong,
         color = if (danger) Semantic.Error else accent,
         modifier = Modifier.pressable(onClick = onClick)
             .glass(GlassShapes.chip, palette.card3, palette.border)
@@ -272,14 +269,14 @@ private fun DownloadTaskRow(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (selectionMode) {
-                Text(if (selected) "✓" else "○", style = sc(16f, 700), color = if (selected) accent else palette.sub2)
+                Text(if (selected) "✓" else "○", style = AppTypography.section.strong, color = if (selected) accent else palette.sub2)
                 Spacer(Modifier.size(9.dp))
             }
             Column(Modifier.weight(1f)) {
-                Text(item.title, style = sc(13f, 700), color = palette.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.title, style = AppTypography.body.strong, color = palette.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     downloadStatusText(item),
-                    style = mr(10.5f, 500),
+                    style = AppTypography.caption.medium,
                     color = if (item.status == DownloadStatus.Failed) Semantic.Error else palette.sub2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -293,7 +290,7 @@ private fun DownloadTaskRow(
                         DownloadStatus.Failed -> "重试"
                         else -> "继续"
                     },
-                    style = sc(11f, 700),
+                    style = AppTypography.body.strong,
                     color = accent,
                 )
                 Icon(
@@ -305,7 +302,7 @@ private fun DownloadTaskRow(
             }
         }
         if (item.status != DownloadStatus.Completed) {
-            Box(Modifier.fillMaxWidth().height(4.dp).clip(continuousRounded(2.dp)).background(palette.border)) {
+            Box(Modifier.fillMaxWidth().height(4.dp).clip(AppShapes.track).background(palette.border)) {
                 Box(Modifier.fillMaxWidth(item.progress.coerceIn(0f, 1f)).height(4.dp).background(accent))
             }
         }

@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlaybackTrackRequest
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
@@ -21,9 +22,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.ServerSource
 
@@ -62,16 +61,16 @@ internal fun PlaybackVersionSection(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("播放版本", style = sc(13f, 700), color = palette.text)
+            Text("播放版本", style = AppTypography.body.strong, color = palette.text)
             Spacer(Modifier.height(3.dp))
             Text(
                 if (switching) "正在切换资源…" else summary,
-                style = mr(11f, 500),
+                style = AppTypography.caption.medium,
                 color = palette.sub,
                 maxLines = 2,
             )
         }
-        Text("›", style = sc(18f, 500), color = palette.sub2)
+        Text("›", style = AppTypography.section.medium, color = palette.sub2)
     }
 }
 
@@ -100,7 +99,7 @@ internal fun PlaybackVersionDialog(
         )
         val selectableSources = sources.filter { it.reachable && it.itemId != null && it.source != null }
         if (selectableSources.size > 1) {
-            Text("播放来源", style = mr(11f, 700), color = Color.White.copy(alpha = 0.62f))
+            Text("播放来源", style = AppTypography.caption.strong, color = Color.White.copy(alpha = 0.62f))
             selectableSources.forEach { source ->
                 OverlayOptionRow(
                     label = source.serverName,
@@ -110,7 +109,7 @@ internal fun PlaybackVersionDialog(
             }
         }
         if (versions.size > 1) {
-            Text("文件版本", style = mr(11f, 700), color = Color.White.copy(alpha = 0.62f))
+            Text("文件版本", style = AppTypography.caption.strong, color = Color.White.copy(alpha = 0.62f))
             versions.forEach { version ->
                 OverlayOptionRow(
                     label = listOf(version.name, version.summary).filter { it.isNotBlank() }.joinToString(" · "),
@@ -121,14 +120,14 @@ internal fun PlaybackVersionDialog(
         }
         val version = versions.firstOrNull { it.id == selectedVersionId } ?: versions.firstOrNull()
         version?.audioTracks?.takeIf { it.size > 1 }?.let { tracks ->
-            Text("音轨", style = mr(11f, 700), color = Color.White.copy(alpha = 0.62f))
+            Text("音轨", style = AppTypography.caption.strong, color = Color.White.copy(alpha = 0.62f))
             OverlayOptionRow("文件默认", selectedAudioLanguage == null, onClick = { onSelectAudio(null) })
             tracks.forEach { track ->
                 OverlayOptionRow(track.label, track.language == selectedAudioLanguage, onClick = { onSelectAudio(track.language) })
             }
         }
         version?.subtitleTracks?.takeIf { it.isNotEmpty() }?.let { tracks ->
-            Text("字幕", style = mr(11f, 700), color = Color.White.copy(alpha = 0.62f))
+            Text("字幕", style = AppTypography.caption.strong, color = Color.White.copy(alpha = 0.62f))
             OverlayOptionRow("文件默认", selectedSubtitleLanguage == null, onClick = { onSelectSubtitle(null) })
             OverlayOptionRow("关闭字幕", selectedSubtitleLanguage == PlaybackTrackRequest.SUBTITLES_OFF, onClick = { onSelectSubtitle(PlaybackTrackRequest.SUBTITLES_OFF) })
             tracks.forEach { track ->

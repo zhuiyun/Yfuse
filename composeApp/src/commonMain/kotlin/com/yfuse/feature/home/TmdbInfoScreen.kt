@@ -39,12 +39,15 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -52,14 +55,12 @@ import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
 import com.yfuse.core.designsystem.liftOverHero
-import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.rememberAnimatedDominantColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.shadow
-import com.yfuse.core.designsystem.sharedMediaElement
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.TmdbImages
 
@@ -70,6 +71,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
     val detail = state.detail
     val item = detail.item
     val palette = LocalPalette.current
+    val themeAccent = LocalAccentColors.current.accent
     // image.tmdb.org is the primary CDN and media.themoviedb.org the official mirror for
     // when it is unreachable; the dominant-colour probe follows whichever one is showing.
     val heroUrls = listOf(
@@ -79,7 +81,10 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
         TmdbImages.media(item.posterPath, "w780"),
     )
     val heroUrl = heroUrls.firstOrNull { it != null }
-    val accent = rememberAnimatedDominantColor(heroUrl, Brand.Primary)
+    val accent = rememberAnimatedDominantColor(
+        heroUrl,
+        Brand.Primary, // design-system: brand-identity
+    )
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = maxHeight * 0.34f
@@ -109,9 +114,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                     FallbackImage(
                         urls = heroUrls,
                         contentDescription = item.title,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .sharedMediaElement("tmdb-backdrop-${item.id}"),
+                        modifier = Modifier.fillMaxSize(),
                     )
                     Box(Modifier.fillMaxSize().background(heroScrim(detailSurface)))
                     Icon(
@@ -122,8 +125,9 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             .align(Alignment.TopStart)
                             .statusBarsPadding()
                             .padding(start = 18.dp, top = 12.dp)
+                            .pressable(onClickLabel = "返回上一页", onClick = component.onBack)
+                            .touchTarget()
                             .size(38.dp)
-                            .pressable(onClick = component.onBack)
                             .solidGlass(
                                 shape = CircleShape,
                                 fill = Color(0xFF11151F).copy(alpha = 0.28f),
@@ -179,7 +183,6 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                     TmdbImages.backdrop(item.backdropPath, "w780"),
                                     TmdbImages.media(item.backdropPath, "w780"),
                                 ),
-                                sharedKey = "tmdb-poster-${item.id}",
                                 modifier = Modifier
                                     .width(78.dp)
                                     .height(110.dp)
@@ -189,7 +192,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     item.title,
-                                    style = sc(19f, 800),
+                                    style = AppTypography.section.strong,
                                     color = palette.text,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
@@ -202,7 +205,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         detail.runtimeMinutes?.let { "$it 分钟" },
                                         detail.numberOfSeasons?.let { "$it 季" },
                                     ).joinToString(" · "),
-                                    style = mr(11f, 400),
+                                    style = AppTypography.caption.regular,
                                     color = palette.sub,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -211,7 +214,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                     Spacer(Modifier.height(7.dp))
                                     Text(
                                         "TMDB ${(rating * 10).toInt() / 10.0}",
-                                        style = mr(10f, 700),
+                                        style = AppTypography.caption.strong,
                                         color = Brand.Imdb,
                                         modifier = Modifier
                                             .solidGlass(
@@ -229,7 +232,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                     TmdbPlayDock(
                         playable = state.playable,
                         resolving = state.resolvingPlay,
-                        accent = Brand.Primary,
+                        accent = themeAccent,
                         onPlay = component::play,
                     )
 
@@ -238,7 +241,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                         }) {
                         TmdbSourceStrip(
                             sources = state.sources,
-                            accent = Brand.Primary,
+                            accent = themeAccent,
                             onSelect = component::playSource,
                         )
                     }
@@ -246,8 +249,8 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                     state.error?.let { error ->
                         Text(
                             error,
-                            style = sc(12f, 600),
-                            color = Brand.Danger,
+                            style = AppTypography.body.strong,
+                            color = palette.error,
                             textAlign = TextAlign.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -260,7 +263,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                     if (!detail.tagline.isNullOrBlank()) {
                         Text(
                             "“${detail.tagline}”",
-                            style = sc(13f, 500, lineHeight = 20f),
+                            style = AppTypography.body.medium.copy(lineHeight = 20.sp),
                             fontStyle = FontStyle.Italic,
                             color = palette.sub,
                         )
@@ -268,10 +271,10 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
 
                     if (!item.overview.isNullOrBlank()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("剧情简介", style = sc(14f, 750), color = palette.text)
+                            Text("剧情简介", style = AppTypography.section.strong, color = palette.text)
                             Text(
                                 item.overview,
-                                style = sc(12.5f, 400, lineHeight = 20f),
+                                style = AppTypography.body.regular.copy(lineHeight = 20.sp),
                                 color = palette.body,
                             )
                         }
@@ -282,7 +285,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             items(detail.genres, key = { it }) { genre ->
                                 Text(
                                     genre,
-                                    style = sc(11f, 600),
+                                    style = AppTypography.body.strong,
                                     color = palette.sub,
                                     modifier = Modifier
                                         .solidGlass(GlassShapes.thumb)
@@ -294,7 +297,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
 
                     if (detail.cast.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("演职人员", style = sc(14f, 750), color = palette.text)
+                            Text("演职人员", style = AppTypography.section.strong, color = palette.text)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 items(detail.cast, key = { it.id }) { person ->
                                     Column(
@@ -320,7 +323,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         Spacer(Modifier.height(6.dp))
                                         Text(
                                             person.name,
-                                            style = sc(10.5f, 650),
+                                            style = AppTypography.body.strong,
                                             color = palette.text,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -328,7 +331,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         person.role?.let {
                                             Text(
                                                 it,
-                                                style = sc(9.5f, 400),
+                                                style = AppTypography.caption.regular,
                                                 color = palette.sub2,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
@@ -346,7 +349,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             horizontalArrangement = Arrangement.Center,
                         ) {
                             CircularProgressIndicator(
-                                color = Brand.Primary,
+                                color = themeAccent,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(18.dp),
                             )
@@ -402,7 +405,7 @@ private fun TmdbSourceStrip(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
                         entry.serverName,
-                        style = sc(10.8f, 700),
+                        style = AppTypography.body.strong,
                         color = palette.text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -411,7 +414,7 @@ private fun TmdbSourceStrip(
                         listOfNotNull(entry.source?.bitrate, entry.source?.size)
                             .joinToString(" · ")
                             .ifBlank { "资源信息读取中" },
-                        style = mr(9.8f, 500),
+                        style = AppTypography.caption.medium,
                         color = palette.sub2,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -476,13 +479,13 @@ private fun TmdbPlayDock(
                     Icon(AppIcons.Play, null, tint = Color.White, modifier = Modifier.size(14.dp))
                 }
                 Spacer(Modifier.width(8.dp))
-                Text("立即播放", style = sc(13.5f, 750), color = Color.White)
+                Text("立即播放", style = AppTypography.body.strong, color = Color.White)
             }
         } else {
             Box(Modifier.fillMaxWidth().height(46.dp), contentAlignment = Alignment.Center) {
                 Text(
                     "未加入媒体库 · 以下资料来自 TMDB",
-                    style = sc(12f, 500),
+                    style = AppTypography.body.medium,
                     color = palette.sub2,
                 )
             }

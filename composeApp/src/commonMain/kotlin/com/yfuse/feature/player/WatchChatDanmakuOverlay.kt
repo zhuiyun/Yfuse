@@ -31,10 +31,11 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.continuousRounded
-import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.WatchAvatar
-import com.yfuse.core.designsystem.sc
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.sticker
 import kotlin.math.roundToInt
@@ -104,6 +105,7 @@ internal fun WatchChatDanmakuOverlay(
     enabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val messageKeys = messages.map { it.animationKey() }
     var seenKeys by remember(roomCode) { mutableStateOf(messageKeys.toSet()) }
     var nextLane by remember(roomCode) { mutableIntStateOf(0) }
@@ -118,8 +120,8 @@ internal fun WatchChatDanmakuOverlay(
         val laneCount = (maxHeight / CHAT_LANE_HEIGHT).toInt().coerceIn(1, MAX_LANES)
 
         val activeKeys = active.map { it.message.animationKey() }
-        LaunchedEffect(enabled, roomCode, messageKeys, laneCount, activeKeys) {
-            if (!enabled || roomCode == null) {
+        LaunchedEffect(enabled, reduceMotion, roomCode, messageKeys, laneCount, activeKeys) {
+            if (!enabled || reduceMotion || roomCode == null) {
                 // Off by the viewer's own choice, or no room to belong to: nothing is owed a
                 // flight, now or later.
                 seenKeys = messageKeys.toSet()
@@ -167,6 +169,7 @@ private fun WatchChatDanmakuItem(
     viewportWidth: androidx.compose.ui.unit.Dp,
     onFinished: () -> Unit,
 ) {
+    val accent = rememberAccentColorsForSurface(dark = true)
     val density = LocalDensity.current
     val viewportWidthPx = with(density) { viewportWidth.toPx() }
     val animationKey = flight.message.animationKey()
@@ -199,11 +202,11 @@ private fun WatchChatDanmakuItem(
             .onSizeChanged { contentWidthPx = it.width }
             .background(
                 color = if (flight.message.isMine) {
-                    Brand.Primary.copy(alpha = 0.72f)
+                    accent.container
                 } else {
                     Color.Black.copy(alpha = 0.66f)
                 },
-                shape = continuousRounded(18.dp),
+                shape = AppShapes.pill,
             )
             .padding(start = 5.dp, end = 11.dp, top = 4.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -217,8 +220,8 @@ private fun WatchChatDanmakuItem(
             } else {
                 flight.message.name
             },
-            style = sc(11f, 650),
-            color = Color.White,
+            style = AppTypography.caption.strong,
+            color = if (flight.message.isMine) accent.accent else Color.White,
             maxLines = 1,
             overflow = TextOverflow.Clip,
         )

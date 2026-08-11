@@ -6,7 +6,10 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.graphics.Color
@@ -55,7 +58,77 @@ fun ThemeMode.resolveDark(systemDark: Boolean): Boolean = when (this) {
 }
 
 val LocalPalette = staticCompositionLocalOf { LightPalette }
+
+/**
+ * The user's semantic emphasis colours, resolved for the active light/dark surface.
+ *
+ * [Brand] remains the immutable product identity used by the logo and artwork-derived
+ * treatments. Interactive controls consume this object instead, so changing the user's
+ * [AccentColor] changes buttons and selected states without recolouring the brand itself.
+ * [accent] and [onAccent] clear 4.5:1 against their intended surfaces; [container] is an
+ * opaque quiet selection fill, and [border] is the visible selected/focus edge.
+ */
+@Immutable
+data class AccentColors(
+    val accent: Color,
+    val onAccent: Color,
+    val container: Color,
+    val border: Color,
+)
+
+private const val MinimumAccentContrast = 4.5f
+private val DarkAccentSurface = Color(0xFF182235)
+private val DarkAccentInk = Color(0xFF0B111C)
+
+private fun contrastRatio(first: Color, second: Color): Float {
+    val light = maxOf(first.luminance(), second.luminance())
+    val dark = minOf(first.luminance(), second.luminance())
+    return (light + 0.05f) / (dark + 0.05f)
+}
+
+/** Pure resolver for semantic accents used by theme code, previews and tests. */
+fun resolveAccentColors(base: Color, dark: Boolean): AccentColors {
+    val surface = if (dark) DarkAccentSurface else Color.White
+    val adjustmentTarget = if (dark) Color.White else Color.Black
+    val containerBlend = if (dark) 0.14f else 0.08f
+    val accent = (0..20).firstNotNullOfOrNull { step ->
+        val candidate = lerp(base, adjustmentTarget, step / 20f)
+        val container = lerp(surface, candidate, containerBlend)
+        candidate.takeIf {
+            contrastRatio(it, surface) >= MinimumAccentContrast &&
+                contrastRatio(it, container) >= MinimumAccentContrast
+        }
+    } ?: adjustmentTarget
+    val container = lerp(surface, accent, containerBlend)
+    val onAccent = listOf(Color.White, DarkAccentInk)
+        .maxBy { contrastRatio(it, accent) }
+    return AccentColors(
+        accent = accent,
+        onAccent = onAccent,
+        container = container,
+        border = accent,
+    )
+}
+
+fun AccentColor.resolveColors(dark: Boolean): AccentColors = resolveAccentColors(color, dark)
+
+val LocalAccentColors = staticCompositionLocalOf {
+    AccentColor.Blue.resolveColors(dark = false)
+}
+
+/** Compatibility local for preference and preview UIs that need the selected enum itself. */
 val LocalAccent = staticCompositionLocalOf { AccentColor.Blue }
+
+/**
+ * Resolves the selected accent for a surface whose luminance contract is independent from the
+ * app theme. The player is the canonical example: its chrome always sits on a dark video
+ * surface, even while the rest of the app is using the light theme.
+ */
+@Composable
+fun rememberAccentColorsForSurface(dark: Boolean): AccentColors {
+    val accent = LocalAccent.current
+    return remember(accent, dark) { accent.resolveColors(dark) }
+}
 
 @Immutable
 data class AccessibilityOptions(
@@ -66,12 +139,16 @@ data class AccessibilityOptions(
 
 val LocalAccessibilityOptions = staticCompositionLocalOf { AccessibilityOptions() }
 
-private fun darkScheme(accent: Color) = darkColorScheme(
-    primary = accent,
-    onPrimary = Color.White,
-    primaryContainer = accent.copy(alpha = 0.22f),
-    onPrimaryContainer = Color(0xFFE8ECFF),
+private fun darkScheme(accent: AccentColors) = darkColorScheme(
+    primary = accent.accent,
+    onPrimary = accent.onAccent,
+    primaryContainer = accent.container,
+    onPrimaryContainer = accent.accent,
     secondary = DarkPalette.sub,
+    tertiary = accent.accent,
+    onTertiary = accent.onAccent,
+    tertiaryContainer = accent.container,
+    onTertiaryContainer = accent.accent,
     background = DarkPalette.background,
     onBackground = DarkPalette.text,
     surface = DarkPalette.card,
@@ -80,16 +157,22 @@ private fun darkScheme(accent: Color) = darkColorScheme(
     onSurfaceVariant = DarkPalette.sub2,
     outline = Color(0xFF2A2F3A),
     outlineVariant = Color(0xFF20242D),
-    error = Brand.Danger,
-    onError = Color.White,
+    error = DarkPalette.error,
+    onError = DarkPalette.onError,
+    errorContainer = DarkPalette.errorContainer,
+    onErrorContainer = DarkPalette.onErrorContainer,
 )
 
-private fun lightScheme(accent: Color) = lightColorScheme(
-    primary = accent,
-    onPrimary = Color.White,
-    primaryContainer = accent.copy(alpha = 0.10f),
-    onPrimaryContainer = Brand.Primary,
+private fun lightScheme(accent: AccentColors) = lightColorScheme(
+    primary = accent.accent,
+    onPrimary = accent.onAccent,
+    primaryContainer = accent.container,
+    onPrimaryContainer = accent.accent,
     secondary = LightPalette.sub,
+    tertiary = accent.accent,
+    onTertiary = accent.onAccent,
+    tertiaryContainer = accent.container,
+    onTertiaryContainer = accent.accent,
     background = LightPalette.background,
     onBackground = LightPalette.text,
     surface = LightPalette.card,
@@ -98,8 +181,10 @@ private fun lightScheme(accent: Color) = lightColorScheme(
     onSurfaceVariant = LightPalette.sub2,
     outline = Color(0xFFD0D5DE),
     outlineVariant = Color(0xFFE1E4EA),
-    error = Brand.Danger,
-    onError = Color.White,
+    error = LightPalette.error,
+    onError = LightPalette.onError,
+    errorContainer = LightPalette.errorContainer,
+    onErrorContainer = LightPalette.onErrorContainer,
 )
 
 @Composable
@@ -110,6 +195,7 @@ fun YfuseTheme(
     content: @Composable () -> Unit,
 ) {
     val palette = if (dark) DarkPalette else LightPalette
+    val accentColors = remember(accent, dark) { accent.resolveColors(dark) }
     val density = LocalDensity.current
     val adjustedDensity = if (accessibility.largeText) {
         Density(density.density, density.fontScale * 1.12f)
@@ -119,12 +205,15 @@ fun YfuseTheme(
     CompositionLocalProvider(
         LocalPalette provides palette,
         LocalAccent provides accent,
+        LocalAccentColors provides accentColors,
         LocalAccessibilityOptions provides accessibility,
         LocalDensity provides adjustedDensity,
         LocalHaptics provides rememberHaptics(),
     ) {
         MaterialTheme(
-            colorScheme = if (dark) darkScheme(accent.color) else lightScheme(accent.color),
+            colorScheme = if (dark) darkScheme(accentColors) else lightScheme(accentColors),
+            typography = AppTypography.material,
+            shapes = AppShapes.material,
             content = content,
         )
     }

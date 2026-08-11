@@ -100,7 +100,7 @@ fun rememberAnimatedArtworkAccent(
  */
 fun harmonizeArtworkAccent(raw: Color, darkTheme: Boolean): Color {
     val brandBlend = if (darkTheme) 0.10f else 0.16f
-    var result = lerp(raw, Brand.Primary, brandBlend)
+    var result = lerp(raw, Brand.Primary, brandBlend) // design-system: brand-identity
     val minimum = if (darkTheme) 0.10f else 0.08f
     val maximum = if (darkTheme) 0.34f else 0.28f
     repeat(5) {
