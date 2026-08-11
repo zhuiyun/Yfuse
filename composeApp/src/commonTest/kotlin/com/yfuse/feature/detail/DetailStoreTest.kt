@@ -19,6 +19,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -26,6 +29,7 @@ import kotlinx.io.IOException
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.dsl.module
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -39,6 +43,13 @@ import kotlin.coroutines.CoroutineContext
 class DetailStoreTest {
     private lateinit var testPlaybackTrackRequest: PlaybackTrackRequest
     private lateinit var testSyncManager: ServerSyncManager
+    private val realTimeWaitDispatcher = Dispatchers.Default.limitedParallelism(1)
+
+    private suspend fun <T> awaitRealTime(block: suspend () -> T): T =
+        withContext(realTimeWaitDispatcher) {
+            withTimeout(10.seconds) { block() }
+        }
+
     @BeforeTest
     fun setUp() {
         val syncRegistry = testRegistry()
@@ -340,7 +351,7 @@ class DetailStoreTest {
     }
 
     @Test
-    fun play_while_episode_is_resolving_waits_for_and_plays_the_new_episode() = runTest {
+    fun play_while_episode_is_resolving_waits_for_and_plays_the_new_episode() = runBlocking {
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val store = seriesStore(
@@ -349,27 +360,33 @@ class DetailStoreTest {
                 release.await()
             },
         )
-        store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+        try {
+            awaitRealTime {
+                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+            }
 
-        store.labels.test {
-            store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
-            started.await()
-            store.accept(DetailIntent.Play)
-            expectNoEvents()
+            store.labels.test(timeout = 10.seconds) {
+                store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
+                started.await()
+                store.accept(DetailIntent.Play)
+                expectNoEvents()
 
+                release.complete(Unit)
+                assertEquals(
+                    DetailLabel.Play("one", "e2", 20_000_000L, "ev2"),
+                    awaitItem(),
+                )
+                assertEquals("e2", store.state.playTarget?.id)
+                cancelAndConsumeRemainingEvents()
+            }
+        } finally {
             release.complete(Unit)
-            assertEquals(
-                DetailLabel.Play("one", "e2", 20_000_000L, "ev2"),
-                awaitItem(),
-            )
-            assertEquals("e2", store.state.playTarget?.id)
-            cancelAndConsumeRemainingEvents()
+            store.dispose()
         }
-        store.dispose()
     }
 
     @Test
-    fun favorite_state_survives_switching_to_another_episode() = runTest {
+    fun favorite_state_survives_switching_to_another_episode() = runBlocking {
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val store = seriesStore(
@@ -378,18 +395,26 @@ class DetailStoreTest {
                 release.await()
             },
         )
-        store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+        try {
+            awaitRealTime {
+                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+            }
 
-        store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
-        started.await()
-        store.accept(DetailIntent.ToggleFavorite)
-        store.states.first { it.detail?.isFavorite == true }
-        release.complete(Unit)
-        store.states.first { !it.selectionLoading && it.playTarget?.id == "e2" }
+            store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
+            awaitRealTime { started.await() }
+            store.accept(DetailIntent.ToggleFavorite)
+            awaitRealTime { store.states.first { it.detail?.isFavorite == true } }
+            release.complete(Unit)
+            awaitRealTime {
+                store.states.first { !it.selectionLoading && it.playTarget?.id == "e2" }
+            }
 
-        assertTrue(store.state.detail?.isFavorite == true)
-        assertTrue(store.state.playSourceDetail?.isFavorite == true)
-        store.dispose()
+            assertTrue(store.state.detail?.isFavorite == true)
+            assertTrue(store.state.playSourceDetail?.isFavorite == true)
+        } finally {
+            release.complete(Unit)
+            store.dispose()
+        }
     }
 
     @Test
@@ -492,7 +517,7 @@ class DetailStoreTest {
         val releaseOldEpisode = CompletableDeferred<Unit>()
         val newServerStarted = CompletableDeferred<Unit>()
         val releaseNewServer = CompletableDeferred<Unit>()
-        var switchingServer = false
+        val switchingServer = AtomicBoolean(false)
         val store = seriesStore(
             includeSecondSource = true,
             beforeEpisodeTwoDetail = {
@@ -500,36 +525,44 @@ class DetailStoreTest {
                 releaseOldEpisode.await()
             },
             beforeSecondEpisodes = {
-                if (switchingServer) {
+                if (switchingServer.get()) {
                     newServerStarted.complete(Unit)
                     releaseNewServer.await()
                 }
             },
             secondEpisodesBody = """{"Items":[$ALT_EPISODE_ONE,$ALT_EPISODE_TWO]}""",
         )
-        store.states.first {
-            it.playTarget?.id == "e1" && it.episodes.size == 2 && it.sources.size == 2
+        try {
+            awaitRealTime {
+                store.states.first {
+                    it.playTarget?.id == "e1" && it.episodes.size == 2 && it.sources.size == 2
+                }
+            }
+
+            store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
+            awaitRealTime { oldEpisodeStarted.await() }
+            switchingServer.set(true)
+            store.accept(DetailIntent.SelectSource("two", "s2"))
+            awaitRealTime { newServerStarted.await() }
+
+            // The old request finishes first. It must not make the page look ready or replace
+            // the committed target while the explicitly chosen server is still resolving.
+            releaseOldEpisode.complete(Unit)
+            runCurrent()
+            assertTrue(store.state.selectionLoading)
+            assertEquals("one", store.state.playServer?.id)
+            assertEquals("e1", store.state.playTarget?.id)
+
+            releaseNewServer.complete(Unit)
+            awaitRealTime { store.states.first { !it.selectionLoading } }
+            assertEquals("two", store.state.playServer?.id)
+            assertEquals("ae2", store.state.playTarget?.id)
+            assertEquals("ae2", store.state.selectedEpisodeId)
+        } finally {
+            releaseOldEpisode.complete(Unit)
+            releaseNewServer.complete(Unit)
+            store.dispose()
         }
-
-        store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
-        oldEpisodeStarted.await()
-        switchingServer = true
-        store.accept(DetailIntent.SelectSource("two", "s2"))
-        newServerStarted.await()
-
-        // The old request finishes first. It must not make the page look ready or replace
-        // the committed target while the explicitly chosen server is still resolving.
-        releaseOldEpisode.complete(Unit)
-        runCurrent()
-        assertTrue(store.state.selectionLoading)
-        assertEquals("one", store.state.playServer?.id)
-        assertEquals("e1", store.state.playTarget?.id)
-
-        releaseNewServer.complete(Unit)
-        store.states.first { !it.selectionLoading && it.playTarget?.id == "ae2" }
-        assertEquals("two", store.state.playServer?.id)
-        assertEquals("ae2", store.state.selectedEpisodeId)
-        store.dispose()
     }
 
     @Test
