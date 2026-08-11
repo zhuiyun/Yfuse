@@ -33,9 +33,11 @@ class PlayerStoreTest {
     fun retry_after_initial_load_failure_enters_loading_and_recovers() = runTest {
         val registry = testRegistry()
         val allowSuccessfulLoad = CompletableDeferred<Unit>()
+        val successfulLoadStarted = CompletableDeferred<Unit>()
         var requestCount = 0
         val repo = testRepo { request ->
             requestCount += 1
+            successfulLoadStarted.complete(Unit)
             allowSuccessfulLoad.await()
             when {
                 request.url.encodedPath.endsWith("/PlaybackInfo") ->
@@ -63,7 +65,10 @@ class PlayerStoreTest {
         )
         store.accept(PlayerIntent.Retry)
 
-        val retrying = store.states.first { it.loading }
+        // Loading is dispatched before the request coroutine reaches the mock engine. Wait for
+        // the observable request boundary so this assertion is independent of dispatcher speed.
+        successfulLoadStarted.await()
+        val retrying = store.state
         assertNull(retrying.error)
         assertTrue(retrying.items.isEmpty())
         assertEquals(1, requestCount, "Retry should start exactly one queue rebuild")
