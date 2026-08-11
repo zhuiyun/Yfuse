@@ -38,7 +38,7 @@ class ServersStoreTest {
         registry: ServerRegistry,
         handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
     ): Store<ServersIntent, ServersState, ServersLabel> =
-        ServersStoreFactory(DefaultStoreFactory(), testRepo(handler), registry).create()
+        ServersStoreFactory(DefaultStoreFactory(), testRepo(handler = handler), registry).create()
 
     @Test
     fun submit_adds_server_and_emits_label() = runTest {

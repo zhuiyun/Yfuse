@@ -5,6 +5,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.network.createEmbyClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
@@ -13,16 +14,23 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteReadChannel
+import kotlinx.coroutines.CoroutineDispatcher
 
 private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
 
 /** Builds a repository whose HTTP calls are served by [handler]. */
 fun testRepo(
+    dispatcher: CoroutineDispatcher? = null,
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ): EmbyRepository = EmbyRepository(
     createEmbyClient(
         appVersion = "test",
-        engine = MockEngine(handler),
+        engine = MockEngine(
+            MockEngineConfig().apply {
+                dispatcher?.let { this.dispatcher = it }
+                addHandler(handler)
+            },
+        ),
         timeouts = null,
     ),
 )

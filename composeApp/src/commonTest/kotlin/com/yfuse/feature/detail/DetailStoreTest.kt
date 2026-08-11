@@ -16,6 +16,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
@@ -31,14 +32,12 @@ import org.koin.core.context.stopKoin
 import org.koin.dsl.module
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.coroutines.CoroutineContext
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 class DetailStoreTest {
@@ -46,18 +45,15 @@ class DetailStoreTest {
     private lateinit var testSyncManager: ServerSyncManager
     private val realTimeWaitDispatcher = Dispatchers.Default.limitedParallelism(1)
 
-    private suspend fun <T> awaitRealTime(
-        timeout: Duration = 10.seconds,
-        block: suspend () -> T,
-    ): T =
+    private suspend fun <T> awaitRealTime(block: suspend () -> T): T =
         withContext(realTimeWaitDispatcher) {
-            withTimeout(timeout) { block() }
+            withTimeout(10.seconds) { block() }
         }
 
     @BeforeTest
     fun setUp() {
         val syncRegistry = testRegistry()
-        val syncRepo = testRepo { json("{}") }
+        val syncRepo = testRepo(dispatcher = Dispatchers.Unconfined) { json("{}") }
         testPlaybackTrackRequest = PlaybackTrackRequest()
         testSyncManager = ServerSyncManager(syncRepo, syncRegistry, MapSettings())
         startKoin {
@@ -149,6 +145,7 @@ class DetailStoreTest {
                 IOException("server closed the connection")
                     .takeIf { attempts.incrementAndGet() < 3 }
             },
+            mainContext = UnconfinedTestDispatcher(testScheduler),
         )
         store.states.first { it.playTarget?.id == "m1" && it.sources.size == 2 }
 
@@ -169,6 +166,7 @@ class DetailStoreTest {
                 attempts.incrementAndGet()
                 IOException("server closed the connection")
             },
+            mainContext = UnconfinedTestDispatcher(testScheduler),
         )
         store.states.first { it.playTarget?.id == "m1" && it.sources.size == 2 }
 
@@ -196,6 +194,7 @@ class DetailStoreTest {
                 null
             },
             m2CloudflareBlocked = true,
+            mainContext = UnconfinedTestDispatcher(testScheduler),
         )
         store.states.first { it.playTarget?.id == "m1" && it.sources.size == 2 }
 
@@ -390,7 +389,7 @@ class DetailStoreTest {
     }
 
     @Test
-    fun favorite_state_survives_switching_to_another_episode() = runBlocking {
+    fun favorite_state_survives_switching_to_another_episode() = runTest {
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val store = seriesStore(
@@ -398,23 +397,18 @@ class DetailStoreTest {
                 started.complete(Unit)
                 release.await()
             },
+            mainContext = UnconfinedTestDispatcher(testScheduler),
         )
         try {
-            awaitRealTime(timeout = 30.seconds) {
-                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
-            }
+            store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
 
             store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
-            awaitRealTime(timeout = 30.seconds) { started.await() }
+            started.await()
             store.accept(DetailIntent.ToggleFavorite)
-            awaitRealTime(timeout = 30.seconds) {
-                store.states.first { it.detail?.isFavorite == true }
-            }
+            store.states.first { it.detail?.isFavorite == true }
 
             release.complete(Unit)
-            awaitRealTime(timeout = 30.seconds) {
-                store.states.first { !it.selectionLoading && it.playTarget?.id == "e2" }
-            }
+            store.states.first { !it.selectionLoading && it.playTarget?.id == "e2" }
 
             assertTrue(store.state.detail?.isFavorite == true)
             assertTrue(store.state.playSourceDetail?.isFavorite == true)
@@ -707,23 +701,20 @@ class DetailStoreTest {
     }
 
     @Test
-    fun exhausted_season_load_keeps_the_previous_episode_directory() = runBlocking {
+    fun exhausted_season_load_keeps_the_previous_episode_directory() = runTest {
         val attempts = AtomicInteger()
         val store = seriesStore(
             seasonTwoEpisodesFailure = {
                 attempts.incrementAndGet()
                 IOException("catalog unavailable")
             },
+            mainContext = UnconfinedTestDispatcher(testScheduler),
         )
         try {
-            awaitRealTime(timeout = 30.seconds) {
-                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
-            }
+            store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
 
             store.accept(DetailIntent.SelectSeason("season2"))
-            awaitRealTime(timeout = 30.seconds) {
-                store.states.first { !it.episodesLoading && it.actionMessage != null }
-            }
+            store.states.first { !it.episodesLoading && it.actionMessage != null }
 
             assertEquals(3, attempts.get())
             assertTrue(!store.state.episodesLoading)
@@ -743,6 +734,7 @@ class DetailStoreTest {
         m3DetailFailure: (() -> Throwable?)? = null,
         sourceSelectionTimeoutMs: Long = 45_000L,
         movieOneBody: String = MOVIE_ONE,
+        mainContext: CoroutineDispatcher = Dispatchers.Unconfined,
     ): com.arkivanov.mvikotlin.core.store.Store<
         DetailIntent,
         DetailState,
@@ -757,7 +749,7 @@ class DetailStoreTest {
                 )
             }
         }
-        val repo = testRepo { request ->
+        val repo = testRepo(dispatcher = mainContext) { request ->
             val host = request.url.host
             val path = request.url.encodedPath
             when {
@@ -800,7 +792,7 @@ class DetailStoreTest {
             itemId = "m1",
             serverId = "one",
             sourceSelectionTimeoutMs = sourceSelectionTimeoutMs,
-            mainContext = Dispatchers.Unconfined,
+            mainContext = mainContext,
             playbackTrackRequest = testPlaybackTrackRequest,
             syncManager = testSyncManager,
         ).create()
@@ -814,7 +806,7 @@ class DetailStoreTest {
         onSecondEpisodeDetail: () -> Unit = {},
         onSecondNextUp: () -> Unit = {},
         seasonTwoEpisodesFailure: (() -> Throwable?)? = null,
-        mainContext: CoroutineContext = Dispatchers.Unconfined,
+        mainContext: CoroutineDispatcher = Dispatchers.Unconfined,
     ): com.arkivanov.mvikotlin.core.store.Store<
         DetailIntent,
         DetailState,
@@ -826,7 +818,7 @@ class DetailStoreTest {
                 addOrUpdate(SavedServer("two", "http://two", "备库", "u", "user", "tok2"))
             }
         }
-        val repo = testRepo { request ->
+        val repo = testRepo(dispatcher = mainContext) { request ->
             val host = request.url.host
             val path = request.url.encodedPath
             when {
