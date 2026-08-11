@@ -467,6 +467,11 @@ private fun GlassTabBar(
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val selectedIndex = tabs.indexOfFirst { it.tab == active }.coerceAtLeast(0)
+    // Reference-style shell: almost-opaque light glass with a quiet neutral selected island.
+    // The accent stays on the icon/label so theme colours remain expressive without tinting
+    // the whole selected cell. Dark mode keeps the same hierarchy with a stronger dark glass.
+    val barFill = palette.glassStrong.copy(alpha = if (palette.isDark) 0.86f else 0.92f)
+    val selectionFill = palette.text.copy(alpha = if (palette.isDark) 0.12f else 0.08f)
     // The pill travels between cells rather than appearing under the new one. Tabs are
     // equal-weight quarters of the bar, so its position is the animated index and nothing
     // has to be measured.
@@ -489,11 +494,11 @@ private fun GlassTabBar(
             .padding(horizontal = Dimens.tabBarInset)
             .padding(bottom = Dimens.tabBarInset)
             .height(Dimens.tabBarHeight)
-            .shadow(Shadows.tabBar, GlassShapes.tabBar)
-            // Before the fill, so the 0.72–0.76 glass sits on the blur rather than under
-            // it. §8.1's material is the two together; the bar has only ever had the fill.
-            .backdropBlur(backdrop, GlassShapes.tabBar)
-            .overlayGlass(GlassShapes.tabBar, palette.glassStrong, palette.tabbarBorder)
+            // The reference uses a true capsule rather than a rounded rectangle: the shell
+            // stays soft even after increasing the bar height.
+            .shadow(Shadows.tabBar, CircleShape)
+            .backdropBlur(backdrop, CircleShape)
+            .overlayGlass(CircleShape, barFill, palette.tabbarBorder)
             // After the fill and before the buttons: the pill belongs to the material, not
             // over the icons.
             .drawBehind {
@@ -501,10 +506,12 @@ private fun GlassTabBar(
                 // Search/Profile sit over quiet page backgrounds, where the former 12% pill
                 // nearly disappeared. A slightly larger, stronger indicator stays legible over both
                 // artwork-heavy roots and plain roots without turning into a filled button.
-                val pillWidth = cell * 0.72f
-                val pillHeight = size.height * 0.72f
+                // The selected region nearly fills its cell, matching the broad soft island
+                // in the reference instead of reading as a small Material indicator.
+                val pillWidth = cell * 0.92f
+                val pillHeight = size.height * 0.88f
                 drawRoundRect(
-                    color = accent.container,
+                    color = selectionFill,
                     topLeft = Offset(
                         x = cell * indicator + (cell - pillWidth) / 2f,
                         y = (size.height - pillHeight) / 2f,
@@ -534,7 +541,7 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
     // crossfading them puts the two halves of the same transition on the same clock — which
     // now means the same spring, so the tint tracks the pill even through rapid taps.
     val tint by animateColorAsState(
-        targetValue = if (selected) accent.accent else palette.sub2,
+        targetValue = if (selected) accent.accent else palette.text.copy(alpha = 0.72f),
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "tabTint",
     )
@@ -544,7 +551,7 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
             .weight(1f)
             .fillMaxHeight()
             .heightIn(min = MinTouchTarget)
-            .clip(GlassShapes.tabBar)
+            .clip(CircleShape)
             // This was `clickable(indication = null)` with nothing put back, so the one
             // control every session touches most had no press feedback at all.
             .pressable(
@@ -561,8 +568,12 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(item.icon, contentDescription = item.label, tint = tint, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.height(3.dp))
-        Text(item.label, style = AppTypography.caption.medium, color = tint)
+        Icon(item.icon, contentDescription = item.label, tint = tint, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.height(4.dp))
+        Text(
+            item.label,
+            style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
+            color = tint,
+        )
     }
 }
