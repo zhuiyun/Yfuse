@@ -66,7 +66,7 @@ import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayVisibility
-import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
@@ -208,12 +208,6 @@ fun App(root: RootComponent) {
         // depending on where the user happened to have scrolled to.
         val showBottomBar = atRoot
 
-        // Navigation3 owns child-route and overlay back gestures. At a non-Home root there is
-        // no previous route to preview, so this one shell-level decision remains commit-only.
-        PlatformBackHandler(enabled = atRoot && active != Tab.Home) {
-            root.selectTab(Tab.Home)
-        }
-
         // An overlay owned by one of the tab screens composes below this shell's floating
         // furniture, so the bar has to be told to get out of its way — see [OverlayVisibility].
         val overlays = remember { OverlayVisibility() }
@@ -246,15 +240,23 @@ fun App(root: RootComponent) {
                             .fillMaxSize()
                             .backdropSource(backdrop),
                     ) {
-                        // Compose only the selected tab so exactly one navigation host owns system
-                        // back. SaveableStateProvider still restores each tab's UI state on return.
-                        CompositionLocalProvider(LocalTabIdentity provides active.name) {
-                            tabStates.SaveableStateProvider(active.name) {
-                                when (active) {
-                                    Tab.Home -> HomeTabScreen(root.home)
-                                    Tab.Browse -> LibraryScreen(root.browse)
-                                    Tab.Search -> SearchScreen(root.search)
-                                    Tab.Profile -> ProfileTabScreen(root.profile)
+                        // Top-level tabs are a real Navigation 3 back stack: every non-Home root
+                        // previews Home during the system gesture, while each tab's nested host
+                        // continues to own its child routes. No transition is overridden here.
+                        OfficialNavDisplay(
+                            backStack = topLevelBackStack(active),
+                            onBack = { root.selectTab(Tab.Home) },
+                            contentKey = { "tab:${it.name}" },
+                            modifier = Modifier.fillMaxSize(),
+                        ) { tab ->
+                            CompositionLocalProvider(LocalTabIdentity provides tab.name) {
+                                tabStates.SaveableStateProvider(tab.name) {
+                                    when (tab) {
+                                        Tab.Home -> HomeTabScreen(root.home)
+                                        Tab.Browse -> LibraryScreen(root.browse)
+                                        Tab.Search -> SearchScreen(root.search)
+                                        Tab.Profile -> ProfileTabScreen(root.profile)
+                                    }
                                 }
                             }
                         }
@@ -348,6 +350,9 @@ fun App(root: RootComponent) {
         }
     }
 }
+
+internal fun topLevelBackStack(active: Tab): List<Tab> =
+    if (active == Tab.Home) listOf(Tab.Home) else listOf(Tab.Home, active)
 
 /**
  * 一起看 — a live room with no player in front of it.

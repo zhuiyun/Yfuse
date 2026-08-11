@@ -145,8 +145,7 @@ fun GlassDialog(
     val requestDismiss = remember { { leaving = true } }
 
     Dialog(
-        // System back stays on Compose Dialog's official dismissal path. Delaying it for the
-        // app's own exit tween would append a second animation after predictive back commits.
+        // System back stays on Compose Dialog's own dismissal path.
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
