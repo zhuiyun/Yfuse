@@ -508,19 +508,15 @@ fun ProfileScreen(component: ProfileComponent) {
         }
 
         when (sheet) {
-            Sheet.AppIcon -> OptionSheet(
-                title = "APP 图标",
-                subtitle = "更换后启动器可能需要几秒才会刷新",
-                options = AppIconVariant.entries.map { it.label to (it == appIcon) },
-                descriptions = AppIconVariant.entries.map { it.description },
-                onSelect = { index ->
-                    val chosen = AppIconVariant.entries[index]
-                    setAppIconVariant(chosen)
-                    appIcon = chosen
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
+Sheet.AppIcon -> AppIconSheet(
+    current = appIcon,
+    onSelect = { chosen ->
+        setAppIconVariant(chosen)
+        appIcon = chosen
+        sheet = null
+    },
+    onDismiss = { sheet = null },
+)
 
             Sheet.Background -> BackgroundImageSheet(
                 current = backgroundImage,
@@ -968,12 +964,7 @@ private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () ->
             horizontalArrangement = Arrangement.spacedBy(9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                AppIcons.Download,
-                null,
-                tint = accent.accent,
-                modifier = Modifier.size(16.dp),
-            )
+            SettingIconTile(AppIcons.Download, SettingTint.downloads)
             Text("下载与离线库", style = AppTypography.body.medium, color = palette.text)
         }
     }

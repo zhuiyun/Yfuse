@@ -7,6 +7,7 @@ import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.ServerLayout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -37,6 +38,7 @@ class ThemePreferencesTest {
             setReduceMotion(true)
             setSplashAnimation(false)
             setSplashVariant(SplashAnimation.Two)
+            setServerLayout(ServerLayout.List)
         }
 
         val restored = ThemePreferences(settings)
@@ -52,5 +54,6 @@ class ThemePreferencesTest {
         assertTrue(restored.reduceMotion.value)
         assertFalse(restored.splashAnimation.value)
         assertEquals(SplashAnimation.Two, restored.splashVariant.value)
+        assertEquals(ServerLayout.List, restored.serverLayout.value)
     }
 }

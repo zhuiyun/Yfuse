@@ -3,13 +3,12 @@ package com.yfuse.feature.profile
 /**
  * Which launcher icon the app presents.
  *
- * The mark is the same in all of them and only its ground changes: an alternate icon has to
- * remain recognisable as this app on a home screen the user already knows, so this is a
- * choice of colour, not of logo.
+ * The current water-fire mark is available on light and graphite grounds, and the previous
+ * cloud-player mark remains a real alternate for people who recognise the app by that shape.
  */
 enum class AppIconVariant(val label: String, val description: String) {
-    Default("当前标志", "随包附带的水火标志，浅色底"),
-    Graphite("当前标志 · 石墨", "同一标志，深灰底，适合深色主屏"),
+    Default("当前 Logo", "当前水火标志，浅色底"),
+    Graphite("当前 Logo · 石墨", "当前水火标志，深灰底，适合深色主屏"),
 
     /**
      * The mark this app carried before the current one.
@@ -19,7 +18,7 @@ enum class AppIconVariant(val label: String, val description: String) {
      * its owner navigates by shape. This puts the old one back for anyone who wants it — and
      * it pairs with 开屏动画's 折带展开, which is that mark's own choreography.
      */
-    CloudPlayer("云朵播放器", "旧版云朵标志，与「折带展开」开屏配套"),
+    CloudPlayer("旧版云朵播放器", "旧版云朵播放器 Logo，与「折带展开」开屏配套"),
 }
 
 /** The variant the launcher is currently showing. */
