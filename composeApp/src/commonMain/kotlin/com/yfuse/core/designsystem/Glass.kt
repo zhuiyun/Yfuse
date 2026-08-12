@@ -163,10 +163,10 @@ fun Modifier.glass(
 }
 
 /**
- * Liquid-glass surface without a directional colour ramp.
+ * Quiet glass surface used by dense forms and settings.
  *
- * Profile and form controls use this variant when hierarchy should come from
- * translucency, a single fill and the luminous edge.
+ * Liquid keeps a restrained directional sheen; Frosted removes that sheen and keeps a
+ * single translucent pane. Settings use this variant heavily, so it must honor GlassStyle.
  */
 @Composable
 fun Modifier.flatGlass(
@@ -186,9 +186,24 @@ fun Modifier.flatGlass(
     } else {
         border
     }
+    val surface = if (accessibility.reduceTransparency || frostedGlass()) {
+        Brush.linearGradient(listOf(resolvedFill, resolvedFill))
+    } else {
+        cssLinearGradient(
+            145f,
+            0f to Color.White.copy(alpha = if (palette.isDark) 0.13f else 0.58f),
+            0.26f to resolvedFill.copy(
+                alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f),
+            ),
+            0.72f to resolvedFill,
+            1f to resolvedFill.copy(
+                alpha = (resolvedFill.alpha * 0.80f).coerceIn(0f, 1f),
+            ),
+        )
+    }
     return this
         .clip(shape)
-        .background(resolvedFill)
+        .background(surface)
         .let { modifier ->
             if (resolvedBorder != null) {
                 modifier.border(Dimens.hairline, resolvedBorder, shape)

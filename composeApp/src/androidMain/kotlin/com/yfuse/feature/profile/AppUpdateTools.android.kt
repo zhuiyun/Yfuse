@@ -11,7 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import com.yfuse.BuildConfig
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.flatGlass as glass
@@ -30,6 +32,8 @@ actual fun AppUpdateTools() {
             SettingRow(
                 title = "检测升级",
                 value = "暂不可用",
+                icon = AppIcons.Refresh,
+                iconTint = SettingTint.sync,
             )
             return@Section
         }
@@ -67,6 +71,8 @@ actual fun AppUpdateTools() {
                 value = value,
                 embedded = true,
                 onClick = onClick,
+                icon = AppIcons.Refresh,
+                iconTint = SettingTint.sync,
             )
         }
     }

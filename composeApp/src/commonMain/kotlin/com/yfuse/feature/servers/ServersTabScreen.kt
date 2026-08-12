@@ -103,7 +103,8 @@ import com.yfuse.feature.profile.AddServerDialog
 import kotlinx.coroutines.delay
 
 /** Two on a 360dp phone; wider windows fill with more cards rather than stretching them. */
-private val ServerCardMinWidth = 158.dp
+private val ServerCardMinWidth = 146.dp
+private val ServerHeaderCircleSize = 42.dp
 
 /** How often 「上次观看」 re-reads the clock, so 「刚刚看过」 becomes 「1 分钟前」 on its own. */
 private const val AGE_TICK_MS = 30_000L
@@ -395,6 +396,7 @@ private fun ServersHeader(
                 Box(
                     Modifier
                         .pressable(
+                            haptic = HapticSignal.Select,
                             onClickLabel = if (layout == ServerLayout.Grid) {
                                 "改为列表展示"
                             } else {
@@ -418,7 +420,7 @@ private fun ServersHeader(
                             border = palette.border,
                             sheen = 0.9f,
                         )
-                        .size(MinTouchTarget),
+                        .size(ServerHeaderCircleSize),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -443,7 +445,7 @@ private fun ServersHeader(
                             border = palette.border,
                             sheen = 0.9f,
                         )
-                        .size(MinTouchTarget),
+                        .size(ServerHeaderCircleSize),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
