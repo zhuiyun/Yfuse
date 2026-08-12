@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,10 +39,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -687,10 +694,7 @@ private fun GlassTabBar(
     }
 }
 
-/**
- * `.tab` — column, `gap:3px`, `font:500 9.5px Manrope`, 22px icon. Each button
- * takes a full quarter of the bar so the whole cell is tappable, not just the glyph.
- */
+/** Pure-icon tab. Each button takes a full fifth of the bar, not just the glyph. */
 @Composable
 private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> Unit) {
     val palette = LocalPalette.current
@@ -700,7 +704,7 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
     // crossfading them puts the two halves of the same transition on the same clock — which
     // now means the same spring, so the tint tracks the pill even through rapid taps.
     val tint by animateColorAsState(
-        targetValue = if (selected) accent.accent else palette.text.copy(alpha = 0.72f),
+        targetValue = if (selected) accent.accent else palette.sub2,
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "tabTint",
     )
@@ -727,15 +731,7 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(item.icon, contentDescription = item.label, tint = tint, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.height(4.dp))
-        Text(
-            item.label,
-            style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
-            color = tint,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        LiquidGlassTabIcon(item = item, selected = selected, tint = tint)
     }
 }
 
@@ -797,13 +793,83 @@ private fun RailTabButton(item: TabItem, selected: Boolean, onClick: () -> Unit)
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(item.icon, contentDescription = item.label, tint = tint, modifier = Modifier.size(21.dp))
-        Spacer(Modifier.height(4.dp))
-        Text(
-            item.label,
-            style = AppTypography.caption.medium,
-            color = tint,
-            maxLines = 1,
+        LiquidGlassTabIcon(item = item, selected = selected, tint = tint, compact = true)
+    }
+}
+
+/**
+ * Liquid-glass ink for tab glyphs.
+ *
+ * The material follows the icon contour rather than putting every glyph inside another
+ * circle. A faint displaced copy gives the stroke optical thickness; the foreground is
+ * masked with a bright-top/deep-bottom refraction ramp. Selected icons grow slightly and
+ * pick up the current accent while inactive icons retain a neutral glass tint.
+ */
+@Composable
+private fun LiquidGlassTabIcon(
+    item: TabItem,
+    selected: Boolean,
+    tint: Color,
+    compact: Boolean = false,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val boxSize = if (compact) 36.dp else 40.dp
+    val iconSize = when {
+        compact && selected -> 29.dp
+        compact -> 27.dp
+        selected -> 31.dp
+        else -> 29.dp
+    }
+    // Keep the glass chroma quiet: one hue per state, with only luminance changing along
+    // the stroke. The previous white/accent/text mix produced a muddy rainbow edge.
+    val body = tint
+    val highlight = if (palette.isDark) {
+        body.copy(alpha = if (selected) 1f else 0.92f)
+    } else {
+        lerp(body, Color.White, if (selected) 0.30f else 0.20f)
+    }
+    val depth = if (palette.isDark) {
+        lerp(body, Color.Black, 0.18f)
+    } else {
+        lerp(body, Color.Black, 0.12f)
+    }
+
+    Box(
+        Modifier.size(boxSize),
+        contentAlignment = Alignment.Center,
+    ) {
+        // A restrained lower refraction keeps the glass depth without visually doubling
+        // the stroke. It is the same size as the foreground and displaced by only half a dp.
+        Icon(
+            item.icon,
+            contentDescription = null,
+            tint = depth.copy(alpha = if (palette.isDark) 0.20f else 0.14f),
+            modifier = Modifier
+                .offset(y = 0.5.dp)
+                .size(iconSize),
+        )
+        Icon(
+            item.icon,
+            contentDescription = item.label,
+            tint = Color.White,
+            modifier = Modifier
+                .size(iconSize)
+                // SrcIn needs an offscreen layer; otherwise the mask can tint siblings in
+                // the tab cell on some Android renderers.
+                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                .drawWithCache {
+                    val glassInk = Brush.verticalGradient(
+                        0f to highlight,
+                        0.30f to body,
+                        0.82f to body,
+                        1f to depth,
+                    )
+                    onDrawWithContent {
+                        drawContent()
+                        drawRect(glassInk, blendMode = BlendMode.SrcIn)
+                    }
+                },
         )
     }
 }

@@ -10,337 +10,344 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
 /**
- * The spec's icon set: linear icons on a 24×24 viewBox, `stroke=currentColor`,
- * transcribed from the spec's `icons` folder. Tab-bar glyphs come from the inline
- * SVG instead, which draws the same shapes at `stroke-width:1.9`.
+ * The app's icon set: one geometry, one weight, one set of ends.
+ *
+ * It did not start that way. The glyphs were transcribed from the spec's SVGs one at a
+ * time, and each carried whatever its source happened to specify, so the set drifted in
+ * three directions at once:
+ *
+ *  * **Ends.** [strokeVector]'s defaults were butt caps and mitre joins, so every icon that
+ *    did not name its own — 锁, 字幕, 音量, 心形, 书签, 星 — was drawn with squared-off ends
+ *    inside an interface made entirely of rounded glass. The shackle on 锁 looked snipped.
+ *  * **Weight.** Four stroke widths were in play: 1.9 for the tab bar, 1.8 for the set,
+ *    2.0 for 下载, 2.2 for 聊天's dots. Side by side in one row — the player's chip strip
+ *    does exactly that — the difference reads as some icons being bolder than others.
+ *  * **Size.** No shared optical box. 云 ran the full 24 units edge to edge while 播放 sat
+ *    in 14, so at a common `size(13.dp)` one was half again as big as the other.
+ *
+ * The system now, and what a new icon has to follow:
+ *
+ *  * **24×24 viewport, [BOX] optical square.** Everything is drawn inside x,y ∈ [3, 21].
+ *    Icons need not fill it — a chevron shouldn't — but nothing may exceed it.
+ *  * **[STROKE] everywhere**, round caps, round joins. These are the defaults, so an icon
+ *    gets them by saying nothing.
+ *  * **Solid glyphs are [SOLID_BOX]**, one unit inside the outline box, because a filled
+ *    shape reads heavier than an outlined one of equal size — and they carry a hairline
+ *    round-joined outline of their own so their corners match the rounded set around them.
  */
 object AppIcons {
 
-    // ------------------------------------------------------------ tab bar (1.9)
+    // ------------------------------------------------------------ navigation
 
-    val Home = strokeVector("home", width = 1.9f, join = StrokeJoin.Round) {
-        // M4 11.2 12 4l8 7.2
-        moveTo(4f, 11.2f); lineTo(12f, 4f); lineToRelative(8f, 7.2f)
-    }.andPath(width = 1.9f, join = StrokeJoin.Round) {
-        // M6 10v9.5h12V10
-        moveTo(6f, 10f); verticalLineToRelative(9.5f); horizontalLineTo(18f); verticalLineTo(10f)
-    }.andPath(width = 1.9f, join = StrokeJoin.Round, cap = StrokeCap.Round) {
-        // M10 19.5v-5.5h4v5.5
-        moveTo(10f, 19.5f); verticalLineToRelative(-5.5f); horizontalLineToRelative(4f); verticalLineToRelative(5.5f)
+    /** Navigation glyphs use a larger optical box and heavier rounded edge for glass ink. */
+    val Home = strokeVector("home", width = TAB_STROKE) {
+        moveTo(2.9f, 11.3f); lineTo(12f, 3.5f); lineTo(21.1f, 11.3f)
+    }.andPath(width = TAB_STROKE) {
+        moveTo(5.2f, 9.7f); verticalLineTo(20.5f); horizontalLineTo(18.8f); verticalLineTo(9.7f)
+    }.andPath(width = TAB_STROKE) {
+        moveTo(9.3f, 20.5f); verticalLineTo(14.1f); horizontalLineTo(14.7f); verticalLineTo(20.5f)
     }.build()
 
-    val Grid = strokeVector("grid", width = 1.9f) {
-        roundRect(4f, 4f, 7f, 7f, 1.6f)
-        roundRect(13f, 4f, 7f, 7f, 1.6f)
-        roundRect(4f, 13f, 7f, 7f, 1.6f)
-        roundRect(13f, 13f, 7f, 7f, 1.6f)
+    val Grid = strokeVector("grid", width = TAB_STROKE) {
+        roundRect(2.9f, 2.9f, 8.1f, 8.1f, 2.3f)
+        roundRect(13f, 2.9f, 8.1f, 8.1f, 2.3f)
+        roundRect(2.9f, 13f, 8.1f, 8.1f, 2.3f)
+        roundRect(13f, 13f, 8.1f, 8.1f, 2.3f)
     }.build()
 
-    val SearchTab = strokeVector("search-tab", width = 1.9f, cap = StrokeCap.Round) {
-        circle(10.5f, 10.5f, 6.5f)
-    }.andPath(width = 1.9f, cap = StrokeCap.Round) {
-        moveTo(20f, 20f); lineToRelative(-4.8f, -4.8f)
+    val SearchTab = search(
+        name = "search-tab",
+        width = TAB_STROKE,
+        radius = 7.2f,
+        center = 10.2f,
+        handleEnd = 21f,
+    )
+
+    val User = strokeVector("user", width = TAB_STROKE) {
+        circle(12f, 7.7f, 3.9f)
+    }.andPath(width = TAB_STROKE) {
+        moveTo(3.8f, 20.6f)
+        curveToRelative(1.05f, -4.65f, 4.45f, -6.75f, 8.2f, -6.75f)
+        reflectiveCurveToRelative(7.15f, 2.1f, 8.2f, 6.75f)
     }.build()
 
-    val User = strokeVector("user", width = 1.9f, cap = StrokeCap.Round) {
-        circle(12f, 8f, 3.6f)
-    }.andPath(width = 1.9f, cap = StrokeCap.Round) {
-        // M4.8 20c1-4.2 4-6.2 7.2-6.2s6.2 2 7.2 6.2
-        moveTo(4.8f, 20f)
-        curveToRelative(1f, -4.2f, 4f, -6.2f, 7.2f, -6.2f)
-        reflectiveCurveToRelative(6.2f, 2f, 7.2f, 6.2f)
-    }.build()
+    /** Two stacked units with their status lamps. */
+    val Server = strokeVector("server", width = TAB_STROKE) {
+        roundRect(2.9f, 3.4f, 18.2f, 6.8f, 2.2f)
+        roundRect(2.9f, 13.8f, 18.2f, 6.8f, 2.2f)
+    }.andDots(7.1f to 6.8f, 7.1f to 17.2f).build()
 
-    /** The exact stacked-server icon shipped with the supplied UI package. */
-    val Server = newBuilder("server").apply {
-        path(
-            fill = null,
-            stroke = SolidColor(Color.Black),
-            strokeLineWidth = 1.8f,
-        ) {
-            roundRect(4f, 4f, 16f, 6f, 1.5f)
-            roundRect(4f, 14f, 16f, 6f, 1.5f)
-        }
-        path(fill = SolidColor(Color.Black)) {
-            circle(8f, 7f, 0.8f)
-            circle(8f, 17f, 0.8f)
-        }
-    }.build()
+    // ------------------------------------------------------------ transport
 
-    // ------------------------------------------------------------ icon set (1.8)
-
-    /** Filled triangle — `M6 4.5v15l14-7.5-14-7.5z`. */
-    val Play = fillVector("play") {
-        moveTo(6f, 4.5f); verticalLineToRelative(15f); lineToRelative(14f, -7.5f); lineToRelative(-14f, -7.5f); close()
+    val Play = solidVector("play") {
+        moveTo(7.4f, 5.4f); lineTo(19.4f, 12f); lineTo(7.4f, 18.6f); close()
     }
 
-    /** Pencil — used by the inline "edit server" affordance in the server list. */
-    val Edit = strokeVector("edit", width = 1.8f, cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        // M14.5 5.5 18.5 9.5 8 20H4v-4L14.5 5.5z
-        moveTo(14.5f, 5.5f); lineTo(18.5f, 9.5f); lineTo(8f, 20f); lineTo(4f, 20f)
-        verticalLineTo(16f); lineTo(14.5f, 5.5f); close()
-    }.andPath(width = 1.8f, cap = StrokeCap.Round) {
-        // M13 7 17 11  (separation line between body and tip)
-        moveTo(13f, 7f); lineTo(17f, 11f)
-    }.build()
-
-    val Pause = fillVector("pause") {
-        roundRect(5f, 4f, 5f, 16f, 1.5f)
-        roundRect(14f, 4f, 5f, 16f, 1.5f)
+    val Pause = solidVector("pause") {
+        roundRect(7.3f, 5.2f, 3.6f, 13.6f, 1.4f)
+        roundRect(13.1f, 5.2f, 3.6f, 13.6f, 1.4f)
     }
 
-    /** `M12 5v14l-9-7z` + `M22 5v14l-9-7z` */
-    val Rewind = fillVector("rewind") {
-        moveTo(12f, 5f); verticalLineToRelative(14f); lineToRelative(-9f, -7f); close()
-        moveTo(22f, 5f); verticalLineToRelative(14f); lineToRelative(-9f, -7f); close()
+    /** Two heads pointing back, inside the solid box rather than off the viewport edge. */
+    val Rewind = solidVector("rewind") {
+        moveTo(11.7f, 5.6f); verticalLineToRelative(12.8f); lineTo(3.9f, 12f); close()
+        moveTo(20.1f, 5.6f); verticalLineToRelative(12.8f); lineTo(12.3f, 12f); close()
     }
 
     /** Mirror of [Rewind] across x = 12. */
-    val Forward = fillVector("forward") {
-        moveTo(12f, 5f); verticalLineToRelative(14f); lineToRelative(9f, -7f); close()
-        moveTo(2f, 5f); verticalLineToRelative(14f); lineToRelative(9f, -7f); close()
+    val Forward = solidVector("forward") {
+        moveTo(12.3f, 5.6f); verticalLineToRelative(12.8f); lineTo(20.1f, 12f); close()
+        moveTo(3.9f, 5.6f); verticalLineToRelative(12.8f); lineTo(11.7f, 12f); close()
     }
 
-    val Previous = fillVector("previous") {
-        roundRect(4f, 5f, 2.5f, 14f, 1f)
-        moveTo(19f, 5f); verticalLineToRelative(14f); lineTo(8f, 12f); close()
+    val Previous = solidVector("previous") {
+        roundRect(4.4f, 5.6f, 2.6f, 12.8f, 1.2f)
+        moveTo(19.4f, 5.6f); verticalLineToRelative(12.8f); lineTo(8.6f, 12f); close()
     }
 
-    val Next = fillVector("next") {
-        roundRect(17.5f, 5f, 2.5f, 14f, 1f)
-        moveTo(5f, 5f); verticalLineToRelative(14f); lineTo(16f, 12f); close()
+    val Next = solidVector("next") {
+        roundRect(17f, 5.6f, 2.6f, 12.8f, 1.2f)
+        moveTo(4.6f, 5.6f); verticalLineToRelative(12.8f); lineTo(15.4f, 12f); close()
     }
+
+    // ------------------------------------------------------------ player chrome
 
     val Lock = strokeVector("lock") {
-        roundRect(5f, 11f, 14f, 9f, 2f)
+        roundRect(4.6f, 10.6f, 14.8f, 9.4f, 2.4f)
     }.andPath {
-        // M8 11V7.5a4 4 0 0 1 8 0V11
-        moveTo(8f, 11f); verticalLineTo(7.5f)
+        moveTo(8f, 10.6f); verticalLineTo(7.6f)
         arcToRelative(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 8f, 0f)
-        verticalLineTo(11f)
+        verticalLineTo(10.6f)
     }.build()
 
     val Unlock = strokeVector("unlock") {
-        roundRect(5f, 11f, 14f, 9f, 2f)
+        roundRect(4.6f, 10.6f, 14.8f, 9.4f, 2.4f)
     }.andPath {
-        // M8 11V7.5a4 4 0 0 1 7.4-2.1
-        moveTo(8f, 11f); verticalLineTo(7.5f)
+        moveTo(8f, 10.6f); verticalLineTo(7.6f)
         arcToRelative(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 7.4f, -2.1f)
     }.build()
 
-    /** `M4 6h16M4 12h16M4 18h10` */
-    val Menu = strokeVector("menu", cap = StrokeCap.Round) {
-        moveTo(4f, 6f); horizontalLineToRelative(16f)
-        moveTo(4f, 12f); horizontalLineToRelative(16f)
-        moveTo(4f, 18f); horizontalLineToRelative(10f)
+    val Menu = strokeVector("menu") {
+        moveTo(4f, 6.6f); horizontalLineTo(20f)
+        moveTo(4f, 12f); horizontalLineTo(20f)
+        moveTo(4f, 17.4f); horizontalLineTo(14f)
     }.build()
 
-    /** `M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5` */
-    val Expand = strokeVector("expand", cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        moveTo(9f, 4f); horizontalLineTo(4f); verticalLineToRelative(5f)
-        moveTo(15f, 4f); horizontalLineToRelative(5f); verticalLineToRelative(5f)
-        moveTo(9f, 20f); horizontalLineTo(4f); verticalLineToRelative(-5f)
-        moveTo(15f, 20f); horizontalLineToRelative(5f); verticalLineToRelative(-5f)
+    val Expand = strokeVector("expand") {
+        moveTo(9.2f, 4.2f); horizontalLineTo(4.2f); verticalLineTo(9.2f)
+        moveTo(14.8f, 4.2f); horizontalLineTo(19.8f); verticalLineTo(9.2f)
+        moveTo(9.2f, 19.8f); horizontalLineTo(4.2f); verticalLineTo(14.8f)
+        moveTo(14.8f, 19.8f); horizontalLineTo(19.8f); verticalLineTo(14.8f)
     }.build()
 
-    /** `M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5` */
-    val Collapse = strokeVector("collapse", cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        moveTo(4f, 9f); horizontalLineToRelative(5f); verticalLineTo(4f)
-        moveTo(20f, 9f); horizontalLineToRelative(-5f); verticalLineTo(4f)
-        moveTo(4f, 15f); horizontalLineToRelative(5f); verticalLineToRelative(5f)
-        moveTo(20f, 15f); horizontalLineToRelative(-5f); verticalLineToRelative(5f)
+    val Collapse = strokeVector("collapse") {
+        moveTo(4.2f, 9.2f); horizontalLineTo(9.2f); verticalLineTo(4.2f)
+        moveTo(19.8f, 9.2f); horizontalLineTo(14.8f); verticalLineTo(4.2f)
+        moveTo(4.2f, 14.8f); horizontalLineTo(9.2f); verticalLineTo(19.8f)
+        moveTo(19.8f, 14.8f); horizontalLineTo(14.8f); verticalLineTo(19.8f)
     }.build()
 
     val Subtitle = strokeVector("subtitle") {
-        roundRect(3f, 6f, 18f, 12f, 2.5f)
-    }.andPath(cap = StrokeCap.Round) {
-        moveTo(7f, 14f); horizontalLineToRelative(3f)
-        moveTo(7f, 10f); horizontalLineToRelative(6f)
-        moveTo(13.5f, 14f); horizontalLineToRelative(3.5f)
+        roundRect(3.2f, 5.8f, 17.6f, 12.4f, 2.8f)
+    }.andPath {
+        moveTo(6.8f, 14.4f); horizontalLineToRelative(3f)
+        moveTo(6.8f, 10.2f); horizontalLineToRelative(6f)
+        moveTo(13.4f, 14.4f); horizontalLineToRelative(3.8f)
     }.build()
 
-    val Danmaku = strokeVector("danmaku", cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        roundRect(3f, 5f, 18f, 13f, 3f)
-        moveTo(8f, 18f); lineTo(6f, 21f); lineTo(12f, 18f)
-        moveTo(7f, 10f); horizontalLineTo(17f)
-        moveTo(7f, 14f); horizontalLineTo(14f)
+    val Danmaku = strokeVector("danmaku") {
+        roundRect(3.2f, 4.6f, 17.6f, 12.8f, 3.2f)
+        moveTo(8f, 17.4f); lineTo(6.2f, 20.4f); lineTo(11.8f, 17.4f)
+    }.andPath {
+        moveTo(7f, 9.6f); horizontalLineTo(17f)
+        moveTo(7f, 13.4f); horizontalLineTo(14f)
     }.build()
 
-    /** Room chat — distinct from the lined 弹幕 bubble. */
-    val Chat = strokeVector("chat", cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        roundRect(3f, 4f, 18f, 14f, 3f)
-        moveTo(8f, 18f); lineTo(6f, 21f); lineTo(12f, 18f)
-    }.andPath(width = 2.2f, cap = StrokeCap.Round) {
-        moveTo(8f, 11f); lineToRelative(0.01f, 0f)
-        moveTo(12f, 11f); lineToRelative(0.01f, 0f)
-        moveTo(16f, 11f); lineToRelative(0.01f, 0f)
+    /** Room chat — the same bubble as 弹幕, saying nothing rather than carrying lines. */
+    val Chat = strokeVector("chat") {
+        roundRect(3.2f, 4.6f, 17.6f, 12.8f, 3.2f)
+        moveTo(8f, 17.4f); lineTo(6.2f, 20.4f); lineTo(11.8f, 17.4f)
+    }.andDots(8f to 11f, 12f to 11f, 16f to 11f).build()
+
+    val Volume = strokeVector("volume") {
+        moveTo(3.8f, 9.8f); verticalLineToRelative(4.4f); horizontalLineToRelative(3.9f)
+        lineToRelative(4.9f, 3.9f); verticalLineTo(5.9f); lineTo(7.7f, 9.8f); close()
+    }.andPath {
+        moveTo(16.3f, 9.1f)
+        arcToRelative(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 0f, 5.8f)
     }.build()
 
-    val Volume = strokeVector("volume", join = StrokeJoin.Round) {
-        // M4 10v4h4l5 4V6L8 10H4z
-        moveTo(4f, 10f); verticalLineToRelative(4f); horizontalLineToRelative(4f)
-        lineToRelative(5f, 4f); verticalLineTo(6f); lineTo(8f, 10f); horizontalLineTo(4f); close()
-    }.andPath(cap = StrokeCap.Round) {
-        // M16.5 9a4 4 0 0 1 0 6
-        moveTo(16.5f, 9f)
-        arcToRelative(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 0f, 6f)
+    val Cast = strokeVector("cast") {
+        moveTo(6.6f, 16.2f); horizontalLineTo(4.8f)
+        arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.6f, -1.6f)
+        verticalLineTo(6.4f)
+        arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.6f, -1.6f)
+        horizontalLineTo(19.2f)
+        arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.6f, 1.6f)
+        verticalLineTo(14.6f)
+        arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.6f, 1.6f)
+        horizontalLineTo(17.4f)
+        moveTo(12f, 13.4f); lineTo(16.4f, 19.8f); horizontalLineTo(7.6f); close()
     }.build()
 
-    /** Player casting glyph from the supplied interaction prototype. */
-    val Cast = strokeVector(
-        name = "cast",
-        width = 1.8f,
-        cap = StrokeCap.Round,
-        join = StrokeJoin.Round,
-    ) {
-        moveTo(6.5f, 16.5f); horizontalLineTo(4.5f)
-        arcToRelative(1.5f, 1.5f, 0f, false, true, -1.5f, -1.5f)
-        verticalLineTo(6.5f)
-        arcToRelative(1.5f, 1.5f, 0f, false, true, 1.5f, -1.5f)
-        horizontalLineTo(19.5f)
-        arcToRelative(1.5f, 1.5f, 0f, false, true, 1.5f, 1.5f)
-        verticalLineTo(15f)
-        arcToRelative(1.5f, 1.5f, 0f, false, true, -1.5f, 1.5f)
-        horizontalLineTo(17.5f)
-        moveTo(12f, 13.5f); lineTo(16.6f, 20f); horizontalLineTo(7.4f); close()
+    val PictureInPicture = strokeVector("picture-in-picture") {
+        roundRect(3.2f, 5.2f, 17.6f, 13.6f, 2.6f)
+        roundRect(12.2f, 11.4f, 6.6f, 5f, 1.4f)
     }.build()
 
-    val PictureInPicture = strokeVector(
-        name = "picture-in-picture",
-        cap = StrokeCap.Round,
-        join = StrokeJoin.Round,
-    ) {
-        roundRect(3f, 5f, 18f, 14f, 2f)
-        roundRect(12f, 11f, 7f, 5f, 1f)
+    // ------------------------------------------------------------ controls
+
+    val More = dotVector("more", 5.9f to 12f, 12f to 12f, 18.1f to 12f)
+
+    /** Pencil — 编辑服务器, and anything else that renames rather than replaces. */
+    val Edit = strokeVector("edit") {
+        moveTo(14.6f, 5.2f); lineTo(18.8f, 9.4f); lineTo(8.2f, 20f); lineTo(4f, 20f)
+        verticalLineTo(15.8f); close()
+    }.andPath {
+        // Where the shaft ends and the tip begins.
+        moveTo(13.2f, 6.6f); lineTo(17.4f, 10.8f)
     }.build()
 
-    /** Three-dot "more" glyph from the supplied interaction prototype. */
-    val More = fillVector("more") {
-        circle(5.5f, 12f, 1.7f)
-        circle(12f, 12f, 1.7f)
-        circle(18.5f, 12f, 1.7f)
-    }
-
-    /** `M15 5l-7 7 7 7` */
-    val ChevronLeft = strokeVector("chevron-left", cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        moveTo(15f, 5f); lineToRelative(-7f, 7f); lineToRelative(7f, 7f)
+    val ChevronLeft = strokeVector("chevron-left") {
+        moveTo(14.8f, 5.2f); lineTo(8.4f, 12f); lineTo(14.8f, 18.8f)
     }.build()
 
-    /** `M5 9l7 7 7-7` */
-    val ChevronDown = strokeVector("chevron-down", cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        moveTo(5f, 9f); lineToRelative(7f, 7f); lineToRelative(7f, -7f)
+    val ChevronDown = strokeVector("chevron-down") {
+        moveTo(5.2f, 9.2f); lineTo(12f, 15.6f); lineTo(18.8f, 9.2f)
     }.build()
 
-    /** Rotated [ChevronDown]: `M9 5l7 7-7 7`. */
-    val ChevronRight = strokeVector("chevron-right", cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        moveTo(9f, 5f); lineToRelative(7f, 7f); lineToRelative(-7f, 7f)
+    val ChevronRight = strokeVector("chevron-right") {
+        moveTo(9.2f, 5.2f); lineTo(15.6f, 12f); lineTo(9.2f, 18.8f)
     }.build()
 
-    /** `M4 12.5l5.5 5.5L20 6.5` */
-    val Check = strokeVector("check", cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        moveTo(4f, 12.5f); lineToRelative(5.5f, 5.5f); lineTo(20f, 6.5f)
+    val Check = strokeVector("check") {
+        moveTo(4.6f, 12.6f); lineTo(9.7f, 17.7f); lineTo(19.4f, 6.9f)
     }.build()
 
-    /** `M5 5l14 14M19 5L5 19` */
-    val Close = strokeVector("close", cap = StrokeCap.Round) {
-        moveTo(5f, 5f); lineToRelative(14f, 14f)
-        moveTo(19f, 5f); lineTo(5f, 19f)
+    val Close = strokeVector("close") {
+        moveTo(5.6f, 5.6f); lineTo(18.4f, 18.4f)
+        moveTo(18.4f, 5.6f); lineTo(5.6f, 18.4f)
     }.build()
 
-    val Search = strokeVector("search") {
-        circle(10.5f, 10.5f, 6.5f)
-    }.andPath(cap = StrokeCap.Round) {
-        moveTo(20f, 20f); lineToRelative(-4.8f, -4.8f)
-    }.build()
+    val Search = search("search")
 
-    /** `M12 5v14M5 12h14` */
-    val Add = strokeVector("add", cap = StrokeCap.Round) {
-        moveTo(12f, 5f); verticalLineToRelative(14f)
-        moveTo(5f, 12f); horizontalLineToRelative(14f)
+    val Add = strokeVector("add") {
+        moveTo(12f, 4.8f); verticalLineTo(19.2f)
+        moveTo(4.8f, 12f); horizontalLineTo(19.2f)
     }.build()
 
     /**
      * ↻ — 追剧日历's manual re-check.
      *
-     * Three-quarters of a circle with an arrowhead on the open end, which is the shape
-     * everyone reads as "do that again". Drawn rather than borrowed so it carries the same
-     * 1.8 stroke as everything beside it.
+     * Three quarters of a circle with an arrowhead on the open end, which is the shape
+     * everyone reads as "do that again".
      */
-    val Refresh = strokeVector("refresh", cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        // The gap sits at the top right, where the arrowhead goes.
-        moveTo(19.5f, 8.5f)
-        arcToRelative(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = false, 1.5f, 4.5f)
-        // The arrowhead, pointing back along the arc.
-        moveTo(19.5f, 3.5f)
-        verticalLineTo(8.5f)
-        horizontalLineTo(14.5f)
+    val Refresh = strokeVector("refresh") {
+        moveTo(19.2f, 8.8f)
+        arcToRelative(7.6f, 7.6f, 0f, isMoreThanHalf = true, isPositiveArc = false, 1.4f, 4.2f)
+        moveTo(19.2f, 4.2f)
+        verticalLineTo(8.8f)
+        horizontalLineTo(14.6f)
     }.build()
 
-    /** Source prototype's download glyph. */
-    val Download = strokeVector("download", width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        moveTo(12f, 4f); verticalLineTo(15f)
-        moveTo(12f, 15f); lineTo(7.5f, 10.5f)
-        moveTo(12f, 15f); lineTo(16.5f, 10.5f)
-        moveTo(4.5f, 19f); horizontalLineTo(19.5f)
+    val Download = strokeVector("download") {
+        moveTo(12f, 4.4f); verticalLineTo(14.8f)
+        moveTo(12f, 14.8f); lineTo(7.7f, 10.5f)
+        moveTo(12f, 14.8f); lineTo(16.3f, 10.5f)
+        moveTo(4.8f, 19.2f); horizontalLineTo(19.2f)
     }.build()
 
-    /** 片源 — the detail page marks each reachable server with a cloud. */
-    val Cloud = strokeVector("cloud", cap = StrokeCap.Round, join = StrokeJoin.Round) {
-        // M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z
-        moveTo(18f, 10f)
-        horizontalLineToRelative(-1.26f)
-        arcToRelative(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = false, -7.74f, 10f)
-        horizontalLineToRelative(9f)
-        arcToRelative(5f, 5f, 0f, isMoreThanHalf = false, isPositiveArc = false, 0f, -10f)
+    /**
+     * 片源 — the detail page marks each reachable server with a cloud.
+     *
+     * Redrawn on the shared box. The transcribed original was built on an r=8 lobe that put
+     * the shape from x=1 to x=23, half again the width of everything it sat beside.
+     */
+    val Cloud = strokeVector("cloud") {
+        moveTo(17.2f, 11.2f)
+        horizontalLineToRelative(-1.05f)
+        arcToRelative(6.2f, 6.2f, 0f, isMoreThanHalf = true, isPositiveArc = false, -6f, 7.75f)
+        horizontalLineToRelative(7.05f)
+        arcToRelative(3.9f, 3.9f, 0f, isMoreThanHalf = false, isPositiveArc = false, 0f, -7.75f)
         close()
     }.build()
 
-    /** ⓘ — the hero's 详情 button and the detail page's 技术规格 affordance. */
-    val Info = strokeVector("info") {
-        circle(12f, 12f, 9f)
-    }.andPath(cap = StrokeCap.Round) {
-        moveTo(12f, 11f); verticalLineToRelative(5.5f)
-        moveTo(12f, 7.8f); verticalLineToRelative(0.01f)
+    /** 详情 — the button supplies the glass circle, so the glyph must not supply another. */
+    val Info = strokeVector("info", width = 2.2f) {
+        moveTo(12f, 5.8f); verticalLineTo(14.1f)
+        moveTo(12f, 18.1f); verticalLineTo(18.2f)
     }.build()
 
     // ------------------------------------------------- state glyphs (收藏 / 稍后 / 评分)
 
     /** 收藏 — outline; [HeartFilled] is the same contour filled. */
-    val Heart = strokeVector("heart", join = StrokeJoin.Round) { heart() }.build()
-    val HeartFilled = fillVector("heart-filled") { heart() }
+    val Heart = strokeVector("heart") { heart() }.build()
+    val HeartFilled = solidVector("heart-filled") { heart() }
 
     /** 稍后观看 — outline bookmark; [BookmarkFilled] marks the queued state. */
-    val Bookmark = strokeVector("bookmark", join = StrokeJoin.Round) { bookmark() }.build()
-    val BookmarkFilled = fillVector("bookmark-filled") { bookmark() }
+    val Bookmark = strokeVector("bookmark") { bookmark() }.build()
+    val BookmarkFilled = solidVector("bookmark-filled") { bookmark() }
 
     /** 评分 — the star that precedes a community rating. */
-    val Star = strokeVector("star", join = StrokeJoin.Round) { star() }.build()
-    val StarFilled = fillVector("star-filled") { star() }
+    val Star = strokeVector("star") { star() }.build()
+    val StarFilled = solidVector("star-filled") { star() }
 }
 
-// ---------------------------------------------------------------- vector plumbing
+// ---------------------------------------------------------------- the system
 
 private const val VIEWPORT = 24f
 
-/** Accumulates stroked sub-paths so one icon can mix caps and joins. */
+/** The optical square every glyph is drawn inside: x, y ∈ [3, 21]. */
+private const val BOX = 18f
+
+/** One weight for the whole set. */
+private const val STROKE = 1.8f
+
+/** Fine rounded edge for the enlarged bottom-navigation glass glyphs. */
+private const val TAB_STROKE = 1.6f
+
+/**
+ * Solid glyphs sit a unit inside [BOX]: equal areas of ink and outline do not read as
+ * equal, and a filled square always looks larger than a drawn one.
+ */
+private const val SOLID_BOX = 16f
+
+/**
+ * The hairline that rounds a solid glyph's corners.
+ *
+ * A filled path has no joins to round, so a play triangle came to three needle points in
+ * an interface with no sharp corner anywhere else. Stroking the same path in the same
+ * colour, round-joined, blunts them — and the geometry above is drawn [SOFTEN] / 2 small
+ * to pay for the width the stroke adds back.
+ */
+private const val SOFTEN = 1f
+
+/** A dot's radius, wherever the set needs one. */
+private const val DOT = 0.85f
+
+/** Accumulates sub-paths so one icon can mix stroked and filled parts. */
 private class VectorParts(
     val name: String,
     val builder: ImageVector.Builder,
 )
 
+/**
+ * A stroked glyph. Round caps and round joins are the default, not an option a call site
+ * has to remember — forgetting them is exactly how the set drifted.
+ */
 private fun strokeVector(
     name: String,
-    width: Float = 1.8f,
-    cap: StrokeCap = StrokeCap.Butt,
-    join: StrokeJoin = StrokeJoin.Miter,
+    width: Float = STROKE,
+    cap: StrokeCap = StrokeCap.Round,
+    join: StrokeJoin = StrokeJoin.Round,
     block: PathBuilder.() -> Unit,
 ): VectorParts =
     VectorParts(name, newBuilder(name)).andPath(width, cap, join, block)
 
 private fun VectorParts.andPath(
-    width: Float = 1.8f,
-    cap: StrokeCap = StrokeCap.Butt,
-    join: StrokeJoin = StrokeJoin.Miter,
+    width: Float = STROKE,
+    cap: StrokeCap = StrokeCap.Round,
+    join: StrokeJoin = StrokeJoin.Round,
     block: PathBuilder.() -> Unit,
 ): VectorParts = apply {
     builder.path(
@@ -353,12 +360,47 @@ private fun VectorParts.andPath(
     )
 }
 
+/** Filled dots at [centres], all at [DOT]. */
+private fun VectorParts.andDots(vararg centres: Pair<Float, Float>): VectorParts = apply {
+    builder.path(fill = SolidColor(Color.Black)) {
+        centres.forEach { (x, y) -> circle(x, y, DOT) }
+    }
+}
+
 private fun VectorParts.build(): ImageVector = builder.build()
 
-private fun fillVector(name: String, block: PathBuilder.() -> Unit): ImageVector =
+/** A solid glyph with its corners rounded — see [SOFTEN]. */
+private fun solidVector(name: String, block: PathBuilder.() -> Unit): ImageVector =
     newBuilder(name)
-        .path(fill = SolidColor(Color.Black), pathBuilder = block)
+        .path(
+            fill = SolidColor(Color.Black),
+            stroke = SolidColor(Color.Black),
+            strokeLineWidth = SOFTEN,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            pathBuilder = block,
+        )
         .build()
+
+private fun dotVector(name: String, vararg centres: Pair<Float, Float>): ImageVector =
+    newBuilder(name)
+        .path(fill = SolidColor(Color.Black)) {
+            centres.forEach { (x, y) -> circle(x, y, 1.65f) }
+        }
+        .build()
+
+/** 搜索 — one drawing, used by both the tab bar and the pages. */
+private fun search(
+    name: String,
+    width: Float = STROKE,
+    radius: Float = 6.4f,
+    center: Float = 10.6f,
+    handleEnd: Float = 20.1f,
+) = strokeVector(name, width = width) {
+    circle(center, center, radius)
+}.andPath(width = width) {
+    moveTo(handleEnd, handleEnd); lineTo(center + radius * 0.74f, center + radius * 0.74f)
+}.build()
 
 private fun newBuilder(name: String) = ImageVector.Builder(
     name = name,
@@ -378,42 +420,42 @@ private fun PathBuilder.circle(cx: Float, cy: Float, r: Float) {
 
 /** One closed heart contour, drawn either stroked or filled. */
 private fun PathBuilder.heart() {
-    moveTo(12f, 20.6f)
-    lineToRelative(-1.35f, -1.23f)
-    curveTo(5.9f, 15.05f, 2.8f, 12.2f, 2.8f, 8.7f)
-    curveTo(2.8f, 5.85f, 5.05f, 3.6f, 7.9f, 3.6f)
-    curveToRelative(1.61f, 0f, 3.15f, 0.75f, 4.1f, 1.93f)
-    curveTo(12.95f, 4.35f, 14.49f, 3.6f, 16.1f, 3.6f)
-    curveToRelative(2.85f, 0f, 5.1f, 2.25f, 5.1f, 5.1f)
-    curveToRelative(0f, 3.5f, -3.1f, 6.35f, -7.85f, 10.67f)
+    moveTo(12f, 20f)
+    lineToRelative(-1.24f, -1.13f)
+    curveTo(6.15f, 14.83f, 3.3f, 12.2f, 3.3f, 8.98f)
+    curveTo(3.3f, 6.36f, 5.37f, 4.29f, 7.99f, 4.29f)
+    curveToRelative(1.48f, 0f, 2.9f, 0.69f, 3.77f, 1.78f)
+    curveTo(12.63f, 4.98f, 14.05f, 4.29f, 15.53f, 4.29f)
+    curveToRelative(2.62f, 0f, 4.69f, 2.07f, 4.69f, 4.69f)
+    curveToRelative(0f, 3.22f, -2.85f, 5.85f, -7.22f, 9.82f)
     close()
 }
 
 /** One closed bookmark contour, drawn either stroked or filled. */
 private fun PathBuilder.bookmark() {
-    moveTo(7.5f, 3.6f)
-    horizontalLineTo(16.5f)
+    moveTo(7.8f, 4.2f)
+    horizontalLineTo(16.2f)
     arcToRelative(1.4f, 1.4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.4f, 1.4f)
-    verticalLineTo(20.4f)
-    lineTo(12f, 16.6f)
-    lineTo(6.1f, 20.4f)
-    verticalLineTo(5f)
+    verticalLineTo(19.8f)
+    lineTo(12f, 16.3f)
+    lineTo(6.4f, 19.8f)
+    verticalLineTo(5.6f)
     arcToRelative(1.4f, 1.4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.4f, -1.4f)
     close()
 }
 
 /** One closed five-point star, drawn either stroked or filled. */
 private fun PathBuilder.star() {
-    moveTo(12f, 3.6f)
-    lineToRelative(2.6f, 5.3f)
-    lineToRelative(5.8f, 0.85f)
-    lineToRelative(-4.2f, 4.1f)
-    lineToRelative(1f, 5.8f)
-    lineTo(12f, 16.9f)
-    lineToRelative(-5.2f, 2.75f)
-    lineToRelative(1f, -5.8f)
-    lineToRelative(-4.2f, -4.1f)
-    lineToRelative(5.8f, -0.85f)
+    moveTo(12f, 4.2f)
+    lineToRelative(2.45f, 4.99f)
+    lineToRelative(5.46f, 0.8f)
+    lineToRelative(-3.95f, 3.86f)
+    lineToRelative(0.94f, 5.46f)
+    lineTo(12f, 16.73f)
+    lineToRelative(-4.9f, 2.59f)
+    lineToRelative(0.94f, -5.46f)
+    lineTo(4.09f, 9.99f)
+    lineToRelative(5.46f, -0.8f)
     close()
 }
 

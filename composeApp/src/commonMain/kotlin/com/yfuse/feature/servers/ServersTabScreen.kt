@@ -500,11 +500,15 @@ private fun ServerCard(
         ) {
             Box(
                 Modifier
-                    .size(26.dp)
-                    .glass(
-                        shape = GlassShapes.thumb,
+                    .size(28.dp)
+                    // Round, and the app's own glass rather than a flat chip: it sits on a
+                    // card that is already liquid glass, so a second, duller material for
+                    // the one control on that card read as a sticker on top of it.
+                    .liquidGlass(
+                        shape = CircleShape,
                         fill = if (isCurrent) accent.container else palette.card2,
                         border = if (isCurrent) accent.border.copy(alpha = 0.5f) else palette.border,
+                        sheen = 0.9f,
                     ),
                 contentAlignment = Alignment.Center,
             ) {

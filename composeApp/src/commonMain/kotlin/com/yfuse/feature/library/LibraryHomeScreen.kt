@@ -779,7 +779,7 @@ private fun HeroCarousel(
                             AppIcons.Info,
                             null,
                             tint = Color.White,
-                            modifier = Modifier.size(13.dp),
+                            modifier = Modifier.size(19.dp),
                         )
                     }
                     Text("查看详情", style = AppTypography.body.strong, color = Color.White)
