@@ -186,9 +186,15 @@ private fun AnimatedSplashScreen(
                 },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // The ribbon without its own motion lines: 折带展开 animates the streak
-            // separately, and a mark that already carried one would draw two.
-            val mark = ImageBitmap.imageResource(R.drawable.yfuse_mark_ribbon)
+            // Keep launcher Logo and splash artwork paired. 折带展开 belongs to the
+            // legacy cloud-player mark; 水火交接 belongs to the current water-fire mark.
+            val mark = ImageBitmap.imageResource(
+                if (choreography === SplashOne) {
+                    R.drawable.cloud_player_logo
+                } else {
+                    R.drawable.yfuse_mark_ribbon
+                },
+            )
             Canvas(
                 Modifier
                     // B lays the streak column and the mark out across one row 240 units

@@ -42,7 +42,12 @@ actual fun SplashPreview(
 
     // The clock is read inside the draw lambda, so looping this in a settings list costs
     // recomposition nothing.
-    val mark = ImageBitmap.imageResource(R.drawable.yfuse_mark)
+    val mark = ImageBitmap.imageResource(
+        when (variant) {
+            SplashAnimation.One -> R.drawable.cloud_player_logo
+            SplashAnimation.Two -> R.drawable.yfuse_mark
+        },
+    )
     Canvas(modifier) { with(choreography) { drawMark(clock.value, mark) } }
 }
 
