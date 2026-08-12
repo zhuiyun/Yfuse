@@ -1,5 +1,6 @@
 from pathlib import Path
 from textwrap import dedent
+import re
 
 
 def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
@@ -7,87 +8,85 @@ def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
     text = p.read_text()
     count = text.count(old)
     if count != expected:
-        raise SystemExit(f"{path}: expected {expected} matches, found {count}")
+        raise SystemExit(f"{path}: expected {expected} exact matches, found {count}")
     p.write_text(text.replace(old, new, expected))
 
 
-# 1) 毛玻璃必须覆盖 flatGlass。设置页大量通过 flatGlass 绘制，之前这里完全
-# 忽略 GlassStyle，导致切换视觉效果在设置页看起来像没有生效。
+def replace_regex(path: str, pattern: str, replacement: str, expected: int = 1) -> None:
+    p = Path(path)
+    text = p.read_text()
+    updated, count = re.subn(pattern, replacement, text, count=expected, flags=re.S)
+    if count != expected:
+        raise SystemExit(f"{path}: expected {expected} regex matches, found {count}")
+    p.write_text(updated)
+
+
+# 1) 毛玻璃必须覆盖 flatGlass。设置页大量通过 flatGlass 绘制；0.2.52 里它完全
+# 忽略 LocalGlassStyle，所以在这个页面切换“毛玻璃 / 液态玻璃”几乎看不到变化。
 glass = "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Glass.kt"
-replace_exact(
+flat_glass = dedent('''\
+@Composable
+fun Modifier.flatGlass(
+    shape: Shape = GlassShapes.card,
+    fill: Color = LocalPalette.current.card,
+    border: Color? = LocalPalette.current.border,
+): Modifier {
+    val palette = LocalPalette.current
+    val accessibility = LocalAccessibilityOptions.current
+    val resolvedFill = if (accessibility.reduceTransparency) {
+        reducedTransparencyFill(fill, palette)
+    } else {
+        fill
+    }
+    val resolvedBorder = if (accessibility.reduceTransparency) {
+        reducedTransparencyBorder(border, palette)
+    } else {
+        border
+    }
+    val surface = if (accessibility.reduceTransparency || frostedGlass()) {
+        Brush.linearGradient(listOf(resolvedFill, resolvedFill))
+    } else {
+        cssLinearGradient(
+            145f,
+            0f to Color.White.copy(alpha = if (palette.isDark) 0.13f else 0.58f),
+            0.26f to resolvedFill.copy(
+                alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f),
+            ),
+            0.72f to resolvedFill,
+            1f to resolvedFill.copy(
+                alpha = (resolvedFill.alpha * 0.80f).coerceIn(0f, 1f),
+            ),
+        )
+    }
+    return this
+        .clip(shape)
+        .background(surface)
+        .let { modifier ->
+            if (resolvedBorder != null) {
+                modifier.border(Dimens.hairline, resolvedBorder, shape)
+            } else {
+                modifier
+            }
+        }
+}
+''')
+replace_regex(
     glass,
-    dedent('''\
-    /**
-     * Liquid-glass surface without a directional colour ramp.
-     *
-     * Profile and form controls use this variant when hierarchy should come from
-     * translucency, a single fill and the luminous edge.
-     */
-    '''),
-    dedent('''\
-    /**
-     * Quiet glass surface used by dense forms and settings.
-     *
-     * It still participates in the user's material choice: Liquid keeps a restrained
-     * directional sheen, while Frosted is a single translucent pane. This distinction
-     * matters most on settings pages, which intentionally use flatGlass almost everywhere.
-     */
-    '''),
+    r'@Composable\nfun Modifier\.flatGlass\(.*?\n}\n\n/\*\*\n \* Liquid-glass surface with a single-colour edge\.',
+    flat_glass + '\n/**\n * Liquid-glass surface with a single-colour edge.',
 )
 replace_exact(
     glass,
-    dedent('''\
-        val resolvedBorder = if (accessibility.reduceTransparency) {
-            reducedTransparencyBorder(border, palette)
-        } else {
-            border
-        }
-        return this
-            .clip(shape)
-            .background(resolvedFill)
-            .let { modifier ->
-    '''),
-    dedent('''\
-        val resolvedBorder = if (accessibility.reduceTransparency) {
-            reducedTransparencyBorder(border, palette)
-        } else {
-            border
-        }
-        val surface = if (accessibility.reduceTransparency || frostedGlass()) {
-            Brush.linearGradient(listOf(resolvedFill, resolvedFill))
-        } else {
-            cssLinearGradient(
-                145f,
-                0f to Color.White.copy(alpha = if (palette.isDark) 0.13f else 0.58f),
-                0.26f to resolvedFill.copy(
-                    alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f),
-                ),
-                0.72f to resolvedFill,
-                1f to resolvedFill.copy(
-                    alpha = (resolvedFill.alpha * 0.80f).coerceIn(0f, 1f),
-                ),
-            )
-        }
-        return this
-            .clip(shape)
-            .background(surface)
-            .let { modifier ->
-    '''),
+    ' * Liquid-glass surface without a directional colour ramp.\n *\n * Profile and form controls use this variant when hierarchy should come from\n * translucency, a single fill and the luminous edge.\n',
+    ' * Quiet glass surface used by dense forms and settings.\n *\n * Liquid keeps a restrained directional sheen; Frosted removes that sheen and keeps a\n * single translucent pane. Settings use this variant heavily, so it must honor GlassStyle.\n',
 )
 
 # 2) APP 图标选择改为带真实预览的专用面板，同时把文案说清楚。
 icon_variant = "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppIconVariant.kt"
 replace_exact(
     icon_variant,
-    dedent('''\
-     * The mark is the same in all of them and only its ground changes: an alternate icon has to
-     * remain recognisable as this app on a home screen the user already knows, so this is a
-     * choice of colour, not of logo.
-    '''),
-    dedent('''\
-     * The current water-fire mark is available on light and graphite grounds, and the previous
-     * cloud-player mark remains a real alternate for people who recognise the app by that shape.
-    '''),
+    ' * The mark is the same in all of them and only its ground changes: an alternate icon has to\n * remain recognisable as this app on a home screen the user already knows, so this is a\n * choice of colour, not of logo.\n',
+    ' * The current water-fire mark is available on light and graphite grounds, and the previous\n * cloud-player mark remains a real alternate for people who recognise the app by that shape.\n',
 )
 replace_exact(
     icon_variant,
@@ -101,66 +100,26 @@ replace_exact(
 )
 
 profile = "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt"
-replace_exact(
+replace_regex(
     profile,
+    r'            Sheet\.AppIcon -> OptionSheet\(.*?                onDismiss = \{ sheet = null \},\n            \)',
     dedent('''\
-                Sheet.AppIcon -> OptionSheet(
-                    title = "APP 图标",
-                    subtitle = "更换后启动器可能需要几秒才会刷新",
-                    options = AppIconVariant.entries.map { it.label to (it == appIcon) },
-                    descriptions = AppIconVariant.entries.map { it.description },
-                    onSelect = { index ->
-                        val chosen = AppIconVariant.entries[index]
-                        setAppIconVariant(chosen)
-                        appIcon = chosen
-                        sheet = null
-                    },
-                    onDismiss = { sheet = null },
-                )
-    '''),
-    dedent('''\
-                Sheet.AppIcon -> AppIconSheet(
-                    current = appIcon,
-                    onSelect = { chosen ->
-                        setAppIconVariant(chosen)
-                        appIcon = chosen
-                        sheet = null
-                    },
-                    onDismiss = { sheet = null },
-                )
-    '''),
+            Sheet.AppIcon -> AppIconSheet(
+                current = appIcon,
+                onSelect = { chosen ->
+                    setAppIconVariant(chosen)
+                    appIcon = chosen
+                    sheet = null
+                },
+                onDismiss = { sheet = null },
+            )'''),
 )
 
 # 下载项原本只有一枚裸 glyph，和现在的彩色设置图标体系不一致。
-replace_exact(
+replace_regex(
     profile,
-    dedent('''\
-        val label: @Composable () -> Unit = {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    AppIcons.Download,
-                    null,
-                    tint = accent.accent,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text("下载与离线库", style = AppTypography.body.medium, color = palette.text)
-            }
-        }
-    '''),
-    dedent('''\
-        val label: @Composable () -> Unit = {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SettingIconTile(AppIcons.Download, SettingTint.downloads)
-                Text("下载与离线库", style = AppTypography.body.medium, color = palette.text)
-            }
-        }
-    '''),
+    r'            Icon\(\n                AppIcons\.Download,\n                null,\n                tint = accent\.accent,\n                modifier = Modifier\.size\(16\.dp\),\n            \)',
+    '            SettingIconTile(AppIcons.Download, SettingTint.downloads)',
 )
 
 # 3) 检测升级补齐对应设置图标。
@@ -172,82 +131,24 @@ replace_exact(
 )
 replace_exact(
     update_tools,
-    dedent('''\
-        SettingRow(
-            title = "检测升级",
-            value = "暂不可用",
-        )
-    '''),
-    dedent('''\
-        SettingRow(
-            title = "检测升级",
-            value = "暂不可用",
-            icon = AppIcons.Refresh,
-            iconTint = SettingTint.sync,
-        )
-    '''),
+    '            SettingRow(\n                title = "检测升级",\n                value = "暂不可用",\n            )\n',
+    '            SettingRow(\n                title = "检测升级",\n                value = "暂不可用",\n                icon = AppIcons.Refresh,\n                iconTint = SettingTint.sync,\n            )\n',
 )
 replace_exact(
     update_tools,
-    dedent('''\
-        SettingRow(
-            title = "检测升级",
-            value = value,
-            embedded = true,
-            onClick = onClick,
-        )
-    '''),
-    dedent('''\
-        SettingRow(
-            title = "检测升级",
-            value = value,
-            embedded = true,
-            onClick = onClick,
-            icon = AppIcons.Refresh,
-            iconTint = SettingTint.sync,
-        )
-    '''),
+    '            SettingRow(\n                title = "检测升级",\n                value = value,\n                embedded = true,\n                onClick = onClick,\n            )\n',
+    '            SettingRow(\n                title = "检测升级",\n                value = value,\n                embedded = true,\n                onClick = onClick,\n                icon = AppIcons.Refresh,\n                iconTint = SettingTint.sync,\n            )\n',
 )
 
-# 4) 服务器布局切换：布局变化时重建 LazyGrid；顶部两枚圆形键视觉从 48dp 收到
-# 42dp，点击区域仍由 touchTarget 保持 48dp。
+# 4) 服务器布局切换。
+# 0.2.52 的 Grid 最小卡片 158dp，在部分手机的实际内容宽度里只够 1 列，因此
+# “网格”和“列表”最终都是 1 列，看起来完全没反应。降低到 146dp，窄手机也能明确
+# 得到两列；列表仍固定 1 列。顶部两枚圆形按钮视觉收至 42dp，但点击区仍保持 48dp。
 servers = "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt"
 replace_exact(
     servers,
-    'import androidx.compose.runtime.getValue\n',
-    'import androidx.compose.runtime.getValue\nimport androidx.compose.runtime.key\n',
-)
-replace_exact(
-    servers,
     'private val ServerCardMinWidth = 158.dp\n',
-    'private val ServerCardMinWidth = 158.dp\nprivate val ServerHeaderCircleSize = 42.dp\n',
-)
-replace_exact(
-    servers,
-    '        ) {\n            LazyVerticalGrid(\n',
-    '        ) {\n            key(layout) {\n                LazyVerticalGrid(\n',
-)
-replace_exact(
-    servers,
-    dedent('''\
-                    onMore = { actionsFor = server },
-                )
-            }
-        }
-    }
-
-    actionsFor?.let { server ->
-    '''),
-    dedent('''\
-                    onMore = { actionsFor = server },
-                )
-            }
-        }
-        }
-    }
-
-    actionsFor?.let { server ->
-    '''),
+    'private val ServerCardMinWidth = 146.dp\nprivate val ServerHeaderCircleSize = 42.dp\n',
 )
 replace_exact(
     servers,
@@ -257,18 +158,11 @@ replace_exact(
 )
 replace_exact(
     servers,
-    dedent('''\
-                .pressable(
-                    onClickLabel = if (layout == ServerLayout.Grid) {
-    '''),
-    dedent('''\
-                .pressable(
-                    haptic = HapticSignal.Select,
-                    onClickLabel = if (layout == ServerLayout.Grid) {
-    '''),
+    '                        .pressable(\n                            onClickLabel = if (layout == ServerLayout.Grid) {\n',
+    '                        .pressable(\n                            haptic = HapticSignal.Select,\n                            onClickLabel = if (layout == ServerLayout.Grid) {\n',
 )
 
-# 5) 图标预览面板：直接显示当前 launcher 标志和旧云朵播放器标志。
+# 5) 图标预览面板：直接显示当前 launcher Logo 与旧云朵播放器 Logo。
 Path("composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppIconSheet.kt").write_text(dedent('''\
 package com.yfuse.feature.profile
 
@@ -316,14 +210,12 @@ internal fun AppIconSheet(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "APP 图标",
-            subtitle = "选择时直接预览 Logo；启动器可能需要几秒才会刷新",
+            subtitle = "直接预览当前 Logo 与旧版 Logo；启动器可能需要几秒刷新",
             onClose = onDismiss,
         )
         Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
             AppIconVariant.entries.forEach { option ->
                 val isSelected = option == current
-                val fill = if (isSelected) accent.container else palette.card2
-                val border = if (isSelected) accent.border else palette.border
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -336,7 +228,11 @@ internal fun AppIconSheet(
                         )
                         .semantics { selected = isSelected }
                         .heightIn(min = 72.dp)
-                        .flatGlass(GlassShapes.chip, fill, border)
+                        .flatGlass(
+                            GlassShapes.chip,
+                            if (isSelected) accent.container else palette.card2,
+                            if (isSelected) accent.border else palette.border,
+                        )
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -345,11 +241,7 @@ internal fun AppIconSheet(
                     Column(Modifier.weight(1f)) {
                         androidx.compose.material3.Text(
                             option.label,
-                            style = if (isSelected) {
-                                AppTypography.body.strong
-                            } else {
-                                AppTypography.body.medium
-                            },
+                            style = if (isSelected) AppTypography.body.strong else AppTypography.body.medium,
                             color = if (isSelected) accent.accent else palette.text,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -363,10 +255,7 @@ internal fun AppIconSheet(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Box(
-                        Modifier.size(MinTouchTarget),
-                        contentAlignment = Alignment.Center,
-                    ) {
+                    Box(Modifier.size(MinTouchTarget), contentAlignment = Alignment.Center) {
                         if (isSelected) {
                             Box(
                                 Modifier
@@ -414,7 +303,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.yfuse.R
-import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.GlassShapes
 
 @Composable
 internal actual fun AppIconPreview(variant: AppIconVariant, modifier: Modifier) {
@@ -429,7 +318,7 @@ internal actual fun AppIconPreview(variant: AppIconVariant, modifier: Modifier) 
     }
     Box(
         modifier
-            .clip(AppShapes.thumb)
+            .clip(GlassShapes.appIcon)
             .background(background)
             .padding(if (variant == AppIconVariant.CloudPlayer) 4.dp else 6.dp),
         contentAlignment = Alignment.Center,
@@ -444,7 +333,8 @@ internal actual fun AppIconPreview(variant: AppIconVariant, modifier: Modifier) 
 }
 '''))
 
-# 6) 主题色合同：每个选项在浅/深主题都必须解析成不同的交互色。
+# 6) 主题色合同：每个选项在浅/深主题都必须解析成不同交互色。根 App 已经收集 accent
+# StateFlow 并把它传给 YfuseTheme；这个测试固定“十个选项确实会产生十个不同结果”。
 Path("composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/AccentColorContractTest.kt").write_text(dedent('''\
 package com.yfuse.core.designsystem
 
@@ -465,6 +355,24 @@ class AccentColorContractTest {
     }
 }
 '''))
+
+# 7) 服务器布局持久化合同：切换后重建 ThemePreferences（等价于进程重启）仍保持选择。
+prefs_test = "composeApp/src/commonTest/kotlin/com/yfuse/core/data/ThemePreferencesTest.kt"
+replace_exact(
+    prefs_test,
+    'import com.yfuse.core.model.PlayerEngine\n',
+    'import com.yfuse.core.model.PlayerEngine\nimport com.yfuse.core.model.ServerLayout\n',
+)
+replace_exact(
+    prefs_test,
+    '            setSplashVariant(SplashAnimation.Two)\n',
+    '            setSplashVariant(SplashAnimation.Two)\n            setServerLayout(ServerLayout.List)\n',
+)
+replace_exact(
+    prefs_test,
+    '        assertEquals(SplashAnimation.Two, restored.splashVariant.value)\n',
+    '        assertEquals(SplashAnimation.Two, restored.splashVariant.value)\n        assertEquals(ServerLayout.List, restored.serverLayout.value)\n',
+)
 
 # Helper transport files are removed from the resulting PR diff.
 Path(".github/workflows/agent-apply-ui-fixes.yml").unlink()
