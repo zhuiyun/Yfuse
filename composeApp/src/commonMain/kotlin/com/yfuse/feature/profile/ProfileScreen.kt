@@ -115,6 +115,7 @@ private enum class Sheet {
     // and [AccentPickerRow] — so they no longer have sheets of their own.
     StartupTab,
     Background,
+    AppIcon,
     Engine,
     Decoder,
     DanmakuSource,
@@ -158,6 +159,9 @@ fun ProfileScreen(component: ProfileComponent) {
     val glassStyle by prefs.glassStyle.collectAsState()
     val backgroundImage by prefs.backgroundImage.collectAsState()
     val backgroundDim by prefs.backgroundDim.collectAsState()
+    // Read from the package manager rather than a preference: the launcher's component state
+    // is the truth, and it survives a reinstall of the app's own settings.
+    var appIcon by remember { mutableStateOf(currentAppIconVariant()) }
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
@@ -270,6 +274,7 @@ fun ProfileScreen(component: ProfileComponent) {
                             mode = mode,
                             accent = accent,
                             glassStyle = glassStyle,
+                            appIconSummary = "${appIcon.label} ›",
                             backgroundSummary = if (backgroundImage == null) {
                                 "未设置 ›"
                             } else {
@@ -283,6 +288,7 @@ fun ProfileScreen(component: ProfileComponent) {
                             onThemeMode = prefs::setMode,
                             onAccent = prefs::setAccent,
                             onGlassStyle = prefs::setGlassStyle,
+                            onAppIcon = { sheet = Sheet.AppIcon },
                             onBackground = { sheet = Sheet.Background },
                             onSplash = { openPage(ProfilePage.Splash) },
                             onStartupTab = { sheet = Sheet.StartupTab },
@@ -495,6 +501,20 @@ fun ProfileScreen(component: ProfileComponent) {
         }
 
         when (sheet) {
+            Sheet.AppIcon -> OptionSheet(
+                title = "APP 图标",
+                subtitle = "更换后启动器可能需要几秒才会刷新",
+                options = AppIconVariant.entries.map { it.label to (it == appIcon) },
+                descriptions = AppIconVariant.entries.map { it.description },
+                onSelect = { index ->
+                    val chosen = AppIconVariant.entries[index]
+                    setAppIconVariant(chosen)
+                    appIcon = chosen
+                    sheet = null
+                },
+                onDismiss = { sheet = null },
+            )
+
             Sheet.Background -> BackgroundImageSheet(
                 current = backgroundImage,
                 dim = backgroundDim,

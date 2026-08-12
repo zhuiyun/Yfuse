@@ -182,6 +182,7 @@ internal fun AppearanceSettingsScreen(
     mode: ThemeMode,
     accent: AccentColor,
     glassStyle: GlassStyle,
+    appIconSummary: String,
     backgroundSummary: String,
     splashSummary: String,
     startupSummary: String,
@@ -191,6 +192,7 @@ internal fun AppearanceSettingsScreen(
     onThemeMode: (ThemeMode) -> Unit,
     onAccent: (AccentColor) -> Unit,
     onGlassStyle: (GlassStyle) -> Unit,
+    onAppIcon: () -> Unit,
     onBackground: () -> Unit,
     onSplash: () -> Unit,
     onStartupTab: () -> Unit,
@@ -226,6 +228,15 @@ internal fun AppearanceSettingsScreen(
                         selectedIndex = GlassStyle.entries.indexOf(glassStyle),
                         onSelect = { onGlassStyle(GlassStyle.entries[it]) },
                         icon = AppIcons.Grid,
+                        iconTint = SettingTint.components,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "APP 图标",
+                        appIconSummary,
+                        true,
+                        onAppIcon,
+                        icon = AppIcons.Bookmark,
                         iconTint = SettingTint.components,
                     )
                     SettingsDivider()
