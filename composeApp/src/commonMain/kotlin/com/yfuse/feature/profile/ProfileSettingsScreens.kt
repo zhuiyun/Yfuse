@@ -4,6 +4,9 @@ import androidx.compose.runtime.Composable
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.designsystem.AccentColor
+import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.GlassStyle
+import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 
@@ -178,13 +181,17 @@ internal fun AppearanceSettingsScreen(
     onBack: () -> Unit,
     mode: ThemeMode,
     accent: AccentColor,
+    glassStyle: GlassStyle,
+    backgroundSummary: String,
     splashSummary: String,
     startupSummary: String,
     reduceTransparency: Boolean,
     largeText: Boolean,
     reduceMotion: Boolean,
-    onThemeMode: () -> Unit,
-    onAccent: () -> Unit,
+    onThemeMode: (ThemeMode) -> Unit,
+    onAccent: (AccentColor) -> Unit,
+    onGlassStyle: (GlassStyle) -> Unit,
+    onBackground: () -> Unit,
     onSplash: () -> Unit,
     onStartupTab: () -> Unit,
     onReduceTransparency: (Boolean) -> Unit,
@@ -199,29 +206,98 @@ internal fun AppearanceSettingsScreen(
         item {
             Section(title = "外观") {
                 SettingsCard {
-                    SettingRow("主题模式", "${mode.label} ›", true, onThemeMode)
+                    // 浅色 / 跟随系统 / 深色, answered where it is asked. The enum's own order
+                    // puts 跟随系统 first; the control reads light-to-dark, which is the order
+                    // the two end states suggest and the one every other app uses.
+                    SettingSegmentRow(
+                        title = "主题",
+                        options = ThemeModeOrder.map { it.label },
+                        selectedIndex = ThemeModeOrder.indexOf(mode).coerceAtLeast(0),
+                        onSelect = { onThemeMode(ThemeModeOrder[it]) },
+                        icon = AppIcons.Cloud,
+                        iconTint = SettingTint.appearance,
+                    )
                     SettingsDivider()
-                    SettingRow("强调色", "${accent.label}色 ›", true, onAccent)
+                    AccentPickerRow(selected = accent, onSelect = onAccent)
                     SettingsDivider()
-                    SettingRow("开屏动画", splashSummary, true, onSplash)
+                    SettingSegmentRow(
+                        title = "视觉效果",
+                        options = GlassStyle.entries.map { it.label },
+                        selectedIndex = GlassStyle.entries.indexOf(glassStyle),
+                        onSelect = { onGlassStyle(GlassStyle.entries[it]) },
+                        icon = AppIcons.Grid,
+                        iconTint = SettingTint.components,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "背景图",
+                        backgroundSummary,
+                        true,
+                        onBackground,
+                        icon = AppIcons.Download,
+                        iconTint = SettingTint.library,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "开屏动画",
+                        splashSummary,
+                        true,
+                        onSplash,
+                        icon = AppIcons.Play,
+                        iconTint = SettingTint.playback,
+                    )
                     SettingsDivider()
                     // Which tab a cold start lands on. It sits under 外观 rather than in a
                     // section of its own because it is the same kind of choice as the
                     // theme: what the app looks like the moment it opens.
-                    SettingRow("启动进入", startupSummary, true, onStartupTab)
+                    SettingRow(
+                        "启动进入",
+                        startupSummary,
+                        true,
+                        onStartupTab,
+                        icon = AppIcons.Home,
+                        iconTint = SettingTint.general,
+                    )
                 }
             }
         }
         item {
             Section(title = "辅助功能") {
                 SettingsCard {
-                    SwitchRow("减少透明效果", reduceTransparency, true, onReduceTransparency)
+                    SwitchRow(
+                        "减少透明效果",
+                        reduceTransparency,
+                        true,
+                        onReduceTransparency,
+                        icon = AppIcons.Subtitle,
+                        iconTint = SettingTint.subtitle,
+                    )
                     SettingsDivider()
-                    SwitchRow("大号文字", largeText, true, onLargeText)
+                    SwitchRow(
+                        "大号文字",
+                        largeText,
+                        true,
+                        onLargeText,
+                        icon = AppIcons.Info,
+                        iconTint = SettingTint.language,
+                    )
                     SettingsDivider()
-                    SwitchRow("减少动画", reduceMotion, true, onReduceMotion)
+                    SwitchRow(
+                        "减少动画",
+                        reduceMotion,
+                        true,
+                        onReduceMotion,
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.advanced,
+                    )
                 }
             }
         }
     }
 }
+
+/**
+ * Light to dark, which is how the control is read left to right. [ThemeMode]'s declaration
+ * order leads with 跟随系统 and cannot be changed — it is persisted by name.
+ */
+private val ThemeModeOrder = listOf(ThemeMode.Light, ThemeMode.System, ThemeMode.Dark)

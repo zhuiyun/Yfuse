@@ -70,6 +70,7 @@ import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -144,6 +145,9 @@ fun App(root: RootComponent) {
     val reduceTransparency by root.themePreferences.reduceTransparency.collectAsState()
     val largeText by root.themePreferences.largeText.collectAsState()
     val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
+    val glassStyle by root.themePreferences.glassStyle.collectAsState()
+    val backgroundImage by root.themePreferences.backgroundImage.collectAsState()
+    val backgroundDim by root.themePreferences.backgroundDim.collectAsState()
     val dark = mode.resolveDark(isSystemInDarkTheme())
 
     YfuseTheme(
@@ -154,6 +158,10 @@ fun App(root: RootComponent) {
             largeText = largeText,
             reduceMotion = reduceMotion,
         ),
+        // 减弱透明度 is an accessibility contract: it exists to make every surface opaque and
+        // legible, so a decorative material choice must not be able to reinstate the effect
+        // it turns off.
+        glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
     ) {
         val active by root.activeTab.subscribeAsState()
         val homeStack by root.home.stack.subscribeAsState()
@@ -293,7 +301,12 @@ fun App(root: RootComponent) {
             LocalTabReselected provides root.tabReselected,
         ) {
             SkeletonPulseProvider {
-                AppBackdrop {
+                AppBackdrop(
+                    // A wallpaper is decoration, and 减弱透明度 is the switch for people who
+                    // need the page to be a flat readable surface. It wins.
+                    imageUri = backgroundImage.takeUnless { reduceTransparency },
+                    dim = backgroundDim,
+                ) {
                     BoxWithConstraints(Modifier.fillMaxSize()) {
                     val expandedNavigation =
                         windowWidthTier(maxWidth) == WindowWidthTier.Expanded

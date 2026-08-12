@@ -25,8 +25,10 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,7 +43,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -72,6 +77,7 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
@@ -79,6 +85,7 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
+import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.SplashAnimation
@@ -104,9 +111,10 @@ import kotlinx.coroutines.launch
 
 /** Which option sheet is open — the prototype's `settingsSheetTab`. */
 private enum class Sheet {
-    ThemeMode,
+    // 主题 and 主题色 are answered in place on the 外观 page now — see [SettingSegmentRow]
+    // and [AccentPickerRow] — so they no longer have sheets of their own.
     StartupTab,
-    Accent,
+    Background,
     Engine,
     Decoder,
     DanmakuSource,
@@ -147,6 +155,9 @@ fun ProfileScreen(component: ProfileComponent) {
     val splashAnimation by prefs.splashAnimation.collectAsState()
     val splashVariant by prefs.splashVariant.collectAsState()
     val startupTab by prefs.startupTab.collectAsState()
+    val glassStyle by prefs.glassStyle.collectAsState()
+    val backgroundImage by prefs.backgroundImage.collectAsState()
+    val backgroundDim by prefs.backgroundDim.collectAsState()
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
@@ -258,13 +269,21 @@ fun ProfileScreen(component: ProfileComponent) {
                             onBack = ::closePage,
                             mode = mode,
                             accent = accent,
+                            glassStyle = glassStyle,
+                            backgroundSummary = if (backgroundImage == null) {
+                                "未设置 ›"
+                            } else {
+                                "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩 ›"
+                            },
                             splashSummary = if (splashAnimation) "${splashVariant.label} ›" else "已关闭 ›",
                             startupSummary = "${startupTab.label} ›",
                             reduceTransparency = reduceTransparency,
                             largeText = largeText,
                             reduceMotion = reduceMotion,
-                            onThemeMode = { sheet = Sheet.ThemeMode },
-                            onAccent = { sheet = Sheet.Accent },
+                            onThemeMode = prefs::setMode,
+                            onAccent = prefs::setAccent,
+                            onGlassStyle = prefs::setGlassStyle,
+                            onBackground = { sheet = Sheet.Background },
                             onSplash = { openPage(ProfilePage.Splash) },
                             onStartupTab = { sheet = Sheet.StartupTab },
                             onReduceTransparency = prefs::setReduceTransparency,
@@ -315,6 +334,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                 Section(title = "Yfuse 账号") {
                                     SettingsCard {
                                         SettingRow(
+                                            icon = AppIcons.User,
+                                            iconTint = SettingTint.account,
                                             title = "账号与同步",
                                             value = when (val account = accountState) {
                                                 AccountState.Restoring -> "正在恢复 ›"
@@ -336,6 +357,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                 Section(title = "我的服务器") {
                                     SettingsCard {
                                         SettingRow(
+                                            icon = AppIcons.Server,
+                                            iconTint = SettingTint.servers,
                                             title = "服务器",
                                             value = if (state.servers.isEmpty()) {
                                                 "尚未连接 ›"
@@ -358,6 +381,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                             "${playbackSettingsSummary(engine, decoder)} ›",
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.Playback) },
+                                            icon = AppIcons.Play,
+                                            iconTint = SettingTint.playback,
                                         )
                                         SettingsDivider()
                                         SettingRow(
@@ -369,6 +394,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                             },
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.Danmaku) },
+                                            icon = AppIcons.Danmaku,
+                                            iconTint = SettingTint.danmaku,
                                         )
                                         SettingsDivider()
                                         SettingRow(
@@ -380,6 +407,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                             },
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.WatchTogether) },
+                                            icon = AppIcons.Chat,
+                                            iconTint = SettingTint.watchTogether,
                                         )
                                         SettingsDivider()
                                         SettingRow(
@@ -387,6 +416,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                             "${mode.label} · ${accent.label}色 ›",
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.Appearance) },
+                                            icon = AppIcons.Cloud,
+                                            iconTint = SettingTint.appearance,
                                         )
                                     }
                                 }
@@ -402,8 +433,10 @@ fun ProfileScreen(component: ProfileComponent) {
                                         )
                                         SettingsDivider()
                                         SettingRow(
-                                            "播放恢复与同步",
-                                            when {
+                                            icon = AppIcons.Refresh,
+                                            iconTint = SettingTint.sync,
+                                            title = "播放恢复与同步",
+                                            value = when {
                                                 syncState.conflicts.isNotEmpty() ->
                                                     "${syncState.conflicts.size} 个冲突 ›"
                                                 syncState.pendingCount > 0 ->
@@ -420,6 +453,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                             "网络兼容 · 备份 · 缓存 · 诊断 ›",
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.DataAndDiagnostics) },
+                                            icon = AppIcons.Server,
+                                            iconTint = SettingTint.advanced,
                                         )
                                     }
                                 }
@@ -460,14 +495,11 @@ fun ProfileScreen(component: ProfileComponent) {
         }
 
         when (sheet) {
-            Sheet.ThemeMode -> OptionSheet(
-                title = "主题模式",
-                subtitle = "可跟随系统自动切换深浅外观",
-                options = ThemeMode.entries.map { it.label to (it == mode) },
-                onSelect = { index ->
-                    prefs.setMode(ThemeMode.entries[index])
-                    sheet = null
-                },
+            Sheet.Background -> BackgroundImageSheet(
+                current = backgroundImage,
+                dim = backgroundDim,
+                onPick = prefs::setBackgroundImage,
+                onDim = prefs::setBackgroundDim,
                 onDismiss = { sheet = null },
             )
 
@@ -478,17 +510,6 @@ fun ProfileScreen(component: ProfileComponent) {
                 descriptions = StartupTab.entries.map { it.description },
                 onSelect = { index ->
                     prefs.setStartupTab(StartupTab.entries[index])
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
-
-            Sheet.Accent -> OptionSheet(
-                title = "强调色",
-                subtitle = "用于按钮、选中状态与重点信息",
-                options = AccentColor.entries.map { it.label to (it == accent) },
-                onSelect = { index ->
-                    prefs.setAccent(AccentColor.entries[index])
                     sheet = null
                 },
                 onDismiss = { sheet = null },
@@ -816,6 +837,32 @@ internal fun Section(
     }
 }
 
+/**
+ * The glyph tile at the head of a settings row.
+ *
+ * A settings page is a list of names in one weight and one colour, and the eye has nothing to
+ * navigate by — you read every line to find the one you came for. A saturated glyph per row
+ * gives each entry a fixed landmark, which is why every phone settings app has them; the
+ * colour is per row and stable, so 播放 is always the same green and is found by that before
+ * it is read.
+ */
+@Composable
+private fun SettingIconTile(icon: ImageVector, tint: Color) {
+    Box(
+        Modifier
+            .size(28.dp)
+            .clip(AppShapes.thumb)
+            .background(
+                Brush.linearGradient(
+                    listOf(lerp(tint, Color.White, 0.16f), tint),
+                ),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+    }
+}
+
 /** Settings row — `--pg-card2`, `padding:13px 16px`, `500 13px` / `400 12px Manrope`. */
 @Composable
 internal fun SettingRow(
@@ -823,6 +870,8 @@ internal fun SettingRow(
     value: String,
     embedded: Boolean = false,
     onClick: (() -> Unit)? = null,
+    icon: ImageVector? = null,
+    iconTint: Color = Color.Unspecified,
 ) {
     val palette = LocalPalette.current
     val largeText = LocalDensity.current.fontScale >= 1.3f
@@ -838,17 +887,21 @@ internal fun SettingRow(
         .padding(horizontal = 16.dp, vertical = 13.dp)
     BoxWithConstraints(rowModifier) {
         val stacked = largeText || windowWidthTier(maxWidth) == WindowWidthTier.Compact
-        if (stacked) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = AppTypography.body.medium, color = palette.text, maxLines = 2)
-                Text(value, style = AppTypography.body.regular, color = palette.sub2, maxLines = 2)
-            }
-        } else {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (icon != null) SettingIconTile(icon, iconTint)
+            // Under large text the name and its value stop fitting on one line, so they
+            // stack — but beside the tile rather than under it, which keeps the glyph
+            // aligned with the row it belongs to instead of floating above a block.
+            if (stacked) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, style = AppTypography.body.medium, color = palette.text, maxLines = 2)
+                    Text(value, style = AppTypography.body.regular, color = palette.sub2, maxLines = 2)
+                }
+            } else {
                 Text(
                     title,
                     style = AppTypography.body.medium,
@@ -1040,6 +1093,8 @@ internal fun SwitchRow(
     checked: Boolean,
     embedded: Boolean = false,
     onChange: (Boolean) -> Unit,
+    icon: ImageVector? = null,
+    iconTint: Color = Color.Unspecified,
 ) {
     val palette = LocalPalette.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -1060,17 +1115,260 @@ internal fun SwitchRow(
             )
             .heightIn(min = MinTouchTarget)
             .padding(horizontal = 16.dp, vertical = 13.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) SettingIconTile(icon, iconTint)
         Text(
             title,
             style = AppTypography.body.medium,
             color = palette.text,
             maxLines = 2,
-            modifier = Modifier.weight(1f).padding(end = 12.dp),
+            modifier = Modifier.weight(1f),
         )
         PillSwitch(checked)
+    }
+}
+
+/**
+ * A choice small enough to answer in place.
+ *
+ * 主题模式 and 视觉效果 have two or three options each and no explanation to give, so sending
+ * them to a modal cost three taps to change something the user is looking straight at — and
+ * a modal hides the page whose appearance it is changing, which is exactly the feedback the
+ * choice is judged by.
+ */
+/**
+ * 背景图 — pick a picture, decide how much of it shows through, or take it away again.
+ *
+ * The dim slider is not decoration: every text colour in the app was chosen against a flat
+ * palette, so a photograph behind the page is a contrast decision. Rather than guessing a
+ * safe strength or refusing dark pictures, the control that creates the problem is put next
+ * to the one that solves it, and the page behind the sheet updates as it moves.
+ */
+@Composable
+private fun BackgroundImageSheet(
+    current: String?,
+    dim: Float,
+    onPick: (String?) -> Unit,
+    onDim: (Float) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val pick = rememberBackgroundImagePicker { uri ->
+        if (uri != null) {
+            // Release the previous grant before adopting the new one, or the app accumulates
+            // read access to every photo the user has ever tried.
+            current?.takeIf { it != uri }?.let(::releaseBackgroundImage)
+            onPick(uri)
+        }
+    }
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "背景图",
+            subtitle = "整个应用的背景；正文仍然画在主题自己的底色上",
+            onClose = onDismiss,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+            OverlayOptionRow(
+                label = if (current == null) "选择图片" else "更换图片",
+                description = if (current == null) "从相册或文件中选择" else current,
+                selected = false,
+                onClick = pick,
+            )
+            if (current != null) {
+                OverlayOptionRow(
+                    label = "移除背景图",
+                    description = "回到主题自己的底色",
+                    selected = false,
+                    destructive = true,
+                    onClick = {
+                        releaseBackgroundImage(current)
+                        onPick(null)
+                    },
+                )
+            }
+        }
+        if (current != null) {
+            Spacer(Modifier.height(16.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("遮罩", style = AppTypography.caption.strong, color = palette.sub2)
+                Text(
+                    "${(dim * 100).toInt()}%",
+                    style = AppTypography.caption.medium,
+                    color = palette.text,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.End,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Slider(
+                value = dim,
+                onValueChange = onDim,
+                // Below about a third the page's own surfaces stop carrying the copy, and the
+                // app becomes a photograph with text on it.
+                valueRange = 0.3f..1f,
+            )
+            Text(
+                "越低，背景图越清晰；越高，文字越容易读",
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun SettingSegmentRow(
+    title: String,
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    icon: ImageVector? = null,
+    iconTint: Color = Color.Unspecified,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = MinTouchTarget)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) SettingIconTile(icon, iconTint)
+        Text(
+            title,
+            style = AppTypography.body.medium,
+            color = palette.text,
+            maxLines = 2,
+            modifier = Modifier.weight(1f),
+        )
+        Row(
+            Modifier
+                .selectableGroup()
+                .clip(GlassShapes.chip)
+                .background(palette.card3)
+                .padding(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            options.forEachIndexed { index, label ->
+                val selected = index == selectedIndex
+                Box(
+                    Modifier
+                        .heightIn(min = 30.dp)
+                        .clip(GlassShapes.chip)
+                        .background(if (selected) accent.container else Color.Transparent)
+                        .pressable(
+                            pressedScale = 0.97f,
+                            haptic = HapticSignal.Select,
+                            role = Role.RadioButton,
+                            focusShape = GlassShapes.chip,
+                            onClickLabel = label,
+                            onClick = { onSelect(index) },
+                        )
+                        .semantics { this.selected = selected }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        label,
+                        style = if (selected) {
+                            AppTypography.caption.strong
+                        } else {
+                            AppTypography.caption.medium
+                        },
+                        color = if (selected) accent.accent else palette.sub2,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Every accent at once, rather than a list of colour names behind a modal.
+ *
+ * A colour is chosen by looking at it. The previous row said 「蓝色 ›」 and opened a sheet of
+ * six labelled rows — a name is the one description of a colour that cannot be compared with
+ * another, and the swatches fit in the space the row already occupied.
+ */
+@Composable
+internal fun AccentPickerRow(selected: AccentColor, onSelect: (AccentColor) -> Unit) {
+    val palette = LocalPalette.current
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SettingIconTile(AppIcons.Star, SettingTint.appearance)
+            Text(
+                "主题色",
+                style = AppTypography.body.medium,
+                color = palette.text,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "${selected.label}色",
+                style = AppTypography.body.regular,
+                color = palette.sub2,
+                maxLines = 1,
+            )
+        }
+        // Two rows of five on a phone; the swatches keep their size and wrap rather than
+        // shrinking to fit ten across a narrow screen.
+        Column(
+            Modifier.selectableGroup(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            AccentColor.entries.chunked(5).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    row.forEach { option ->
+                        val isSelected = option == selected
+                        Box(
+                            Modifier
+                                .size(34.dp)
+                                .pressable(
+                                    haptic = HapticSignal.Select,
+                                    role = Role.RadioButton,
+                                    focusShape = CircleShape,
+                                    onClickLabel = "${option.label}色",
+                                    onClick = { onSelect(option) },
+                                )
+                                .semantics { this.selected = isSelected }
+                                .clip(CircleShape)
+                                .background(option.color)
+                                .then(
+                                    if (isSelected) {
+                                        Modifier.border(2.dp, palette.text, CircleShape)
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    AppIcons.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

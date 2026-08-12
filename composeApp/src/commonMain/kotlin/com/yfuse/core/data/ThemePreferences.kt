@@ -2,6 +2,8 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.designsystem.AccentColor
+import com.yfuse.core.designsystem.DEFAULT_BACKGROUND_DIM
+import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.StartupTab
@@ -34,6 +36,11 @@ class ThemePreferences(private val settings: Settings) {
          */
         const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v2"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
+        const val KEY_GLASS_STYLE = "appearance.glassStyle"
+        const val KEY_BACKGROUND_IMAGE = "appearance.backgroundImage"
+        const val KEY_BACKGROUND_DIM = "appearance.backgroundDim"
+        /** A content:// grant is long but not unbounded; refuse anything that is not a URI. */
+        const val MAX_BACKGROUND_URI_CHARS = 2_048
     }
 
     // The design is the light "轻雾玻璃" direction; dark is the alternative.
@@ -83,6 +90,31 @@ class ThemePreferences(private val settings: Settings) {
     /** Which tab a cold start lands on; see [StartupTab]. */
     val startupTab: StateFlow<StartupTab> = _startupTab.asStateFlow()
 
+    private val _glassStyle =
+        MutableStateFlow(load(KEY_GLASS_STYLE, GlassStyle.entries, GlassStyle.Liquid))
+
+    /** Which material floating surfaces are drawn in; see [GlassStyle]. */
+    val glassStyle: StateFlow<GlassStyle> = _glassStyle.asStateFlow()
+
+    private val _backgroundImage =
+        MutableStateFlow(settings.getStringOrNull(KEY_BACKGROUND_IMAGE)?.takeIf(String::isNotBlank))
+
+    /** A persisted content URI for the page backdrop, or null for the theme's own ground. */
+    val backgroundImage: StateFlow<String?> = _backgroundImage.asStateFlow()
+
+    private val _backgroundDim = MutableStateFlow(
+        settings.getFloat(KEY_BACKGROUND_DIM, DEFAULT_BACKGROUND_DIM).coerceIn(0f, 1f),
+    )
+
+    /**
+     * How much of the page's own ground is laid over the picture.
+     *
+     * Text in this app is sized and coloured against a flat palette, so a photograph behind
+     * it is a contrast problem before it is a decoration. The default keeps the wallpaper
+     * legible as an atmosphere while leaving the copy on a surface it was designed for.
+     */
+    val backgroundDim: StateFlow<Float> = _backgroundDim.asStateFlow()
+
     private val _splashVariant =
         MutableStateFlow(load(KEY_SPLASH_VARIANT, SplashAnimation.entries, SplashAnimation.One))
 
@@ -113,6 +145,30 @@ class ThemePreferences(private val settings: Settings) {
     fun setMode(mode: ThemeMode) {
         _mode.value = mode
         settings.putString(KEY_MODE, mode.name)
+    }
+
+    fun setGlassStyle(style: GlassStyle) {
+        _glassStyle.value = style
+        settings.putString(KEY_GLASS_STYLE, style.name)
+    }
+
+    /** [uri] is a persisted content grant; null clears the picture. */
+    fun setBackgroundImage(uri: String?) {
+        val normalized = uri
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && it.length <= MAX_BACKGROUND_URI_CHARS }
+        _backgroundImage.value = normalized
+        if (normalized == null) {
+            settings.remove(KEY_BACKGROUND_IMAGE)
+        } else {
+            settings.putString(KEY_BACKGROUND_IMAGE, normalized)
+        }
+    }
+
+    fun setBackgroundDim(value: Float) {
+        val clamped = value.coerceIn(0f, 1f)
+        _backgroundDim.value = clamped
+        settings.putFloat(KEY_BACKGROUND_DIM, clamped)
     }
 
     fun setAccent(accent: AccentColor) {

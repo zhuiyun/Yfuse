@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -20,9 +21,12 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 
 /**
  * Semantic shape roles. Small geometry uses [micro]/[track]; content surfaces stay on the
@@ -283,6 +287,12 @@ fun Modifier.liquidGlass(
         val edge = reducedTransparencyBorder(border, palette) ?: border
         return this.clip(shape).background(flat).border(Dimens.hairline, edge, shape)
     }
+    // 毛玻璃 is the same material with the specular taken off — [Modifier.glass]'s soft
+    // diagonal sheen and nothing else. Routed here rather than at each of the two hundred
+    // call sites, so one preference reaches every floating surface in the app.
+    if (LocalGlassStyle.current == GlassStyle.Frosted) {
+        return glass(shape = shape, fill = fill, border = border)
+    }
     // The theme is the wrong signal here — the play key is pale glass under both, and 返回
     // is dense glass over artwork on the light one. What the fill composites to is the right
     // one, so that is what the ramps are keyed off.
@@ -314,6 +324,12 @@ fun Modifier.liquidGlass(
             }
         }
 }
+
+/**
+ * Which glass [Modifier.liquidGlass] draws. Defaults to the product direction; the user's
+ * choice is provided by [YfuseTheme].
+ */
+val LocalGlassStyle = staticCompositionLocalOf { GlassStyle.Liquid }
 
 /** 液态玻璃 lift — the shadow that separates a glass control from the page beneath it. */
 object GlassLift {
@@ -414,15 +430,43 @@ fun appBackdropBrushes(): List<Brush> {
 
 /** Ambient colour field visible through every liquid-glass surface. */
 @Composable
-fun AppBackdrop(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+fun AppBackdrop(
+    modifier: Modifier = Modifier,
+    imageUri: String? = null,
+    dim: Float = DEFAULT_BACKGROUND_DIM,
+    content: @Composable BoxScope.() -> Unit,
+) {
     val layers = appBackdropBrushes()
-    Box(
-        modifier
-            .fillMaxSize()
-            .drawBehind { layers.forEach { drawRect(it) } },
-        content = content,
-    )
+    Box(modifier.fillMaxSize()) {
+        if (imageUri != null) {
+            // Cropped to fill: a wallpaper chosen on a phone is portrait and the window is
+            // portrait, so the alternative is letterboxing the user's own picture.
+            AsyncImage(
+                model = imageUri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        // The theme's own ground goes over the picture rather than under it. Every surface
+        // in the app is translucent and every text colour was chosen against this ramp, so
+        // the picture has to sit behind it at a strength the user controls — a photograph
+        // reaching the copy directly would decide the contrast of the whole app.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = if (imageUri == null) 1f else dim }
+                .drawBehind { layers.forEach { drawRect(it) } },
+        )
+        content()
+    }
 }
+
+/**
+ * Enough of the page's ground over a wallpaper to keep body copy on a surface it was
+ * designed for, while the picture still reads as a picture.
+ */
+const val DEFAULT_BACKGROUND_DIM: Float = 0.72f
 
 /** `rgba(0,0,0,.06)` divider used inside stacked form cards. */
 @Composable
