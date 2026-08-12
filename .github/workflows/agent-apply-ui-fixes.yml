@@ -16,7 +16,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Apply focused source patches
         run: python3 .github/agent_apply_ui_fixes.py
