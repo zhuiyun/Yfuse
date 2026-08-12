@@ -650,7 +650,11 @@ private fun HeroCarousel(
         // Share the detail hero's exact bottom-to-top colour stops and surface treatment.
         Box(
             Modifier.fillMaxSize().background(
-                heroScrim(surface = carouselSurface, bottomSurface = ground),
+                // Its own slide's tint rather than the page's: mid-swipe the neighbour
+                // dissolves into the colour it is about to give the page, so the two arrive
+                // together instead of the scrim stepping to the new ground after the pager
+                // settles. Same rule as 首页's hero.
+                heroScrim(surface = carouselSurface, bottomSurface = pageTint(accent)),
             ),
         )
         Row(
