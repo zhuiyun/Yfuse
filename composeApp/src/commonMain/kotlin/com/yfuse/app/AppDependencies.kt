@@ -11,6 +11,7 @@ import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.ServerActivityStore
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.UserAgentPreferences
@@ -46,5 +47,6 @@ data class AppDependencies(
     val account: AccountRepository,
     val serverHealthMonitor: ServerHealthMonitor,
     val serverActivity: ServerActivityStore,
+    val serverStats: ServerStatsStore,
     val serverRegistry: ServerRegistry,
 )

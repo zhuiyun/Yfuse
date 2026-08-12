@@ -71,6 +71,36 @@ private val ServerBadgeColors = listOf(
     Color(0xFF7198CB),
 )
 
+/**
+ * The tints a server can be given by hand.
+ *
+ * Wider and more saturated than [ServerBadgeColors], which only ever had to keep four
+ * auto-assigned badges apart. Once the colour is a choice it also washes the whole card, so
+ * the set has to span the hue circle: a grid of twelve servers the user has coloured
+ * themselves is navigated by colour before it is read.
+ */
+val ServerIconTints: List<Color> = listOf(
+    Color(0xFF5B8DEF),
+    Color(0xFF6E62D8),
+    Color(0xFF9B5FC0),
+    Color(0xFFD1588F),
+    Color(0xFFD1584F),
+    Color(0xFFD98A3C),
+    Color(0xFFC9A227),
+    Color(0xFF4FA36B),
+    Color(0xFF34A0A4),
+    Color(0xFF5E7A8C),
+)
+
+/**
+ * A server's colour: the one it was given, or the stable one derived from its id.
+ *
+ * Falling back to the derived colour rather than to a neutral means a user who never opens
+ * the icon picker still gets a grid where no two neighbours look alike.
+ */
+fun serverTintColor(id: String, customTint: Long?): Color =
+    customTint?.let { Color(it) } ?: serverBadgeColor(id)
+
 /** 主色渐变 135deg — used for avatars, server badges, category cards. */
 val PrimaryGradient: Brush = cssLinearGradient(
     135f,
@@ -408,6 +438,14 @@ object Motion {
 
     /** A full-width artwork change deserves more time than local component movement. */
     const val CAROUSEL = 500
+
+    /**
+     * One turn of an indeterminate spinner.
+     *
+     * Slow enough to read as "working" rather than "frantic" — the thing it reports on is a
+     * round of network probes, which takes about this long per server.
+     */
+    const val REFRESH_SPIN = 900
 
     /** 图片渐进加载：占位主色渐变 → 12px 模糊放大 1.05 → 清晰归位. */
     const val IMAGE_IN = 550

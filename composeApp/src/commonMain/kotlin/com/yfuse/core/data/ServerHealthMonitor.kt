@@ -2,6 +2,7 @@ package com.yfuse.core.data
 
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import kotlinx.coroutines.CoroutineScope
@@ -19,11 +20,21 @@ import kotlinx.coroutines.launch
 /** A lightweight health model used by server rows and playback failover decisions. */
 enum class ServerHealthStatus { Unknown, Healthy, Degraded, Offline, AuthRequired }
 
+/** What one address of a server answered on its last probe. */
+data class RouteHealth(
+    val status: ServerHealthStatus = ServerHealthStatus.Unknown,
+    val latencyMs: Long? = null,
+) {
+    val reachable: Boolean get() = status == ServerHealthStatus.Healthy
+}
+
 data class ServerHealth(
     val status: ServerHealthStatus = ServerHealthStatus.Unknown,
     val latencyMs: Long? = null,
     val consecutiveFailures: Int = 0,
     val message: String? = null,
+    /** Keyed by [ServerRoute.id]; empty until the first multi-route probe lands. */
+    val routes: Map<String, RouteHealth> = emptyMap(),
 ) {
     val summary: String
         get() = when (status) {
@@ -33,15 +44,32 @@ data class ServerHealth(
             ServerHealthStatus.AuthRequired -> "需要重新登录"
             ServerHealthStatus.Unknown -> "正在检查"
         }
+
+    fun route(id: String): RouteHealth? = routes[id]
+
+    /** How many of the probed addresses answered, for the "2/3 条线路可用" summary. */
+    val reachableRouteCount: Int get() = routes.values.count { it.reachable }
 }
 
 class ServerHealthMonitor(
     private val repository: EmbyRepository,
     private val registry: ServerRegistry,
+    private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ) {
+    private companion object {
+        /**
+         * A switch republishes the registry, which restarts the probe loop, which probes
+         * again. That converges — the newly active route is the one that just answered — but
+         * a server flapping between two half-broken addresses would otherwise rewrite the
+         * registry on every round.
+         */
+        const val MIN_AUTO_SWITCH_INTERVAL_MS = 30_000L
+    }
+
     private val _health = MutableStateFlow<Map<String, ServerHealth>>(emptyMap())
     val health: StateFlow<Map<String, ServerHealth>> = _health.asStateFlow()
     private var started = false
+    private val lastAutoSwitchAtMs = mutableMapOf<String, Long>()
 
     fun start(scope: CoroutineScope) {
         if (started) return
@@ -50,6 +78,7 @@ class ServerHealthMonitor(
             registry.data.collectLatest { data ->
                 val ids = data.servers.mapTo(hashSetOf()) { it.id }
                 _health.value = _health.value.filterKeys { it in ids }
+                lastAutoSwitchAtMs.keys.retainAll(ids)
                 refreshAll(data.servers)
             }
         }
@@ -66,33 +95,102 @@ class ServerHealthMonitor(
         Unit
     }
 
+    /**
+     * Probes every address the server has and records each one, then reports the active
+     * route's result as the server's own health.
+     *
+     * Probing the backups costs one cheap request each and is what makes the route list
+     * useful: without it the user picks between addresses with no idea which of them is
+     * currently up, and failover has nothing to fail over to.
+     */
     suspend fun refresh(server: SavedServer) {
-        repository.probeServer(server)
-            .onSuccess { latency -> recordSuccess(server.id, latency) }
-            .onFailure { recordFailure(server.id, it) }
+        val routes = server.effectiveRoutes
+        if (routes.size <= 1) {
+            repository.probeServer(server)
+                .onSuccess { latency -> recordSuccess(server.id, latency) }
+                .onFailure { recordFailure(server.id, it) }
+            return
+        }
+        val probed: List<Pair<ServerRoute, Result<Long>>> = coroutineScope {
+            routes.map { route ->
+                async { route to repository.probeAddress(route.url, server.accessToken) }
+            }.awaitAll()
+        }
+        val routeHealth = probed.associate { (route, result) ->
+            route.id to result.fold(
+                onSuccess = { RouteHealth(ServerHealthStatus.Healthy, it) },
+                onFailure = { RouteHealth(statusFor(it)) },
+            )
+        }
+        val activeId = server.activeRoute.id
+        val activeResult = probed.firstOrNull { it.first.id == activeId }?.second
+        when {
+            activeResult == null -> Unit
+            activeResult.isSuccess -> recordSuccess(
+                serverId = server.id,
+                latencyMs = activeResult.getOrNull(),
+                routes = routeHealth,
+            )
+            else -> {
+                val error = activeResult.exceptionOrNull() ?: IllegalStateException("probe failed")
+                recordFailure(server.id, error, routes = routeHealth)
+                failOver(server, probed)
+            }
+        }
     }
 
-    fun recordSuccess(serverId: String, latencyMs: Long? = null) {
+    /**
+     * Moves a server onto its fastest reachable backup when the active address stops
+     * answering.
+     *
+     * Only away from a failure, never back: the user's pick of address is a deliberate one —
+     * a LAN route is chosen because it is faster, not because the WAN route is down — and
+     * silently returning to it the moment it answers would fight that choice on every probe.
+     */
+    private fun failOver(server: SavedServer, probed: List<Pair<ServerRoute, Result<Long>>>) {
+        val now = nowEpochMs()
+        val last = lastAutoSwitchAtMs[server.id]
+        if (last != null && now - last < MIN_AUTO_SWITCH_INTERVAL_MS) return
+        val fallback = probed
+            .filter { it.first.id != server.activeRoute.id }
+            .mapNotNull { (route, result) -> result.getOrNull()?.let { route to it } }
+            .minByOrNull { it.second }
+            ?: return
+        lastAutoSwitchAtMs[server.id] = now
+        if (!registry.activateRoute(server.id, fallback.first.id)) return
+        AppLog.info(
+            category = "server.health",
+            event = "route_failover",
+            message = "Switched to a reachable route after the active one stopped answering",
+            attributes = mapOf(
+                "serverId" to server.id,
+                "routeId" to fallback.first.id,
+                "latencyMs" to fallback.second.toString(),
+            ),
+        )
+    }
+
+    fun recordSuccess(
+        serverId: String,
+        latencyMs: Long? = null,
+        routes: Map<String, RouteHealth>? = null,
+    ) {
         update(serverId) {
             ServerHealth(
                 status = ServerHealthStatus.Healthy,
                 latencyMs = latencyMs ?: it?.latencyMs,
                 consecutiveFailures = 0,
+                routes = routes ?: it?.routes.orEmpty(),
             )
         }
     }
 
-    fun recordFailure(serverId: String, error: Throwable) {
-        val status = when (val emby = (error as? EmbyErrorException)?.error) {
-            EmbyError.Unauthorized, is EmbyError.AccessDenied -> ServerHealthStatus.AuthRequired
-            EmbyError.Network -> ServerHealthStatus.Offline
-            is EmbyError.Server -> if (emby.code in 500..599) {
-                ServerHealthStatus.Degraded
-            } else {
-                ServerHealthStatus.Offline
-            }
-            else -> ServerHealthStatus.Degraded
-        }
+    fun recordFailure(
+        serverId: String,
+        error: Throwable,
+        routes: Map<String, RouteHealth>? = null,
+    ) {
+        val status = statusFor(error)
         update(serverId) { previous ->
             ServerHealth(
                 status = status,
@@ -103,6 +201,7 @@ class ServerHealthMonitor(
                     ServerHealthStatus.Offline -> "无法连接"
                     else -> "服务器暂时异常"
                 },
+                routes = routes ?: previous?.routes.orEmpty(),
             )
         }
         AppLog.warning(
@@ -113,6 +212,18 @@ class ServerHealthMonitor(
             attributes = mapOf("serverId" to serverId, "status" to status.name),
         )
     }
+
+    private fun statusFor(error: Throwable): ServerHealthStatus =
+        when (val emby = (error as? EmbyErrorException)?.error) {
+            EmbyError.Unauthorized, is EmbyError.AccessDenied -> ServerHealthStatus.AuthRequired
+            EmbyError.Network -> ServerHealthStatus.Offline
+            is EmbyError.Server -> if (emby.code in 500..599) {
+                ServerHealthStatus.Degraded
+            } else {
+                ServerHealthStatus.Offline
+            }
+            else -> ServerHealthStatus.Degraded
+        }
 
     private inline fun update(serverId: String, block: (ServerHealth?) -> ServerHealth) {
         _health.value = _health.value.toMutableMap().apply {

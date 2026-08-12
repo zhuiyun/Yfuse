@@ -291,6 +291,30 @@ object AppIcons {
     /** 评分 — the star that precedes a community rating. */
     val Star = strokeVector("star") { star() }.build()
     val StarFilled = solidVector("star-filled") { star() }
+
+    // ------------------------------------------------------------ library counts
+
+    /**
+     * 电影 — a film body with its two perforation strips.
+     *
+     * Drawn as one rounded rect plus four sprocket holes rather than the usual clapperboard:
+     * at the 12dp the server cards use it, a clapper's angled bar collapses into a smudge,
+     * while holes stay legible because they are the widest features on the glyph.
+     */
+    val Movie = strokeVector("movie") {
+        roundRect(2.9f, 5.2f, 18.2f, 13.6f, 2.4f)
+    }.andPath {
+        moveTo(7.4f, 5.2f); verticalLineTo(18.8f)
+    }.andPath {
+        moveTo(16.6f, 5.2f); verticalLineTo(18.8f)
+    }.andDots(5.1f to 8.6f, 5.1f to 15.4f, 18.9f to 8.6f, 18.9f to 15.4f).build()
+
+    /** 剧集 — a screen on a stand, the counterpart to [Movie]. */
+    val Series = strokeVector("series") {
+        roundRect(2.9f, 6.6f, 18.2f, 12.2f, 2.4f)
+    }.andPath {
+        moveTo(8.2f, 2.9f); lineTo(12f, 6.6f); lineTo(15.8f, 2.9f)
+    }.build()
 }
 
 // ---------------------------------------------------------------- the system
