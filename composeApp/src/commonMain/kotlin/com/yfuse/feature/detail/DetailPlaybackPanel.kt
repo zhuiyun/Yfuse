@@ -28,6 +28,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.MediaVersion
@@ -194,17 +195,21 @@ internal fun PlaybackVersionDialog(
         val version = versions.firstOrNull { it.id == selectedVersionId } ?: versions.firstOrNull()
         version?.audioTracks?.takeIf { it.size > 1 }?.let { tracks ->
             GroupLabel("音轨")
-            OverlayOptionRow("文件默认", selectedAudioLanguage == null, onClick = { onSelectAudio(null) })
-            tracks.forEach { track ->
-                OverlayOptionRow(track.label, track.language == selectedAudioLanguage, onClick = { onSelectAudio(track.language) })
+            Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                OverlayOptionRow("文件默认", selectedAudioLanguage == null, onClick = { onSelectAudio(null) })
+                tracks.forEach { track ->
+                    OverlayOptionRow(track.label, track.language == selectedAudioLanguage, onClick = { onSelectAudio(track.language) })
+                }
             }
         }
         version?.subtitleTracks?.takeIf { it.isNotEmpty() }?.let { tracks ->
             GroupLabel("字幕")
-            OverlayOptionRow("文件默认", selectedSubtitleLanguage == null, onClick = { onSelectSubtitle(null) })
-            OverlayOptionRow("关闭字幕", selectedSubtitleLanguage == PlaybackTrackRequest.SUBTITLES_OFF, onClick = { onSelectSubtitle(PlaybackTrackRequest.SUBTITLES_OFF) })
-            tracks.forEach { track ->
-                OverlayOptionRow(track.label, track.language == selectedSubtitleLanguage, onClick = { onSelectSubtitle(track.language) })
+            Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                OverlayOptionRow("文件默认", selectedSubtitleLanguage == null, onClick = { onSelectSubtitle(null) })
+                OverlayOptionRow("关闭字幕", selectedSubtitleLanguage == PlaybackTrackRequest.SUBTITLES_OFF, onClick = { onSelectSubtitle(PlaybackTrackRequest.SUBTITLES_OFF) })
+                tracks.forEach { track ->
+                    OverlayOptionRow(track.label, track.language == selectedSubtitleLanguage, onClick = { onSelectSubtitle(track.language) })
+                }
             }
         }
     }

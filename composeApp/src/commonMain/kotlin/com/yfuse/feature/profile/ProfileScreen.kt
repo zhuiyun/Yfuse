@@ -78,6 +78,7 @@ import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.SplashAnimation
@@ -1438,10 +1439,10 @@ private fun OptionSheet(
     subtitle: String? = null,
     descriptions: List<String> = emptyList(),
 ) {
-    val palette = LocalPalette.current
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(title = title, subtitle = subtitle, onClose = onDismiss)
-        Column {
+        // Spacing, not rules: each option carries its own edge now — see [OverlayOptionRow].
+        Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
             options.forEachIndexed { index, (label, selected) ->
                 OverlayOptionRow(
                     label = label,
@@ -1449,15 +1450,6 @@ private fun OptionSheet(
                     description = descriptions.getOrNull(index),
                     onClick = { onSelect(index) },
                 )
-                if (index < options.lastIndex) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp)
-                            .height(1.dp)
-                            .background(palette.border),
-                    )
-                }
             }
         }
     }

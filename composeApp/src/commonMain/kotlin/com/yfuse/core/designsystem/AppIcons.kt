@@ -315,6 +315,60 @@ object AppIcons {
     }.andPath {
         moveTo(8.2f, 2.9f); lineTo(12f, 6.6f); lineTo(15.8f, 2.9f)
     }.build()
+
+    // ------------------------------------------------------------ navigation
+    //
+    // The bar's own family, drawn apart from the general set.
+    //
+    // The tabs used to borrow generic glyphs — a house, four squares, a person — which say
+    // "an app" rather than "this app", and at the bar's 30dp they were four outlines of
+    // roughly equal weight with nothing to tell them apart at a glance. Each of these has one
+    // feature that is unmistakable in peripheral vision: a triangle inside a screen, the
+    // offset edge of a stack, a status lamp, a shoulder. They share [TAB_STROKE], the same
+    // optical box, and the same corner radius, so they still read as one set.
+
+    /** 首页 — a screen with a play mark: what the app is for, not where you live. */
+    val TabHome = strokeVector("tab-home", width = TAB_STROKE) {
+        roundRect(2.6f, 4.4f, 18.8f, 13.4f, 3.1f)
+    }.andPath(width = TAB_STROKE) {
+        moveTo(8.4f, 20.9f); horizontalLineTo(15.6f)
+    }.andPath(width = TAB_STROKE) {
+        // A triangle with its own rounded joins, set slightly right of centre so its optical
+        // mass lands on the middle of the screen rather than its geometric centre.
+        moveTo(10.3f, 8.1f); lineTo(15.1f, 11.1f); lineTo(10.3f, 14.1f); close()
+    }.build()
+
+    /** 库 — a stack of posters seen from the front, the top one offset. */
+    val TabLibrary = strokeVector("tab-library", width = TAB_STROKE) {
+        roundRect(3.1f, 6.5f, 11.4f, 14.2f, 2.4f)
+    }.andPath(width = TAB_STROKE) {
+        // Two receding edges rather than two more rectangles: at 30dp a second full outline
+        // closes up into a blob, while a pair of arcs reads as depth.
+        moveTo(17f, 8.4f); verticalLineTo(18.8f)
+    }.andPath(width = TAB_STROKE) {
+        moveTo(20.4f, 10.6f); verticalLineTo(16.6f)
+    }.build()
+
+    /** 服务器 — one unit with its lamp lit and the signal it is answering on. */
+    val TabServers = strokeVector("tab-servers", width = TAB_STROKE) {
+        roundRect(2.7f, 9.4f, 18.6f, 8.4f, 2.6f)
+    }.andPath(width = TAB_STROKE) {
+        // The arc above is what separates this from a plain box: a machine that is reachable,
+        // rather than a machine.
+        moveTo(7.1f, 6.2f)
+        curveToRelative(2.9f, -2.6f, 6.9f, -2.6f, 9.8f, 0f)
+    }.andPath(width = TAB_STROKE) {
+        moveTo(6.6f, 20.6f); horizontalLineTo(17.4f)
+    }.andDots(6.6f to 13.6f).build()
+
+    /** 我的 — head and shoulders, with the shoulder line left open. */
+    val TabProfile = strokeVector("tab-profile", width = TAB_STROKE) {
+        circle(12f, 8.2f, 3.7f)
+    }.andPath(width = TAB_STROKE) {
+        moveTo(4.6f, 20.4f)
+        curveToRelative(0.9f, -4.3f, 3.9f, -6.3f, 7.4f, -6.3f)
+        reflectiveCurveToRelative(6.5f, 2f, 7.4f, 6.3f)
+    }.build()
 }
 
 // ---------------------------------------------------------------- the system

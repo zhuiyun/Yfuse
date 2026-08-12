@@ -98,6 +98,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.cssLinearGradient
@@ -684,50 +685,53 @@ fun DetailScreen(component: DetailComponent) {
                     subtitle = "更多操作",
                     onClose = { moreSheetOpen = false },
                 )
-                OverlayOptionRow(
-                    label = "下载到本地",
-                    selected = false,
-                    onClick = {
-                        moreSheetOpen = false
-                        component.download()
-                    },
-                )
-                OverlayOptionRow(
-                    label = if (detail.played) "标记未看" else "标记已看",
-                    selected = detail.played,
-                    onClick = {
-                        moreSheetOpen = false
-                        component.store.accept(DetailIntent.TogglePlayed)
-                    },
-                )
-                OverlayOptionRow(
-                    label = "加入合集或播放列表",
-                    selected = false,
-                    onClick = {
-                        moreSheetOpen = false
-                        organizationSheetOpen = true
-                        component.store.accept(DetailIntent.LoadOrganizationContainers)
-                    },
-                )
-                // 一起看 belongs where the decision is made — at the point of choosing what
-                // to watch, not in the settings of a player you must already have open.
-                //
-                // Playback is *not* started here. It used to be, in the same tap, and the
-                // player activity that came up covered the invite sheet this opens — the host
-                // reached the film without ever being shown the link they created it for. The
-                // sheet starts playback itself, once the invite has been sent.
-                OverlayOptionRow(
-                    label = "一起看",
-                    selected = watchState.roomCode != null,
-                    onClick = {
-                        moreSheetOpen = false
-                        watchTogether.createRoom(
-                            endpoint = watchEndpoint,
-                            mediaKey = detail.providerIds.watchKey(detail.id),
-                        )
-                        shareSheetOpen = true
-                    },
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                    OverlayOptionRow(
+                        label = "下载到本地",
+                        selected = false,
+                        onClick = {
+                            moreSheetOpen = false
+                            component.download()
+                        },
+                    )
+                    OverlayOptionRow(
+                        label = if (detail.played) "标记未看" else "标记已看",
+                        selected = detail.played,
+                        onClick = {
+                            moreSheetOpen = false
+                            component.store.accept(DetailIntent.TogglePlayed)
+                        },
+                    )
+                    OverlayOptionRow(
+                        label = "加入合集或播放列表",
+                        selected = false,
+                        onClick = {
+                            moreSheetOpen = false
+                            organizationSheetOpen = true
+                            component.store.accept(DetailIntent.LoadOrganizationContainers)
+                        },
+                    )
+                    // 一起看 belongs where the decision is made — at the point of choosing
+                    // what to watch, not in the settings of a player you must already have
+                    // open.
+                    //
+                    // Playback is *not* started here. It used to be, in the same tap, and the
+                    // player activity that came up covered the invite sheet this opens — the
+                    // host reached the film without ever being shown the link they created it
+                    // for. The sheet starts playback itself, once the invite has been sent.
+                    OverlayOptionRow(
+                        label = "一起看",
+                        selected = watchState.roomCode != null,
+                        onClick = {
+                            moreSheetOpen = false
+                            watchTogether.createRoom(
+                                endpoint = watchEndpoint,
+                                mediaKey = detail.providerIds.watchKey(detail.id),
+                            )
+                            shareSheetOpen = true
+                        },
+                    )
+                }
             }
         }
 
@@ -897,6 +901,7 @@ private fun OrganizationContainerDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing),
                 ) {
                     items(
                         items = containers,

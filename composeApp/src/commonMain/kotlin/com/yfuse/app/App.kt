@@ -33,6 +33,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,6 +43,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -113,12 +118,20 @@ import com.yfuse.feature.watch.WatchRoomInfoDialog
 
 private data class TabItem(val tab: Tab, val label: String, val icon: ImageVector)
 
+/**
+ * The four destinations in the bar.
+ *
+ * 搜索 left the row and became [SearchButton], a control of its own beside it. It was the odd
+ * one out: the other four are places the app can be in — each keeps a back stack, each is
+ * where you end up and stay — while search is a thing you do to get somewhere and leave. As a
+ * fifth equal cell it also cost the other four a fifth of the bar, and made the row a set of
+ * five narrow targets rather than four comfortable ones.
+ */
 private val tabs = listOf(
-    TabItem(Tab.Home, "首页", AppIcons.Home),
-    TabItem(Tab.Browse, "库", AppIcons.Grid),
-    TabItem(Tab.Servers, "服务器", AppIcons.Server),
-    TabItem(Tab.Search, "搜索", AppIcons.SearchTab),
-    TabItem(Tab.Profile, "我的", AppIcons.User),
+    TabItem(Tab.Home, "首页", AppIcons.TabHome),
+    TabItem(Tab.Browse, "库", AppIcons.TabLibrary),
+    TabItem(Tab.Servers, "服务器", AppIcons.TabServers),
+    TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
 )
 
 /** Space scrollable content leaves for the floating bar — `padding-bottom:100px`. */
@@ -291,10 +304,26 @@ fun App(root: RootComponent) {
                             root.selectTab(tab)
                         }
                     }
+                    // Reading gets the screen; navigating gets it back. Not saveable on
+                    // purpose: a collapsed bar is a transient consequence of where the finger
+                    // just went, and restoring one after process death would leave the user
+                    // looking at an app with no visible navigation and no idea why.
+                    var navCollapsed by remember { mutableStateOf(false) }
+                    // Arriving anywhere new is a fresh page, and a fresh page shows its bar.
+                    LaunchedEffect(active) { navCollapsed = false }
+                    val navScroll = rememberNavCollapseConnection(
+                        collapsed = navCollapsed,
+                        onCollapsedChange = { navCollapsed = it },
+                    )
                     Box(
                         Modifier
                             .fillMaxSize()
                             .padding(start = if (expandedNavigation) 104.dp else 0.dp)
+                            // One connection for the whole shell rather than a hook every
+                            // screen has to remember to install: nested scroll reaches this
+                            // node from any scrollable inside any tab, including ones added
+                            // later.
+                            .then(if (expandedNavigation) Modifier else Modifier.nestedScroll(navScroll))
                             .backdropSource(backdrop),
                     ) {
                         // Top-level tabs are a real Navigation 3 back stack, while each tab's
@@ -329,9 +358,12 @@ fun App(root: RootComponent) {
                                 modifier = Modifier.align(Alignment.CenterStart),
                             )
                         } else {
-                            GlassTabBar(
+                            BottomNavigationDock(
                                 active = active,
+                                collapsed = navCollapsed,
                                 onSelect = onSelectTab,
+                                onExpand = { navCollapsed = false },
+                                onSearch = { onSelectTab(Tab.Search) },
                                 backdrop = backdrop,
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
@@ -612,6 +644,195 @@ private fun WatchRoomBar(
     }
 }
 
+/** How far a drag has to travel in one direction before the bar answers it. */
+private val NavCollapseThreshold = 42.dp
+
+/**
+ * Collapses the bar while the user is reading down a page and brings it back on the way up.
+ *
+ * Accumulated rather than per-event: a single fling delivers dozens of small deltas, and
+ * reacting to each one would flip the bar back and forth inside one gesture. The accumulator
+ * resets on every direction change, so the threshold is "42dp of travel *this way*", not
+ * 42dp of net movement since the page loaded.
+ *
+ * Reaching the top always restores the bar regardless of travel: at rest at the top of a page
+ * there is no reading in progress to protect, and it is the one position where a user who has
+ * lost the bar will reliably look for it.
+ */
+@Composable
+private fun rememberNavCollapseConnection(
+    collapsed: Boolean,
+    onCollapsedChange: (Boolean) -> Unit,
+): NestedScrollConnection {
+    val threshold = with(LocalDensity.current) { NavCollapseThreshold.toPx() }
+    val state = rememberUpdatedState(collapsed to onCollapsedChange)
+    return remember(threshold) {
+        object : NestedScrollConnection {
+            private var travel = 0f
+
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta == 0f) return Offset.Zero
+                if (delta > 0f != travel > 0f) travel = 0f
+                travel += delta
+                val (isCollapsed, setCollapsed) = state.value
+                when {
+                    // Dragging up moves content down: the user is reading forward.
+                    travel <= -threshold && !isCollapsed -> {
+                        travel = 0f
+                        setCollapsed(true)
+                    }
+                    travel >= threshold && isCollapsed -> {
+                        travel = 0f
+                        setCollapsed(false)
+                    }
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // Unconsumed downward scroll means the list is already at its top.
+                if (available.y > 0f && state.value.first) {
+                    travel = 0f
+                    state.value.second(false)
+                }
+                return Offset.Zero
+            }
+        }
+    }
+}
+
+/**
+ * The bottom furniture: the four destinations, and 搜索 as its own control beside them.
+ *
+ * Two shapes for one row. Expanded, the tabs fill a capsule and search is a circle at its
+ * end. Collapsed, the capsule contracts to a single button carrying the icon of wherever the
+ * user is — enough to say "navigation lives here" without spending a bar's worth of screen on
+ * four destinations nobody is looking at while reading — and tapping it brings the row back.
+ * Search does not collapse: it is one tap from anywhere, and that is the point of moving it
+ * out of the row.
+ */
+@Composable
+private fun BottomNavigationDock(
+    active: Tab,
+    collapsed: Boolean,
+    onSelect: (Tab) -> Unit,
+    onExpand: () -> Unit,
+    onSearch: () -> Unit,
+    backdrop: BackdropState,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .widthIn(max = 520.dp)
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.tabBarInset)
+            .padding(bottom = Dimens.tabBarInset)
+            .height(Dimens.tabBarHeight),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (collapsed) {
+            CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
+            Spacer(Modifier.weight(1f))
+        } else {
+            GlassTabBar(
+                active = active,
+                onSelect = onSelect,
+                backdrop = backdrop,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        SearchButton(
+            selected = active == Tab.Search,
+            backdrop = backdrop,
+            onClick = onSearch,
+        )
+    }
+}
+
+/** The bar contracted to one key — the current tab's glyph, and a way back to the rest. */
+@Composable
+private fun CollapsedNavButton(active: Tab, backdrop: BackdropState, onClick: () -> Unit) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val item = tabs.firstOrNull { it.tab == active } ?: tabs.first()
+    Box(
+        Modifier
+            .size(Dimens.tabBarHeight)
+            .pressable(
+                pressedScale = 0.96f,
+                haptic = HapticSignal.Select,
+                onClickLabel = "展开导航栏",
+                onClick = onClick,
+            )
+            .shadow(Shadows.tabBar, GlassShapes.card)
+            .backdropBlur(backdrop, GlassShapes.card)
+            .overlayGlass(
+                GlassShapes.card,
+                palette.glassStrong.copy(alpha = if (palette.isDark) 0.86f else 0.92f),
+                palette.tabbarBorder,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        LiquidGlassTabIcon(item = item, selected = true, tint = accent.accent, compact = true)
+    }
+}
+
+/**
+ * 搜索 — a circle of the same material at the end of the row.
+ *
+ * Round where the tabs are a capsule, because it is not one of them: it does not hold a
+ * position in the app, it takes you out of wherever you are and hands you back somewhere
+ * else. It stays put when the bar collapses.
+ */
+@Composable
+private fun SearchButton(selected: Boolean, backdrop: BackdropState, onClick: () -> Unit) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val tint by animateColorAsState(
+        targetValue = if (selected) accent.accent else palette.sub2,
+        animationSpec = Motion.settle<Color>(reduceMotion),
+        label = "searchTint",
+    )
+    Box(
+        Modifier
+            .size(Dimens.tabBarHeight)
+            .pressable(
+                pressedScale = 0.96f,
+                haptic = HapticSignal.Select,
+                role = Role.Tab,
+                onClickLabel = "搜索",
+                onClick = onClick,
+            )
+            .semantics(mergeDescendants = true) { this.selected = selected }
+            .shadow(Shadows.tabBar, CircleShape)
+            .backdropBlur(backdrop, CircleShape)
+            .overlayGlass(
+                CircleShape,
+                if (selected) {
+                    accent.container
+                } else {
+                    palette.glassStrong.copy(alpha = if (palette.isDark) 0.86f else 0.92f)
+                },
+                if (selected) accent.border else palette.tabbarBorder,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            AppIcons.SearchTab,
+            contentDescription = "搜索",
+            tint = tint,
+            modifier = Modifier.size(23.dp),
+        )
+    }
+}
+
 /**
  * `.tabbar` — 浮层: left/right 14, bottom 14, height 62, radius 26 (大档), glass fill,
  * 1px hairline, `0 12px 30px rgba(60,90,150,.18)`, items spaced `space-around`.
@@ -629,7 +850,10 @@ private fun GlassTabBar(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val selectedIndex = tabs.indexOfFirst { it.tab == active }.coerceAtLeast(0)
+    // -1 while 搜索 is open: it is not one of the cells any more, so the pill has nowhere to
+    // be and is not drawn rather than parking under 首页 and claiming the user is there.
+    val selectedIndex = tabs.indexOfFirst { it.tab == active }
+    val hasSelection = selectedIndex >= 0
     // Reference-style shell: almost-opaque light glass with a quiet neutral selected island.
     // The accent stays on the icon/label so theme colours remain expressive without tinting
     // the whole selected cell. Dark mode keeps the same hierarchy with a stronger dark glass.
@@ -644,19 +868,16 @@ private fun GlassTabBar(
     // each time, so the pill fell further behind the finger the faster you moved. A spring
     // carries its velocity into the next target and arrives with it.
     val indicator by animateFloatAsState(
-        targetValue = selectedIndex.toFloat(),
+        targetValue = selectedIndex.coerceAtLeast(0).toFloat(),
         animationSpec = Motion.settle<Float>(reduceMotion),
         label = "tabIndicator",
     )
     Row(
         modifier
-            .widthIn(max = 520.dp)
             .fillMaxWidth()
             // One group of four, so a screen reader announces "第 2 项，共 4 项" rather than
             // reading four unrelated controls.
             .selectableGroup()
-            .padding(horizontal = Dimens.tabBarInset)
-            .padding(bottom = Dimens.tabBarInset)
             .height(Dimens.tabBarHeight)
             // The reference uses a true capsule rather than a rounded rectangle: the shell
             // stays soft after increasing the fixed bar height. Text is already single-line and
@@ -668,6 +889,7 @@ private fun GlassTabBar(
             // After the fill and before the buttons: the pill belongs to the material, not
             // over the icons.
             .drawBehind {
+                if (!hasSelection) return@drawBehind
                 val cell = size.width / tabs.size
                 // Search/Profile sit over quiet page backgrounds, where the former 12% pill
                 // nearly disappeared. A slightly larger, stronger indicator stays legible over both
