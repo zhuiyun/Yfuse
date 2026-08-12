@@ -66,6 +66,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.OfficialNavDisplay
@@ -132,6 +133,7 @@ private fun SearchHomeScreen(
     val focusManager = LocalFocusManager.current
     val routeVisible = LocalRouteVisible.current
     var filterSheet by remember { mutableStateOf<SearchFilterSheet?>(null) }
+    var coverageExpanded by remember(state.searchedQuery) { mutableStateOf(false) }
     StatusBarIconStyle(darkIcons = !palette.isDark)
     ScrollToTopOnReselect(component.listState)
 
@@ -214,6 +216,16 @@ private fun SearchHomeScreen(
                             selected = state.type,
                             onSelectType = { store.accept(SearchIntent.SetType(it)) },
                         )
+                        if (state.unavailableGroups.isNotEmpty() || state.emptyServerCount > 0) {
+                            SearchCoverageNotice(
+                                unavailable = state.unavailableGroups,
+                                emptyServerCount = state.emptyServerCount,
+                                expanded = coverageExpanded,
+                                onToggle = { coverageExpanded = !coverageExpanded },
+                                onOpenServerSettings = component.onOpenServerSettings,
+                            )
+                            Spacer(Modifier.height(14.dp))
+                        }
                         when {
                             state.error != null -> ErrorState(
                                 message = state.error!!,
@@ -233,6 +245,9 @@ private fun SearchHomeScreen(
                                         accessToken = component.serverAccessToken(group.serverId),
                                         onOpenItem = {
                                             component.onOpenItem(group.serverId, it)
+                                        },
+                                        onLoadMore = {
+                                            store.accept(SearchIntent.LoadMore(group.serverId))
                                         },
                                     )
                                 }
@@ -482,6 +497,7 @@ private fun ServerGroup(
     baseUrl: String,
     accessToken: String,
     onOpenItem: (String) -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     val palette = LocalPalette.current
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -503,7 +519,13 @@ private fun ServerGroup(
                 Text(group.serverName, style = AppTypography.body.strong, color = palette.text)
             }
             Text(
-                if (group.error == null) "${group.items.size} 部" else "连接失败",
+                if (group.error == null) {
+                    if (group.totalCount > group.items.size) {
+                        "${group.items.size} / ${group.totalCount} 部"
+                    } else {
+                        "${group.items.size} 部"
+                    }
+                } else "连接失败",
                 style = AppTypography.caption.strong,
                 color = palette.sub2,
             )
@@ -541,6 +563,131 @@ private fun ServerGroup(
                     onClick = { onOpenItem(item.id) },
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+        }
+        if (group.canLoadMore || group.loadingMore || group.loadMoreError != null) {
+            val accent = LocalAccentColors.current
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .pressable(
+                        enabled = !group.loadingMore,
+                        onClickLabel = if (group.loadMoreError == null) "加载更多结果" else "重试加载更多",
+                        onClick = onLoadMore,
+                    )
+                    .touchTarget()
+                    .glass(GlassShapes.chip, palette.card2, palette.border)
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    when {
+                        group.loadingMore -> "正在加载更多…"
+                        group.loadMoreError != null -> "加载失败，点击重试"
+                        else -> "加载更多（还剩 ${group.totalCount - group.items.size} 部）"
+                    },
+                    style = AppTypography.caption.strong,
+                    color = if (group.loadMoreError == null) accent.accent else palette.sub,
+                )
+            }
+        }
+    }
+}
+
+/** Keeps empty/offline servers out of the main result stream without hiding coverage. */
+@Composable
+private fun SearchCoverageNotice(
+    unavailable: List<ServerSearchGroup>,
+    emptyServerCount: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onOpenServerSettings: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val hiddenCount = unavailable.size + emptyServerCount
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .glass(GlassShapes.card, palette.card2, palette.border),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .pressable(onClickLabel = "查看服务器搜索状态", onClick = onToggle)
+                .touchTarget()
+                .padding(horizontal = 13.dp, vertical = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                AppIcons.Info,
+                contentDescription = null,
+                tint = palette.sub,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                "已收起 $hiddenCount 台无结果或不可用服务器",
+                style = AppTypography.caption.medium,
+                color = palette.sub,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                if (expanded) "收起" else "查看",
+                style = AppTypography.caption.strong,
+                color = accent.accent,
+            )
+        }
+        if (expanded) {
+            Column(
+                Modifier.padding(start = 13.dp, end = 13.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (emptyServerCount > 0) {
+                    Text(
+                        "$emptyServerCount 台服务器没有匹配内容",
+                        style = AppTypography.caption.regular,
+                        color = palette.hint,
+                    )
+                }
+                unavailable.forEach { group ->
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .glass(GlassShapes.chip, palette.card3, palette.border)
+                            .padding(horizontal = 11.dp, vertical = 9.dp),
+                    ) {
+                        Text(
+                            group.serverName,
+                            style = AppTypography.caption.strong,
+                            color = palette.text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            group.error.orEmpty(),
+                            style = AppTypography.caption.regular,
+                            color = palette.hint,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (unavailable.isNotEmpty()) {
+                    Text(
+                        "前往「我的」检查登录",
+                        style = AppTypography.caption.strong,
+                        color = accent.accent,
+                        modifier = Modifier
+                            .align(Alignment.End)
+                            .pressable(
+                                onClickLabel = "前往服务器设置重新登录",
+                                onClick = onOpenServerSettings,
+                            )
+                            .touchTarget(),
+                    )
+                }
             }
         }
     }
@@ -630,6 +777,7 @@ private fun ResultRow(
             // repeated within one screen leaves one of its copies undrawn, so the group
             // it belongs to is part of the key.
             modifier = Modifier.width(60.dp).height(90.dp),
+            sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
         )
         Column(Modifier.weight(1f).align(Alignment.CenterVertically)) {
             Text(

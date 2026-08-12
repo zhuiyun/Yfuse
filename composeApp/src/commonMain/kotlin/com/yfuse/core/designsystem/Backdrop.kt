@@ -161,6 +161,9 @@ fun Modifier.backdropBlur(
 ): Modifier {
     val blurLayer = rememberGraphicsLayer()
     val radiusPx = with(LocalDensity.current) { radius.toPx() }
+    // Radius changes only with density or the caller's material token. Reuse the effect
+    // instead of allocating an identical RenderEffect from every draw pass.
+    val blurEffect = remember(radiusPx) { BlurEffect(radiusPx, radiusPx) }
     // The saturation is a property of the material, not of this surface, so it is built once
     // rather than per frame.
     val vibrancy = remember {
@@ -178,7 +181,7 @@ fun Modifier.backdropBlur(
         .drawBehind {
             if (!state.hasContent) return@drawBehind
             val source = state.sample()
-            blurLayer.renderEffect = BlurEffect(radiusPx, radiusPx)
+            blurLayer.renderEffect = blurEffect
             blurLayer.record {
                 translate(
                     left = state.origin.x - origin.x,

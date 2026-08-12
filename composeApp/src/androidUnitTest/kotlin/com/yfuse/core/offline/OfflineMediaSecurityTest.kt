@@ -3,6 +3,7 @@ package com.yfuse.core.offline
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.security.TestSecureStore
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -40,7 +41,7 @@ class OfflineMediaSecurityTest {
 
     @Test
     fun download_url_follows_a_server_edit_and_uses_the_rotated_token() {
-        val registry = ServerRegistry(MapSettings())
+        val registry = ServerRegistry(MapSettings(), TestSecureStore())
         val oldServer = SavedServer(
             id = SavedServer.idOf("http://old.example", "user"),
             baseUrl = "http://old.example",

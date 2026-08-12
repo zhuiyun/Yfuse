@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -76,6 +77,15 @@ private val ScrimColor = Color(0xFF0A0E16)
 
 /** 覆盖层圆角走 §8.4 的「大」档，与 sheet、迷你播放器、tab bar 同级. */
 private val OverlayShape = GlassShapes.card
+
+/** A centred decision panel stays readable instead of stretching across a tablet. */
+private val OverlayMaxWidth = 560.dp
+
+/** Centred overlays only need a short lift to separate them from the page below. */
+private val OverlayMotionOffset = 32.dp
+
+/** Leaving should get out of the way faster than the 280ms arrival. */
+internal const val OverlayExitDurationMs = 200
 
 /**
  * How many overlays are on screen right now, so the app shell can stand its own floating
@@ -145,8 +155,9 @@ fun GlassDialog(
     val requestDismiss = remember { { leaving = true } }
 
     Dialog(
-        // System back stays on Compose Dialog's own dismissal path.
-        onDismissRequest = onDismiss,
+        // Back, scrim taps and explicit close buttons all keep the window alive until the
+        // same exit transition has finished. Calling [onDismiss] here tears it down at once.
+        onDismissRequest = requestDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
@@ -154,8 +165,8 @@ fun GlassDialog(
     ) {
         ReportOverlayVisible()
         val palette = LocalPalette.current
-        val modalOffset = with(LocalDensity.current) { Motion.modalOffset.toPx() }
-        // 覆盖（播放器 / 菜单）— 下方 46px 上滑, §3.1. The overlay used to borrow the tab
+        val modalOffset = with(LocalDensity.current) { OverlayMotionOffset.toPx() }
+        // 覆盖（播放器 / 菜单）— a restrained rise. The overlay used to borrow the tab
         // switch's 260ms and a 0.94 scale, which is the one transition in the spec that is
         // explicitly *not* for things that cover the page.
         val progress = rememberOverlayTransition(leaving = leaving, onLeft = onDismiss)
@@ -173,7 +184,6 @@ fun GlassDialog(
                 val panelScrollState = rememberScrollState()
                 Column(
                     Modifier
-                        .fillMaxWidth()
                         // The window is the whole display — system bars, cutout and all —
                         // and in the player it is a short landscape one. Laid out against
                         // the display rather than the part of it that can be seen, anything
@@ -185,6 +195,10 @@ fun GlassDialog(
                         // `imePadding` here any more.
                         .safeDrawingPadding()
                         .padding(horizontal = 26.dp, vertical = 20.dp)
+                        // Constrain before filling: on a phone this consumes the available
+                        // width, while a tablet keeps a readable 560dp decision column.
+                        .widthIn(max = OverlayMaxWidth)
+                        .fillMaxWidth()
                         .graphicsLayer {
                             val entered = progress()
                             alpha = entered
@@ -255,7 +269,7 @@ fun overlayDismiss(fallback: () -> Unit): () -> Unit = LocalOverlayDismiss.curre
 /**
  * Drives an overlay in and back out again, and calls [onLeft] once it has gone.
  *
- * Entrance and exit are the same 46dp rise on the same curve, played in opposite directions.
+ * Entrance and exit are the same 32dp rise on the same curve, played in opposite directions.
  * The exit is deliberately the shorter of the two — [Motion.POP]'s reasoning applies here as
  * well: arriving is worth watching, leaving is worth getting out of the way.
  *
@@ -271,11 +285,7 @@ private fun rememberOverlayTransition(leaving: Boolean, onLeft: () -> Unit): () 
     val progress by animateFloatAsState(
         targetValue = target,
         animationSpec = tween(
-            durationMillis = when {
-                reduceMotion -> 0
-                leaving -> Motion.POP
-                else -> Motion.MODAL
-            },
+            durationMillis = overlayDurationMillis(leaving, reduceMotion),
             easing = Motion.Curve,
         ),
         // Fired by the animation itself rather than by a parallel delay, so the window is
@@ -285,6 +295,12 @@ private fun rememberOverlayTransition(leaving: Boolean, onLeft: () -> Unit): () 
         label = "overlayTransition",
     )
     return { progress }
+}
+
+internal fun overlayDurationMillis(leaving: Boolean, reduceMotion: Boolean): Int = when {
+    reduceMotion -> 0
+    leaving -> OverlayExitDurationMs
+    else -> Motion.MODAL
 }
 
 /** Title row with an optional subtitle and a close affordance. */

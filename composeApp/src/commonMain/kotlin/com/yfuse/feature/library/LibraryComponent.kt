@@ -106,8 +106,16 @@ class LibraryComponent(
                 },
             ),
         )
-        is Config.Grid -> Child.Grid(
-            LibraryGridComponent(
+        is Config.Grid -> {
+            // Container routes pin their originating server. A default-server switch while
+            // this grid is visible must not send a tapped item to another account.
+            val gridServerId = (
+                LibraryContainerRoute.decode(config.libraryId)?.serverId
+                    ?: LibraryContainerDirectoryRoute.decode(config.libraryId)?.serverId
+                )
+                ?: registry.defaultServer?.id
+            Child.Grid(
+                LibraryGridComponent(
                 componentContext = context,
                 storeFactory = storeFactory,
                 repo = repo,
@@ -115,11 +123,20 @@ class LibraryComponent(
                 libraryId = config.libraryId,
                 title = config.title,
                 onOpenItem = {
-                    navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it))
+                    navigation.pushToFront(Config.Detail(gridServerId, it))
+                },
+                onOpenContainer = { container ->
+                    navigation.pushToFront(
+                        Config.Grid(
+                            LibraryContainerRoute.from(container).encode(),
+                            container.title,
+                        ),
+                    )
                 },
                 onBack = { navigation.pop() },
-            ),
-        )
+                ),
+            )
+        }
         is Config.Detail -> Child.Detail(
             DetailComponent(
                 componentContext = context,

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
@@ -14,11 +15,19 @@ using namespace MDK_NS;
 
 namespace {
 
+struct ErrorState {
+    std::mutex eventMutex;
+    int lastError = 0;
+    std::string lastErrorCategory;
+    std::string lastErrorDetail;
+};
+
 struct PlayerRef {
     std::unique_ptr<Player> player = std::make_unique<Player>();
     jobject surface = nullptr;
     int selectedAudio = 0;
     int selectedSubtitle = 0;
+    std::shared_ptr<ErrorState> errors = std::make_shared<ErrorState>();
 };
 
 PlayerRef* ref(jlong ptr) {
@@ -105,6 +114,17 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeCreate(JNIEnv*, jclass) {
     auto* value = new PlayerRef();
     value->player->setTimeout(20'000);
     value->player->setProperty("subtitle", "1");
+    const auto errors = value->errors;
+    value->player->onEvent([errors](const MediaEvent& event) {
+        if (event.error == 0 || event.category == "reader.buffering") {
+            return false;
+        }
+        std::lock_guard<std::mutex> lock(errors->eventMutex);
+        errors->lastError = event.error;
+        errors->lastErrorCategory.assign(event.category.data(), event.category.size());
+        errors->lastErrorDetail.assign(event.detail.data(), event.detail.size());
+        return false;
+    });
     return reinterpret_cast<jlong>(value);
 }
 
@@ -132,6 +152,12 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeSetMedia(
     }
     value->selectedAudio = 0;
     value->selectedSubtitle = 0;
+    {
+        std::lock_guard<std::mutex> lock(value->errors->eventMutex);
+        value->errors->lastError = 0;
+        value->errors->lastErrorCategory.clear();
+        value->errors->lastErrorDetail.clear();
+    }
     if (url == nullptr) {
         value->player->setMedia(nullptr);
         return;
@@ -201,6 +227,22 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeMediaStatus(JNIEnv*, jclass, jlong ptr)
     auto* value = player(ptr);
     return value == nullptr ? static_cast<jint>(MediaStatus::Invalid)
                             : static_cast<jint>(value->mediaStatus());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_mediadevkit_sdk_MDKPlayer_nativeLastError(JNIEnv* env, jclass, jlong ptr) {
+    auto* value = ref(ptr);
+    if (value == nullptr) {
+        return env->NewStringUTF("");
+    }
+    std::lock_guard<std::mutex> lock(value->errors->eventMutex);
+    if (value->errors->lastError == 0 && value->errors->lastErrorCategory.empty() &&
+        value->errors->lastErrorDetail.empty()) {
+        return env->NewStringUTF("");
+    }
+    const auto details = std::to_string(value->errors->lastError) + " " +
+                         value->errors->lastErrorCategory + " " + value->errors->lastErrorDetail;
+    return env->NewStringUTF(details.c_str());
 }
 
 extern "C" JNIEXPORT jint JNICALL

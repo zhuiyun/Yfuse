@@ -17,10 +17,16 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,11 +40,13 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroScrim
+import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.Episode
@@ -73,11 +81,31 @@ internal fun SeasonEpisodesPage(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val listState = rememberLazyListState()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val focusedEpisodeIndex = remember(episodes, currentEpisodeId) {
+        episodeFocusIndex(episodes, currentEpisodeId)
+    }
+    var initialSelectionConsumed by remember { mutableStateOf(false) }
+    LaunchedEffect(currentEpisodeId, focusedEpisodeIndex, reduceMotion) {
+        if (focusedEpisodeIndex < 0) return@LaunchedEffect
+        if (!initialSelectionConsumed) {
+            // Keep the season hero in the first frame. A later episode choice may move the
+            // list, but merely opening this page must not fly past the title artwork.
+            initialSelectionConsumed = true
+        } else {
+            listState.motionAwareScrollToItem(
+                index = focusedEpisodeIndex + 1,
+                reduceMotion = reduceMotion,
+            )
+        }
+    }
 
     BackOverlay(onBack = onDismiss) {
         Box(Modifier.fillMaxSize().background(palette.background)) {
             LazyColumn(
                 Modifier.fillMaxSize(),
+                state = listState,
                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
             ) {
                 item(key = "season-hero") {
@@ -206,22 +234,11 @@ private fun EpisodeRow(
             // Watched and part-watched are different states and only one of them has a
             // number: a check for "done", the time left for "you stopped here".
             if (episode.played) {
-                Box(
+                EpisodeWatchedBadge(
                     Modifier
                         .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .size(18.dp)
-                        .clip(CircleShape)
-                        .background(Brand.Online),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        AppIcons.Check,
-                        contentDescription = "已观看",
-                        tint = Color.White,
-                        modifier = Modifier.size(10.dp),
-                    )
-                }
+                        .padding(6.dp),
+                )
             } else {
                 episode.remainingLabel()?.let { remaining ->
                     Row(
@@ -285,6 +302,37 @@ private fun EpisodeRow(
                 )
             }
         }
+    }
+}
+
+/** The selected episode wins; progress is a safe fallback while selection is still loading. */
+internal fun episodeFocusIndex(episodes: List<Episode>, currentEpisodeId: String?): Int {
+    val selectedIndex = currentEpisodeId
+        ?.let { id -> episodes.indexOfFirst { it.id == id } }
+        ?: -1
+    if (selectedIndex >= 0) return selectedIndex
+    return episodes.indexOfFirst { episode ->
+        !episode.played &&
+            ((episode.resumePositionTicks ?: 0L) > 0L ||
+                (episode.playedPercentage ?: 0.0) > 0.0)
+    }
+}
+
+@Composable
+internal fun EpisodeWatchedBadge(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(18.dp)
+            .clip(CircleShape)
+            .background(Brand.Online),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            AppIcons.Check,
+            contentDescription = "已看完",
+            tint = Color.White,
+            modifier = Modifier.size(10.dp),
+        )
     }
 }
 

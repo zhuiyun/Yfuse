@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 
 @Composable
 expect fun ServerBackupTools(
-    payload: String,
     serverCount: Int,
-    onImport: (String) -> Result<Int>,
+    onExport: (CharArray, Long) -> Result<String>,
+    onImport: (String, CharArray, Long) -> Result<Int>,
 )

@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
                     inviteResolver = koin.get(),
                     playbackSourcePreloader = runCatching { koin.get<PlaybackSourcePreloader>() }.getOrNull(),
                     playbackRecovery = koin.get(),
+                    playbackReportingCoordinator = koin.get(),
                     playbackPreferences = koin.get(),
                     playbackFailoverRequest = koin.get(),
                     userAgentPreferences = koin.get(),
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
                     lanDiscovery = koin.get(),
                     account = koin.get(),
                     serverHealthMonitor = koin.get(),
+                    serverRegistry = koin.get(),
                 ),
             )
         }

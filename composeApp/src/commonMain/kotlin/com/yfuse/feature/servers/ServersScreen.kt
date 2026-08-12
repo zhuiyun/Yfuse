@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -17,10 +19,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -42,6 +45,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
@@ -78,10 +83,14 @@ fun ServersScreen(component: ServersComponent) {
     val store = component.store
     val form = state.form
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val primaryButtonShadow = semanticPrimaryButtonShadow()
     StatusBarIconStyle(darkIcons = !palette.isDark)
     var showOnboarding by rememberSaveable { mutableStateOf(true) }
+
+    // The standalone onboarding route owns a fresh store; mark its form session open so
+    // asynchronous discovery and Quick Connect results are not discarded as stale dialog work.
+    LaunchedEffect(Unit) {
+        if (!state.dialogVisible) store.accept(ServersIntent.OpenAddDialog)
+    }
 
     if (showOnboarding) {
         OnboardingScreen(
@@ -94,11 +103,12 @@ fun ServersScreen(component: ServersComponent) {
         return
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(top = Dimens.contentTop, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
+    Box(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = 118.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
         item {
             // Back chevron + title, `gap:12px`, title `800 19px`.
             Row(
@@ -112,7 +122,7 @@ fun ServersScreen(component: ServersComponent) {
                     tint = palette.sub,
                     modifier = Modifier
                         .pressable(onClickLabel = "返回", onClick = component.onBack)
-                        .touchTarget()
+                        .touchTarget(48.dp)
                         .size(36.dp)
                         .glass(
                             shape = CircleShape,
@@ -155,7 +165,7 @@ fun ServersScreen(component: ServersComponent) {
                     FormInput(
                         label = "服务器地址",
                         value = form.host,
-                        placeholder = "media.example.com",
+                        placeholder = "https://media.example.com/emby",
                         enabled = !form.submitting,
                         keyboardType = KeyboardType.Uri,
                         divider = true,
@@ -168,6 +178,15 @@ fun ServersScreen(component: ServersComponent) {
                         keyboardType = KeyboardType.Number,
                         divider = true,
                         onValueChange = { store.accept(ServersIntent.PortChanged(it)) },
+                    )
+                    FormInput(
+                        label = "基础路径（可选）",
+                        value = form.basePath,
+                        placeholder = "/emby",
+                        enabled = !form.submitting,
+                        keyboardType = KeyboardType.Uri,
+                        divider = true,
+                        onValueChange = { store.accept(ServersIntent.BasePathChanged(it)) },
                     )
                     FormInput(
                         label = "用户名",
@@ -188,25 +207,21 @@ fun ServersScreen(component: ServersComponent) {
 
                 if (!form.https) {
                     Spacer(Modifier.height(10.dp))
-                    Column(
-                        Modifier.fillMaxWidth().glass(
-                            AppShapes.control,
-                            Color(0xFFFFA24A).copy(alpha = 0.11f),
-                            Color(0xFFFFA24A).copy(alpha = 0.30f),
-                        ).padding(12.dp),
-                    ) {
-                        Text(
-                            "⚠ HTTP 连接未加密",
-                            style = AppTypography.body.strong,
-                            color = Color(0xFFD77922),
-                        )
-                        Text(
-                            "仅建议在可信局域网使用；公网服务器优先使用 HTTPS。",
-                            style = AppTypography.caption.regular,
-                            color = palette.sub,
-                        )
-                    }
+                    HttpRiskNotice(
+                        accepted = form.httpRiskAccepted,
+                        enabled = !form.submitting,
+                        onAcceptedChange = {
+                            store.accept(ServersIntent.HttpRiskAcceptedChanged(it))
+                        },
+                    )
                 }
+                Spacer(Modifier.height(10.dp))
+                QuickConnectPanel(
+                    state = state.quickConnect,
+                    enabled = form.canStartQuickConnect,
+                    onStart = { store.accept(ServersIntent.StartQuickConnect) },
+                    onCancel = { store.accept(ServersIntent.CancelQuickConnect) },
+                )
                 if (form.error != null) {
                     Spacer(Modifier.height(8.dp))
                     Column(
@@ -232,44 +247,6 @@ fun ServersScreen(component: ServersComponent) {
         }
 
         item {
-            // `#3D64C9`, `radius:18px`, `padding:14px`, `700 14px`,
-            // `0 10px 24px rgba(61,100,201,.3)`.
-            val shape = AppShapes.control
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Dimens.pageHorizontal)
-                    .pressable(enabled = form.canSubmit) { store.accept(ServersIntent.Submit) }
-                    .shadow(primaryButtonShadow, shape)
-                    .glass(
-                        shape = shape,
-                        fill = if (form.canSubmit) {
-                            accent.accent
-                        } else {
-                            accent.container
-                        },
-                        border = accent.border.copy(alpha = if (form.canSubmit) 1f else 0.38f),
-                    )
-                    .padding(14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (form.submitting) {
-                    CircularProgressIndicator(
-                        Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = accent.onAccent,
-                    )
-                } else {
-                    Text(
-                        "连接到服务器",
-                        style = AppTypography.body.strong,
-                        color = if (form.canSubmit) accent.onAccent else accent.accent,
-                    )
-                }
-            }
-        }
-
-        item {
             Text(
                 "支持 HTTP / HTTPS · 登录后即可浏览媒体库",
                 style = AppTypography.caption.regular.copy(lineHeight = 17.6.sp),
@@ -277,6 +254,246 @@ fun ServersScreen(component: ServersComponent) {
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
             )
+        }
+        }
+
+        ManualConnectAction(
+            form = form,
+            onSubmit = { store.accept(ServersIntent.Submit) },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+}
+
+/** Keeps the primary action reachable while the address form scrolls behind the IME. */
+@Composable
+private fun ManualConnectAction(
+    form: LoginForm,
+    onSubmit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val enabled = form.canSubmit
+    Box(
+        modifier
+            .fillMaxWidth()
+            .background(palette.background.copy(alpha = 0.96f))
+            .padding(horizontal = Dimens.pageHorizontal, vertical = 16.dp),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 50.dp)
+                .then(
+                    if (enabled) {
+                        Modifier.shadow(semanticPrimaryButtonShadow(), AppShapes.pill)
+                    } else {
+                        Modifier
+                    },
+                )
+                .pressable(
+                    enabled = enabled,
+                    onClickLabel = "连接并登录",
+                    onClick = onSubmit,
+                )
+                .glass(
+                    shape = AppShapes.pill,
+                    fill = if (enabled) accent.accent else accent.container,
+                    border = accent.border.copy(alpha = if (enabled) 1f else 0.38f),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (form.submitting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = accent.onAccent,
+                )
+            } else {
+                Text(
+                    "连接并登录",
+                    style = AppTypography.body.strong,
+                    color = if (enabled) accent.onAccent else accent.accent,
+                )
+            }
+        }
+    }
+}
+
+/** HTTP is never silently accepted: the entire 48dp row is an explicit checkbox. */
+@Composable
+private fun HttpRiskNotice(
+    accepted: Boolean,
+    enabled: Boolean,
+    onAcceptedChange: (Boolean) -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .glass(
+                shape = AppShapes.control,
+                fill = palette.errorContainer.copy(alpha = 0.62f),
+                border = palette.error.copy(alpha = 0.30f),
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            "HTTP 连接未加密",
+            style = AppTypography.caption.strong,
+            color = palette.error,
+        )
+        Text(
+            "用户名、密码和访问令牌可能被同一网络中的他人读取；仅建议在你完全信任的局域网使用。",
+            style = AppTypography.caption.regular,
+            color = palette.sub,
+        )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .pressable(
+                    enabled = enabled,
+                    role = Role.Checkbox,
+                    onClickLabel = if (accepted) "取消 HTTP 风险确认" else "确认 HTTP 风险",
+                    onClick = { onAcceptedChange(!accepted) },
+                )
+                .semantics { toggleableState = ToggleableState(accepted) },
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(22.dp)
+                    .glass(
+                        shape = AppShapes.thumb,
+                        fill = if (accepted) palette.error else palette.card2,
+                        border = if (accepted) palette.error else palette.border,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (accepted) {
+                    Icon(
+                        AppIcons.Check,
+                        contentDescription = null,
+                        tint = palette.onError,
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
+            }
+            Text(
+                "我了解风险，继续使用 HTTP",
+                style = AppTypography.caption.strong,
+                color = if (enabled) palette.text else palette.hint,
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickConnectPanel(
+    state: QuickConnectUiState,
+    enabled: Boolean,
+    onStart: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val busy = state is QuickConnectUiState.CheckingSupport ||
+        state is QuickConnectUiState.AwaitingApproval
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .glass(AppShapes.card, palette.card2, palette.border)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Text("Quick Connect / PIN", style = AppTypography.body.strong, color = palette.text)
+        when (state) {
+            QuickConnectUiState.Idle -> Text(
+                "如果服务器支持 Quick Connect，应用会显示由服务器签发的临时验证码。",
+                style = AppTypography.caption.regular,
+                color = palette.sub,
+            )
+            QuickConnectUiState.CheckingSupport -> Row(
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = accent.accent,
+                )
+                Text("正在请求服务器…", style = AppTypography.caption.regular, color = palette.sub)
+            }
+            is QuickConnectUiState.AwaitingApproval -> {
+                Text("在已登录的 Emby 客户端中输入此验证码：", style = AppTypography.caption.regular, color = palette.sub)
+                Text(
+                    state.code,
+                    style = AppTypography.display.strong.copy(letterSpacing = 2.sp),
+                    color = accent.accent,
+                    modifier = Modifier.semantics { contentDescription = "Quick Connect 验证码 ${state.code}" },
+                )
+                Text("验证码由服务器签发并会自动过期，等待批准中。", style = AppTypography.caption.regular, color = palette.sub2)
+            }
+            is QuickConnectUiState.Unsupported -> Text(
+                state.reason,
+                style = AppTypography.caption.medium,
+                color = palette.sub,
+            )
+            QuickConnectUiState.Expired -> Text(
+                "验证码已过期，请重新获取。",
+                style = AppTypography.caption.medium,
+                color = palette.error,
+            )
+            QuickConnectUiState.Cancelled -> Text(
+                "已取消 Quick Connect。",
+                style = AppTypography.caption.medium,
+                color = palette.sub,
+            )
+            is QuickConnectUiState.Error -> Text(
+                state.message,
+                style = AppTypography.caption.medium,
+                color = palette.error,
+            )
+        }
+
+        val actionLabel = when (state) {
+            QuickConnectUiState.Idle -> "使用 Quick Connect"
+            QuickConnectUiState.CheckingSupport,
+            is QuickConnectUiState.AwaitingApproval,
+            -> "取消"
+            is QuickConnectUiState.Unsupported -> null
+            QuickConnectUiState.Expired,
+            QuickConnectUiState.Cancelled,
+            is QuickConnectUiState.Error,
+            -> "重新获取"
+        }
+        if (actionLabel != null) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .pressable(
+                        enabled = busy || enabled,
+                        onClickLabel = actionLabel,
+                        onClick = if (busy) onCancel else onStart,
+                    )
+                    .glass(
+                        shape = AppShapes.pill,
+                        fill = if (busy) palette.card else accent.container,
+                        border = if (busy) palette.border else accent.border,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    actionLabel,
+                    style = AppTypography.caption.strong,
+                    color = if (busy) palette.sub else accent.accent,
+                )
+            }
         }
     }
 }
@@ -315,6 +532,7 @@ private fun OnboardingScreen(
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .imePadding()
                 .padding(start = 24.dp, top = 20.dp, end = 24.dp, bottom = 30.dp),
         ) {
         Row(
@@ -325,7 +543,7 @@ private fun OnboardingScreen(
             Box(
                 Modifier
                     .pressable(onClickLabel = "返回", onClick = ::back)
-                    .touchTarget()
+                    .touchTarget(48.dp)
                     .size(34.dp)
                     .glass(AppShapes.control, palette.card, palette.border),
                 contentAlignment = Alignment.Center,
@@ -391,7 +609,10 @@ private fun OnboardingScreen(
                 )
             }
 
-            1 -> Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            1 -> Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 Column {
                     Text("查找服务器", style = AppTypography.display.strong, color = palette.text)
                     Spacer(Modifier.height(7.dp))
@@ -483,6 +704,7 @@ private fun OnboardingScreen(
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
                         .pressable(onClick = onManual)
+                        .heightIn(min = 48.dp)
                         .glass(
                             shape = GlassShapes.chip,
                             fill = palette.card2,
@@ -492,7 +714,10 @@ private fun OnboardingScreen(
                 )
             }
 
-            2 -> Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            2 -> Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
                 Column {
                     Text("登录", style = AppTypography.display.strong, color = palette.text)
                     Spacer(Modifier.height(7.dp))
@@ -516,13 +741,31 @@ private fun OnboardingScreen(
                         password = true,
                         onValueChange = { onIntent(ServersIntent.PasswordChanged(it)) },
                     )
+                    if (!form.https) {
+                        HttpRiskNotice(
+                            accepted = form.httpRiskAccepted,
+                            enabled = !form.submitting,
+                            onAcceptedChange = {
+                                onIntent(ServersIntent.HttpRiskAcceptedChanged(it))
+                            },
+                        )
+                    }
                     if (form.error != null) {
                         Text(form.error, style = AppTypography.caption.medium, color = palette.error)
                     }
                 }
+                QuickConnectPanel(
+                    state = state.quickConnect,
+                    enabled = form.canStartQuickConnect,
+                    onStart = { onIntent(ServersIntent.StartQuickConnect) },
+                    onCancel = { onIntent(ServersIntent.CancelQuickConnect) },
+                )
             }
 
-            else -> Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            else -> Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
                 Column {
                     Text("选择用户", style = AppTypography.display.strong, color = palette.text)
                     Spacer(Modifier.height(7.dp))
@@ -590,7 +833,7 @@ private fun OnboardingScreen(
         }
 
         val enabled = when (step) {
-            2 -> form.username.isNotBlank()
+            2 -> form.username.isNotBlank() && (form.https || form.httpRiskAccepted)
             3 -> form.canSubmit
             else -> true
         }
@@ -654,7 +897,7 @@ private fun OnboardInput(
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(44.dp)
+                .height(48.dp)
                 .glass(AppShapes.control, palette.card, palette.border)
                 .padding(horizontal = 15.dp),
             contentAlignment = Alignment.CenterStart,
@@ -685,7 +928,7 @@ private fun OnboardInput(
                             .pressable(
                                 onClickLabel = if (revealPassword) "隐藏密码" else "显示密码",
                             ) { revealPassword = !revealPassword }
-                            .touchTarget()
+                            .touchTarget(48.dp)
                             .padding(start = 8.dp),
                     )
                 }
@@ -794,7 +1037,7 @@ private fun ProtocolSegment(
         modifier
             .pressable(role = Role.RadioButton, onClick = onClick)
             .semantics { this.selected = selected }
-            .touchTarget()
+            .touchTarget(48.dp)
             .glass(
                 shape = AppShapes.thumb,
                 fill = if (selected) {

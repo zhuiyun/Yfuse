@@ -10,6 +10,56 @@ import kotlin.test.assertTrue
 class PlaybackProgressReporterTest {
 
     @Test
+    fun one_sink_exception_does_not_prevent_the_later_stop_attempt() = runTest {
+        val delivered = mutableListOf<String>()
+        var failFirstStart = true
+        val sink = object : PlaybackEventSink {
+            override suspend fun started(
+                itemId: String,
+                sessionId: String,
+                positionTicks: Long,
+                isPaused: Boolean,
+            ) {
+                if (failFirstStart) {
+                    failFirstStart = false
+                    error("temporary sink failure")
+                }
+                delivered += "started"
+            }
+
+            override suspend fun progress(
+                itemId: String,
+                sessionId: String,
+                positionTicks: Long,
+                isPaused: Boolean,
+            ) {
+                delivered += "progress"
+            }
+
+            override suspend fun stopped(
+                itemId: String,
+                sessionId: String,
+                positionTicks: Long,
+                isPaused: Boolean,
+            ) {
+                delivered += "stopped"
+            }
+        }
+        val reporter = PlaybackProgressReporter(
+            items = listOf(PlayerMediaItem("movie", "direct", "hls", "电影")),
+            sink = sink,
+            scope = this,
+        )
+
+        reporter.update(PlaybackState(playing = true, positionMs = 1_000L))
+        runCurrent()
+        reporter.close(PlaybackState(playing = false, positionMs = 8_000L))
+        runCurrent()
+
+        assertEquals(listOf("progress", "stopped"), delivered)
+    }
+
+    @Test
     fun reports_start_seek_transition_and_stop_in_order() = runTest {
         val events = mutableListOf<Event>()
         val reporter = PlaybackProgressReporter(

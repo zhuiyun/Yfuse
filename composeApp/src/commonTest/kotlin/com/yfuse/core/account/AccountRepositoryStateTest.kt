@@ -9,6 +9,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.security.CryptoPrimitives
 import com.yfuse.core.security.SecureStore
+import com.yfuse.core.security.TestSecureStore
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.base64UrlToBytes
 import com.yfuse.core.security.toBase64Url
@@ -382,7 +383,7 @@ private fun accountRepository(
     secureStore: SecureStore,
 ): AccountRepository {
     val settings = MapSettings()
-    val registry = ServerRegistry(settings)
+    val registry = ServerRegistry(settings, TestSecureStore())
     return AccountRepository(
         api = api,
         secureStore = secureStore,

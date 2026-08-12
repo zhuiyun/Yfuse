@@ -41,9 +41,8 @@ actual fun PlayerLauncher(
                 engine = preferences?.engine?.value ?: PlayerEngine.Exo,
                 decoder = preferences?.decoder?.value ?: com.yfuse.core.model.DecoderMode.Hardware,
                 autoNext = preferences?.autoNext?.value ?: true,
-                // Quality switching is intentionally disabled: these servers
-                // cannot sustain per-session resolution transcoding.
-                quality = com.yfuse.core.model.PlaybackQuality.Auto,
+                quality = preferences?.quality?.value
+                    ?: com.yfuse.core.model.PlaybackQuality.Auto,
             ).also { launchIntent ->
                 pendingLaunch = launchIntent
                 context.startActivity(launchIntent)

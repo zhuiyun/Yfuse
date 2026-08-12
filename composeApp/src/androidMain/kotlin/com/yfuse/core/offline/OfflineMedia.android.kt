@@ -7,9 +7,21 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.IBinder
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequest
+import androidx.work.WorkManager
+import androidx.work.WorkRequest
+import androidx.work.WorkerParameters
 import com.russhwolf.settings.Settings
 import com.yfuse.MainActivity
 import com.yfuse.core.data.ServerRegistry
@@ -18,19 +30,25 @@ import com.yfuse.core.logging.redactDiagnosticText
 import com.yfuse.core.network.EmbyStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLDecoder
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -39,6 +57,80 @@ import org.koin.core.context.GlobalContext
 internal lateinit var offlineApplicationContext: Context
 
 internal const val OFFLINE_STORAGE_RESERVE_BYTES = 256L * 1024L * 1024L
+internal const val OFFLINE_WAKE_WORK_NAME = "yfuse.offline.download.wake.v1"
+
+private const val OFFLINE_NOTIFICATION_CHANNEL_ID = "yfuse_downloads"
+private const val OFFLINE_SERVICE_NOTIFICATION_ID = 2410
+private const val OFFLINE_WORK_NOTIFICATION_ID = 2411
+
+private class OfflineHttpException(val statusCode: Int) :
+    IOException("HTTP $statusCode")
+
+private class OfflineStorageException(message: String, cause: Throwable? = null) :
+    IOException(message, cause)
+
+private inline fun <T> offlineStorageWrite(block: () -> T): T = try {
+    block()
+} catch (error: IOException) {
+    throw OfflineStorageException("无法写入离线文件，请检查存储空间", error)
+}
+
+private fun offlineFailureKind(error: Throwable): DownloadFailureKind = when (error) {
+    is OfflineHttpException -> when (error.statusCode) {
+        HttpURLConnection.HTTP_UNAUTHORIZED,
+        HttpURLConnection.HTTP_FORBIDDEN -> DownloadFailureKind.Authentication
+        in 500..599, HttpURLConnection.HTTP_CLIENT_TIMEOUT, 429 -> DownloadFailureKind.Server
+        else -> DownloadFailureKind.Source
+    }
+    is OfflineStorageException -> DownloadFailureKind.Storage
+    is IOException -> DownloadFailureKind.Network
+    is IllegalStateException -> DownloadFailureKind.Source
+    else -> DownloadFailureKind.Unknown
+}
+
+private fun offlineFailureMessage(
+    kind: DownloadFailureKind,
+    retry: OfflineRetryPlan?,
+    error: Throwable,
+): String = when (kind) {
+    DownloadFailureKind.Authentication -> "登录已失效，请重新登录服务器后重试"
+    DownloadFailureKind.Network -> if (retry != null) {
+        "网络中断，已保留进度，将自动重试（第 ${retry.retryCount}/$MAX_OFFLINE_RETRY_COUNT 次）"
+    } else {
+        "网络持续不可用，已停止自动重试，可点按手动重试"
+    }
+    DownloadFailureKind.Server -> if (retry != null) {
+        "服务器暂时不可用，已保留进度，将自动重试（第 ${retry.retryCount}/$MAX_OFFLINE_RETRY_COUNT 次）"
+    } else {
+        "服务器持续不可用，已停止自动重试，可点按手动重试"
+    }
+    DownloadFailureKind.Storage -> redactDiagnosticText(
+        error.message ?: "存储空间不足，请清理空间后重试",
+    )
+    DownloadFailureKind.Source -> when (error) {
+        is OfflineHttpException -> "下载源不可用（HTTP ${error.statusCode}），请检查服务器或媒体源"
+        else -> redactDiagnosticText(error.message ?: "下载源不可用，请重新选择媒体源")
+    }
+    DownloadFailureKind.Unknown -> redactDiagnosticText(error.message ?: "下载失败，可点按重试")
+}
+
+internal fun offlineWakeRequest(
+    wifiOnly: Boolean,
+    initialDelayMs: Long = 0L,
+): OneTimeWorkRequest = OneTimeWorkRequest.Builder(OfflineDownloadWorker::class.java)
+    .setConstraints(
+        Constraints.Builder()
+            .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
+            .build(),
+    )
+    .setInitialDelay(initialDelayMs.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
+    .setBackoffCriteria(
+        BackoffPolicy.EXPONENTIAL,
+        WorkRequest.MIN_BACKOFF_MILLIS,
+        TimeUnit.MILLISECONDS,
+    )
+    .addTag(OFFLINE_WAKE_WORK_NAME)
+    .build()
 
 internal fun hasSufficientOfflineStorage(
     usableSpace: Long,
@@ -192,6 +284,8 @@ private fun HttpURLConnection.offlineResumeValidator(): String? {
 
 private fun String.resumeValidatorHeaderValue(): String = substringAfter(':')
 
+private fun Long.nextOfflineRevision(): Long = if (this == Long.MAX_VALUE) 0L else this + 1L
+
 internal class AndroidOfflineMediaManager(
     private val context: Context,
     private val settings: Settings,
@@ -212,8 +306,7 @@ internal class AndroidOfflineMediaManager(
     override val items: StateFlow<List<OfflineMedia>> = _items.asStateFlow()
     private val _wifiOnly = MutableStateFlow(settings.getBoolean(WIFI_KEY, true))
     override val wifiOnly: StateFlow<Boolean> = _wifiOnly.asStateFlow()
-    private val runLock = Any()
-    private var running = false
+    private val runLock = Mutex()
 
     init {
         val recovered = _items.value.map { stored ->
@@ -251,7 +344,7 @@ internal class AndroidOfflineMediaManager(
                 ),
             )
         }
-        if (recovered.any { it.status == DownloadStatus.Queued }) kick()
+        rebuildWakeSchedule(ExistingWorkPolicy.KEEP)
     }
 
     override fun enqueue(request: OfflineDownloadRequest) {
@@ -287,25 +380,105 @@ internal class AndroidOfflineMediaManager(
     }
 
     override fun pause(id: String) {
-        update(id) { it.copy(status = DownloadStatus.Paused, updatedAtEpochMs = now()) }
+        update(id) {
+            if (
+                it.status in setOf(
+                    DownloadStatus.Queued,
+                    DownloadStatus.WaitingForWifi,
+                    DownloadStatus.Downloading,
+                )
+            ) {
+                it.copy(
+                    status = DownloadStatus.Paused,
+                    error = null,
+                    nextRetryAt = 0L,
+                    lastFailureKind = null,
+                    downloadRevision = it.downloadRevision.nextOfflineRevision(),
+                    updatedAtEpochMs = now(),
+                )
+            } else {
+                it
+            }
+        }
+        rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
         AppLog.info("offline", "download_paused", "Offline download paused")
+    }
+
+    override fun pauseAll() {
+        val nowMs = now()
+        synchronized(indexLock) {
+            commitLocked(
+                _items.value.map { item ->
+                    if (
+                        item.status in setOf(
+                            DownloadStatus.Queued,
+                            DownloadStatus.WaitingForWifi,
+                            DownloadStatus.Downloading,
+                        )
+                    ) {
+                        item.copy(
+                            status = DownloadStatus.Paused,
+                            error = null,
+                            nextRetryAt = 0L,
+                            lastFailureKind = null,
+                            downloadRevision = item.downloadRevision.nextOfflineRevision(),
+                            updatedAtEpochMs = nowMs,
+                        )
+                    } else {
+                        item
+                    }
+                },
+            )
+        }
+        rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
+        AppLog.info("offline", "downloads_paused", "All offline downloads paused")
     }
 
     override fun resume(id: String) {
         update(id) {
-            it.copy(
-                status = DownloadStatus.Queued,
-                error = null,
-                downloadRevision = if (it.downloadRevision == Long.MAX_VALUE) {
-                    0L
-                } else {
-                    it.downloadRevision + 1L
-                },
-                updatedAtEpochMs = now(),
-            )
+            if (it.status == DownloadStatus.Completed || it.status == DownloadStatus.Downloading) {
+                it
+            } else {
+                it.copy(
+                    status = DownloadStatus.Queued,
+                    error = null,
+                    retryCount = 0,
+                    nextRetryAt = 0L,
+                    lastFailureKind = null,
+                    downloadRevision = it.downloadRevision.nextOfflineRevision(),
+                    updatedAtEpochMs = now(),
+                )
+            }
         }
         AppLog.info("offline", "download_resumed", "Offline download resumed")
         kick()
+    }
+
+    override fun resumeAll() {
+        val nowMs = now()
+        var resumed = false
+        synchronized(indexLock) {
+            commitLocked(
+                _items.value.map { item ->
+                    if (item.status in setOf(DownloadStatus.Paused, DownloadStatus.Failed)) {
+                        resumed = true
+                        item.copy(
+                            status = DownloadStatus.Queued,
+                            error = null,
+                            retryCount = 0,
+                            nextRetryAt = 0L,
+                            lastFailureKind = null,
+                            downloadRevision = item.downloadRevision.nextOfflineRevision(),
+                            updatedAtEpochMs = nowMs,
+                        )
+                    } else {
+                        item
+                    }
+                },
+            )
+        }
+        AppLog.info("offline", "downloads_resumed", "Paused and failed offline downloads resumed")
+        if (resumed) kick() else rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
     }
 
     override fun remove(id: String) {
@@ -318,58 +491,60 @@ internal class AndroidOfflineMediaManager(
             item.localPath?.let(::File)?.delete()
             partFile(item).delete()
         }
+        rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
         AppLog.info("offline", "download_removed", "Offline download removed")
     }
 
     override fun setWifiOnly(value: Boolean) {
         _wifiOnly.value = value
         settings.putBoolean(WIFI_KEY, value)
-        if (!value) {
-            synchronized(indexLock) {
-                commitLocked(
-                    _items.value.map {
-                    if (it.status == DownloadStatus.WaitingForWifi) {
-                        it.copy(status = DownloadStatus.Queued)
-                    } else {
-                        it
-                    }
-                    },
-                )
-            }
-            kick()
-        }
-    }
-
-    internal suspend fun runPendingDownloads() {
-        synchronized(runLock) {
-            if (running) return
-            running = true
-        }
-        try {
-            while (true) {
-                val next = _items.value.firstOrNull {
-                    it.status == DownloadStatus.Queued ||
-                        it.status == DownloadStatus.WaitingForWifi
-                } ?: break
-                if (_wifiOnly.value && !onWifi()) {
-                    AppLog.info(
-                        category = "offline",
-                        event = "waiting_for_wifi",
-                        message = "Offline download is waiting for Wi-Fi",
-                    )
-                    update(next.id) {
-                        it.copy(
-                            status = DownloadStatus.WaitingForWifi,
-                            error = null,
+        val shouldInterrupt = value && !onUnmeteredNetwork()
+        synchronized(indexLock) {
+            commitLocked(
+                _items.value.map { item ->
+                    when {
+                        !value && item.status == DownloadStatus.WaitingForWifi -> item.copy(
+                            status = DownloadStatus.Queued,
                             updatedAtEpochMs = now(),
                         )
+                        shouldInterrupt && item.status == DownloadStatus.Downloading -> item.copy(
+                            status = DownloadStatus.WaitingForWifi,
+                            error = null,
+                            downloadRevision = item.downloadRevision.nextOfflineRevision(),
+                            updatedAtEpochMs = now(),
+                        )
+                        else -> item
                     }
-                    break
+                },
+            )
+        }
+        if (!value) kick() else rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
+    }
+
+    internal suspend fun runPendingDownloads() = runLock.withLock {
+        while (true) {
+            val nowMs = now()
+            val next = _items.value.firstOrNull {
+                val pending = it.status == DownloadStatus.Queued ||
+                    it.status == DownloadStatus.WaitingForWifi
+                pending && it.nextRetryAt <= nowMs
+            } ?: break
+            if (_wifiOnly.value && !onUnmeteredNetwork()) {
+                AppLog.info(
+                    category = "offline",
+                    event = "waiting_for_wifi",
+                    message = "Offline download is waiting for Wi-Fi",
+                )
+                update(next.id) {
+                    it.copy(
+                        status = DownloadStatus.WaitingForWifi,
+                        error = null,
+                        updatedAtEpochMs = now(),
+                    )
                 }
-                download(next)
+                break
             }
-        } finally {
-            synchronized(runLock) { running = false }
+            download(next)
         }
     }
 
@@ -397,6 +572,8 @@ internal class AndroidOfflineMediaManager(
                     downloadedBytes = existing,
                     resumeValidator = expectedValidator,
                     error = null,
+                    nextRetryAt = 0L,
+                    lastFailureKind = null,
                     updatedAtEpochMs = now(),
                 )
             }
@@ -472,7 +649,7 @@ internal class AndroidOfflineMediaManager(
                     }
                     continue
                 }
-                if (code !in 200..299) error("HTTP $code")
+                if (code !in 200..299) throw OfflineHttpException(code)
                 if (code == HttpURLConnection.HTTP_PARTIAL && existing == 0L) {
                     error("服务器返回了无请求的分段响应")
                 }
@@ -510,7 +687,8 @@ internal class AndroidOfflineMediaManager(
                 requiredBytes = if (remaining > 0L) remaining else SPACE_CHECK_INTERVAL_BYTES,
             )
             connection.inputStream.use { input ->
-                FileOutputStream(part, append).use { output ->
+                val output = offlineStorageWrite { FileOutputStream(part, append) }
+                try {
                     val buffer = ByteArray(128 * 1024)
                     var downloaded = existing
                     var lastPersisted = downloaded
@@ -531,7 +709,7 @@ internal class AndroidOfflineMediaManager(
                             ensureStorageAvailable(requiredBytes = nextWindow)
                             lastSpaceCheck = downloaded
                         }
-                        output.write(buffer, 0, read)
+                        offlineStorageWrite { output.write(buffer, 0, read) }
                         downloaded += read
                         if (downloaded - lastPersisted >= 512 * 1024) {
                             lastPersisted = downloaded
@@ -549,11 +727,13 @@ internal class AndroidOfflineMediaManager(
                             }
                         }
                     }
-                    output.fd.sync()
+                    offlineStorageWrite { output.fd.sync() }
+                } finally {
+                    offlineStorageWrite { output.close() }
                 }
             }
             if (total > 0L) {
-                check(part.length() == total) { "下载内容不完整" }
+                if (part.length() != total) throw IOException("下载连接提前结束，内容不完整")
             }
             val target = finalizeDownload(snapshot, part) ?: return@withContext
             AppLog.info(
@@ -565,6 +745,29 @@ internal class AndroidOfflineMediaManager(
                     "bytes" to target.length().toString(),
                 ),
             )
+        } catch (cancelled: CancellationException) {
+            update(snapshot.id) {
+                if (
+                    it.downloadRevision == snapshot.downloadRevision &&
+                    it.status == DownloadStatus.Downloading
+                ) {
+                    it.copy(
+                        status = if (_wifiOnly.value && !onUnmeteredNetwork()) {
+                            DownloadStatus.WaitingForWifi
+                        } else {
+                            DownloadStatus.Queued
+                        },
+                        downloadedBytes = part.takeIf(File::exists)?.length() ?: 0L,
+                        error = null,
+                        nextRetryAt = 0L,
+                        lastFailureKind = null,
+                        updatedAtEpochMs = now(),
+                    )
+                } else {
+                    it
+                }
+            }
+            throw cancelled
         } catch (error: Throwable) {
             val current = _items.value.firstOrNull { it.id == snapshot.id }
             if (current == null || current.downloadRevision != snapshot.downloadRevision) {
@@ -580,6 +783,13 @@ internal class AndroidOfflineMediaManager(
                     attributes = mapOf("itemId" to snapshot.itemId),
                 )
             }
+            val failureKind = offlineFailureKind(error)
+            val retry = planOfflineRetry(failureKind, current.retryCount, now())
+            val failureMessage = offlineFailureMessage(
+                kind = failureKind,
+                retry = retry,
+                error = error,
+            )
             update(snapshot.id) {
                 if (
                     it.downloadRevision != snapshot.downloadRevision ||
@@ -588,11 +798,12 @@ internal class AndroidOfflineMediaManager(
                     it
                 } else {
                     it.copy(
-                        status = DownloadStatus.Failed,
+                        status = if (retry == null) DownloadStatus.Failed else DownloadStatus.Queued,
                         downloadedBytes = part.takeIf(File::exists)?.length() ?: 0L,
-                        // URLConnection errors may embed the authenticated request URL.
-                        // This field is persisted, so apply the same token policy as diagnostics.
-                        error = redactDiagnosticText(error.message ?: "下载失败"),
+                        error = failureMessage,
+                        retryCount = retry?.retryCount ?: it.retryCount,
+                        nextRetryAt = retry?.nextRetryAt ?: 0L,
+                        lastFailureKind = failureKind,
                         updatedAtEpochMs = now(),
                     )
                 }
@@ -603,15 +814,36 @@ internal class AndroidOfflineMediaManager(
     }
 
     private fun kick() {
-        context.startForegroundService(Intent(context, OfflineDownloadService::class.java))
+        rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
     }
 
-    private fun onWifi(): Boolean {
+    internal fun rebuildWakeSchedule(
+        policy: ExistingWorkPolicy,
+        cancelWhenEmpty: Boolean = true,
+    ) {
+        val pending = _items.value.filter {
+            it.status == DownloadStatus.Queued || it.status == DownloadStatus.WaitingForWifi
+        }
+        val workManager = WorkManager.getInstance(context)
+        if (pending.isEmpty()) {
+            if (cancelWhenEmpty) workManager.cancelUniqueWork(OFFLINE_WAKE_WORK_NAME)
+            return
+        }
+        val nowMs = now()
+        val earliest = pending.minOf { it.nextRetryAt.coerceAtLeast(0L) }
+        val delayMs = (earliest - nowMs).coerceAtLeast(0L)
+        workManager.enqueueUniqueWork(
+            OFFLINE_WAKE_WORK_NAME,
+            policy,
+            offlineWakeRequest(wifiOnly = _wifiOnly.value, initialDelayMs = delayMs),
+        )
+    }
+
+    private fun onUnmeteredNetwork(): Boolean {
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         val network = connectivity.activeNetwork ?: return false
         val capabilities = connectivity.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     }
 
     private fun isCurrentDownload(snapshot: OfflineMedia): Boolean = synchronized(indexLock) {
@@ -631,7 +863,7 @@ internal class AndroidOfflineMediaManager(
                 ?: return@synchronized null
             val target = completedFile(current)
             if (target.exists()) target.delete()
-            check(part.renameTo(target)) { "无法保存离线文件" }
+            if (!part.renameTo(target)) throw OfflineStorageException("无法保存离线文件")
             commitLocked(
                 _items.value.map {
                     if (it.id == current.id) {
@@ -642,6 +874,9 @@ internal class AndroidOfflineMediaManager(
                             totalBytes = target.length(),
                             resumeValidator = null,
                             error = null,
+                            retryCount = 0,
+                            nextRetryAt = 0L,
+                            lastFailureKind = null,
                             updatedAtEpochMs = now(),
                         )
                     } else {
@@ -693,7 +928,7 @@ internal class AndroidOfflineMediaManager(
             val missingBytes = missingOfflineStorageBytes(usable, requiredBytes).coerceAtLeast(1L)
             val bytesPerMb = 1024L * 1024L
             val missingMb = ((missingBytes - 1L) / bytesPerMb) + 1L
-            error("存储空间不足，至少还需 $missingMb MB 可用空间")
+            throw OfflineStorageException("存储空间不足，至少还需 $missingMb MB 可用空间")
         }
     }
 
@@ -705,22 +940,145 @@ internal class AndroidOfflineMediaManager(
     private fun now() = System.currentTimeMillis()
 }
 
-class OfflineDownloadService : Service() {
-    private companion object {
-        const val CHANNEL_ID = "yfuse_downloads"
-        const val NOTIFICATION_ID = 2410
+private fun ensureOfflineNotificationChannel(context: Context) {
+    context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+        NotificationChannel(
+            OFFLINE_NOTIFICATION_CHANNEL_ID,
+            "离线下载",
+            NotificationManager.IMPORTANCE_LOW,
+        ),
+    )
+}
+
+private fun offlineDownloadNotification(
+    context: Context,
+    title: String,
+    downloaded: Long,
+    total: Long,
+): Notification {
+    val contentIntent = PendingIntent.getActivity(
+        context,
+        0,
+        Intent(context, MainActivity::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    val progress = if (total > 0L) {
+        ((downloaded.toDouble() / total.toDouble()) * 100.0).toInt().coerceIn(0, 100)
+    } else {
+        0
     }
+    return Notification.Builder(context, OFFLINE_NOTIFICATION_CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.stat_sys_download)
+        .setContentTitle(title)
+        .setContentText(if (total > 0L) "$progress%" else "正在连接服务器")
+        .setContentIntent(contentIntent)
+        .setOnlyAlertOnce(true)
+        .setOngoing(true)
+        .setProgress(100, progress, total <= 0L)
+        .build()
+}
+
+private fun offlineForegroundInfo(context: Context): ForegroundInfo {
+    ensureOfflineNotificationChannel(context)
+    val notification = offlineDownloadNotification(context, "准备下载", 0L, 0L)
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        ForegroundInfo(
+            OFFLINE_WORK_NOTIFICATION_ID,
+            notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        )
+    } else {
+        ForegroundInfo(OFFLINE_WORK_NOTIFICATION_ID, notification)
+    }
+}
+
+class OfflineDownloadWorker(
+    appContext: Context,
+    parameters: WorkerParameters,
+) : CoroutineWorker(appContext, parameters) {
+
+    override suspend fun doWork(): Result {
+        val manager = runCatching {
+            GlobalContext.get().get<OfflineMediaManager>() as AndroidOfflineMediaManager
+        }.getOrElse { error ->
+            AppLog.error(
+                category = "offline",
+                event = "worker_dependency_failed",
+                message = "Offline worker could not resolve the shared download manager",
+                throwable = error,
+            )
+            return if (runAttemptCount < 3) Result.retry() else Result.failure()
+        }
+        return try {
+            setForeground(offlineForegroundInfo(applicationContext))
+            coroutineScope {
+                val updates = launch {
+                    manager.items.collectLatest { items ->
+                        val active = items.firstOrNull {
+                            it.status == DownloadStatus.Downloading
+                        }
+                        if (active != null) {
+                            applicationContext
+                                .getSystemService(NotificationManager::class.java)
+                                .notify(
+                                    OFFLINE_WORK_NOTIFICATION_ID,
+                                    offlineDownloadNotification(
+                                        context = applicationContext,
+                                        title = active.title,
+                                        downloaded = active.downloadedBytes,
+                                        total = active.totalBytes,
+                                    ),
+                                )
+                        }
+                    }
+                }
+                try {
+                    manager.runPendingDownloads()
+                } finally {
+                    updates.cancel()
+                }
+            }
+            // Append behind this running worker instead of replacing/cancelling it. This is
+            // needed when a recoverable item persisted a future retry timestamp.
+            manager.rebuildWakeSchedule(
+                policy = ExistingWorkPolicy.APPEND_OR_REPLACE,
+                cancelWhenEmpty = false,
+            )
+            Result.success()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            AppLog.error(
+                category = "offline",
+                event = "worker_failed",
+                message = "Offline worker failed outside an individual download",
+                throwable = error,
+            )
+            if (runAttemptCount < 3) {
+                Result.retry()
+            } else {
+                manager.rebuildWakeSchedule(
+                    policy = ExistingWorkPolicy.APPEND_OR_REPLACE,
+                    cancelWhenEmpty = false,
+                )
+                Result.failure()
+            }
+        }
+    }
+}
+
+class OfflineDownloadService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var work: Job? = null
 
     override fun onCreate() {
         super.onCreate()
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "离线下载", NotificationManager.IMPORTANCE_LOW),
+        ensureOfflineNotificationChannel(this)
+        startForeground(
+            OFFLINE_SERVICE_NOTIFICATION_ID,
+            offlineDownloadNotification(this, "准备下载", 0, 0),
         )
-        startForeground(NOTIFICATION_ID, notification("准备下载", 0, 0))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -732,20 +1090,25 @@ class OfflineDownloadService : Service() {
                     val active = items.firstOrNull { it.status == DownloadStatus.Downloading }
                     if (active != null) {
                         getSystemService(NotificationManager::class.java).notify(
-                            NOTIFICATION_ID,
-                            notification(
-                                active.title,
-                                active.downloadedBytes,
-                                active.totalBytes,
+                            OFFLINE_SERVICE_NOTIFICATION_ID,
+                            offlineDownloadNotification(
+                                context = this@OfflineDownloadService,
+                                title = active.title,
+                                downloaded = active.downloadedBytes,
+                                total = active.totalBytes,
                             ),
                         )
                     }
                 }
             }
-            manager.runPendingDownloads()
-            updates.cancel()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf(startId)
+            try {
+                manager.runPendingDownloads()
+            } finally {
+                updates.cancel()
+                manager.rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf(startId)
+            }
         }
         return START_NOT_STICKY
     }
@@ -757,26 +1120,4 @@ class OfflineDownloadService : Service() {
         super.onDestroy()
     }
 
-    private fun notification(title: String, downloaded: Long, total: Long): Notification {
-        val contentIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val progress = if (total > 0L) {
-            ((downloaded * 100L) / total).toInt().coerceIn(0, 100)
-        } else {
-            0
-        }
-        return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle(title)
-            .setContentText(if (total > 0L) "$progress%" else "正在连接服务器")
-            .setContentIntent(contentIntent)
-            .setOnlyAlertOnce(true)
-            .setOngoing(true)
-            .setProgress(100, progress, total <= 0L)
-            .build()
-    }
 }

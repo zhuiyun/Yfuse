@@ -3,17 +3,20 @@ package com.yfuse.feature.library
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.yfuse.core.model.LibrarySort
+import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import io.ktor.http.HttpMethod
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -169,12 +172,15 @@ class LibraryGridStoreTest {
 
     @Test
     fun failed_filter_change_never_displays_items_from_the_previous_criteria() = runTest {
-        var failFilteredRequest = true
+        // MockEngine may invoke the handler on a different thread from this test body. A plain
+        // mutable Boolean has no cross-thread visibility guarantee and can leave the retry seeing
+        // the stale `true` forever, which turns this race regression into a one-minute test hang.
+        val failFilteredRequest = MutableStateFlow(true)
         val repo = testRepo { request ->
             when {
                 request.url.encodedPath.endsWith("/Genres") ->
                     json("""{"Items":[{"Id":"g1","Name":"科幻"}]}""")
-                request.url.parameters["Genres"] == "科幻" && failFilteredRequest ->
+                request.url.parameters["Genres"] == "科幻" && failFilteredRequest.value ->
                     throw kotlinx.io.IOException("filtered request failed")
                 else -> json(page(from = 0, count = 2, total = 2))
             }
@@ -198,7 +204,7 @@ class LibraryGridStoreTest {
         assertEquals(0, failed.totalCount)
         assertEquals(0, failed.nextStartIndex)
 
-        failFilteredRequest = false
+        failFilteredRequest.value = false
         val recoveredState = async(start = CoroutineStart.UNDISPATCHED) {
             store.states.first {
                 !it.loading && it.items.size == 2 && it.genre == "科幻" && it.error == null
@@ -315,6 +321,181 @@ class LibraryGridStoreTest {
         assertEquals(2, failed.items.size)
         // The page-level failure must not become the whole screen's error state.
         assertEquals(null, failed.error)
+        store.dispose()
+        runCurrent()
+    }
+
+    @Test
+    fun playlist_grid_keeps_entry_order_and_ignores_sort_intents() = runTest {
+        val sortParameters = mutableListOf<String?>()
+        val repo = testRepo { request ->
+            sortParameters += request.url.parameters["SortBy"]
+            json(
+                """{"Items":[{"Id":"m1","Name":"第一部（再次）","Type":"Movie","PlaylistItemId":"e2"},{"Id":"m1","Name":"第一部","Type":"Movie","PlaylistItemId":"e1"}],"TotalRecordCount":2}""",
+            )
+        }
+        val store = LibraryGridStoreFactory(
+            storeFactory = DefaultStoreFactory(),
+            repo = repo,
+            registry = registry(),
+            libraryId = "p1",
+            serverId = "id1",
+            containerKind = MediaContainerKind.Playlist,
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
+
+        val loaded = store.states.first { !it.loading && it.items.isNotEmpty() }
+        assertEquals(listOf("e2", "e1"), loaded.items.map { it.playlistItemId })
+        assertFalse(loaded.sortable)
+
+        store.accept(GridIntent.SetSort(LibrarySort.Name))
+
+        assertEquals(LibrarySort.RecentlyAdded, store.state.sort)
+        assertEquals(listOf<String?>(null), sortParameters)
+        store.dispose()
+        runCurrent()
+    }
+
+    @Test
+    fun playlist_removal_commits_the_optimistic_local_change() = runTest {
+        var removedEntryId: String? = null
+        val repo = testRepo { request ->
+            if (request.method == HttpMethod.Delete) {
+                removedEntryId = request.url.parameters["EntryIds"]
+                json("{}")
+            } else {
+                json(
+                    """{"Items":[{"Id":"m1","Name":"第一部","Type":"Movie","PlaylistItemId":"e1"},{"Id":"m2","Name":"第二部","Type":"Movie","PlaylistItemId":"e2"}],"TotalRecordCount":2}""",
+                )
+            }
+        }
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "p1",
+            serverId = "id1",
+            containerKind = MediaContainerKind.Playlist,
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
+        store.states.first { !it.loading && it.items.size == 2 }
+
+        store.accept(GridIntent.RequestRemove("e1"))
+        assertEquals("e1", store.state.pendingRemoval?.playlistItemId)
+        store.accept(GridIntent.ConfirmRemove)
+
+        val committed = store.states.first {
+            it.items.size == 1 && it.removingRowIds.isEmpty() && it.actionMessage != null
+        }
+        assertEquals("e1", removedEntryId)
+        assertEquals(listOf("e2"), committed.items.map { it.playlistItemId })
+        assertEquals(1, committed.totalCount)
+        store.dispose()
+        runCurrent()
+    }
+
+    @Test
+    fun failed_container_removal_rolls_the_item_back_in_place() = runTest {
+        val repo = testRepo { request ->
+            if (request.method == HttpMethod.Delete) {
+                throw kotlinx.io.IOException("offline")
+            }
+            json(
+                """{"Items":[{"Id":"m1","Name":"第一部","Type":"Movie","PlaylistItemId":"e1"},{"Id":"m2","Name":"第二部","Type":"Movie","PlaylistItemId":"e2"}],"TotalRecordCount":2}""",
+            )
+        }
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "p1",
+            serverId = "id1",
+            containerKind = MediaContainerKind.Playlist,
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
+        store.states.first { !it.loading && it.items.size == 2 }
+
+        store.accept(GridIntent.RequestRemove("e1"))
+        store.accept(GridIntent.ConfirmRemove)
+
+        val rolledBack = store.states.first {
+            it.items.size == 2 && it.removingRowIds.isEmpty() && it.actionMessage != null
+        }
+        assertEquals(listOf("e1", "e2"), rolledBack.items.map { it.playlistItemId })
+        assertEquals(2, rolledBack.totalCount)
+        assertTrue(rolledBack.locallyRemovedRowIds.isEmpty())
+        store.dispose()
+        runCurrent()
+    }
+
+    @Test
+    fun grid_keeps_the_origin_server_after_default_server_switches() = runTest {
+        val registry = testRegistry().apply {
+            addOrUpdate(SavedServer("id1", "http://one.test", "一号", "u1", "one", "tok1"))
+            addOrUpdate(SavedServer("id2", "http://two.test", "二号", "u2", "two", "tok2"))
+            setDefault("id1")
+        }
+        val requestedHosts = mutableListOf<String>()
+        val repo = testRepo { request ->
+            requestedHosts += request.url.host
+            if (request.url.encodedPath.endsWith("/Genres")) {
+                json("""{"Items":[]}""")
+            } else {
+                json(page(from = 0, count = 1, total = 1))
+            }
+        }
+        val store = LibraryGridStoreFactory(
+            storeFactory = DefaultStoreFactory(),
+            repo = repo,
+            registry = registry,
+            libraryId = "lib1",
+            serverId = "id1",
+            mainContext = StandardTestDispatcher(testScheduler),
+        ).create()
+
+        registry.setDefault("id2")
+        runCurrent()
+        store.states.first { !it.loading && it.items.isNotEmpty() }
+
+        assertTrue(requestedHosts.isNotEmpty())
+        assertTrue(requestedHosts.all { it == "one.test" }, requestedHosts.toString())
+        store.dispose()
+        runCurrent()
+    }
+
+    @Test
+    fun container_directory_pages_and_deduplicates_by_container_identity() = runTest {
+        val starts = mutableListOf<Int>()
+        val repo = testRepo { request ->
+            val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+            starts += start
+            if (start == 0) {
+                json(
+                    """{"Items":[{"Id":"c1","Name":"合集1","Type":"BoxSet"},{"Id":"c2","Name":"合集2","Type":"BoxSet"}],"TotalRecordCount":4}""",
+                )
+            } else {
+                json(
+                    """{"Items":[{"Id":"c2","Name":"合集2","Type":"BoxSet"},{"Id":"c3","Name":"合集3","Type":"BoxSet"}],"TotalRecordCount":4}""",
+                )
+            }
+        }
+        val store = LibraryGridStoreFactory(
+            DefaultStoreFactory(),
+            repo,
+            registry(),
+            "directory",
+            serverId = "id1",
+            directoryKind = MediaContainerKind.BoxSet,
+            mainContext = UnconfinedTestDispatcher(testScheduler),
+        ).create()
+        store.states.first { !it.loading && it.containers.size == 2 }
+
+        store.accept(GridIntent.LoadMore)
+
+        val appended = store.states.first { !it.loadingMore && it.nextStartIndex == 4 }
+        assertEquals(listOf("c1", "c2", "c3"), appended.containers.map { it.id })
+        assertEquals(listOf(0, 2), starts)
+        assertFalse(appended.canLoadMore)
         store.dispose()
         runCurrent()
     }

@@ -35,10 +35,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -82,6 +82,7 @@ import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.BurstIcon
@@ -94,6 +95,7 @@ import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroInk
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.Poster
@@ -104,8 +106,12 @@ import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.isSharedMediaArtworkActive
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.sharedMediaArtwork
+import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
@@ -114,6 +120,8 @@ import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaContainer
+import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.ServerSource
@@ -212,6 +220,12 @@ fun DetailScreen(component: DetailComponent) {
     // candidate that is actually on screen so Palette never tints one picture from another.
     // Include the server because different libraries may legitimately reuse the same item id.
     val heroIdentity = remember(baseUrl, detail?.id) { baseUrl to detail?.id }
+    val sharedHeroKey = detail?.let {
+        MediaSharedElementKey(
+            serverId = state.server?.id ?: component.serverId,
+            itemId = it.id,
+        )
+    }
     var resolvedHeroUrl by remember(heroIdentity) { mutableStateOf<String?>(null) }
     // Artwork is allowed to set the mood, not to redefine the product. Harmonize the final
     // target before animation; doing the thresholded correction on every frame caused jumps.
@@ -271,6 +285,7 @@ fun DetailScreen(component: DetailComponent) {
     val share = rememberShareHandler()
     var shareSheetOpen by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
+    var organizationSheetOpen by remember { mutableStateOf(false) }
     var playbackVersionOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
 
@@ -413,6 +428,7 @@ fun DetailScreen(component: DetailComponent) {
                         height = heroHeight,
                         surfaceColor = detailSurface,
                         animationKey = "detail-hero-${detail.id}",
+                        sharedKey = sharedHeroKey,
                         scroll = heroScroll,
                         onResolvedUrl = { resolvedHeroUrl = it },
                     )
@@ -572,6 +588,7 @@ fun DetailScreen(component: DetailComponent) {
                         RelatedSection(
                             baseUrl = baseUrl,
                             accessToken = accessToken,
+                            serverId = state.server?.id,
                             items = state.related,
                             accent = detailAccent,
                             onOpen = { itemId ->
@@ -637,6 +654,15 @@ fun DetailScreen(component: DetailComponent) {
                         component.store.accept(DetailIntent.TogglePlayed)
                     },
                 )
+                OverlayOptionRow(
+                    label = "加入合集或播放列表",
+                    selected = false,
+                    onClick = {
+                        moreSheetOpen = false
+                        organizationSheetOpen = true
+                        component.store.accept(DetailIntent.LoadOrganizationContainers)
+                    },
+                )
                 // 一起看 belongs where the decision is made — at the point of choosing what
                 // to watch, not in the settings of a player you must already have open.
                 //
@@ -657,6 +683,23 @@ fun DetailScreen(component: DetailComponent) {
                     },
                 )
             }
+        }
+
+        if (organizationSheetOpen && detail != null) {
+            OrganizationContainerDialog(
+                containers = state.organizationContainers,
+                loading = state.organizationLoading,
+                error = state.organizationError,
+                addingIds = state.addingContainerIds,
+                addedIds = state.addedContainerIds,
+                onRetry = {
+                    component.store.accept(DetailIntent.LoadOrganizationContainers)
+                },
+                onAdd = {
+                    component.store.accept(DetailIntent.AddToOrganizationContainer(it))
+                },
+                onDismiss = { organizationSheetOpen = false },
+            )
         }
 
         if (playbackVersionOpen && detail != null) {
@@ -751,9 +794,102 @@ fun DetailScreen(component: DetailComponent) {
 }
 
 @Composable
+private fun OrganizationContainerDialog(
+    containers: List<MediaContainer>,
+    loading: Boolean,
+    error: String?,
+    addingIds: Set<String>,
+    addedIds: Set<String>,
+    onRetry: () -> Unit,
+    onAdd: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    GlassDialog(onDismiss = onDismiss, scrollable = false) {
+        OverlayHeader(
+            title = "加入合集或播放列表",
+            subtitle = "使用服务器上已有的容器",
+            onClose = onDismiss,
+        )
+        when {
+            loading && containers.isEmpty() -> Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(Modifier.size(22.dp))
+                Text("正在读取服务器容器…", style = AppTypography.body.regular, color = palette.sub)
+            }
+
+            error != null && containers.isEmpty() -> {
+                Text(
+                    text = error,
+                    style = AppTypography.body.regular,
+                    color = palette.sub,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+                OverlayOptionRow(label = "重试", selected = false, onClick = onRetry)
+            }
+
+            containers.isEmpty() -> Text(
+                text = "此服务器没有可用的合集或播放列表。Yfuse 不会偷偷创建替代片单。",
+                style = AppTypography.body.regular,
+                color = palette.sub,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+            )
+
+            else -> {
+                if (error != null) {
+                    Text(
+                        text = error,
+                        style = AppTypography.caption.medium,
+                        color = palette.sub,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                }
+                // The header stays visible while a bounded lazy list handles hundreds of
+                // server containers. Rows keep their intrinsic large-text height and the
+                // option component supplies the 48dp minimum touch target.
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false),
+                ) {
+                    items(
+                        items = containers,
+                        key = { "${it.serverId}-${it.kind}-${it.id}" },
+                    ) { container ->
+                        val added = container.id in addedIds
+                        val adding = container.id in addingIds
+                        val kind = if (container.kind == MediaContainerKind.BoxSet) {
+                            "合集"
+                        } else {
+                            "播放列表"
+                        }
+                        OverlayOptionRow(
+                            label = buildString {
+                                append(kind)
+                                append(" · ")
+                                append(container.title)
+                                if (adding) append(" · 正在加入…")
+                            },
+                            selected = added,
+                            onClick = { if (!adding && !added) onAdd(container.id) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun RelatedSection(
     baseUrl: String,
     accessToken: String,
+    serverId: String?,
     items: List<MediaItem>,
     accent: Color,
     onOpen: (String) -> Unit,
@@ -772,10 +908,13 @@ private fun RelatedSection(
                 items,
                 key = { index, item -> "related-${item.id}-$index" },
             ) { _, item ->
+                val sharedKey = MediaSharedElementKey(serverId, item.id)
                 Column(
                     Modifier
                         .width(96.dp)
-                        .pressable { onOpen(item.id) },
+                        .pressable(
+                            onClick = sharedMediaOnClick(sharedKey) { onOpen(item.id) },
+                        ),
                 ) {
                     Poster(
                         url = EmbyImages.primary(
@@ -786,6 +925,7 @@ private fun RelatedSection(
                             accessToken = accessToken,
                         ),
                         shape = GlassShapes.poster,
+                        sharedTransitionKey = sharedKey,
                         modifier = Modifier.fillMaxWidth().height(140.dp),
                     )
                     Spacer(Modifier.height(8.dp))
@@ -851,8 +991,7 @@ private fun rememberHeroScroll(
  */
 @Composable
 private fun rememberOverscrollPull(reduceMotion: Boolean): Pair<State<Float>, NestedScrollConnection> {
-    val raw = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
+    val raw = remember { mutableFloatStateOf(0f) }
     val connection = remember(reduceMotion) {
         object : NestedScrollConnection {
             override fun onPostScroll(
@@ -863,19 +1002,23 @@ private fun rememberOverscrollPull(reduceMotion: Boolean): Pair<State<Float>, Ne
                 if (reduceMotion) return Offset.Zero
                 if (source != NestedScrollSource.UserInput) return Offset.Zero
                 if (available.y <= 0f) return Offset.Zero
-                scope.launch { raw.snapTo((raw.value + available.y * OVERSCROLL_DAMPING)) }
+                raw.floatValue += available.y * OVERSCROLL_DAMPING
                 // Not consumed: the list's own overscroll effect should still play, and
                 // claiming it here would fight the pull-to-refresh above it.
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (raw.value != 0f) raw.animateTo(0f, Motion.settle<Float>())
+                if (raw.floatValue != 0f) {
+                    Animatable(raw.floatValue).animateTo(0f, Motion.settle<Float>()) {
+                        raw.floatValue = value
+                    }
+                }
                 return Velocity.Zero
             }
         }
     }
-    return remember(raw, connection) { raw.asState() to connection }
+    return remember(raw, connection) { raw to connection }
 }
 
 /** How much of an over-drag the artwork actually takes. */
@@ -912,13 +1055,15 @@ private fun Hero(
     height: Dp,
     surfaceColor: Color,
     animationKey: String,
+    sharedKey: MediaSharedElementKey?,
     scroll: State<Float>,
     onResolvedUrl: (String) -> Unit,
 ) {
-    // 详情页顶图 1.14 → 1, §3.1. The parallax below has always been here; the entrance
+    // 详情页顶图 1.08 → 1, §3.1. The parallax below has always been here; the entrance
     // it belongs to was not, so the artwork simply appeared at rest.
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    var entered by remember(animationKey) { mutableStateOf(false) }
+    val sharedEntrance = isSharedMediaArtworkActive(sharedKey)
+    var entered by remember(animationKey) { mutableStateOf(sharedEntrance) }
     LaunchedEffect(animationKey) { entered = true }
     val entrance by animateFloatAsState(
         targetValue = if (entered) 1f else 0f,
@@ -972,6 +1117,7 @@ private fun Hero(
                 alphaOnly = true,
                 onResolvedUrl = onResolvedUrl,
                 modifier = Modifier
+                    .sharedMediaArtwork(sharedKey)
                     .fillMaxSize()
                     .graphicsLayer {
                         val scale = 1f +
@@ -1313,7 +1459,6 @@ private fun DetailActionDock(
     onFavorite: () -> Unit,
     onWatchLater: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     Column(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1325,7 +1470,6 @@ private fun DetailActionDock(
             Modifier
                 .fillMaxWidth()
                 .height(DetailPlayButtonHeight)
-                .pressable(enabled = !resolving, onClick = onPlay)
                 .shadow(GlassLift.key, GlassShapes.card)
                 .clip(GlassShapes.card)
                 .background(actionKeyBrush(accent))
@@ -1333,73 +1477,102 @@ private fun DetailActionDock(
                     Dimens.hairline,
                     Color.White.copy(alpha = 0.34f),
                     GlassShapes.card,
-                )
-                .padding(horizontal = 13.dp),
+                ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
+            Row(
                 Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.16f))
-                    .border(
-                        Dimens.hairline,
-                        Color.White.copy(alpha = 0.22f),
-                        CircleShape,
-                    ),
-                contentAlignment = Alignment.Center,
+                    .weight(1f)
+                    .height(DetailPlayButtonHeight)
+                    .pressable(enabled = !resolving, onClick = onPlay)
+                    .padding(horizontal = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (resolving) {
-                    CircularProgressIndicator(
-                        Modifier.size(15.dp),
+                Box(
+                    Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.16f))
+                        .border(
+                            Dimens.hairline,
+                            Color.White.copy(alpha = 0.22f),
+                            CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (resolving) {
+                        CircularProgressIndicator(
+                            Modifier.size(15.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            AppIcons.Play,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(15.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        label,
+                        style = AppTypography.body.strong,
                         color = Color.White,
-                        strokeWidth = 2.dp,
+                        maxLines = 1,
                     )
-                } else {
+                    detailLine?.let {
+                        Text(
+                            it,
+                            style = AppTypography.caption.medium,
+                            color = Color.White.copy(alpha = 0.76f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Icon(
+                    AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.72f),
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+            if (canPlayFromStart) {
+                Box(
+                    Modifier
+                        .width(Dimens.hairline)
+                        .height(30.dp)
+                        .background(Color.White.copy(alpha = 0.26f)),
+                )
+                Column(
+                    Modifier
+                        .width(74.dp)
+                        .height(DetailPlayButtonHeight)
+                        .pressable(
+                            enabled = !resolving,
+                            onClickLabel = "从头播放",
+                            onClick = onPlayFromStart,
+                        ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
                     Icon(
-                        AppIcons.Play,
+                        AppIcons.Refresh,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(15.dp),
+                        modifier = Modifier.size(14.dp),
                     )
-                }
-            }
-            Spacer(Modifier.width(11.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    label,
-                    style = AppTypography.body.strong,
-                    color = Color.White,
-                    maxLines = 1,
-                )
-                detailLine?.let {
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        it,
-                        style = AppTypography.caption.medium,
-                        color = Color.White.copy(alpha = 0.76f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        "从头",
+                        style = AppTypography.caption.strong,
+                        color = Color.White,
                     )
                 }
             }
-            Icon(
-                AppIcons.ChevronRight,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.72f),
-                modifier = Modifier.size(14.dp),
-            )
-        }
-
-        if (canPlayFromStart) {
-            Text(
-                "从头播放",
-                style = AppTypography.body.strong,
-                color = palette.sub,
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .pressable(onClick = onPlayFromStart)
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-            )
         }
 
         Row(
@@ -1845,6 +2018,14 @@ private fun EpisodeSection(
     onPlayEpisode: (Episode) -> Unit,
     onSeeAll: () -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val routeVisible = LocalRouteVisible.current
+    val focusedEpisodeIndex = remember(episodes, selectedEpisodeId) {
+        episodeFocusIndex(episodes, selectedEpisodeId)
+    }
+    var initiallyPositioned by remember(selectedSeasonId) { mutableStateOf(false) }
+
     Column(Modifier.padding(top = Dimens.sectionGap)) {
         EpisodeHeader(
             accent = accent,
@@ -1858,23 +2039,45 @@ private fun EpisodeSection(
             onSelectSeason = onSelectSeason,
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         )
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-        ) {
-            itemsIndexed(
-                episodes,
-                key = { index, episode -> "ep-${episode.id}-$index" },
-            ) { _, episode ->
-                EpisodeCard(
-                    baseUrl = baseUrl,
-                    accessToken = accessToken,
-                    episode = episode,
-                    seriesPosterUrl = seriesPosterUrl,
-                    accent = accent,
-                    selected = episode.id == selectedEpisodeId,
-                    onPlay = { onPlayEpisode(episode) },
-                )
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val density = LocalDensity.current
+            val centeredOffset = with(density) {
+                -((maxWidth - 172.dp) / 2f).coerceAtLeast(0.dp).roundToPx()
+            }
+            LaunchedEffect(
+                selectedEpisodeId,
+                focusedEpisodeIndex,
+                reduceMotion,
+                routeVisible,
+                centeredOffset,
+            ) {
+                if (!routeVisible || focusedEpisodeIndex < 0) return@LaunchedEffect
+                if (!initiallyPositioned || reduceMotion) {
+                    listState.scrollToItem(focusedEpisodeIndex, centeredOffset)
+                    initiallyPositioned = true
+                } else {
+                    listState.animateScrollToItem(focusedEpisodeIndex, centeredOffset)
+                }
+            }
+            LazyRow(
+                state = listState,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+            ) {
+                itemsIndexed(
+                    episodes,
+                    key = { index, episode -> "ep-${episode.id}-$index" },
+                ) { _, episode ->
+                    EpisodeCard(
+                        baseUrl = baseUrl,
+                        accessToken = accessToken,
+                        episode = episode,
+                        seriesPosterUrl = seriesPosterUrl,
+                        accent = accent,
+                        selected = episode.id == selectedEpisodeId,
+                        onPlay = { onPlayEpisode(episode) },
+                    )
+                }
             }
         }
     }
@@ -1913,19 +2116,28 @@ private fun EpisodeCard(
             .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Poster(
-            url = EmbyImages.primary(
-                baseUrl,
-                episode.id,
-                episode.primaryTag,
-                maxHeight = 240,
-                accessToken = accessToken,
-            ),
-            fallbackUrls = listOfNotNull(seriesPosterUrl),
-            shape = GlassShapes.thumb,
-            progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
-            modifier = Modifier.fillMaxWidth().height(86.dp),
-        )
+        Box(Modifier.fillMaxWidth().height(86.dp)) {
+            Poster(
+                url = EmbyImages.primary(
+                    baseUrl,
+                    episode.id,
+                    episode.primaryTag,
+                    maxHeight = 240,
+                    accessToken = accessToken,
+                ),
+                fallbackUrls = listOfNotNull(seriesPosterUrl),
+                shape = GlassShapes.thumb,
+                progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (episode.played) {
+                EpisodeWatchedBadge(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp),
+                )
+            }
+        }
         Column {
             Text(
                 listOfNotNull(episode.indexNumber?.let { "第${it}集" }, episode.name)

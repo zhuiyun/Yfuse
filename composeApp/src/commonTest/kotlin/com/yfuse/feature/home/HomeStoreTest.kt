@@ -42,6 +42,15 @@ class HomeStoreTest {
     @AfterTest fun tearDown() = Dispatchers.resetMain()
 
     @Test
+    fun home_avatar_uses_a_recognizable_user_initial() {
+        assertEquals("A", homeUserInitial("  alice "))
+        assertEquals("林", homeUserInitial("林海"))
+        assertEquals("U", homeUserInitial("_user"))
+        assertEquals("访", homeUserInitial("  "))
+        assertEquals("访", homeUserInitial(null))
+    }
+
+    @Test
     fun unavailable_recommendations_do_not_claim_the_emby_server_is_offline() = runTest {
         val store = homeStore(
             cache = TmdbHomeCache(MapSettings()),

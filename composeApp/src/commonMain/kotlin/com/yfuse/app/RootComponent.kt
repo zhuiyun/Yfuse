@@ -91,6 +91,7 @@ class RootComponent(
         registry = registry,
         history = searchHistory,
         dependencies = dependencies,
+        onOpenServerSettings = { selectTab(Tab.Profile) },
     )
 
     val profile = ProfileTabComponent(

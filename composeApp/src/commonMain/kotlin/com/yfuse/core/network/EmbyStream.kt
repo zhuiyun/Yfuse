@@ -261,12 +261,22 @@ object EmbyStream {
     private fun String.withQueryParameter(name: String, encodedValue: String): String =
         "$this${if ('?' in this) '&' else '?'}$name=$encodedValue"
 
+    private fun String.withOrReplaceQueryParameter(name: String, encodedValue: String): String {
+        val parameter = Regex("([?&])${Regex.escape(name)}=[^&]*", RegexOption.IGNORE_CASE)
+        return if (parameter.containsMatchIn(this)) {
+            replace(parameter, "$1$name=$encodedValue")
+        } else {
+            withQueryParameter(name, encodedValue)
+        }
+    }
+
     /** Rewrites the generated HLS cap without rebuilding the authenticated URL. */
     fun withQuality(url: String, quality: PlaybackQuality): String {
+        if (url.isBlank()) return url
         val maxWidth = quality.maxWidth ?: return url
         val bitrate = quality.videoBitrate ?: return url
         return url
-            .replace(Regex("([?&])MaxWidth=[^&]*"), "$1MaxWidth=$maxWidth")
-            .replace(Regex("([?&])VideoBitrate=[^&]*"), "$1VideoBitrate=$bitrate")
+            .withOrReplaceQueryParameter("MaxWidth", maxWidth.toString())
+            .withOrReplaceQueryParameter("VideoBitrate", bitrate.toString())
     }
 }

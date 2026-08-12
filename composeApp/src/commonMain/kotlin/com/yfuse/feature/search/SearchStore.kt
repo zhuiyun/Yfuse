@@ -6,6 +6,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.MediaSearchFilter
+import com.yfuse.core.data.MediaSearchPage
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
@@ -23,8 +24,13 @@ data class ServerSearchGroup(
     val serverId: String,
     val serverName: String,
     val items: List<MediaItem> = emptyList(),
+    val totalCount: Int = items.size,
     val error: String? = null,
-)
+    val loadingMore: Boolean = false,
+    val loadMoreError: String? = null,
+) {
+    val canLoadMore: Boolean get() = error == null && items.size < totalCount
+}
 
 data class SearchOption(val id: String, val label: String)
 
@@ -36,8 +42,8 @@ enum class SearchWatchStatus(val label: String) {
     All("全部状态"), Unplayed("未看"), Played("已看"), Resumable("未看完")
 }
 
-enum class SearchSort(val label: String, val sortBy: String, val descending: Boolean) {
-    Relevance("相关度", "SortName", false),
+enum class SearchSort(val label: String, val sortBy: String?, val descending: Boolean) {
+    Relevance("相关度", null, false),
     RecentlyAdded("最近添加", "DateCreated", true),
     YearNewest("年份", "ProductionYear", true),
     Rating("评分", "CommunityRating", true),
@@ -76,17 +82,19 @@ data class SearchState(
     val hasSearched: Boolean get() = searchedQuery.isNotEmpty()
     val visibleGroups: List<ServerSearchGroup>
         get() = if (type == SearchType.All) {
-            groups
+            groups.filter { it.error == null && it.items.isNotEmpty() }
         } else {
             groups.mapNotNull { group ->
-                if (group.error != null) {
-                    group
-                } else {
+                if (group.error == null) {
                     group.copy(items = group.items.filter { it.type == type.embyType })
                         .takeIf { it.items.isNotEmpty() }
-                }
+                } else null
             }
         }
+    val unavailableGroups: List<ServerSearchGroup>
+        get() = groups.filter { it.error != null }
+    val emptyServerCount: Int
+        get() = groups.count { it.error == null && it.items.isEmpty() }
     val visibleCount: Int get() = visibleGroups.sumOf { it.items.size }
     val availableTypes: List<SearchType>
         get() {
@@ -134,6 +142,7 @@ sealed interface SearchIntent {
     data class SetSort(val sort: SearchSort) : SearchIntent
     data object ClearFilters : SearchIntent
     data class SelectPerson(val person: PersonHit?) : SearchIntent
+    data class LoadMore(val serverId: String) : SearchIntent
 }
 
 private sealed interface SearchMsg {
@@ -156,6 +165,13 @@ private sealed interface SearchMsg {
     data class PersonLoading(val person: PersonHit) : SearchMsg
     data class PersonLoaded(val person: PersonHit, val group: ServerSearchGroup) : SearchMsg
     data class PersonFailed(val person: PersonHit, val message: String) : SearchMsg
+    data class LoadingMore(val serverId: String) : SearchMsg
+    data class MoreLoaded(
+        val query: String,
+        val serverId: String,
+        val page: MediaSearchPage,
+    ) : SearchMsg
+    data class MoreFailed(val query: String, val serverId: String, val message: String) : SearchMsg
     data object FiltersCleared : SearchMsg
     data object Cleared : SearchMsg
 }
@@ -182,9 +198,12 @@ class SearchStoreFactory(
         private var searchJob: Job? = null
         private var peopleJob: Job? = null
         private var facetJob: Job? = null
+        private val loadMoreJobs = mutableMapOf<String, Job>()
 
         private fun cancelInFlight() {
             searchJob?.cancel(); peopleJob?.cancel(); personJob?.cancel()
+            loadMoreJobs.values.forEach { it.cancel() }
+            loadMoreJobs.clear()
         }
 
         override fun executeIntent(intent: SearchIntent) {
@@ -222,6 +241,54 @@ class SearchStoreFactory(
                     dispatch(SearchMsg.FiltersCleared); facetJob?.cancel(); refreshCurrent()
                 }
                 is SearchIntent.SelectPerson -> selectPerson(intent.person)
+                is SearchIntent.LoadMore -> loadMore(intent.serverId)
+            }
+        }
+
+        private fun searchFilter(snapshot: SearchState) = MediaSearchFilter(
+            parentId = snapshot.libraryId,
+            includeItemTypes = snapshot.type.embyType ?: "Movie,Series",
+            productionYear = snapshot.year,
+            genre = snapshot.genre,
+            played = when (snapshot.watchStatus) {
+                SearchWatchStatus.Played -> true
+                SearchWatchStatus.Unplayed -> false
+                else -> null
+            },
+            resumable = snapshot.watchStatus == SearchWatchStatus.Resumable,
+            sortBy = snapshot.sort.sortBy,
+            descending = snapshot.sort.descending,
+        )
+
+        private fun loadMore(serverId: String) {
+            val snapshot = state()
+            val group = snapshot.groups.firstOrNull { it.serverId == serverId } ?: return
+            if (!group.canLoadMore || group.loadingMore || loadMoreJobs[serverId]?.isActive == true) {
+                return
+            }
+            val server = registry.serverById(serverId) ?: return
+            val query = snapshot.searchedQuery
+            if (query.isBlank()) return
+            dispatch(SearchMsg.LoadingMore(serverId))
+            loadMoreJobs[serverId] = scope.launch {
+                repo.searchPage(
+                    server = server,
+                    query = query,
+                    startIndex = group.items.size,
+                    filter = searchFilter(snapshot),
+                ).fold(
+                    onSuccess = { dispatch(SearchMsg.MoreLoaded(query, serverId, it)) },
+                    onFailure = {
+                        dispatch(
+                            SearchMsg.MoreFailed(
+                                query,
+                                serverId,
+                                it.toUserMessage("加载更多失败"),
+                            ),
+                        )
+                    },
+                )
+                loadMoreJobs.remove(serverId)
             }
         }
 
@@ -285,37 +352,35 @@ class SearchStoreFactory(
                 dispatch(SearchMsg.Failed(query, "还没有可用的服务器，请先到「我的」添加服务器")); return
             }
             val snapshot = state()
-            val filter = MediaSearchFilter(
-                parentId = snapshot.libraryId,
-                includeItemTypes = snapshot.type.embyType ?: "Movie,Series",
-                productionYear = snapshot.year,
-                genre = snapshot.genre,
-                played = when (snapshot.watchStatus) {
-                    SearchWatchStatus.Played -> true
-                    SearchWatchStatus.Unplayed -> false
-                    else -> null
-                },
-                resumable = snapshot.watchStatus == SearchWatchStatus.Resumable,
-                sortBy = snapshot.sort.sortBy,
-                descending = snapshot.sort.descending,
-            )
+            val filter = searchFilter(snapshot)
             dispatch(SearchMsg.Loading(query))
             searchJob = scope.launch {
                 val groups = coroutineScope {
                     servers.map { server -> async {
-                        val first = repo.search(server, query, filter = filter)
-                        val result = if (first.isFailure) { delay(300L); repo.search(server, query, filter = filter) } else first
+                        val first = repo.searchPage(server, query, filter = filter)
+                        val result = if (first.isFailure) {
+                            delay(300L)
+                            repo.searchPage(server, query, filter = filter)
+                        } else first
                         result.fold(
-                            onSuccess = { ServerSearchGroup(server.id, server.serverName, it) },
+                            onSuccess = {
+                                ServerSearchGroup(
+                                    serverId = server.id,
+                                    serverName = server.serverName,
+                                    items = it.items,
+                                    totalCount = it.totalCount,
+                                )
+                            },
                             onFailure = { ServerSearchGroup(server.id, server.serverName, error = it.toUserMessage("搜索失败")) },
                         )
                     } }.awaitAll()
                 }
-                if (groups.all { it.error != null }) {
-                    dispatch(SearchMsg.Failed(query, "所选服务器无法完成搜索"))
-                } else {
-                    dispatch(SearchMsg.Loaded(query, groups))
-                    if (groups.any { it.items.isNotEmpty() }) history?.remember(query)?.let { dispatch(SearchMsg.Recent(it)) }
+                // Preserve per-server failures even when every server failed. The result page
+                // can then name each unavailable server and offer the direct re-login action,
+                // instead of collapsing useful recovery context into one generic error.
+                dispatch(SearchMsg.Loaded(query, groups))
+                if (groups.any { it.items.isNotEmpty() }) {
+                    history?.remember(query)?.let { dispatch(SearchMsg.Recent(it)) }
                 }
             }
             val advanced = snapshot.libraryId != null || snapshot.year != null || snapshot.genre != null ||
@@ -371,6 +436,35 @@ class SearchStoreFactory(
             is SearchMsg.PersonLoading -> copy(loading = true, person = msg.person, items = emptyList(), groups = emptyList(), error = null)
             is SearchMsg.PersonLoaded -> if (person != msg.person) this else copy(loading = false, items = msg.group.items, groups = listOf(msg.group), error = null)
             is SearchMsg.PersonFailed -> if (person != msg.person) this else copy(loading = false, items = emptyList(), groups = emptyList(), error = msg.message)
+            is SearchMsg.LoadingMore -> copy(
+                groups = groups.map {
+                    if (it.serverId == msg.serverId) {
+                        it.copy(loadingMore = true, loadMoreError = null)
+                    } else it
+                },
+            )
+            is SearchMsg.MoreLoaded -> if (msg.query != searchedQuery) this else {
+                val updated = groups.map { group ->
+                    if (group.serverId != msg.serverId) group else {
+                        group.copy(
+                            items = (group.items + msg.page.items).distinctBy(MediaItem::id),
+                            totalCount = msg.page.totalCount.coerceAtLeast(
+                                group.items.size + msg.page.items.size,
+                            ),
+                            loadingMore = false,
+                            loadMoreError = null,
+                        )
+                    }
+                }
+                copy(groups = updated, items = updated.flatMap(ServerSearchGroup::items))
+            }
+            is SearchMsg.MoreFailed -> if (msg.query != searchedQuery) this else copy(
+                groups = groups.map {
+                    if (it.serverId == msg.serverId) {
+                        it.copy(loadingMore = false, loadMoreError = msg.message)
+                    } else it
+                },
+            )
             SearchMsg.FiltersCleared -> copy(type = SearchType.All, serverId = null, libraryId = null, libraryOptions = emptyList(), year = null, genre = null, genreOptions = emptyList(), watchStatus = SearchWatchStatus.All, sort = SearchSort.Relevance)
             SearchMsg.Cleared -> SearchState(recent = recent, serverOptions = serverOptions, type = type, serverId = serverId, libraryId = libraryId, libraryOptions = libraryOptions, year = year, genre = genre, genreOptions = genreOptions, watchStatus = watchStatus, sort = sort)
         }

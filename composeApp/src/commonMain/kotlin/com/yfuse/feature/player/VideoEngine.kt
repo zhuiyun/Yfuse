@@ -25,6 +25,13 @@ data class PlaybackDiagnostics(
     val decoder: String = "等待视频轨道",
     val videoCodec: String = "未知",
     val playMethod: String = "直播放",
+    /** The user's persisted intent, distinct from the method the server actually chose. */
+    val requestedQuality: String = "自动",
+    val videoWidth: Int = 0,
+    val dynamicRange: String = "",
+    val audioFormat: String = "",
+    /** Why playback is not using the original direct-play path. */
+    val fallbackReason: String? = null,
     val bitrateBitsPerSecond: Long = 0L,
     val frameRate: Float = 0f,
     val droppedFrames: Int = 0,
@@ -149,7 +156,7 @@ interface VideoEngine {
      * used to be a dead end: no automatic retry and, because the manual 转码播放 control was
      * gated on the engine being ExoPlayer, no way to ask for one either.
      */
-    fun switchToTranscode(): Boolean = false
+    fun switchToTranscode(reason: String? = null): Boolean = false
 
     /**
      * Adds entries to the end of the queue without disturbing what is playing.

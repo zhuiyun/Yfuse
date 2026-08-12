@@ -65,6 +65,11 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
         return nativePtr == 0 ? STATUS_INVALID : nativeMediaStatus(nativePtr);
     }
 
+    /** Most recent native media error, cleared whenever a new URL is loaded. */
+    public synchronized String lastError() {
+        return nativePtr == 0 ? "" : nativeLastError(nativePtr);
+    }
+
     public synchronized int videoHeight() {
         return nativePtr == 0 ? 0 : nativeVideoHeight(nativePtr);
     }
@@ -168,6 +173,7 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
     private static native long nativeDuration(long ptr);
     private static native long nativeBufferedDuration(long ptr);
     private static native int nativeMediaStatus(long ptr);
+    private static native String nativeLastError(long ptr);
     private static native int nativeVideoHeight(long ptr);
     private static native void nativeSeek(long ptr, long positionMs);
     private static native void nativeSetPlaybackRate(long ptr, float rate);

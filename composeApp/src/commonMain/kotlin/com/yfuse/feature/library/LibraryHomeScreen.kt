@@ -25,7 +25,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -78,6 +77,9 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSizing
+import com.yfuse.core.designsystem.MediaSharedElementKey
+import com.yfuse.core.designsystem.sharedMediaArtwork
+import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
@@ -90,6 +92,7 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
+import com.yfuse.core.designsystem.loopingCarouselSemantics
 import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.pressable
@@ -98,6 +101,8 @@ import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.HomeRow
+import com.yfuse.core.model.MediaContainer
+import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
@@ -121,6 +126,53 @@ private val PosterWidth = MediaSizing.posterRailWidth
 
 /** `transparent 320px` — how far the artwork's tint reaches into the content. */
 private val ContentWashHeight = 320.dp
+
+private const val MINUTE_MS = 60_000L
+private const val HOUR_MS = 60 * MINUTE_MS
+private const val DAY_MS = 24 * HOUR_MS
+private const val CLOCK_SKEW_GRACE_MS = 5 * MINUTE_MS
+
+/**
+ * Stable freshness copy with no clock or locale dependency, so boundary behavior is testable.
+ * Older snapshots use an explicit UTC date rather than a device-locale string that can change
+ * between recompositions.
+ */
+internal fun formatLibraryUpdatedAt(
+    updatedAtEpochMs: Long?,
+    nowEpochMs: Long,
+): String {
+    val updatedAt = updatedAtEpochMs?.takeIf { it > 0L } ?: return "时间未知"
+    val ageMs = nowEpochMs - updatedAt
+    return when {
+        ageMs in -CLOCK_SKEW_GRACE_MS until MINUTE_MS -> "刚刚"
+        ageMs in MINUTE_MS until HOUR_MS -> "${ageMs / MINUTE_MS} 分钟前"
+        ageMs in HOUR_MS until DAY_MS -> "${ageMs / HOUR_MS} 小时前"
+        else -> "${utcDate(updatedAt)} UTC"
+    }
+}
+
+/** Gregorian civil date conversion for a non-negative Unix timestamp. */
+private fun utcDate(epochMs: Long): String {
+    var days = epochMs / DAY_MS + 719_468L
+    val era = days / 146_097L
+    val dayOfEra = days - era * 146_097L
+    val yearOfEra = (
+        dayOfEra - dayOfEra / 1_460L + dayOfEra / 36_524L - dayOfEra / 146_096L
+        ) / 365L
+    var year = yearOfEra + era * 400L
+    val dayOfYear = dayOfEra - (365L * yearOfEra + yearOfEra / 4L - yearOfEra / 100L)
+    val monthPrime = (5L * dayOfYear + 2L) / 153L
+    val day = dayOfYear - (153L * monthPrime + 2L) / 5L + 1L
+    val month = monthPrime + if (monthPrime < 10L) 3L else -9L
+    if (month <= 2L) year++
+    return buildString {
+        append(year.toString().padStart(4, '0'))
+        append('-')
+        append(month.toString().padStart(2, '0'))
+        append('-')
+        append(day.toString().padStart(2, '0'))
+    }
+}
 
 /** 媒体库 — a 432px hero carousel above `padding:16px 18px 100px; gap:22px` of rows. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -167,6 +219,17 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
+    var freshnessNowEpochMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(state.contentSource, state.updatedAtEpochMs, routeVisible) {
+        freshnessNowEpochMs = System.currentTimeMillis()
+        if (state.contentSource != LibraryContentSource.Cached || !routeVisible) {
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(MINUTE_MS)
+            freshnessNowEpochMs = System.currentTimeMillis()
+        }
+    }
     LaunchedEffect(carouselDragging) {
         if (carouselDragging) autoPlayEnabled = false
     }
@@ -215,7 +278,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                             Box(Modifier.fillMaxWidth().height(HeroHeight)) {
                                 HorizontalPager(
                                     state = pagerState,
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .loopingCarouselSemantics(pagerState.currentPage, slides.size),
                                     beyondViewportPageCount = 1,
                                     key = { page -> page },
                                 ) { page ->
@@ -244,6 +309,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         item = animatedItem,
                                         urls = animatedUrls,
                                         accent = animatedAccent,
+                                        serverId = state.currentServer?.id,
                                         serverName = state.currentServer?.serverName.orEmpty(),
                                         onClick = { component.onOpenItem(animatedItem.id) },
                                         onToggleFavorite = {
@@ -336,6 +402,19 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 .padding(top = 78.dp),
                             verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                         ) {
+                            if (
+                                state.contentSource == LibraryContentSource.Cached &&
+                                !state.content.isEmpty
+                            ) {
+                                LibraryFreshnessBanner(
+                                    updatedAtEpochMs = state.updatedAtEpochMs,
+                                    nowEpochMs = freshnessNowEpochMs,
+                                    error = state.error,
+                                    loading = state.loading,
+                                    onRetry = { store.accept(LibraryIntent.Retry) },
+                                )
+                            }
+
                             if (state.loading && state.content.isEmpty) {
                                 SkeletonRow()
                             }
@@ -351,10 +430,63 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 )
                             }
 
+                            if (state.content.collections.isNotEmpty()) {
+                                MediaContainerSection(
+                                    title = "合集",
+                                    baseUrl = baseUrl,
+                                    accessToken = accessToken,
+                                    containers = state.content.collections,
+                                    onOpen = { container ->
+                                        component.onSeeAll(
+                                            LibraryContainerRoute.from(container).encode(),
+                                            container.title,
+                                        )
+                                    },
+                                    onSeeAll = {
+                                        state.currentServer?.id?.let { serverId ->
+                                            component.onSeeAll(
+                                                LibraryContainerDirectoryRoute(
+                                                    serverId,
+                                                    MediaContainerKind.BoxSet,
+                                                ).encode(),
+                                                "合集",
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+
+                            if (state.content.playlists.isNotEmpty()) {
+                                MediaContainerSection(
+                                    title = "播放列表",
+                                    baseUrl = baseUrl,
+                                    accessToken = accessToken,
+                                    containers = state.content.playlists,
+                                    onOpen = { container ->
+                                        component.onSeeAll(
+                                            LibraryContainerRoute.from(container).encode(),
+                                            container.title,
+                                        )
+                                    },
+                                    onSeeAll = {
+                                        state.currentServer?.id?.let { serverId ->
+                                            component.onSeeAll(
+                                                LibraryContainerDirectoryRoute(
+                                                    serverId,
+                                                    MediaContainerKind.Playlist,
+                                                ).encode(),
+                                                "播放列表",
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+
                             if (state.content.resume.isNotEmpty()) {
                                 PlaybackHistory(
                                     baseUrl = baseUrl,
                                     accessToken = accessToken,
+                                    serverId = state.currentServer?.id,
                                     items = state.content.resume,
                                     onItemClick = { component.onOpenItem(it.id) },
                                 )
@@ -364,6 +496,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 CategorySection(
                                     baseUrl = baseUrl,
                                     accessToken = accessToken,
+                                    serverId = state.currentServer?.id,
                                     row = row,
                                     onSeeAll = {
                                         component.onSeeAll(row.libraryId, row.title)
@@ -396,8 +529,64 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             )
         }
 
-        if (state.loading && state.content.isEmpty && state.currentServer != null) {
-            CircularProgressIndicator(Modifier.align(Alignment.Center))
+    }
+}
+
+/** Non-blocking disclosure for content that is not currently verified live. */
+@Composable
+private fun LibraryFreshnessBanner(
+    updatedAtEpochMs: Long?,
+    nowEpochMs: Long,
+    error: String?,
+    loading: Boolean,
+    onRetry: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val detail = buildList {
+        when {
+            error != null -> add(error)
+            loading -> add("正在获取最新内容")
+        }
+        add("上次更新：${formatLibraryUpdatedAt(updatedAtEpochMs, nowEpochMs)}")
+    }.joinToString(" · ")
+    Column(
+        Modifier
+            .padding(horizontal = Dimens.pageHorizontal)
+            .glass(
+                shape = GlassShapes.card,
+                fill = palette.card2,
+                border = palette.border,
+            )
+            .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
+    ) {
+        Text(
+            text = if (error == null) "缓存内容" else "离线内容",
+            style = AppTypography.body.strong,
+            color = palette.text,
+        )
+        Text(
+            text = detail,
+            style = AppTypography.caption.regular,
+            color = palette.sub,
+            modifier = Modifier.padding(top = 3.dp),
+        )
+        if (error != null && !loading) {
+            Text(
+                text = "重试",
+                style = AppTypography.body.strong,
+                color = accent.accent,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .pressable(
+                        role = Role.Button,
+                        onClickLabel = "重新加载媒体库",
+                        onClick = onRetry,
+                    )
+                    .touchTarget()
+                    .padding(horizontal = 10.dp),
+            )
         }
     }
 }
@@ -426,21 +615,26 @@ private fun HeroCarousel(
     item: MediaItem,
     urls: List<String?>,
     accent: Color,
+    serverId: String?,
     serverName: String,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
     onToggleServerMenu: () -> Unit,
 ) {
+    val sharedKey = MediaSharedElementKey(serverId, item.id)
+    val openDetail = sharedMediaOnClick(sharedKey, onClick)
     Box(
         Modifier
             .fillMaxWidth()
             .height(HeroHeight)
-            .pressable(onClick = onClick),
+            .pressable(onClick = openDetail),
     ) {
         FallbackImage(
             urls = urls,
             contentDescription = item.title,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .sharedMediaArtwork(sharedKey)
+                .fillMaxSize(),
         )
         Box(
             Modifier.fillMaxSize().background(
@@ -552,7 +746,7 @@ private fun HeroCarousel(
             ) {
                 Row(
                     Modifier
-                        .pressable(onClickLabel = "立即播放", onClick = onClick)
+                        .pressable(onClickLabel = "查看详情", onClick = openDetail)
                         .touchTarget()
                         .height(42.dp)
                         .glass(
@@ -575,13 +769,13 @@ private fun HeroCarousel(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            AppIcons.Play,
+                            AppIcons.Info,
                             null,
                             tint = Color.White,
                             modifier = Modifier.size(13.dp),
                         )
                     }
-                    Text("立即播放", style = AppTypography.body.strong, color = Color.White)
+                    Text("查看详情", style = AppTypography.body.strong, color = Color.White)
                 }
                 HeroCircleAction(
                     active = item.isFavorite,
@@ -589,7 +783,6 @@ private fun HeroCarousel(
                     description = if (item.isFavorite) "取消收藏" else "加入收藏",
                     onClick = onToggleFavorite,
                 )
-                HeroCircleAction(AppIcons.Info, "查看详情", onClick)
             }
         }
     }
@@ -834,6 +1027,7 @@ private fun CategoryCards(
 private fun PlaybackHistory(
     baseUrl: String,
     accessToken: String,
+    serverId: String?,
     items: List<MediaItem>,
     onItemClick: (MediaItem) -> Unit,
 ) {
@@ -872,6 +1066,7 @@ private fun PlaybackHistory(
                     // that was just added, so the same id is on screen twice — see
                     // [CategorySection] for what that costs.
                     onClick = { onItemClick(item) },
+                    sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
                     modifier = Modifier.width(MediaSizing.landscapeCardWidth),
                     posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
                 )
@@ -940,6 +1135,7 @@ private fun SectionHeader(
 private fun CategorySection(
     baseUrl: String,
     accessToken: String,
+    serverId: String?,
     row: HomeRow,
     onSeeAll: () -> Unit,
     onItemClick: (MediaItem) -> Unit,
@@ -965,6 +1161,43 @@ private fun CategorySection(
                     // id scopes the key to this rail; 首页 hit the same thing and answered
                     // it by dropping the key entirely (see HomeScreen's shelves).
                     onClick = { onItemClick(item) },
+                    sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
+                    modifier = Modifier.width(PosterWidth),
+                )
+            }
+        }
+    }
+}
+
+/** Real Emby organization containers; empty sections are omitted by the caller. */
+@Composable
+private fun MediaContainerSection(
+    title: String,
+    baseUrl: String,
+    accessToken: String,
+    containers: List<MediaContainer>,
+    onOpen: (MediaContainer) -> Unit,
+    onSeeAll: () -> Unit,
+) {
+    Column {
+        SectionHeader(title, onSeeAll = onSeeAll)
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(containers, key = { "${it.kind}-${it.serverId}-${it.id}" }) { container ->
+                CaptionedPoster(
+                    url = EmbyImages.primary(
+                        baseUrl = baseUrl,
+                        itemId = container.id,
+                        tag = container.posterTag,
+                        maxHeight = 450,
+                        accessToken = accessToken,
+                    ),
+                    title = container.title,
+                    year = container.itemCount?.let { "$it 项" },
+                    progress = null,
+                    onClick = { onOpen(container) },
                     modifier = Modifier.width(PosterWidth),
                 )
             }
@@ -1001,6 +1234,7 @@ private fun CenterHint(text: String, modifier: Modifier = Modifier) {
 internal fun PosterCard(
     baseUrl: String,
     accessToken: String,
+    serverId: String?,
     item: MediaItem,
     showProgress: Boolean,
     onClick: () -> Unit,
@@ -1012,6 +1246,7 @@ internal fun PosterCard(
         year = item.year?.toString(),
         progress = if (showProgress) item.playedPercentage?.let { (it / 100.0).toFloat() } else null,
         onClick = onClick,
+        sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
         modifier = modifier.fillMaxWidth(),
     )
 }

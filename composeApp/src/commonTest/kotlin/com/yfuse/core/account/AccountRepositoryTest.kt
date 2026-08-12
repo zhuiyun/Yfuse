@@ -9,6 +9,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.security.SecureStore
+import com.yfuse.core.security.TestSecureStore
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.sync.ServerSyncManager
 import io.ktor.client.HttpClient
@@ -222,7 +223,7 @@ class AccountRepositoryTest {
 
     private fun testDependencies(): TestDependencies {
         val settings = MapSettings()
-        val registry = ServerRegistry(settings)
+        val registry = ServerRegistry(settings, TestSecureStore())
         return TestDependencies(
             settings = settings,
             registry = registry,

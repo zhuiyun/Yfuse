@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -73,6 +74,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
@@ -276,19 +278,12 @@ fun ProfileScreen(component: ProfileComponent) {
                         )
 
                         ProfilePage.DataAndDiagnostics -> {
-                            val backupPayload = remember(
-                                component,
-                                state.servers,
-                                state.currentServer?.id,
-                            ) {
-                                component.exportServers()
-                            }
                             DataAndDiagnosticsScreen(
                                 onBack = ::closePage,
                                 serverCount = state.servers.size,
-                                backupPayload = backupPayload,
                                 customUserAgent = customUserAgent,
                                 watchEndpoint = watchEndpoint,
+                                onExport = component::exportServers,
                                 onImport = component::importServers,
                                 onUserAgent = { sheet = Sheet.UserAgent },
                                 onWatchEndpoint = { sheet = Sheet.WatchEndpoint },
@@ -381,7 +376,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                     SettingsCard {
                                         SettingRow(
                                             "播放",
-                                            "${engine.label} · ${decoder.label} ›",
+                                            "${playbackSettingsSummary(engine, decoder)} ›",
                                             embedded = true,
                                             onClick = { openPage(ProfilePage.Playback) },
                                         )
@@ -467,6 +462,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         url = "file://$path",
                         transcodeUrl = "file://$path",
                         title = offline.title,
+                        serverId = offline.serverId,
                     ),
                 ),
                 startIndex = 0,
@@ -508,9 +504,10 @@ fun ProfileScreen(component: ProfileComponent) {
             )
 
             Sheet.Engine -> OptionSheet(
-                title = "默认播放器内核",
-                subtitle = "用于新播放；播放页内的切换只影响当前播放",
-                options = PlayerEngine.selectable.map { it.label to (it == engine) },
+                title = "播放内核",
+                subtitle = "用于新播放；播放时的临时切换不会改变此默认值",
+                options = PlayerEngine.selectable.map { it.playbackOptionCopy().label to (it == engine) },
+                descriptions = PlayerEngine.selectable.map { it.playbackOptionCopy().description },
                 onSelect = { index ->
                     prefs.setEngine(PlayerEngine.selectable[index])
                     sheet = null
@@ -519,9 +516,10 @@ fun ProfileScreen(component: ProfileComponent) {
             )
 
             Sheet.Decoder -> OptionSheet(
-                title = "解码内核",
-                subtitle = "硬解更省电，软解兼容性更好",
-                options = DecoderMode.entries.map { it.label to (it == decoder) },
+                title = "解码方式",
+                subtitle = "解码选择会同时影响兼容性、性能与耗电",
+                options = DecoderMode.entries.map { it.playbackOptionCopy().label to (it == decoder) },
+                descriptions = DecoderMode.entries.map { it.playbackOptionCopy().description },
                 onSelect = { index ->
                     prefs.setDecoder(DecoderMode.entries[index])
                     sheet = null
@@ -686,10 +684,10 @@ fun ProfileScreen(component: ProfileComponent) {
 private fun DataAndDiagnosticsScreen(
     onBack: () -> Unit,
     serverCount: Int,
-    backupPayload: String,
     customUserAgent: String,
     watchEndpoint: String,
-    onImport: (String) -> Result<Int>,
+    onExport: (CharArray, Long) -> Result<String>,
+    onImport: (String, CharArray, Long) -> Result<Int>,
     onUserAgent: () -> Unit,
     onWatchEndpoint: () -> Unit,
     onClearCache: () -> Unit,
@@ -721,8 +719,8 @@ private fun DataAndDiagnosticsScreen(
         item {
             Box(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
                 ServerBackupTools(
-                    payload = backupPayload,
                     serverCount = serverCount,
+                    onExport = onExport,
                     onImport = onImport,
                 )
             }
@@ -1041,6 +1039,7 @@ internal fun SettingRow(
             }
         }
         .let { if (onClick != null) it.pressable(onClick = onClick) else it }
+        .heightIn(min = MinTouchTarget)
         .padding(horizontal = 16.dp, vertical = 13.dp)
     BoxWithConstraints(rowModifier) {
         val stacked = largeText || windowWidthTier(maxWidth) == WindowWidthTier.Compact
@@ -1087,6 +1086,7 @@ private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () ->
             }
         }
         .pressable(onClick = onClick)
+        .heightIn(min = MinTouchTarget)
         .padding(horizontal = 16.dp, vertical = 13.dp)
     val label: @Composable () -> Unit = {
         Row(
@@ -1263,6 +1263,7 @@ internal fun SwitchRow(
                 role = Role.Switch,
                 onValueChange = onChange,
             )
+            .heightIn(min = MinTouchTarget)
             .padding(horizontal = 16.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -1311,6 +1312,7 @@ private fun DescribedSwitchRow(
                 role = Role.Switch,
                 onValueChange = onChange,
             )
+            .heightIn(min = MinTouchTarget)
             .glass(AppShapes.control, palette.card2, palette.border)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1594,15 +1596,20 @@ private fun Long.asRecoveryClock(): String {
     return "$minutes:${seconds.toString().padStart(2, '0')}"
 }
 
-/**
- * `width:38px;height:22px;border-radius:11px` track — `#3D64C9` on, `rgba(0,0,0,.15)`
- * off — with an 18px knob inset 2px.
- */
+/** 38×22 pill switch; the off state keeps a visible track, edge and thumb in both themes. */
 @Composable
 private fun PillSwitch(checked: Boolean) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val shape = AppShapes.pill
+    val offTrack = palette.sub2.copy(alpha = if (palette.isDark) 0.24f else 0.26f)
+    val offBorder = palette.sub2.copy(alpha = if (palette.isDark) 0.62f else 0.78f)
+    val knobFill = if (checked) accent.onAccent else palette.background
+    val knobBorder = if (checked) {
+        accent.onAccent.copy(alpha = 0.88f)
+    } else {
+        palette.sub2.copy(alpha = 0.72f)
+    }
     Box(
         Modifier
             .width(38.dp)
@@ -1611,12 +1618,10 @@ private fun PillSwitch(checked: Boolean) {
                 shape,
                 if (checked) {
                     accent.accent
-                } else if (palette.isDark) {
-                    Color.White.copy(alpha = 0.12f)
                 } else {
-                    Color.White.copy(alpha = 0.38f)
+                    offTrack
                 },
-                if (checked) accent.border else palette.border,
+                if (checked) accent.border else offBorder,
             ),
         contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
@@ -1624,7 +1629,7 @@ private fun PillSwitch(checked: Boolean) {
             Modifier
                 .padding(horizontal = 2.dp)
                 .size(18.dp)
-                .glass(CircleShape, Color.White.copy(alpha = 0.82f), Color.White),
+                .glass(CircleShape, knobFill, knobBorder),
         )
     }
 }
@@ -1637,6 +1642,7 @@ private fun OptionSheet(
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
     subtitle: String? = null,
+    descriptions: List<String> = emptyList(),
 ) {
     val palette = LocalPalette.current
     GlassDialog(onDismiss = onDismiss) {
@@ -1646,6 +1652,7 @@ private fun OptionSheet(
                 OverlayOptionRow(
                     label = label,
                     selected = selected,
+                    description = descriptions.getOrNull(index),
                     onClick = { onSelect(index) },
                 )
                 if (index < options.lastIndex) {

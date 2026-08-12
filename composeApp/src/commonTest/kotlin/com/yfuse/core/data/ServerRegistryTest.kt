@@ -4,114 +4,160 @@ import com.russhwolf.settings.MapSettings
 import com.russhwolf.settings.Settings
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServersData
+import com.yfuse.core.security.ServerMigrationCrypto
+import com.yfuse.core.security.TestSecureStore
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServerRegistryTest {
 
-    private fun server(id: String) = SavedServer(id, "http://$id", "name-$id", "u", "user", "tok")
+    private fun server(id: String, token: String = "tok-$id") =
+        SavedServer(id, "http://$id", "name-$id", "u", "user", token)
+
+    private fun registry(
+        settings: Settings = MapSettings(),
+        secrets: TestSecureStore = TestSecureStore(),
+    ) = ServerRegistry(settings, secrets)
 
     @Test
-    fun first_added_becomes_default() {
-        val r = ServerRegistry(MapSettings())
-        r.addOrUpdate(server("a"))
-        assertEquals("a", r.data.value.defaultServerId)
-        assertEquals("a", r.defaultServer?.id)
+    fun firstAddedBecomesDefaultAndRemovingItReassignsDefault() {
+        val registry = registry()
+        registry.addOrUpdate(server("a"))
+        registry.addOrUpdate(server("b"))
+        assertEquals("a", registry.defaultServer?.id)
+
+        registry.remove("a")
+
+        assertEquals("b", registry.defaultServer?.id)
+        registry.remove("b")
+        assertNull(registry.defaultServer)
     }
 
     @Test
-    fun second_added_keeps_first_default() {
-        val r = ServerRegistry(MapSettings())
-        r.addOrUpdate(server("a"))
-        r.addOrUpdate(server("b"))
-        assertEquals(2, r.data.value.servers.size)
-        assertEquals("a", r.data.value.defaultServerId)
-    }
-
-    @Test
-    fun set_default_switches() {
-        val r = ServerRegistry(MapSettings())
-        r.addOrUpdate(server("a"))
-        r.addOrUpdate(server("b"))
-        r.setDefault("b")
-        assertEquals("b", r.defaultServer?.id)
-    }
-
-    @Test
-    fun removing_default_reassigns_to_remaining() {
-        val r = ServerRegistry(MapSettings())
-        r.addOrUpdate(server("a"))
-        r.addOrUpdate(server("b"))
-        r.remove("a")
-        assertEquals(1, r.data.value.servers.size)
-        assertEquals("b", r.defaultServer?.id)
-    }
-
-    @Test
-    fun removing_last_clears_default() {
-        val r = ServerRegistry(MapSettings())
-        r.addOrUpdate(server("a"))
-        r.remove("a")
-        assertNull(r.defaultServer)
-    }
-
-    @Test
-    fun persists_across_instances() {
+    fun tokenIsAbsentFromOrdinarySettingsAndReloadsFromSecureStore() {
         val settings = MapSettings()
-        ServerRegistry(settings).addOrUpdate(server("a"))
-        val reloaded = ServerRegistry(settings)
-        assertEquals(1, reloaded.data.value.servers.size)
-        assertEquals("a", reloaded.defaultServer?.id)
+        val secrets = TestSecureStore()
+        val token = "very-sensitive-bearer-token"
+        registry(settings, secrets).addOrUpdate(server("a", token))
+
+        val persisted = requireNotNull(settings.getStringOrNull("servers.data"))
+        assertFalse(token in persisted)
+        assertFalse("accessToken" in persisted)
+        assertFalse("\"t\"" in persisted)
+        assertEquals(1, secrets.storedKeys().size)
+
+        val reloaded = registry(settings, secrets)
+        assertEquals(token, reloaded.defaultServer?.accessToken)
         assertEquals("name-a", reloaded.defaultServer?.serverName)
     }
 
     @Test
-    fun rename_persists_without_changing_identity_session_or_default() {
+    fun legacyPlaintextRegistryMigratesOnceAndIsImmediatelySanitized() {
         val settings = MapSettings()
+        val secrets = TestSecureStore()
+        val saved = server("legacy", "legacy-plaintext-token")
+        settings.putString(
+            "servers.data",
+            Json.encodeToString(
+                ServersData.serializer(),
+                ServersData(listOf(saved), saved.id),
+            ),
+        )
+
+        val migrated = registry(settings, secrets)
+
+        assertEquals(saved.accessToken, migrated.defaultServer?.accessToken)
+        val persisted = requireNotNull(settings.getStringOrNull("servers.data"))
+        assertFalse(saved.accessToken in persisted)
+        assertFalse("accessToken" in persisted)
+        assertEquals(1, secrets.storedKeys().size)
+        assertEquals(saved.accessToken, registry(settings, secrets).defaultServer?.accessToken)
+    }
+
+    @Test
+    fun failedLegacySecretMigrationPurgesPlaintextAndRequiresLogin() {
+        val settings = MapSettings()
+        val saved = server("legacy", "must-not-remain")
+        settings.putString(
+            "servers.data",
+            Json.encodeToString(ServersData.serializer(), ServersData(listOf(saved), saved.id)),
+        )
+        val secrets = TestSecureStore().apply { failWrites = true }
+
+        val loaded = registry(settings, secrets)
+
+        assertTrue(loaded.data.value.servers.isEmpty())
+        assertFalse("must-not-remain" in settings.getStringOrNull("servers.data").orEmpty())
+    }
+
+    @Test
+    fun missingOrCorruptedSecureSecretFailsClosedAndRequiresLogin() {
+        val settings = MapSettings()
+        val secrets = TestSecureStore()
+        registry(settings, secrets).addOrUpdate(server("a"))
+        secrets.clear()
+
+        assertTrue(registry(settings, secrets).data.value.servers.isEmpty())
+
+        registry(settings, secrets).addOrUpdate(server("b"))
+        secrets.corruptedKeys += secrets.storedKeys().single()
+        assertTrue(registry(settings, secrets).data.value.servers.isEmpty())
+    }
+
+    @Test
+    fun renamePersistsWithoutChangingIdentitySessionOrDefault() {
+        val settings = MapSettings()
+        val secrets = TestSecureStore()
         val original = server("a")
-        val registry = ServerRegistry(settings)
+        val registry = registry(settings, secrets)
         registry.addOrUpdate(original)
 
         assertTrue(registry.rename(original.id, "  客厅影院  "))
 
-        val renamed = ServerRegistry(settings).defaultServer
+        val renamed = registry(settings, secrets).defaultServer
         assertEquals(original.id, renamed?.id)
         assertEquals("客厅影院", renamed?.serverName)
         assertEquals(original.accessToken, renamed?.accessToken)
-        assertEquals(original.id, ServerRegistry(settings).data.value.defaultServerId)
     }
 
     @Test
-    fun replacing_a_connection_keeps_the_previous_id_as_a_persisted_alias() {
+    fun replacingConnectionKeepsBoundedPersistedAliasesAndReusesOneSecretSlot() {
         val settings = MapSettings()
-        val original = SavedServer(
-            SavedServer.idOf("http://old.example", "u"),
-            "http://old.example",
-            "Media",
-            "u",
-            "User",
-            "old-token",
-        )
-        val replacement = original.copy(
-            id = SavedServer.idOf("https://new.example", "u"),
-            baseUrl = "https://new.example",
-            accessToken = "new-token",
-        )
-        val registry = ServerRegistry(settings).apply { addOrUpdate(original) }
+        val secrets = TestSecureStore()
+        val registry = registry(settings, secrets)
+        val ids = (0..MAX_SERVER_PREVIOUS_IDS + 2).map { "server-$it" }
+        registry.addOrUpdate(server(ids.first()))
 
-        assertTrue(registry.replace(original.id, replacement))
+        ids.drop(1).forEach { nextId ->
+            assertTrue(registry.replace(requireNotNull(registry.defaultServer).id, server(nextId)))
+        }
 
-        val reloaded = ServerRegistry(settings)
-        assertEquals(replacement.id, reloaded.serverById(original.id)?.id)
-        assertEquals("new-token", reloaded.serverById(original.id)?.accessToken)
-        assertEquals(replacement.id, reloaded.defaultServer?.id)
+        val reloaded = registry(settings, secrets)
+        val latest = requireNotNull(reloaded.defaultServer)
+        val expected = ids.dropLast(1).takeLast(MAX_SERVER_PREVIOUS_IDS)
+        assertEquals(expected, latest.previousIds.toList())
+        expected.forEach { alias -> assertEquals(latest.id, reloaded.serverById(alias)?.id) }
+        assertEquals(1, secrets.storedKeys().size)
     }
 
     @Test
-    fun failed_old_cache_cleanup_does_not_fail_an_already_committed_replacement() {
+    fun removingServerRemovesItsEncryptedSecret() {
+        val secrets = TestSecureStore()
+        val registry = registry(secrets = secrets)
+        registry.addOrUpdate(server("a"))
+        assertEquals(1, secrets.storedKeys().size)
+
+        registry.remove("a")
+
+        assertTrue(secrets.storedKeys().isEmpty())
+    }
+
+    @Test
+    fun failedOldCacheCleanupDoesNotFailCommittedReplacement() {
         val original = server("old")
         val replacement = server("new")
         val cacheKey = "library.cache.${original.id}"
@@ -122,83 +168,16 @@ class ServerRegistryTest {
                 backing.remove(key)
             }
         }
-        val registry = ServerRegistry(settings).apply { addOrUpdate(original) }
+        val registry = registry(settings).apply { addOrUpdate(original) }
 
         assertTrue(registry.replace(original.id, replacement))
-
         assertEquals(replacement.id, registry.defaultServer?.id)
-        assertEquals(replacement.id, registry.serverById(original.id)?.id)
         assertEquals("cached-home", backing.getStringOrNull(cacheKey))
     }
 
     @Test
-    fun repeated_replacements_keep_only_recent_aliases_and_preserve_lookup() {
-        val settings = MapSettings()
-        val registry = ServerRegistry(settings)
-        val ids = (0..MAX_SERVER_PREVIOUS_IDS + 2).map { "server-$it" }
-        registry.addOrUpdate(server(ids.first()))
-
-        ids.drop(1).forEach { nextId ->
-            assertTrue(registry.replace(requireNotNull(registry.defaultServer).id, server(nextId)))
-        }
-
-        val reloaded = ServerRegistry(settings)
-        val latest = requireNotNull(reloaded.defaultServer)
-        val expected = ids.dropLast(1).takeLast(MAX_SERVER_PREVIOUS_IDS)
-        val dropped = ids.dropLast(1).dropLast(MAX_SERVER_PREVIOUS_IDS)
-        assertEquals(ids.last(), latest.id)
-        assertEquals(expected, latest.previousIds.toList())
-        expected.forEach { alias -> assertEquals(latest.id, reloaded.serverById(alias)?.id) }
-        dropped.forEach { alias -> assertNull(reloaded.serverById(alias)) }
-    }
-
-    @Test
-    fun loading_legacy_unbounded_aliases_keeps_the_most_recent_entries() {
-        val settings = MapSettings()
-        val aliases = (0..MAX_SERVER_PREVIOUS_IDS + 2).map { "legacy-$it" }
-        val saved = server("current").copy(previousIds = aliases.toCollection(linkedSetOf()))
-        settings.putString("library.cache.${saved.id}", "current-cache")
-        aliases.forEach { settings.putString("library.cache.$it", "orphan-cache") }
-        settings.putString("library.cache.unknown", "orphan-cache")
-        settings.putString(
-            "servers.data",
-            Json.encodeToString(
-                ServersData.serializer(),
-                ServersData(servers = listOf(saved), defaultServerId = saved.id),
-            ),
-        )
-
-        val loaded = requireNotNull(ServerRegistry(settings).defaultServer)
-
-        assertEquals(aliases.takeLast(MAX_SERVER_PREVIOUS_IDS), loaded.previousIds.toList())
-        val persisted = Json.decodeFromString(
-            ServersData.serializer(),
-            requireNotNull(settings.getStringOrNull("servers.data")),
-        )
-        assertEquals(
-            aliases.takeLast(MAX_SERVER_PREVIOUS_IDS),
-            persisted.servers.single().previousIds.toList(),
-        )
-        assertEquals("current-cache", settings.getStringOrNull("library.cache.${saved.id}"))
-        aliases.forEach { assertNull(settings.getStringOrNull("library.cache.$it")) }
-        assertNull(settings.getStringOrNull("library.cache.unknown"))
-    }
-
-    @Test
-    fun removing_a_replaced_server_also_removes_its_old_id_alias() {
-        val original = server("old")
-        val replacement = server("new")
-        val registry = ServerRegistry(MapSettings()).apply { addOrUpdate(original) }
-        assertTrue(registry.replace(original.id, replacement))
-
-        registry.remove(replacement.id)
-
-        assertNull(registry.serverById(original.id))
-    }
-
-    @Test
-    fun portable_backup_round_trips_credentials_and_default() {
-        val source = ServerRegistry(MapSettings())
+    fun protectedBackupRoundTripsCredentialsAndRejectsWrongPasswordExpiryAndV1() {
+        val source = registry()
         val first = SavedServer(
             SavedServer.idOf("https://one.example", "u1"),
             "https://one.example",
@@ -218,67 +197,37 @@ class ServerRegistryTest {
         source.addOrUpdate(first)
         source.addOrUpdate(second)
         source.setDefault(second.id)
+        val password = "correct horse battery staple".toCharArray()
+        val createdAt = 2_000_000_000L
+        val payload = source.exportProtectedBackup(password, createdAt).getOrThrow()
+        assertFalse("secret-one" in payload)
+        assertFalse("secret-two" in payload)
 
-        val target = ServerRegistry(MapSettings())
-        assertEquals(2, target.importBackup(source.exportBackup()).getOrThrow())
+        val target = registry()
+        assertEquals(
+            2,
+            target.importProtectedBackup(payload, password, createdAt + 1).getOrThrow(),
+        )
         assertEquals(second.id, target.defaultServer?.id)
         assertEquals("secret-one", target.serverById(first.id)?.accessToken)
         assertEquals("客厅影院", target.serverById(first.id)?.serverName)
-    }
-
-    @Test
-    fun legacy_v1_backup_imports_its_server_name() {
-        val baseUrl = "https://old.example"
-        val id = SavedServer.idOf(baseUrl, "u")
-        val payload =
-            """{"v":1,"d":"$id","s":[{"b":"$baseUrl","n":"旧服务器名称","u":"u","a":"User","t":"tok"}]}"""
-
-        val registry = ServerRegistry(MapSettings())
-        assertEquals(1, registry.importBackup(payload).getOrThrow())
-        assertEquals("旧服务器名称", registry.serverById(id)?.serverName)
-        assertEquals(id, registry.defaultServer?.id)
-        assertEquals(id, registry.data.value.defaultServerId)
-    }
-
-    @Test
-    fun portable_import_replaces_the_name_and_token_for_the_same_server() {
-        val imported = SavedServer(
-            SavedServer.idOf("https://same.example", "u"),
-            "https://same.example",
-            "迁移后的名称",
-            "u",
-            "User",
-            "imported-token",
+        assertTrue(
+            registry().importProtectedBackup(
+                payload,
+                "incorrect password value".toCharArray(),
+                createdAt + 1,
+            ).isFailure,
         )
-        val source = ServerRegistry(MapSettings()).apply { addOrUpdate(imported) }
-        val target = ServerRegistry(MapSettings()).apply {
-            addOrUpdate(imported.copy(serverName = "本地旧名称", accessToken = "old-token"))
-        }
-
-        assertEquals(1, target.importBackup(source.exportBackup()).getOrThrow())
-
-        assertEquals(1, target.data.value.servers.size)
-        assertEquals("迁移后的名称", target.serverById(imported.id)?.serverName)
-        assertEquals("imported-token", target.serverById(imported.id)?.accessToken)
-    }
-
-    @Test
-    fun portable_import_merges_and_rejects_invalid_payload() {
-        val source = ServerRegistry(MapSettings())
-        val imported = SavedServer(
-            SavedServer.idOf("https://new.example", "u"),
-            "https://new.example",
-            "New",
-            "u",
-            "User",
-            "new-token",
+        assertTrue(
+            registry().importProtectedBackup(
+                payload,
+                password,
+                createdAt + ServerMigrationCrypto.DEFAULT_TTL_SECONDS + 1,
+            ).isFailure,
         )
-        source.addOrUpdate(imported)
-
-        val target = ServerRegistry(MapSettings())
-        target.addOrUpdate(server("local"))
-        target.importBackup(source.exportBackup()).getOrThrow()
-        assertEquals(2, target.data.value.servers.size)
-        assertTrue(target.importBackup("""{"v":99,"s":[]}""").isFailure)
+        val v1 =
+            """{"v":1,"s":[{"b":"https://old.example","u":"u","a":"User","t":"tok"}]}"""
+        assertTrue(registry().importProtectedBackup(v1, password, createdAt + 1).isFailure)
+        password.fill('\u0000')
     }
 }

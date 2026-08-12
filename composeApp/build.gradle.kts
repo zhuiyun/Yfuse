@@ -139,6 +139,7 @@ kotlin {
             // Native engines fetched by scripts/fetch-engines.sh (gitignored).
             implementation(files("libs/libmpv-release.aar"))
             implementation(libs.androidx.palette)
+            implementation(libs.androidx.work.runtime)
             implementation(libs.zxing.core)
             implementation(libs.google.cast.framework)
         }

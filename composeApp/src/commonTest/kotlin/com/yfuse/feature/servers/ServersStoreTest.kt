@@ -6,8 +6,10 @@ import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.data.AuthedServer
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.security.TestSecureStore
 import com.yfuse.feature.authRoutes
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
@@ -19,6 +21,8 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -26,6 +30,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -36,9 +41,17 @@ class ServersStoreTest {
 
     private fun store(
         registry: ServerRegistry,
+        quickConnectGateway: QuickConnectGateway = UnsupportedQuickConnectGateway,
+        nowEpochMs: () -> Long = { System.currentTimeMillis() },
         handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
     ): Store<ServersIntent, ServersState, ServersLabel> =
-        ServersStoreFactory(DefaultStoreFactory(), testRepo(handler = handler), registry).create()
+        ServersStoreFactory(
+            storeFactory = DefaultStoreFactory(),
+            repo = testRepo(handler = handler),
+            registry = registry,
+            quickConnectGateway = quickConnectGateway,
+            nowEpochMs = nowEpochMs,
+        ).create()
 
     @Test
     fun submit_adds_server_and_emits_label() = runTest {
@@ -49,6 +62,7 @@ class ServersStoreTest {
         store.accept(ServersIntent.PortChanged("8096"))
         store.accept(ServersIntent.UsernameChanged("zhuiyun"))
         store.accept(ServersIntent.PasswordChanged("123456"))
+        store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
 
         store.labels.test {
             store.accept(ServersIntent.Submit)
@@ -71,6 +85,7 @@ class ServersStoreTest {
         store.accept(ServersIntent.PortChanged("8096"))
         store.accept(ServersIntent.UsernameChanged("zhuiyun"))
         store.accept(ServersIntent.PasswordChanged("123456"))
+        store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
 
         store.labels.test {
             store.accept(ServersIntent.Submit)
@@ -114,7 +129,7 @@ class ServersStoreTest {
     @Test
     fun editing_connection_reauthenticates_and_keeps_the_custom_name() = runTest {
         val settings = MapSettings()
-        val registry = ServerRegistry(settings)
+        val registry = ServerRegistry(settings, TestSecureStore())
         val existing = SavedServer(
             id = SavedServer.idOf("http://oldhost:8096", "old-user-id"),
             baseUrl = "http://oldhost:8096",
@@ -175,6 +190,7 @@ class ServersStoreTest {
         store.accept(ServersIntent.PortChanged("8096"))
         store.accept(ServersIntent.UsernameChanged("x"))
         store.accept(ServersIntent.PasswordChanged("y"))
+        store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
         store.accept(ServersIntent.Submit)
 
         val s = store.states.first { it.form.error != null }
@@ -245,6 +261,116 @@ class ServersStoreTest {
         assertEquals("media.example.com", store.state.form.host)
         assertEquals("9443", store.state.form.port)
         assertEquals("https://media.example.com:9443", store.state.form.url)
+        store.dispose()
+    }
+
+    @Test
+    fun complete_url_paste_splits_scheme_host_port_and_base_path() = runTest {
+        val store = store(testRegistry()) { authRoutes(it) }
+
+        store.accept(ServersIntent.HostChanged("https://media.example.com:9443/emby/"))
+
+        assertTrue(store.state.form.https)
+        assertEquals("media.example.com", store.state.form.host)
+        assertEquals("9443", store.state.form.port)
+        assertEquals("/emby", store.state.form.basePath)
+        assertEquals("https://media.example.com:9443/emby", store.state.form.url)
+        store.dispose()
+    }
+
+    @Test
+    fun host_without_scheme_defaults_to_https() = runTest {
+        val store = store(testRegistry()) { authRoutes(it) }
+
+        store.accept(ServersIntent.HostChanged("media.example.com/emby"))
+
+        assertTrue(store.state.form.https)
+        assertEquals("https://media.example.com:443/emby", store.state.form.url)
+        store.dispose()
+    }
+
+    @Test
+    fun http_requires_explicit_risk_confirmation() = runTest {
+        val store = store(testRegistry()) { authRoutes(it) }
+        store.accept(ServersIntent.HostChanged("http://media.example.com:8096/emby"))
+        store.accept(ServersIntent.UsernameChanged("user"))
+
+        assertFalse(store.state.form.canSubmit)
+        store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
+        assertTrue(store.state.form.canSubmit)
+        store.dispose()
+    }
+
+    @Test
+    fun invalid_port_cannot_submit_or_start_quick_connect() = runTest {
+        val store = store(testRegistry()) { authRoutes(it) }
+        store.accept(ServersIntent.HostChanged("media.example.com"))
+        store.accept(ServersIntent.PortChanged("70000"))
+        store.accept(ServersIntent.UsernameChanged("user"))
+
+        assertFalse(store.state.form.canSubmit)
+        assertFalse(store.state.form.canStartQuickConnect)
+        store.dispose()
+    }
+
+    @Test
+    fun unsupported_quick_connect_is_reported_without_persisting_a_server() = runTest {
+        val registry = testRegistry()
+        val store = store(registry) { authRoutes(it) }
+        store.accept(ServersIntent.HostChanged("media.example.com"))
+
+        store.accept(ServersIntent.StartQuickConnect)
+
+        assertEquals(
+            QuickConnectUiState.Unsupported(QuickConnectUnsupportedMessage),
+            store.state.quickConnect,
+        )
+        assertTrue(registry.data.value.servers.isEmpty())
+        store.dispose()
+    }
+
+    @Test
+    fun quick_connect_persists_only_the_authenticated_server_returned_by_gateway() = runTest {
+        val registry = testRegistry()
+        val gateway = object : QuickConnectGateway {
+            override suspend fun start(baseUrl: String) = Result.success(
+                QuickConnectStartResult.AwaitingApproval(
+                    QuickConnectSession(id = "session", code = "123456", expiresAtEpochMs = 10_000L),
+                ),
+            )
+
+            override suspend fun poll(baseUrl: String, sessionId: String) = Result.success(
+                QuickConnectPollResult.Authenticated(
+                    AuthedServer(
+                        baseUrl = baseUrl,
+                        serverName = "Home Emby",
+                        userId = "user-id",
+                        userName = "User",
+                        accessToken = "real-server-token",
+                    ),
+                ),
+            )
+
+            override suspend fun cancel(baseUrl: String, sessionId: String) = Result.success(Unit)
+        }
+        val store = store(
+            registry = registry,
+            handler = { authRoutes(it) },
+            quickConnectGateway = gateway,
+            nowEpochMs = { 0L },
+        )
+        store.accept(ServersIntent.HostChanged("media.example.com"))
+
+        store.accept(ServersIntent.StartQuickConnect)
+        assertEquals(
+            QuickConnectUiState.AwaitingApproval("123456", 10_000L),
+            store.state.quickConnect,
+        )
+        advanceTimeBy(2_000L)
+        runCurrent()
+
+        assertEquals("real-server-token", registry.data.value.servers.single().accessToken)
+        assertEquals("https://media.example.com:443", registry.data.value.servers.single().baseUrl)
         store.dispose()
     }
 }

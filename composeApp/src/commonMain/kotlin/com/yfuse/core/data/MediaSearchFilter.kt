@@ -8,6 +8,7 @@ data class MediaSearchFilter(
     val genre: String? = null,
     val played: Boolean? = null,
     val resumable: Boolean = false,
-    val sortBy: String = "SortName",
+    /** Null lets Emby's search endpoint preserve its relevance ordering. */
+    val sortBy: String? = null,
     val descending: Boolean = false,
 )

@@ -127,7 +127,7 @@ class SearchStoreTest {
     }
 
     @Test
-    fun a_failed_server_survives_the_type_filter() {
+    fun a_failed_server_is_kept_in_coverage_but_not_the_result_stream() {
         val state = SearchState(
             groups = listOf(
                 ServerSearchGroup("id1", "甲", items = listOf(mediaItem("m1", "Movie"))),
@@ -136,9 +136,71 @@ class SearchStoreTest {
             type = SearchType.Movie,
         )
 
-        assertEquals(listOf("甲", "乙"), state.visibleGroups.map { it.serverName })
+        assertEquals(listOf("甲"), state.visibleGroups.map { it.serverName })
+        assertEquals(listOf("乙"), state.unavailableGroups.map { it.serverName })
         // The failed group contributes no titles, so it does not inflate the count.
         assertEquals(1, state.visibleCount)
+    }
+
+    @Test
+    fun every_failed_server_keeps_actionable_per_server_context() = runTest {
+        val registry = testRegistry()
+        registry.addOrUpdate(
+            SavedServer("id1", "http://host:8096", "我的服务器", "u1", "zhuiyun", "tok"),
+        )
+        val store = SearchStoreFactory(
+            DefaultStoreFactory(),
+            testRepo { error("network unavailable") },
+            registry,
+        ).create()
+
+        store.accept(SearchIntent.QueryChanged("沙丘"))
+        store.accept(SearchIntent.Submit)
+
+        val state = store.states.first { it.hasSearched && !it.loading }
+        assertEquals(null, state.error)
+        assertEquals(listOf("我的服务器"), state.unavailableGroups.map { it.serverName })
+        assertTrue(state.unavailableGroups.single().error.orEmpty().isNotBlank())
+        store.dispose()
+    }
+
+    @Test
+    fun load_more_appends_the_next_server_page_without_duplicates() = runTest {
+        val registry = testRegistry()
+        registry.addOrUpdate(
+            SavedServer("id1", "http://host:8096", "我的服务器", "u1", "zhuiyun", "tok"),
+        )
+        val starts = mutableListOf<String?>()
+        val repo = testRepo { request ->
+            if (request.url.encodedPath.endsWith("/Persons")) {
+                return@testRepo json("""{"Items":[]}""")
+            }
+            val start = request.url.parameters["StartIndex"]
+            starts += start
+            if (start == null) {
+                json(
+                    """{"Items":[{"Id":"m1","Name":"沙丘","Type":"Movie"}],"TotalRecordCount":2}""",
+                )
+            } else {
+                assertEquals("1", start)
+                json(
+                    """{"Items":[{"Id":"m1","Name":"沙丘","Type":"Movie"},{"Id":"m2","Name":"沙丘2","Type":"Movie"}],"TotalRecordCount":2}""",
+                )
+            }
+        }
+        val store = SearchStoreFactory(DefaultStoreFactory(), repo, registry).create()
+
+        store.accept(SearchIntent.QueryChanged("沙丘"))
+        store.accept(SearchIntent.Submit)
+        store.states.first { it.hasSearched && !it.loading && it.groups.singleOrNull()?.canLoadMore == true }
+        store.accept(SearchIntent.LoadMore("id1"))
+
+        val loaded = store.states.first {
+            it.groups.singleOrNull()?.let { group -> !group.loadingMore && group.items.size == 2 } == true
+        }
+        assertEquals(listOf("m1", "m2"), loaded.groups.single().items.map { it.id })
+        assertEquals(listOf(null, "1"), starts)
+        store.dispose()
     }
 
     @Test

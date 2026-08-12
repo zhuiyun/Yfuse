@@ -3,6 +3,7 @@ package com.yfuse.feature
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.security.TestSecureStore
 import com.yfuse.core.network.createEmbyClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockEngineConfig
@@ -36,7 +37,7 @@ fun testRepo(
 )
 
 /** A fresh in-memory server registry for tests. */
-fun testRegistry(): ServerRegistry = ServerRegistry(MapSettings())
+fun testRegistry(): ServerRegistry = ServerRegistry(MapSettings(), TestSecureStore())
 
 fun MockRequestHandleScope.json(body: String): HttpResponseData =
     respond(content = ByteReadChannel(body), status = HttpStatusCode.OK, headers = jsonHeaders)

@@ -6,6 +6,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.security.TestSecureStore
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
 import kotlinx.serialization.builtins.ListSerializer
@@ -102,7 +103,7 @@ class CloudSyncSnapshotTest {
 private class Fixture(
     val syncSettings: MapSettings = MapSettings(),
 ) {
-    val registry = ServerRegistry(MapSettings())
+    val registry = ServerRegistry(MapSettings(), TestSecureStore())
     val theme = ThemePreferences(MapSettings())
     val watch = WatchTogetherPreferences(MapSettings())
     val danmaku = DanmakuPreferences(MapSettings())

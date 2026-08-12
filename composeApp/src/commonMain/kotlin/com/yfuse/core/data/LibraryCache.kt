@@ -3,7 +3,24 @@ package com.yfuse.core.data
 import com.russhwolf.settings.Settings
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+
+/** A server-scoped disk snapshot and the time its source request last succeeded. */
+data class LibraryCacheSnapshot(
+    val content: HomeContent,
+    /** Null only for the legacy cache shape, which did not persist freshness metadata. */
+    val updatedAtEpochMs: Long?,
+)
+
+@Serializable
+private data class PersistedLibraryCache(
+    @SerialName("v") val version: Int,
+    @SerialName("updatedAt") val updatedAtEpochMs: Long,
+    @SerialName("content") val content: HomeContent,
+)
 
 /**
  * The last library page a server served, kept so a cold start has something to paint.
@@ -14,13 +31,14 @@ import kotlinx.serialization.json.Json
  * content goes on screen immediately and is replaced by the live response when it arrives,
  * so the wait costs nothing but a moment of slightly stale posters.
  *
- * Deliberately not a general-purpose cache: it has no TTL and is never read except to fill
- * that first frame. Whatever the server says next always wins, so there is no staleness
- * window to reason about — only a head start.
+ * Deliberately not a general-purpose cache: it has no TTL and is never authoritative. The
+ * persisted success timestamp lets the UI disclose how old that first frame is, and whatever
+ * the server says next always wins.
  */
 class LibraryCache(private val settings: Settings) {
     private companion object {
         const val KEY_PREFIX = "library.cache."
+        const val PERSISTED_VERSION = 2
 
         /**
          * Rows are trimmed before storing. Settings is `SharedPreferences` on Android — a
@@ -36,10 +54,31 @@ class LibraryCache(private val settings: Settings) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
 
-    fun read(serverId: String): HomeContent? {
+    /**
+     * Reads the current v2 envelope or the pre-freshness raw [HomeContent] shape.
+     *
+     * Legacy content intentionally returns a null timestamp. It remains useful for the first
+     * frame, but callers must label it as cached with an unknown update time until a live request
+     * succeeds and rewrites the entry in v2.
+     */
+    fun readSnapshot(serverId: String): LibraryCacheSnapshot? {
         val raw = settings.getStringOrNull(KEY_PREFIX + serverId) ?: return null
         return runCatching {
-            json.decodeFromString(HomeContent.serializer(), raw)
+            val root = json.parseToJsonElement(raw).jsonObject
+            if ("v" in root) {
+                val persisted = json.decodeFromString(PersistedLibraryCache.serializer(), raw)
+                require(persisted.version == PERSISTED_VERSION) { "Unsupported library cache version" }
+                require(persisted.updatedAtEpochMs >= 0L) { "Invalid library cache timestamp" }
+                LibraryCacheSnapshot(
+                    content = persisted.content,
+                    updatedAtEpochMs = persisted.updatedAtEpochMs,
+                )
+            } else {
+                LibraryCacheSnapshot(
+                    content = json.decodeFromString(HomeContent.serializer(), raw),
+                    updatedAtEpochMs = null,
+                )
+            }
         }.onFailure {
             // A shape change between versions lands here. The entry is dropped rather than
             // retried on every launch; the next successful load writes a readable one.
@@ -50,10 +89,14 @@ class LibraryCache(private val settings: Settings) {
                 message = "Cached library content could not be read and was discarded",
                 throwable = it,
             )
-        }.getOrNull()?.takeIf { !it.isEmpty }
+        }.getOrNull()?.takeIf { !it.content.isEmpty }
     }
 
-    fun write(serverId: String, content: HomeContent) {
+    /** Compatibility helper for consumers that only need the content body. */
+    fun read(serverId: String): HomeContent? = readSnapshot(serverId)?.content
+
+    /** Writes only successful live content; [updatedAtEpochMs] belongs to that same response. */
+    fun write(serverId: String, content: HomeContent, updatedAtEpochMs: Long) {
         if (content.isEmpty) {
             settings.remove(KEY_PREFIX + serverId)
             return
@@ -65,11 +108,20 @@ class LibraryCache(private val settings: Settings) {
                 row.copy(items = row.items.take(MAX_ITEMS_PER_ROW))
             },
             counts = content.counts,
+            collections = content.collections,
+            playlists = content.playlists,
         )
         runCatching {
             settings.putString(
                 KEY_PREFIX + serverId,
-                json.encodeToString(HomeContent.serializer(), trimmed),
+                json.encodeToString(
+                    PersistedLibraryCache.serializer(),
+                    PersistedLibraryCache(
+                        version = PERSISTED_VERSION,
+                        updatedAtEpochMs = updatedAtEpochMs.coerceAtLeast(0L),
+                        content = trimmed,
+                    ),
+                ),
             )
         }.onFailure {
             AppLog.warning(

@@ -30,6 +30,7 @@ class SearchComponent(
     private val registry: ServerRegistry,
     private val history: SearchHistory,
     private val dependencies: AppDependencies,
+    private val onOpenServerSettings: () -> Unit,
 ) : ComponentContext by componentContext {
 
     private val navigation = StackNavigation<Config>()
@@ -102,6 +103,7 @@ class SearchComponent(
                 repo = repo,
                 registry = registry,
                 history = history,
+                onOpenServerSettings = onOpenServerSettings,
                 onOpenItem = { serverId, itemId ->
                     navigation.push(Config.Detail(serverId, itemId))
                 },
@@ -148,6 +150,7 @@ class SearchHomeComponent(
     repo: EmbyRepository,
     private val registry: ServerRegistry,
     history: SearchHistory,
+    val onOpenServerSettings: () -> Unit,
     val onOpenItem: (serverId: String, itemId: String) -> Unit,
 ) : ComponentContext by componentContext {
 

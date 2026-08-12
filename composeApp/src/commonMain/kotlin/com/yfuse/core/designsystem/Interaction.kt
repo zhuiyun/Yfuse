@@ -1,11 +1,17 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.grid.LazyGridItemScope
@@ -18,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.Role
@@ -33,11 +40,16 @@ private const val TILT_DEGREES = 7f
  */
 private const val TILT_CAMERA_DISTANCE = 20f
 
+/** Keyboard, D-pad and mouse focus lifts without competing with the pressed state. */
+private const val FOCUS_SCALE = 1.02f
+
+private const val HOVER_RING_ALPHA = 0.56f
+
 /**
  * 44pt — the smallest thing a finger can be asked to hit, and the number Apple has not
  * moved off since the first iPhone.
  */
-val MinTouchTarget: Dp = 44.dp
+val MinTouchTarget: Dp = 48.dp
 
 /**
  * Grows the node to at least [minSize] on both axes without changing what is drawn.
@@ -94,6 +106,8 @@ fun Modifier.touchTarget(minSize: Dp = MinTouchTarget): Modifier = layout { meas
  *   pass [Role.Tab], [Role.Checkbox] or [Role.RadioButton] where that is what it is, and
  *   null only for a surface that is genuinely not a control.
  * @param onLongClick when set, the whole gesture goes through `combinedClickable`.
+ * @param focusShape shape of the keyboard/D-pad focus ring. The default fits ordinary
+ *   controls; artwork should pass the same shape it clips to.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -103,6 +117,7 @@ fun Modifier.pressable(
     tilt: Boolean = false,
     haptic: HapticSignal? = null,
     role: Role? = Role.Button,
+    focusShape: Shape = AppShapes.control,
     /** Announced by the accessibility service in place of "activate", when it has a better verb. */
     onClickLabel: String? = null,
     onLongClick: (() -> Unit)? = null,
@@ -114,12 +129,32 @@ fun Modifier.pressable(
     val haptics = LocalHaptics.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
+    val focused by interactionSource.collectIsFocusedAsState()
+    val hovered by interactionSource.collectIsHoveredAsState()
     val down = pressed && enabled
+    val highlighted = enabled && (focused || hovered)
+    val targetScale = pressScaleTarget(
+        reduceMotion = reduceMotion,
+        pressed = down,
+        highlighted = highlighted,
+        pressedScale = pressedScale,
+    )
+    val scaleSpec: AnimationSpec<Float> = when {
+        reduceMotion -> snap()
+        down -> Motion.pressSpec(pressed = true, reduceMotion = false)
+        else -> Motion.settle()
+    }
     val scale by animateFloatAsState(
-        targetValue = if (down) pressedScale else 1f,
-        animationSpec = Motion.pressSpec(pressed = down, reduceMotion = reduceMotion),
+        targetValue = targetScale,
+        animationSpec = scaleSpec,
         label = "pressScale",
     )
+    val ringAlpha by animateFloatAsState(
+        targetValue = focusRingTargetAlpha(enabled, focused, hovered),
+        animationSpec = if (reduceMotion) snap() else tween(Motion.QUICK, easing = Motion.Curve),
+        label = "focusRing",
+    )
+    val focusColor = LocalAccentColors.current.accent
 
     // 减弱动态效果 turns the lean off rather than shortening it: a rotation that snaps to
     // its end state and back is exactly the kind of movement the setting exists to remove.
@@ -164,6 +199,17 @@ fun Modifier.pressable(
                 rotationX = -vertical * TILT_DEGREES * lean
             }
         }
+        .then(
+            if (ringAlpha > 0f) {
+                Modifier.border(
+                    width = 2.dp,
+                    color = focusColor.copy(alpha = focusColor.alpha * ringAlpha),
+                    shape = focusShape,
+                )
+            } else {
+                Modifier
+            },
+        )
         .let { modifier ->
             if (onLongClickWithHaptic != null) {
                 modifier.combinedClickable(
@@ -187,6 +233,26 @@ fun Modifier.pressable(
                 )
             }
         }
+}
+
+internal fun pressScaleTarget(
+    reduceMotion: Boolean,
+    pressed: Boolean,
+    highlighted: Boolean,
+    pressedScale: Float,
+): Float = when {
+    // A snapped scale is still motion. Reduce Motion keeps the persistent focus ring but
+    // removes every geometric response, including press and hover.
+    reduceMotion -> 1f
+    pressed -> pressedScale
+    highlighted -> FOCUS_SCALE
+    else -> 1f
+}
+
+internal fun focusRingTargetAlpha(enabled: Boolean, focused: Boolean, hovered: Boolean): Float = when {
+    focused && enabled -> 1f
+    hovered && enabled -> HOVER_RING_ALPHA
+    else -> 0f
 }
 
 /**

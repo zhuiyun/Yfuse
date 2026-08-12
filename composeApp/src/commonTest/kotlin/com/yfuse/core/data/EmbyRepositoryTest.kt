@@ -1,6 +1,7 @@
 package com.yfuse.core.data
 
 import com.yfuse.core.model.LibrarySort
+import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
@@ -21,6 +22,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertNull
 
 class EmbyRepositoryTest {
 
@@ -31,6 +33,32 @@ class EmbyRepositoryTest {
             """{"Id":"m$it","Name":"电影$it","Type":"Movie"}"""
         }
         return """{"Items":[$items]}"""
+    }
+
+    @Test
+    fun relevance_ranking_promotes_exact_then_prefix_matches_without_reordering_ties() {
+        fun item(id: String, title: String) = com.yfuse.core.model.MediaItem(
+            id = id,
+            title = title,
+            subtitle = null,
+            type = "Movie",
+            posterItemId = id,
+            posterTag = null,
+            backdropItemId = null,
+            backdropTag = null,
+            playedPercentage = null,
+        )
+        val serverOrder = listOf(
+            item("contains", "重看沙丘幕后"),
+            item("prefix-1", "沙丘 2"),
+            item("exact", "沙丘"),
+            item("prefix-2", "沙丘：预言"),
+        )
+
+        assertEquals(
+            listOf("exact", "prefix-1", "prefix-2", "contains"),
+            rankSearchResults(serverOrder, " 沙丘 ").map { it.id },
+        )
     }
 
     @Test
@@ -291,6 +319,194 @@ class EmbyRepositoryTest {
         assertTrue(result.isSuccess, result.toString())
         assertEquals(60, result.getOrThrow().items.size)
         assertEquals(61, result.getOrThrow().totalCount)
+    }
+
+    @Test
+    fun mediaContainers_queries_real_boxsets_and_playlists() = runTest {
+        val repo = testRepo { request ->
+            assertTrue(request.url.encodedPath.endsWith("/Users/u1/Items"))
+            assertEquals("BoxSet,Playlist", request.url.parameters["IncludeItemTypes"])
+            assertEquals("true", request.url.parameters["Recursive"])
+            assertEquals("SortName", request.url.parameters["SortBy"])
+            json(
+                """{"Items":[{"Id":"c1","Name":"科幻合集","Type":"BoxSet","ChildCount":9,"ImageTags":{"Primary":"ct"}},{"Id":"p1","Name":"周末片单","Type":"Playlist","ChildCount":3}]}""",
+            )
+        }
+
+        val containers = repo.mediaContainers(server).getOrThrow()
+
+        assertEquals(listOf(MediaContainerKind.BoxSet, MediaContainerKind.Playlist), containers.map { it.kind })
+        assertEquals(listOf("id", "id"), containers.map { it.serverId })
+        assertEquals(9, containers.first().itemCount)
+        assertEquals("ct", containers.first().posterTag)
+    }
+
+    @Test
+    fun mediaContainersPage_pushes_kind_and_paging_to_the_server() = runTest {
+        val repo = testRepo { request ->
+            assertEquals("Playlist", request.url.parameters["IncludeItemTypes"])
+            assertEquals("60", request.url.parameters["StartIndex"])
+            assertEquals("20", request.url.parameters["Limit"])
+            json(
+                """{"Items":[{"Id":"p2","Name":"第二页片单","Type":"Playlist"}],"TotalRecordCount":81}""",
+            )
+        }
+
+        val page = repo.mediaContainersPage(
+            server = server,
+            kind = MediaContainerKind.Playlist,
+            startIndex = 60,
+            limit = 20,
+        ).getOrThrow()
+
+        assertEquals(60, page.startIndex)
+        assertEquals(81, page.totalCount)
+        assertEquals("p2", page.containers.single().id)
+    }
+
+    @Test
+    fun mediaContainerItems_boxset_uses_parentId_and_server_sort() = runTest {
+        val repo = testRepo { request ->
+            assertTrue(request.url.encodedPath.endsWith("/Users/u1/Items"))
+            assertEquals("c1", request.url.parameters["ParentId"])
+            assertEquals("ProductionYear,PremiereDate", request.url.parameters["SortBy"])
+            assertEquals("Descending", request.url.parameters["SortOrder"])
+            assertEquals("科幻", request.url.parameters["Genres"])
+            assertEquals("60", request.url.parameters["StartIndex"])
+            json("""{"Items":[{"Id":"m1","Name":"电影","Type":"Movie"}],"TotalRecordCount":81}""")
+        }
+
+        val page = repo.mediaContainerItems(
+            server = server,
+            containerId = "c1",
+            kind = MediaContainerKind.BoxSet,
+            sort = LibrarySort.Year,
+            genre = "科幻",
+            startIndex = 60,
+        ).getOrThrow()
+
+        assertEquals(81, page.totalCount)
+        assertEquals(60, page.startIndex)
+    }
+
+    @Test
+    fun mediaContainerItems_playlist_preserves_server_order_and_entry_ids() = runTest {
+        val repo = testRepo { request ->
+            assertTrue(request.url.encodedPath.endsWith("/Playlists/p1/Items"))
+            assertEquals("u1", request.url.parameters["UserId"])
+            assertEquals("2", request.url.parameters["StartIndex"])
+            assertEquals("2", request.url.parameters["Limit"])
+            assertNull(request.url.parameters["SortBy"])
+            assertNull(request.url.parameters["SortOrder"])
+            assertTrue(request.url.parameters["Fields"].orEmpty().contains("PlaylistItemId"))
+            json(
+                """{"Items":[{"Id":"m2","Name":"第二部","Type":"Movie","PlaylistItemId":"e2"},{"Id":"m1","Name":"第一部","Type":"Movie","PlaylistItemId":"e1"}],"TotalRecordCount":4}""",
+            )
+        }
+
+        val page = repo.mediaContainerItems(
+            server = server,
+            containerId = "p1",
+            kind = MediaContainerKind.Playlist,
+            sort = LibrarySort.Name,
+            startIndex = 2,
+            limit = 2,
+        ).getOrThrow()
+
+        assertEquals(listOf("m2", "m1"), page.items.map { it.id })
+        assertEquals(listOf("e2", "e1"), page.items.map { it.playlistItemId })
+        assertEquals(4, page.totalCount)
+    }
+
+    @Test
+    fun addItemToMediaContainer_uses_each_official_write_endpoint() = runTest {
+        val requests = mutableListOf<Triple<HttpMethod, String, Map<String, String>>>()
+        val repo = testRepo { request ->
+            requests += Triple(
+                request.method,
+                request.url.encodedPath,
+                request.url.parameters.entries().associate { it.key to it.value.single() },
+            )
+            json("{}")
+        }
+
+        repo.addItemToMediaContainer(server, "c1", MediaContainerKind.BoxSet, "m1").getOrThrow()
+        repo.addItemToMediaContainer(server, "p1", MediaContainerKind.Playlist, "m2").getOrThrow()
+
+        assertEquals(HttpMethod.Post, requests[0].first)
+        assertTrue(requests[0].second.endsWith("/Collections/c1/Items"))
+        assertEquals("m1", requests[0].third["Ids"])
+        assertNull(requests[0].third["UserId"])
+        assertEquals(HttpMethod.Post, requests[1].first)
+        assertTrue(requests[1].second.endsWith("/Playlists/p1/Items"))
+        assertEquals("m2", requests[1].third["Ids"])
+        assertEquals("u1", requests[1].third["UserId"])
+    }
+
+    @Test
+    fun addItemToMediaContainer_reports_server_permission_failure() = runTest {
+        val repo = testRepo {
+            respond(content = "", status = HttpStatusCode.Forbidden)
+        }
+
+        val result = repo.addItemToMediaContainer(
+            server = server,
+            containerId = "c1",
+            kind = MediaContainerKind.BoxSet,
+            itemId = "m1",
+        )
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun removeItemFromMediaContainer_uses_media_id_for_boxset_and_entry_id_for_playlist() = runTest {
+        val queries = mutableListOf<Map<String, String>>()
+        val paths = mutableListOf<String>()
+        val repo = testRepo { request ->
+            assertEquals(HttpMethod.Delete, request.method)
+            paths += request.url.encodedPath
+            queries += request.url.parameters.entries().associate { it.key to it.value.single() }
+            json("{}")
+        }
+
+        repo.removeItemFromMediaContainer(
+            server, "c1", MediaContainerKind.BoxSet, itemId = "media-1",
+        ).getOrThrow()
+        repo.removeItemFromMediaContainer(
+            server,
+            "p1",
+            MediaContainerKind.Playlist,
+            itemId = "media-2",
+            playlistItemId = "entry-9",
+        ).getOrThrow()
+
+        assertTrue(paths[0].endsWith("/Collections/c1/Items"))
+        assertEquals("media-1", queries[0]["Ids"])
+        assertNull(queries[0]["EntryIds"])
+        assertTrue(paths[1].endsWith("/Playlists/p1/Items"))
+        assertEquals("entry-9", queries[1]["EntryIds"])
+        assertNull(queries[1]["Ids"])
+    }
+
+    @Test
+    fun playlist_removal_fails_closed_without_PlaylistItemId() = runTest {
+        var requests = 0
+        val repo = testRepo {
+            requests++
+            json("{}")
+        }
+
+        val result = repo.removeItemFromMediaContainer(
+            server = server,
+            containerId = "p1",
+            kind = MediaContainerKind.Playlist,
+            itemId = "media-1",
+            playlistItemId = null,
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals(0, requests)
     }
 
     @Test

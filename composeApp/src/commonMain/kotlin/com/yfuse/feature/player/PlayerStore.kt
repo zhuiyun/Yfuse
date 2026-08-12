@@ -17,6 +17,7 @@ import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.model.MediaVersion
+import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.TrickplayInfo
@@ -65,7 +66,11 @@ data class PlayerMediaVersion(
      * the fallback necessary.
      */
     val sourceWidth: Int? = null,
+    val sourceHeight: Int? = null,
     val sourceBitrateBps: Int? = null,
+    /** Source facts used until an engine reports the actual decoded output. */
+    val sourceDynamicRange: String? = null,
+    val sourceAudio: String? = null,
     /** Lets an engine distinguish a genuinely silent file from a missing audio track. */
     val audioTrackCount: Int = 0,
     /** Initial method approved by PlaybackInfo for [url]. */
@@ -166,7 +171,11 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
         dolbyProfile = version.dolbyProfile,
         needsDolbyDecoder = version.needsDolbyCapableDecoder,
         sourceWidth = version.video?.width,
+        sourceHeight = version.videoHeight ?: version.video?.height,
         sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
+        sourceDynamicRange = version.rangeLabel,
+        sourceAudio = (version.audioTracks.firstOrNull { it.default == true }
+            ?: version.audioTracks.firstOrNull())?.label,
         audioTrackCount = version.audioTracks.size,
     )
 }
@@ -251,6 +260,24 @@ data class PlayerMediaItem(
             // and reporting one session's id against another's stream ends the wrong job.
             playSessionId = version.playSessionId,
             playMethod = version.playMethod,
+        )
+    }
+
+    /** Applies a manual server-transcode cap without touching authenticated/session fields. */
+    fun withPlaybackQuality(quality: PlaybackQuality): PlayerMediaItem {
+        if (!quality.requiresServerTranscode) return this
+        return copy(
+            transcodeUrl = EmbyStream.withQuality(transcodeUrl, quality),
+            fallbackTranscodeUrl = EmbyStream.withQuality(fallbackTranscodeUrl, quality),
+            versions = versions.map { version ->
+                version.copy(
+                    transcodeUrl = EmbyStream.withQuality(version.transcodeUrl, quality),
+                    fallbackTranscodeUrl = EmbyStream.withQuality(
+                        version.fallbackTranscodeUrl,
+                        quality,
+                    ),
+                )
+            },
         )
     }
 }

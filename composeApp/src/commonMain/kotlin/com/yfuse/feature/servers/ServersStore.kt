@@ -15,6 +15,7 @@ import com.yfuse.core.network.LanDiscovery
 import com.yfuse.core.network.createLanDiscovery
 import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -27,8 +28,11 @@ data class LoginForm(
     val https: Boolean = true,
     val host: String = "",
     val port: String = "443",
+    val basePath: String = "",
     val username: String = "",
     val password: String = "",
+    /** HTTP credentials and tokens are readable in transit; require a deliberate opt-in. */
+    val httpRiskAccepted: Boolean = false,
     val submitting: Boolean = false,
     val error: String? = null,
 ) {
@@ -38,6 +42,7 @@ data class LoginForm(
             val resolvedHttps = parsed?.https ?: https
             val resolvedHost = parsed?.host?.takeIf(String::isNotBlank) ?: host.trim()
             val resolvedPort = parsed?.port ?: port.trim()
+            val resolvedBasePath = parsed?.basePath?.takeIf(String::isNotBlank) ?: basePath
             return buildString {
                 append(if (resolvedHttps) "https://" else "http://")
                 append(resolvedHost)
@@ -46,52 +51,121 @@ data class LoginForm(
                     append(':')
                     append(p)
                 }
+                append(normalizeBasePath(resolvedBasePath))
             }
         }
 
+    val canStartQuickConnect: Boolean
+        get() = parseServerAddress(host)?.host?.isNotBlank() == true &&
+            validServerPort(port) &&
+            (https || httpRiskAccepted) &&
+            !submitting
+
     val canSubmit: Boolean
-        get() = (parseServerAddress(host)?.host ?: host.trim()).isNotBlank() &&
-            username.isNotBlank() && !submitting
+        get() = canStartQuickConnect && username.isNotBlank()
 }
 
 internal data class ParsedServerAddress(
     val https: Boolean?,
     val host: String,
     val port: String?,
+    val basePath: String,
 )
 
 internal fun defaultServerPort(https: Boolean): String = if (https) "443" else "8096"
 
 /**
- * Accepts `host`, `host:port`, `http://host` and `https://host:port`.
+ * Accepts `host`, `host:port`, and complete HTTP(S) URLs with an optional base path.
  * A partial scheme such as `http://` is deliberately left untouched while typing.
  */
 internal fun parseServerAddress(value: String): ParsedServerAddress? {
-    val trimmed = value.trim().trimEnd('/')
-    val match = Regex("""^(?:(https?)://)?([^/:?#]+)(?::(\d+))?$""")
-        .matchEntire(trimmed)
-        ?: return null
-    val scheme = match.groupValues[1].takeIf(String::isNotBlank)
-    val host = match.groupValues[2]
-    val port = match.groupValues[3].takeIf(String::isNotBlank)
+    val trimmed = value.trim()
+    if (trimmed.isBlank() || trimmed.any(Char::isWhitespace)) return null
+
+    val schemeEnd = trimmed.indexOf("://")
+    val scheme = if (schemeEnd >= 0) trimmed.substring(0, schemeEnd) else null
+    if (scheme != null && !scheme.equals("http", true) && !scheme.equals("https", true)) {
+        return null
+    }
+    val remainder = if (schemeEnd >= 0) trimmed.substring(schemeEnd + 3) else trimmed
+    val authorityEnd = listOf(remainder.indexOf('/'), remainder.indexOf('?'), remainder.indexOf('#'))
+        .filter { it >= 0 }
+        .minOrNull()
+        ?: remainder.length
+    val authority = remainder.substring(0, authorityEnd)
+    if (authority.isBlank() || '@' in authority) return null
+
+    val host: String
+    val port: String?
+    if (authority.startsWith('[')) {
+        val closing = authority.indexOf(']')
+        if (closing <= 1) return null
+        host = authority.substring(0, closing + 1)
+        val suffix = authority.substring(closing + 1)
+        port = when {
+            suffix.isBlank() -> null
+            suffix.startsWith(':') && suffix.drop(1).all(Char::isDigit) -> suffix.drop(1)
+            else -> return null
+        }
+    } else {
+        val colon = authority.lastIndexOf(':')
+        if (colon >= 0) {
+            val candidatePort = authority.substring(colon + 1)
+            if (candidatePort.isBlank() || !candidatePort.all(Char::isDigit)) return null
+            host = authority.substring(0, colon)
+            port = candidatePort
+        } else {
+            host = authority
+            port = null
+        }
+    }
+    if (host.isBlank()) return null
+    val path = remainder.substring(authorityEnd)
+        .substringBefore('?')
+        .substringBefore('#')
     return ParsedServerAddress(
         https = scheme?.equals("https", ignoreCase = true),
         host = host,
         port = port,
+        basePath = normalizeBasePath(path),
     )
 }
+
+internal fun normalizeBasePath(value: String): String {
+    val path = value.trim().substringBefore('?').substringBefore('#').trim('/')
+    return if (path.isBlank()) "" else "/$path"
+}
+
+internal fun validServerPort(value: String): Boolean =
+    value.isBlank() || value.toIntOrNull()?.let { it in 1..65_535 } == true
 
 /**
  * Splits a saved server's absolute baseUrl (e.g. `https://demo.example.com:8096`) back into
  * the (https, host, port) triple the add-server form expects. Falls back to the form's
  * defaults when the URL is missing components, so editing never throws.
  */
-internal fun parseBaseUrl(baseUrl: String): Triple<Boolean, String, String> {
-    val https = baseUrl.startsWith("https://", ignoreCase = true)
-    val withoutScheme = baseUrl.substringAfter("://", baseUrl).trimEnd('/')
-    val host = withoutScheme.substringBefore(':')
-    val port = withoutScheme.substringAfter(':', "").ifBlank { defaultServerPort(https).toString() }
-    return Triple(https, host, port)
+internal fun parseBaseUrl(baseUrl: String): ParsedServerAddress {
+    val parsed = parseServerAddress(baseUrl)
+    val https = parsed?.https ?: true
+    return parsed?.copy(
+        https = https,
+        port = parsed.port ?: defaultServerPort(https),
+    ) ?: ParsedServerAddress(
+        https = true,
+        host = baseUrl.trim(),
+        port = defaultServerPort(true),
+        basePath = "",
+    )
+}
+
+sealed interface QuickConnectUiState {
+    data object Idle : QuickConnectUiState
+    data object CheckingSupport : QuickConnectUiState
+    data class AwaitingApproval(val code: String, val expiresAtEpochMs: Long) : QuickConnectUiState
+    data class Unsupported(val reason: String) : QuickConnectUiState
+    data object Expired : QuickConnectUiState
+    data object Cancelled : QuickConnectUiState
+    data class Error(val message: String) : QuickConnectUiState
 }
 
 data class ServersState(
@@ -102,6 +176,7 @@ data class ServersState(
     val scanning: Boolean = false,
     val discovered: List<DiscoveredServer> = emptyList(),
     val publicUsers: List<PublicUserDto> = emptyList(),
+    val quickConnect: QuickConnectUiState = QuickConnectUiState.Idle,
     /** True once an edit touches address/account fields; name changes do not set it. */
     val connectionEdited: Boolean = false,
     /** Non-null when the dialog is open in "edit existing server" mode; the saved server's
@@ -120,8 +195,12 @@ sealed interface ServersIntent {
     data class ProtocolChanged(val https: Boolean) : ServersIntent
     data class HostChanged(val value: String) : ServersIntent
     data class PortChanged(val value: String) : ServersIntent
+    data class BasePathChanged(val value: String) : ServersIntent
     data class UsernameChanged(val value: String) : ServersIntent
     data class PasswordChanged(val value: String) : ServersIntent
+    data class HttpRiskAcceptedChanged(val accepted: Boolean) : ServersIntent
+    data object StartQuickConnect : ServersIntent
+    data object CancelQuickConnect : ServersIntent
     data object Submit : ServersIntent
     data object Scan : ServersIntent
     data class SelectDiscovered(val server: DiscoveredServer) : ServersIntent
@@ -148,8 +227,11 @@ private sealed interface Msg {
     data class Protocol(val https: Boolean) : Msg
     data class Host(val v: String) : Msg
     data class Port(val v: String) : Msg
+    data class BasePath(val v: String) : Msg
     data class Username(val v: String) : Msg
     data class Password(val v: String) : Msg
+    data class HttpRiskAccepted(val accepted: Boolean) : Msg
+    data class QuickConnect(val state: QuickConnectUiState) : Msg
     data object Submitting : Msg
     data object SubmitDone : Msg
     data class SubmitError(val m: String) : Msg
@@ -163,6 +245,8 @@ class ServersStoreFactory(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     private val discovery: LanDiscovery = createLanDiscovery(),
+    private val quickConnectGateway: QuickConnectGateway = UnsupportedQuickConnectGateway,
+    private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ) {
     fun create(): Store<ServersIntent, ServersState, ServersLabel> =
         storeFactory.create(
@@ -182,16 +266,34 @@ class ServersStoreFactory(
 
         private var scanJob: Job? = null
         private var publicUsersJob: Job? = null
+        private var quickConnectJob: Job? = null
+        private var activeQuickConnect: Pair<String, QuickConnectSession>? = null
         private var scanRequestId = 0
         private var publicUsersRequestId = 0
+        private var quickConnectRequestId = 0
 
         private fun cancelDialogJobs() {
             scanRequestId++
             publicUsersRequestId++
             scanJob?.cancel()
             publicUsersJob?.cancel()
+            stopQuickConnect(resetState = false, notifyGateway = true)
             scanJob = null
             publicUsersJob = null
+        }
+
+        private fun stopQuickConnect(resetState: Boolean, notifyGateway: Boolean) {
+            quickConnectRequestId++
+            quickConnectJob?.cancel()
+            quickConnectJob = null
+            val active = activeQuickConnect
+            activeQuickConnect = null
+            if (notifyGateway && active != null) {
+                scope.launch {
+                    quickConnectGateway.cancel(active.first, active.second.id)
+                }
+            }
+            if (resetState) dispatch(Msg.QuickConnect(QuickConnectUiState.Idle))
         }
 
         override fun executeAction(action: Action) = when (action) {
@@ -213,23 +315,31 @@ class ServersStoreFactory(
                     dispatch(Msg.EditOpen(intent.server))
                 }
                 is ServersIntent.ServerNameChanged -> dispatch(Msg.ServerName(intent.value))
-                is ServersIntent.ProtocolChanged -> dispatch(Msg.Protocol(intent.https))
-                is ServersIntent.HostChanged -> {
-                    val parsed = parseServerAddress(intent.value)
-                    if (parsed != null && (parsed.https != null || parsed.port != null)) {
-                        parsed.https?.let { scheme ->
-                            dispatch(Msg.Protocol(scheme))
-                            if (parsed.port == null) dispatch(Msg.Port(defaultServerPort(scheme)))
-                        }
-                        parsed.port?.let { dispatch(Msg.Port(it)) }
-                        dispatch(Msg.Host(parsed.host))
-                    } else {
-                        dispatch(Msg.Host(intent.value))
-                    }
+                is ServersIntent.ProtocolChanged -> {
+                    stopQuickConnect(resetState = true, notifyGateway = true)
+                    dispatch(Msg.Protocol(intent.https))
                 }
-                is ServersIntent.PortChanged -> dispatch(Msg.Port(intent.value))
+                is ServersIntent.HostChanged -> {
+                    stopQuickConnect(resetState = true, notifyGateway = true)
+                    dispatch(Msg.Host(intent.value))
+                }
+                is ServersIntent.PortChanged -> {
+                    stopQuickConnect(resetState = true, notifyGateway = true)
+                    dispatch(Msg.Port(intent.value))
+                }
+                is ServersIntent.BasePathChanged -> {
+                    stopQuickConnect(resetState = true, notifyGateway = true)
+                    dispatch(Msg.BasePath(intent.value))
+                }
                 is ServersIntent.UsernameChanged -> dispatch(Msg.Username(intent.value))
                 is ServersIntent.PasswordChanged -> dispatch(Msg.Password(intent.value))
+                is ServersIntent.HttpRiskAcceptedChanged ->
+                    dispatch(Msg.HttpRiskAccepted(intent.accepted))
+                ServersIntent.StartQuickConnect -> startQuickConnect()
+                ServersIntent.CancelQuickConnect -> {
+                    stopQuickConnect(resetState = false, notifyGateway = true)
+                    dispatch(Msg.QuickConnect(QuickConnectUiState.Cancelled))
+                }
                 ServersIntent.Submit -> submit()
                 ServersIntent.Scan -> scan()
                 is ServersIntent.SelectDiscovered -> selectDiscovered(intent.server)
@@ -272,16 +382,12 @@ class ServersStoreFactory(
         private fun selectDiscovered(server: DiscoveredServer) {
             publicUsersJob?.cancel()
             val requestId = ++publicUsersRequestId
-            val match = Regex("""^(https?)://([^/:]+)(?::(\d+))?""")
-                .find(server.address.trim())
-            val https = match?.groupValues?.getOrNull(1).equals("https", true)
-            val host = match?.groupValues?.getOrNull(2).orEmpty()
-            val port = match?.groupValues?.getOrNull(3)
-                ?.takeIf(String::isNotBlank)
-                ?: if (https) "443" else "8096"
+            val parsed = parseServerAddress(server.address) ?: return
+            val https = parsed.https ?: true
             dispatch(Msg.Protocol(https))
-            dispatch(Msg.Host(host))
-            dispatch(Msg.Port(port))
+            dispatch(Msg.Host(parsed.host))
+            dispatch(Msg.Port(parsed.port ?: defaultServerPort(https)))
+            dispatch(Msg.BasePath(parsed.basePath))
             dispatch(Msg.PublicUsers(emptyList()))
             publicUsersJob = scope.launch {
                 val result = repo.publicUsers(server.address)
@@ -299,16 +405,169 @@ class ServersStoreFactory(
             }
         }
 
+        private fun startQuickConnect() {
+            val form = state().form
+            if (!form.canStartQuickConnect) {
+                val message = if (!form.https && !form.httpRiskAccepted) {
+                    "请先确认 HTTP 未加密连接风险"
+                } else {
+                    "请先填写有效的服务器地址、端口和基础路径"
+                }
+                dispatch(Msg.QuickConnect(QuickConnectUiState.Error(message)))
+                return
+            }
+            stopQuickConnect(resetState = false, notifyGateway = true)
+            val requestId = ++quickConnectRequestId
+            val baseUrl = form.url
+            val editingId = state().editingServerId
+            val requestedName = sanitizeServerName(form.serverName)
+            dispatch(Msg.QuickConnect(QuickConnectUiState.CheckingSupport))
+            quickConnectJob = scope.launch {
+                val started = quickConnectGateway.start(baseUrl)
+                if (requestId != quickConnectRequestId) return@launch
+                started.fold(
+                    onSuccess = { result ->
+                        when (result) {
+                            is QuickConnectStartResult.Unsupported -> {
+                                dispatch(Msg.QuickConnect(QuickConnectUiState.Unsupported(result.reason)))
+                                quickConnectJob = null
+                            }
+                            is QuickConnectStartResult.AwaitingApproval -> {
+                                val session = result.session
+                                activeQuickConnect = baseUrl to session
+                                dispatch(
+                                    Msg.QuickConnect(
+                                        QuickConnectUiState.AwaitingApproval(
+                                            code = session.code,
+                                            expiresAtEpochMs = session.expiresAtEpochMs,
+                                        ),
+                                    ),
+                                )
+                                pollQuickConnect(
+                                    requestId = requestId,
+                                    baseUrl = baseUrl,
+                                    session = session,
+                                    requestedName = requestedName,
+                                    editingId = editingId,
+                                )
+                            }
+                        }
+                    },
+                    onFailure = {
+                        dispatch(
+                            Msg.QuickConnect(
+                                QuickConnectUiState.Error(
+                                    it.toUserMessage("Quick Connect 启动失败"),
+                                ),
+                            ),
+                        )
+                        quickConnectJob = null
+                    },
+                )
+            }
+        }
+
+        private suspend fun pollQuickConnect(
+            requestId: Int,
+            baseUrl: String,
+            session: QuickConnectSession,
+            requestedName: String,
+            editingId: String?,
+        ) {
+            while (requestId == quickConnectRequestId) {
+                val remainingMs = session.expiresAtEpochMs - nowEpochMs()
+                if (remainingMs <= 0L) {
+                    activeQuickConnect = null
+                    quickConnectJob = null
+                    dispatch(Msg.QuickConnect(QuickConnectUiState.Expired))
+                    return
+                }
+                delay(minOf(QuickConnectPollIntervalMs, remainingMs))
+                if (requestId != quickConnectRequestId) return
+                val polled = quickConnectGateway.poll(baseUrl, session.id)
+                if (requestId != quickConnectRequestId) return
+                val result = polled.getOrElse {
+                    activeQuickConnect = null
+                    quickConnectJob = null
+                    dispatch(
+                        Msg.QuickConnect(
+                            QuickConnectUiState.Error(it.toUserMessage("Quick Connect 检查失败")),
+                        ),
+                    )
+                    return
+                }
+                when (result) {
+                    QuickConnectPollResult.Pending -> Unit
+                    QuickConnectPollResult.Expired -> {
+                        activeQuickConnect = null
+                        quickConnectJob = null
+                        dispatch(Msg.QuickConnect(QuickConnectUiState.Expired))
+                        return
+                    }
+                    is QuickConnectPollResult.Rejected -> {
+                        activeQuickConnect = null
+                        quickConnectJob = null
+                        dispatch(Msg.QuickConnect(QuickConnectUiState.Error(result.reason)))
+                        return
+                    }
+                    is QuickConnectPollResult.Authenticated -> {
+                        activeQuickConnect = null
+                        quickConnectJob = null
+                        if (result.server.baseUrl.trimEnd('/') != baseUrl.trimEnd('/')) {
+                            dispatch(
+                                Msg.QuickConnect(
+                                    QuickConnectUiState.Error("服务器返回的认证地址不一致，已拒绝保存"),
+                                ),
+                            )
+                            return
+                        }
+                        persistAuthenticated(
+                            authResult = result.server,
+                            requestedName = requestedName,
+                            editingId = editingId,
+                        )
+                        return
+                    }
+                }
+            }
+        }
+
+        private fun persistAuthenticated(
+            authResult: com.yfuse.core.data.AuthedServer,
+            requestedName: String,
+            editingId: String?,
+        ) {
+            val existing = editingId?.let { id -> state().servers.firstOrNull { it.id == id } }
+            val savedServer = authResult.toSavedServer(
+                serverName = requestedName.takeIf { it.isNotBlank() } ?: existing?.serverName,
+            )
+            val saved = if (editingId == null) {
+                registry.addOrUpdate(savedServer)
+                true
+            } else {
+                registry.replace(editingId, savedServer)
+            }
+            if (!saved) {
+                dispatch(Msg.QuickConnect(QuickConnectUiState.Error("原服务器已不存在，请重新添加")))
+                return
+            }
+            AppLog.info(
+                category = "server.auth",
+                event = "quick_connect_succeeded",
+                message = "Server Quick Connect succeeded",
+                attributes = mapOf("serverId" to savedServer.id),
+            )
+            cancelDialogJobs()
+            dispatch(Msg.SubmitDone)
+            publish(ServersLabel.ServerAdded)
+        }
+
         private fun submit() {
             val form = state().form
             if (!form.canSubmit) return
             val editingId = state().editingServerId
             val existing = editingId?.let { id -> state().servers.firstOrNull { it.id == id } }
-            val requestedName = form.serverName
-                .replace('\r', ' ')
-                .replace('\n', ' ')
-                .trim()
-                .take(60)
+            val requestedName = sanitizeServerName(form.serverName)
             if (existing != null && requestedName.isBlank()) {
                 dispatch(Msg.SubmitError("服务器名称不能为空"))
                 return
@@ -387,6 +646,7 @@ class ServersStoreFactory(
                 scanning = false,
                 discovered = emptyList(),
                 publicUsers = emptyList(),
+                quickConnect = QuickConnectUiState.Idle,
                 connectionEdited = false,
             )
             Msg.DialogClose -> copy(
@@ -396,6 +656,7 @@ class ServersStoreFactory(
                 scanning = false,
                 discovered = emptyList(),
                 publicUsers = emptyList(),
+                quickConnect = QuickConnectUiState.Idle,
                 connectionEdited = false,
             )
             is Msg.EditOpen -> {
@@ -404,21 +665,25 @@ class ServersStoreFactory(
                 // can't be reversed to a password, and any host/account change requires
                 // re-authenticating anyway. editingServerId tells submit() to treat the
                 // result as a replacement rather than a brand-new server.
-                val (https, host, port) = parseBaseUrl(msg.server.baseUrl)
+                val parsed = parseBaseUrl(msg.server.baseUrl)
+                val https = parsed.https ?: true
                 copy(
                     dialogVisible = true,
                     editingServerId = msg.server.id,
                     scanning = false,
                     discovered = emptyList(),
                     publicUsers = emptyList(),
+                    quickConnect = QuickConnectUiState.Idle,
                     connectionEdited = false,
                     form = LoginForm(
                         serverName = msg.server.serverName,
                         https = https,
-                        host = host,
-                        port = port,
+                        host = parsed.host,
+                        port = parsed.port ?: defaultServerPort(https),
+                        basePath = parsed.basePath,
                         username = msg.server.userName,
                         password = "",
+                        httpRiskAccepted = !https,
                     ),
                 )
             }
@@ -429,6 +694,7 @@ class ServersStoreFactory(
                 form = form.copy(
                     https = msg.https,
                     port = defaultServerPort(msg.https),
+                    httpRiskAccepted = false,
                     error = null,
                 ),
                 connectionEdited = true,
@@ -442,6 +708,7 @@ class ServersStoreFactory(
                     )
                 } else {
                     val resolvedHttps = parsed.https ?: form.https
+                    val explicitAbsoluteUrl = "://" in msg.v
                     copy(
                         form = form.copy(
                             https = resolvedHttps,
@@ -452,6 +719,16 @@ class ServersStoreFactory(
                                 } else {
                                     form.port
                                 },
+                            basePath = if (explicitAbsoluteUrl || parsed.basePath.isNotEmpty()) {
+                                parsed.basePath
+                            } else {
+                                form.basePath
+                            },
+                            httpRiskAccepted = if (parsed.https == false) {
+                                false
+                            } else {
+                                form.httpRiskAccepted
+                            },
                             error = null,
                         ),
                         connectionEdited = true,
@@ -462,11 +739,19 @@ class ServersStoreFactory(
                 form = form.copy(port = msg.v, error = null),
                 connectionEdited = true,
             )
+            is Msg.BasePath -> copy(
+                form = form.copy(basePath = msg.v, error = null),
+                connectionEdited = true,
+            )
             is Msg.Username -> copy(
                 form = form.copy(username = msg.v, error = null),
                 connectionEdited = true,
             )
             is Msg.Password -> copy(form = form.copy(password = msg.v, error = null))
+            is Msg.HttpRiskAccepted -> copy(
+                form = form.copy(httpRiskAccepted = msg.accepted, error = null),
+            )
+            is Msg.QuickConnect -> copy(quickConnect = msg.state)
             Msg.Submitting -> copy(form = form.copy(submitting = true, error = null))
             Msg.SubmitDone -> copy(
                 dialogVisible = false,
@@ -475,6 +760,7 @@ class ServersStoreFactory(
                 scanning = false,
                 discovered = emptyList(),
                 publicUsers = emptyList(),
+                quickConnect = QuickConnectUiState.Idle,
                 connectionEdited = false,
             )
             is Msg.SubmitError -> copy(form = form.copy(submitting = false, error = msg.m))
@@ -488,3 +774,11 @@ class ServersStoreFactory(
         }
     }
 }
+
+private const val QuickConnectPollIntervalMs = 2_000L
+
+private fun sanitizeServerName(value: String): String = value
+    .replace('\r', ' ')
+    .replace('\n', ' ')
+    .trim()
+    .take(60)

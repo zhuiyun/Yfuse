@@ -33,6 +33,9 @@ import com.yfuse.core.model.LibraryCounts
 import com.yfuse.core.model.LibraryPage
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaContainer
+import com.yfuse.core.model.MediaContainerKind
+import com.yfuse.core.model.MediaContainerPage
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.SavedServer
@@ -98,11 +101,20 @@ data class AuthedServer(
 /** One library item found by provider id: what to open, and whether it was watched. */
 data class ProviderHit(val itemId: String, val played: Boolean)
 
+/** A real page of server search results, including the server-reported result boundary. */
+data class MediaSearchPage(
+    val items: List<MediaItem>,
+    val totalCount: Int,
+    val startIndex: Int,
+)
+
 /** Virtual library ids routed to user-specific Emby collections. */
 internal const val FAVORITES_COLLECTION_ID = "__yfuse_favorites__"
 internal const val WATCH_LATER_COLLECTION_ID = "__yfuse_watch_later__"
 
 private const val PERSONAL_COLLECTION_PREVIEW_LIMIT = 16
+private const val MEDIA_CONTAINER_LIMIT = 500
+private const val MEDIA_CONTAINER_PREVIEW_LIMIT = 16
 private val playbackRequestJson = Json { encodeDefaults = true }
 
 /**
@@ -207,6 +219,25 @@ private fun pageTotal(
     }
 }
 
+/** Exact and prefix matches stay ahead without destroying the server's order inside a tier. */
+internal fun rankSearchResults(items: List<MediaItem>, query: String): List<MediaItem> {
+    val needle = query.trim().lowercase()
+    if (needle.isEmpty()) return items
+    fun score(title: String): Int {
+        val value = title.trim().lowercase()
+        return when {
+            value == needle -> 0
+            value.startsWith(needle) -> 1
+            value.split(Regex("\\s+")).any { it.startsWith(needle) } -> 2
+            needle in value -> 3
+            else -> 4
+        }
+    }
+    return items.withIndex()
+        .sortedWith(compareBy<IndexedValue<MediaItem>> { score(it.value.title) }.thenBy { it.index })
+        .map(IndexedValue<MediaItem>::value)
+}
+
 private data class PersonalCollection(
     val items: List<MediaItem>,
     val totalCount: Int,
@@ -286,6 +317,23 @@ class EmbyRepository(private val client: HttpClient) {
     suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> =
         call("libraries") { fetchViews(server) }
 
+    /** Real BoxSet and Playlist containers visible to this Emby user. */
+    suspend fun mediaContainers(server: SavedServer): Result<List<MediaContainer>> =
+        call("media_containers") {
+            fetchMediaContainers(server, kind = null, startIndex = 0, limit = MEDIA_CONTAINER_LIMIT)
+                .containers
+        }
+
+    /** A server-paged directory of one container type for the library's 查看全部 route. */
+    suspend fun mediaContainersPage(
+        server: SavedServer,
+        kind: MediaContainerKind,
+        startIndex: Int = 0,
+        limit: Int = LIBRARY_PAGE_SIZE,
+    ): Result<MediaContainerPage> = call("media_containers_page") {
+        fetchMediaContainers(server, kind, startIndex, limit)
+    }
+
     suspend fun setFavorite(
         server: SavedServer,
         itemId: String,
@@ -310,6 +358,60 @@ class EmbyRepository(private val client: HttpClient) {
             client.post(url) { header("X-Emby-Token", server.accessToken) }
         } else {
             client.delete(url) { header("X-Emby-Token", server.accessToken) }
+        }
+        Unit
+    }
+
+    /** Adds an existing media item to an existing server-owned BoxSet or Playlist. */
+    suspend fun addItemToMediaContainer(
+        server: SavedServer,
+        containerId: String,
+        kind: MediaContainerKind,
+        itemId: String,
+    ): Result<Unit> = call("add_item_to_media_container") {
+        val path = when (kind) {
+            MediaContainerKind.BoxSet -> "Collections/${containerId.encodeURLPathPart()}/Items"
+            MediaContainerKind.Playlist -> "Playlists/${containerId.encodeURLPathPart()}/Items"
+        }
+        client.post("${server.baseUrl}/$path") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("Ids", itemId)
+            if (kind == MediaContainerKind.Playlist) parameter("UserId", server.userId)
+        }
+        Unit
+    }
+
+    /**
+     * Removes one membership. PlaylistService requires its entry id; substituting [itemId]
+     * can remove nothing or the wrong repeated occurrence, so a missing entry id fails closed.
+     */
+    suspend fun removeItemFromMediaContainer(
+        server: SavedServer,
+        containerId: String,
+        kind: MediaContainerKind,
+        itemId: String,
+        playlistItemId: String? = null,
+    ): Result<Unit> = call("remove_item_from_media_container") {
+        when (kind) {
+            MediaContainerKind.BoxSet ->
+                client.delete(
+                    "${server.baseUrl}/Collections/${containerId.encodeURLPathPart()}/Items",
+                ) {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Ids", itemId)
+                }
+
+            MediaContainerKind.Playlist -> {
+                val entryId = requireNotNull(playlistItemId?.takeIf(String::isNotBlank)) {
+                    "PlaylistItemId is required to remove a playlist entry"
+                }
+                client.delete(
+                    "${server.baseUrl}/Playlists/${containerId.encodeURLPathPart()}/Items",
+                ) {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("EntryIds", entryId)
+                }
+            }
         }
         Unit
     }
@@ -514,6 +616,50 @@ class EmbyRepository(private val client: HttpClient) {
                     }
                     .getOrNull()
             }
+            val collectionsDeferred = async {
+                runCatching {
+                    fetchMediaContainers(
+                        server,
+                        MediaContainerKind.BoxSet,
+                        startIndex = 0,
+                        limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
+                    ).containers
+                }
+                    .onFailure {
+                        AppLog.warning(
+                            category = "emby",
+                            event = "home_section_degraded",
+                            message = "Collection previews failed and were omitted",
+                            throwable = it,
+                            attributes = mapOf(
+                                "serverId" to server.id,
+                                "section" to "collections",
+                            ),
+                        )
+                    }
+                    .getOrDefault(emptyList())
+            }
+            val playlistsDeferred = async {
+                runCatching {
+                    fetchMediaContainers(
+                        server,
+                        MediaContainerKind.Playlist,
+                        startIndex = 0,
+                        limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
+                    ).containers
+                }.onFailure {
+                    AppLog.warning(
+                        category = "emby",
+                        event = "home_section_degraded",
+                        message = "Playlist previews failed and were omitted",
+                        throwable = it,
+                        attributes = mapOf(
+                            "serverId" to server.id,
+                            "section" to "playlists",
+                        ),
+                    )
+                }.getOrDefault(emptyList())
+            }
             val rowDeferred = views.map { view ->
                 async {
                     val items = runCatching { fetchLatest(server, view.id) }
@@ -551,13 +697,102 @@ class EmbyRepository(private val client: HttpClient) {
             }
             val resume = resumeDeferred.await()
             val counts = countsDeferred.await()
+            val collections = collectionsDeferred.await()
+            val playlists = playlistsDeferred.await()
             val rows = listOf(favoritesDeferred.await(), watchLaterDeferred.await()) +
                 rowDeferred.awaitAll().filter { it.items.isNotEmpty() }
             val featured = (resume + rows.flatMap { it.items })
                 .filter { it.backdropTag != null }
                 .distinctBy { it.id }
                 .take(6)
-            HomeContent(featured = featured, resume = resume, rows = rows, counts = counts)
+            HomeContent(
+                featured = featured,
+                resume = resume,
+                rows = rows,
+                counts = counts,
+                collections = collections,
+                playlists = playlists,
+            )
+        }
+    }
+
+    /**
+     * One page inside a real BoxSet or Playlist.
+     *
+     * PlaylistService deliberately exposes no sort parameters: omitting them preserves the
+     * server's hand-arranged order. BoxSet is a folder and therefore uses the normal user Items
+     * endpoint with ParentId, where the existing sort and genre controls remain valid.
+     */
+    suspend fun mediaContainerItems(
+        server: SavedServer,
+        containerId: String,
+        kind: MediaContainerKind,
+        sort: LibrarySort = LibrarySort.RecentlyAdded,
+        genre: String? = null,
+        startIndex: Int = 0,
+        limit: Int = LIBRARY_PAGE_SIZE,
+    ): Result<LibraryPage> = call("media_container_items") {
+        val dto: ItemsResponseDto = when (kind) {
+            MediaContainerKind.BoxSet ->
+                client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("ParentId", containerId)
+                    parameter("IncludeItemTypes", "Movie,Series,Episode,Video,MusicVideo")
+                    parameter("SortBy", sort.sortBy)
+                    parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
+                    if (!genre.isNullOrBlank()) parameter("Genres", genre)
+                    containerItemParameters(startIndex, limit, includePlaylistItemId = false)
+                }.body()
+
+            MediaContainerKind.Playlist ->
+                client.get("${server.baseUrl}/Playlists/$containerId/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("UserId", server.userId)
+                    // No SortBy/SortOrder here: this endpoint's original order is meaningful.
+                    containerItemParameters(startIndex, limit, includePlaylistItemId = true)
+                }.body()
+        }
+        LibraryPage(
+            items = dto.Items.map { it.toMediaItem() },
+            totalCount = pageTotal(
+                reportedTotal = dto.TotalRecordCount,
+                startIndex = startIndex,
+                itemCount = dto.Items.size,
+                limit = limit,
+            ),
+            startIndex = startIndex,
+        )
+    }
+
+    /** Genre facets apply to BoxSet folders, never to a hand-ordered Playlist. */
+    suspend fun mediaContainerGenres(
+        server: SavedServer,
+        containerId: String,
+        kind: MediaContainerKind,
+    ): Result<List<String>> {
+        if (kind == MediaContainerKind.Playlist) return Result.success(emptyList())
+        return runCatching {
+            val dto: ItemsResponseDto = client.get("${server.baseUrl}/Genres") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("UserId", server.userId)
+                parameter("ParentId", containerId)
+                parameter("IncludeItemTypes", "Movie,Series,Episode,Video,MusicVideo")
+                parameter("SortBy", "SortName")
+                parameter("SortOrder", "Ascending")
+                parameter("Limit", LIBRARY_GENRE_LIMIT)
+            }.body()
+            dedupeBilingualGenreLabels(
+                dto.Items.mapNotNull { it.Name?.takeIf(String::isNotBlank) },
+            )
+        }.onFailure {
+            if (it is CancellationException) throw it
+            AppLog.warning(
+                category = "emby",
+                event = "container_genres_unavailable",
+                message = "Collection genre facet is unavailable",
+                throwable = it,
+                attributes = mapOf("containerId" to containerId),
+            )
         }
     }
 
@@ -751,9 +986,23 @@ class EmbyRepository(private val client: HttpClient) {
         query: String,
         limit: Int = 24,
         filter: MediaSearchFilter = MediaSearchFilter(),
-    ): Result<List<MediaItem>> =
-        call("search") {
-        suspend fun request(term: String): ItemsResponseDto =
+    ): Result<List<MediaItem>> = searchPage(
+        server = server,
+        query = query,
+        startIndex = 0,
+        limit = limit,
+        filter = filter,
+    ).map(MediaSearchPage::items)
+
+    /** Search page with offset/total preserved so UI pagination is not a fake fixed cap. */
+    suspend fun searchPage(
+        server: SavedServer,
+        query: String,
+        startIndex: Int = 0,
+        limit: Int = 24,
+        filter: MediaSearchFilter = MediaSearchFilter(),
+    ): Result<MediaSearchPage> = call("search") {
+        suspend fun request(term: String, offset: Int): ItemsResponseDto =
             client.get("${server.baseUrl}/Users/${server.userId}/Items") {
                 header("X-Emby-Token", server.accessToken)
                 parameter("SearchTerm", term)
@@ -764,20 +1013,38 @@ class EmbyRepository(private val client: HttpClient) {
                 filter.genre?.takeIf { it.isNotBlank() }?.let { parameter("Genres", it) }
                 filter.played?.let { parameter("IsPlayed", it) }
                 if (filter.resumable) parameter("Filters", "IsResumable")
-                parameter("SortBy", filter.sortBy)
-                parameter("SortOrder", if (filter.descending) "Descending" else "Ascending")
+                filter.sortBy?.let {
+                    parameter("SortBy", it)
+                    parameter(
+                        "SortOrder",
+                        if (filter.descending) "Descending" else "Ascending",
+                    )
+                }
                 parameter(
                     "Fields",
                     "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
-                        "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag",
+                        "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
                 )
                 parameter("EnableImageTypes", "Primary,Backdrop")
                 parameter("ImageTypeLimit", 2)
+                if (offset > 0) parameter("StartIndex", offset)
                 parameter("Limit", limit)
             }.body()
 
-        val exact = request(query).Items
-        if (exact.isNotEmpty()) return@call exact.map { it.toMediaItem() }
+        val exactPage = request(query, startIndex)
+        if (exactPage.Items.isNotEmpty() || startIndex > 0) {
+            val items = exactPage.Items.map { it.toMediaItem() }
+            return@call MediaSearchPage(
+                items = if (filter.sortBy == null) rankSearchResults(items, query) else items,
+                totalCount = pageTotal(
+                    reportedTotal = exactPage.TotalRecordCount,
+                    startIndex = startIndex,
+                    itemCount = items.size,
+                    limit = limit,
+                ),
+                startIndex = startIndex,
+            )
+        }
 
         // Some Emby/Jellyfin search indexes reject a full CJK title even though a suffix
         // returns it (for example 鬼迷东宫 -> no rows, 东宫 -> 鬼迷东宫). Query a small set
@@ -794,14 +1061,19 @@ class EmbyRepository(private val client: HttpClient) {
         }.distinct().filterNot { it.equals(normalizedQuery, ignoreCase = true) }
 
         val fallbackItems = buildList {
-            fallbackTerms.forEach { term -> addAll(request(term).Items) }
+            fallbackTerms.forEach { term -> addAll(request(term, 0).Items) }
         }
-        fallbackItems.asSequence()
+        val items = fallbackItems.asSequence()
             .distinctBy { it.Id }
             .filter { it.Name?.contains(normalizedQuery, ignoreCase = true) == true }
             .take(limit)
             .map { it.toMediaItem() }
             .toList()
+        MediaSearchPage(
+            items = rankSearchResults(items, query),
+            totalCount = items.size,
+            startIndex = 0,
+        )
     }
 
     /**
@@ -1370,6 +1642,78 @@ class EmbyRepository(private val client: HttpClient) {
         return playlists.Items
             .firstOrNull { it.Name.equals("稍后观看", ignoreCase = true) }
             ?.Id
+    }
+
+    private suspend fun fetchMediaContainers(
+        server: SavedServer,
+        kind: MediaContainerKind?,
+        startIndex: Int,
+        limit: Int,
+    ): MediaContainerPage {
+        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
+            header("X-Emby-Token", server.accessToken)
+            parameter("Recursive", true)
+            parameter(
+                "IncludeItemTypes",
+                when (kind) {
+                    MediaContainerKind.BoxSet -> "BoxSet"
+                    MediaContainerKind.Playlist -> "Playlist"
+                    null -> "BoxSet,Playlist"
+                },
+            )
+            parameter("SortBy", "SortName")
+            parameter("SortOrder", "Ascending")
+            parameter("Fields", "ChildCount")
+            parameter("EnableImageTypes", "Primary")
+            parameter("ImageTypeLimit", 1)
+            if (startIndex > 0) parameter("StartIndex", startIndex)
+            parameter("Limit", limit)
+        }.body()
+        val containers = dto.Items.mapNotNull { item ->
+            val kind = when (item.Type) {
+                "BoxSet" -> MediaContainerKind.BoxSet
+                "Playlist" -> MediaContainerKind.Playlist
+                else -> null
+            } ?: return@mapNotNull null
+            MediaContainer(
+                id = item.Id,
+                title = item.Name?.takeIf(String::isNotBlank) ?: return@mapNotNull null,
+                kind = kind,
+                serverId = server.id,
+                posterTag = item.ImageTags?.get("Primary"),
+                itemCount = item.ChildCount,
+            )
+        }
+        return MediaContainerPage(
+            containers = containers,
+            totalCount = pageTotal(
+                reportedTotal = dto.TotalRecordCount,
+                startIndex = startIndex,
+                itemCount = dto.Items.size,
+                limit = limit,
+            ),
+            startIndex = startIndex,
+        )
+    }
+
+    private fun io.ktor.client.request.HttpRequestBuilder.containerItemParameters(
+        startIndex: Int,
+        limit: Int,
+        includePlaylistItemId: Boolean,
+    ) {
+        val fields = buildString {
+            append(
+                "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+                    "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+            )
+            if (includePlaylistItemId) append(",PlaylistItemId")
+        }
+        parameter("Fields", fields)
+        parameter("EnableImageTypes", "Primary,Backdrop")
+        parameter("EnableUserData", true)
+        parameter("ImageTypeLimit", 2)
+        if (startIndex > 0) parameter("StartIndex", startIndex)
+        parameter("Limit", limit)
     }
 
     private suspend fun fetchFavorites(

@@ -30,11 +30,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.decode.DataSource
+
+/** Large artwork may resolve cinematically, but should never hold the image soft for 550ms. */
+private const val ArtworkRevealDurationMs = 400
+private val ArtworkRevealBlur = 6.dp
+private const val ArtworkRevealScaleFrom = 1.025f
+
+/** Dense rails and grids only need a quick opacity hand-off from their placeholder. */
+internal const val PosterFadeDurationMs = 180
 
 /**
  * An image that is allowed a second (and third) guess.
@@ -61,17 +73,22 @@ fun FallbackImage(
     progressive: Boolean = true,
     /** Fade the drawable without adding the progressive blur and 1.05 scale. */
     alphaOnly: Boolean = false,
+    /** Large artwork uses the default 400ms reveal; dense posters pass 180ms. */
+    revealDurationMillis: Int = ArtworkRevealDurationMs,
+    revealBlur: Dp = ArtworkRevealBlur,
+    revealScaleFrom: Float = ArtworkRevealScaleFrom,
     /** Reports the fallback candidate whose drawable actually reached the screen. */
     onResolvedUrl: (String) -> Unit = {},
 ) {
     val candidates = remember(urls) { urls.filterNotNull().filter { it.isNotBlank() }.distinct() }
     var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
     var loaded by remember(candidates, candidateIndex) { mutableStateOf(false) }
+    var exhausted by remember(candidates) { mutableStateOf(candidates.isEmpty()) }
     /**
      * Whether this particular picture is allowed the entrance.
      *
      * The reveal exists to cover a wait. An image Coil already holds in memory has no wait
-     * to cover, so playing it there is not polish — it is 550ms of blur inserted in front of
+     * to cover, so playing it there is not polish — it is an effect inserted in front of
      * something that was ready to draw. It showed up worst in the grids: [loaded] restarts
      * at false every time a tile is recycled into composition, so scrolling back over
      * artwork already on screen a moment ago re-blurred every tile, every time.
@@ -85,60 +102,101 @@ fun FallbackImage(
     val settle by animateFloatAsState(
         targetValue = if (loaded || !animate) 1f else 0f,
         animationSpec = tween(
-            durationMillis = if (animate) Motion.IMAGE_IN else 0,
+            durationMillis = if (animate) revealDurationMillis else 0,
             easing = Motion.Curve,
         ),
         label = "imageIn",
     )
-    candidates.getOrNull(candidateIndex)?.let { candidate ->
-        val requestIndex = candidateIndex
-        key(candidate) {
-            AsyncImage(
-                model = candidate,
-                contentDescription = contentDescription,
-                contentScale = contentScale,
-                modifier = modifier.graphicsLayer {
-                    // 占位主色 → 12px 模糊放大 1.05 → 清晰归位. The placeholder underneath is
-                    // the caller's — [Poster] tints its own well — because nothing can know
-                    // the artwork's colour before the artwork has arrived.
-                    val remaining = 1f - settle
-                    val scale = if (alphaOnly) {
-                        1f
-                    } else {
-                        1f + (Motion.IMAGE_SCALE_FROM - 1f) * remaining
-                    }
-                    scaleX = scale
-                    scaleY = scale
-                    alpha = settle
-                    // Below API 31 renderEffect is ignored, so the load resolves as a
-                    // scale-and-fade on those devices rather than not at all.
-                    renderEffect = if (!alphaOnly && remaining > 0.01f) {
-                        val radius = Motion.imageBlur.toPx() * remaining
-                        BlurEffect(radius, radius)
-                    } else {
-                        null
-                    }
-                },
-                onSuccess = { success ->
-                    // Order matters: [instant] has to be true before [loaded] flips, or the
-                    // animation starts on this frame and the flag lands on the next one.
-                    if (candidateIndex == requestIndex) {
-                        if (success.result.dataSource == DataSource.MEMORY_CACHE) instant = true
-                        loaded = true
-                        onResolvedUrl(candidate)
-                    }
-                },
-                onError = {
-                    // A disposed request can finish after its replacement. Only
-                    // advance when the callback still belongs to the visible URL.
-                    if (candidateIndex == requestIndex && requestIndex < candidates.lastIndex) {
-                        candidateIndex = requestIndex + 1
-                    }
-                },
-            )
+    Box(modifier) {
+        if (exhausted) {
+            FailedImagePlaceholder(contentDescription)
+        }
+        if (!exhausted) {
+            candidates.getOrNull(candidateIndex)?.let { candidate ->
+                val requestIndex = candidateIndex
+                key(candidate) {
+                    AsyncImage(
+                        model = candidate,
+                        contentDescription = contentDescription,
+                        contentScale = contentScale,
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            // The placeholder underneath is the caller's — [Poster] tints its
+                            // own well — because artwork colour is unknown before arrival.
+                            val remaining = 1f - settle
+                            val scale = if (alphaOnly) {
+                                1f
+                            } else {
+                                1f + (revealScaleFrom - 1f) * remaining
+                            }
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = settle
+                            // Below API 31 renderEffect is ignored, so the load resolves as a
+                            // scale-and-fade on those devices rather than not at all.
+                            renderEffect = if (!alphaOnly && remaining > 0.01f) {
+                                val radius = revealBlur.toPx() * remaining
+                                BlurEffect(radius, radius)
+                            } else {
+                                null
+                            }
+                        },
+                        onSuccess = { success ->
+                            // Order matters: [instant] has to be true before [loaded] flips, or
+                            // the animation starts on this frame and the flag lands on the next.
+                            if (candidateIndex == requestIndex) {
+                                if (success.result.dataSource == DataSource.MEMORY_CACHE) instant = true
+                                exhausted = false
+                                loaded = true
+                                onResolvedUrl(candidate)
+                            }
+                        },
+                        onError = {
+                            // A disposed request can finish after its replacement. Only advance
+                            // when the callback still belongs to the visible URL.
+                            if (candidateIndex == requestIndex) {
+                                if (requestIndex < candidates.lastIndex) {
+                                    candidateIndex = requestIndex + 1
+                                } else {
+                                    exhausted = true
+                                }
+                            }
+                        },
+                    )
+                }
+            }
         }
     }
 }
+
+@Composable
+private fun BoxScope.FailedImagePlaceholder(description: String?) {
+    val palette = LocalPalette.current
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(palette.card2.copy(alpha = 0.42f))
+            .then(
+                if (description == null) {
+                    Modifier
+                } else {
+                    Modifier.semantics {
+                        contentDescription = "$description，图片无法加载"
+                    }
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = imageFallbackMonogram(description),
+            style = AppTypography.section.strong,
+            color = palette.hint,
+            modifier = Modifier.clearAndSetSemantics { },
+        )
+    }
+}
+
+internal fun imageFallbackMonogram(description: String?): String =
+    description?.trim()?.firstOrNull()?.uppercaseChar()?.toString() ?: "—"
 
 /**
  * `.poster` — a rounded, cropped artwork tile, optionally captioned by
@@ -158,9 +216,20 @@ fun Poster(
     contentDescription: String? = title,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    sharedTransitionKey: MediaSharedElementKey? = null,
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     val palette = LocalPalette.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val sharedController = LocalSharedMediaTransitionController.current
+    val resolvedOnClick = onClick?.let { click ->
+        {
+            if (!reduceMotion && sharedTransitionKey != null) {
+                sharedController?.begin(sharedTransitionKey)
+            }
+            click()
+        }
+    }
     val candidates = remember(url, fallbackUrl, fallbackUrls) {
         (listOfNotNull(url, fallbackUrl) + fallbackUrls).filter { it.isNotBlank() }.distinct()
     }
@@ -188,10 +257,11 @@ fun Poster(
                 // 海报是全 app 唯一开 tilt 的地方：它足够大，倾斜看得出来，而且这是
                 // 用户唯一会盯着看的图像内容。
                 when {
-                    onClick != null || onLongClick != null -> it.pressable(
+                    resolvedOnClick != null || onLongClick != null -> it.pressable(
                         tilt = true,
+                        focusShape = shape,
                         onLongClick = onLongClick,
-                        onClick = { onClick?.invoke() },
+                        onClick = { resolvedOnClick?.invoke() },
                     )
                     else -> it
                 }
@@ -200,7 +270,11 @@ fun Poster(
         FallbackImage(
             urls = candidates,
             contentDescription = contentDescription,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .sharedMediaArtwork(sharedTransitionKey)
+                .fillMaxSize(),
+            alphaOnly = true,
+            revealDurationMillis = PosterFadeDurationMs,
         )
 
         overlay()
@@ -279,13 +353,24 @@ fun CaptionedPoster(
     posterModifier: Modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
     progress: Float? = null,
     onClick: (() -> Unit)? = null,
+    sharedTransitionKey: MediaSharedElementKey? = null,
 ) {
     val palette = LocalPalette.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val sharedController = LocalSharedMediaTransitionController.current
+    val resolvedOnClick = onClick?.let { click ->
+        {
+            if (!reduceMotion && sharedTransitionKey != null) {
+                sharedController?.begin(sharedTransitionKey)
+            }
+            click()
+        }
+    }
     Column(
         // The press lands on the whole tile, caption included — scaling only the artwork
         // and leaving the title behind reads as the image slipping out from under it.
         modifier.let { base ->
-            if (onClick != null) base.pressable(onClick = onClick) else base
+            if (resolvedOnClick != null) base.pressable(onClick = resolvedOnClick) else base
         },
     ) {
         Poster(
@@ -295,6 +380,7 @@ fun CaptionedPoster(
             progress = progress,
             contentDescription = title,
             modifier = posterModifier,
+            sharedTransitionKey = sharedTransitionKey,
         )
         Spacer(Modifier.height(7.dp))
         Text(

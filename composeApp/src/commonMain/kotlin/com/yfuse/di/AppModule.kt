@@ -14,6 +14,7 @@ import com.yfuse.core.data.AiringScheduleCache
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.PlaybackTrackRequest
@@ -39,6 +40,7 @@ import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.createSecureStore
 import com.yfuse.feature.watch.WatchInviteResolver
+import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.createCastManager
 import org.koin.dsl.module
@@ -55,11 +57,23 @@ fun appModule(
 ) = module {
     single { settings }
     single { diagnosticPreferences }
-    single { ServerRegistry(get()) }
+    single { VaultCrypto() }
+    single {
+        val persistedSettings = get<Settings>()
+        ServerRegistry(
+            settings = persistedSettings,
+            secureStore = createSecureStore(
+                settings = persistedSettings,
+                namespace = "emby.server-sessions",
+            ),
+            crypto = get(),
+        )
+    }
     single { ThemePreferences(get()) }
     single { PlaybackPreferences(get()) }
     single { PlaybackFailoverRequest() }
     single { PlaybackRecoveryStore(get()) }
+    single { PlaybackEventOutbox(get()) }
     single { UserAgentPreferences(get()) }
     single { WatchTogetherPreferences(get()) }
     single { DanmakuPreferences(get()) }
@@ -79,6 +93,7 @@ fun appModule(
         )
     }
     single { EmbyRepository(get()) }
+    single { PlaybackReportingCoordinator(get(), get(), get()) }
     single { ServerHealthMonitor(get(), get()) }
     single { AiringScheduleCache(get()) }
     single {
@@ -94,7 +109,6 @@ fun appModule(
     single { WatchTogetherClient(get()) }
     single { WatchInviteResolver(get(), get()) }
     single<SecureStore> { createSecureStore(get(), namespace = "account") }
-    single { VaultCrypto() }
     single { AccountApi(createAccountClient()) }
     single {
         AccountRepository(

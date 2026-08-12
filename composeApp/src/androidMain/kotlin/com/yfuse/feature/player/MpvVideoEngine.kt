@@ -23,6 +23,13 @@ private const val TAG = "YfusePlayer"
 /** mpv pushes `time-pos` per frame; only forward moves of at least this much. */
 private const val POSITION_STEP_MS = 200L
 
+internal fun mpvDynamicRange(gamma: String): String = when (gamma.trim().lowercase()) {
+    "pq" -> "HDR10 / PQ"
+    "hlg" -> "HLG"
+    "linear", "gamma1.8", "gamma2.0", "gamma2.2", "gamma2.4", "bt.1886", "srgb" -> "SDR"
+    else -> gamma.uppercase()
+}
+
 /**
  * Distinguishes mpv's expected END_FILE for `loadfile replace`/`stop` from a failed stream.
  *
@@ -96,22 +103,24 @@ internal class MpvEndFileTracker {
  */
 class MpvVideoEngine(
     private val context: Context,
-    private val items: List<PlayerMediaItem>,
+    items: List<PlayerMediaItem>,
     startIndex: Int,
     private val startPositionMs: Long,
     private val decoderMode: DecoderMode,
     private val autoNext: Boolean,
-    quality: PlaybackQuality,
+    private val quality: PlaybackQuality,
     private val customUserAgent: String,
     private val scope: CoroutineScope,
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
 
+    private val items = items.map { it.withPlaybackQuality(quality) }
+
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
      *  rest of the season. */
     private val transcodedIndices = items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
-        index.takeIf { item.playMethod == PlaybackMethod.Transcode }
+        index.takeIf { item.startsWithServerTranscode(quality) }
     }
     private val progressiveIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
@@ -122,11 +131,15 @@ class MpvVideoEngine(
         PlaybackState(
             currentIndex = startIndex,
             itemCount = items.size.coerceAtLeast(1),
-            diagnostics = PlaybackDiagnostics(
+            transcoding = startIndex in transcodedIndices,
+            videoHeight = items.getOrNull(startIndex)
+                ?.sourceVideoHeight(startIndex in transcodedIndices)
+                ?: 0,
+            diagnostics = initialPlaybackDiagnostics(
                 engine = "libmpv",
                 decoder = decoderMode.label,
-                playMethod = items.getOrNull(startIndex)?.playMethod?.label
-                    ?: PlaybackMethod.DirectPlay.label,
+                item = items.getOrNull(startIndex),
+                quality = quality,
             ),
         ),
     )
@@ -158,6 +171,7 @@ class MpvVideoEngine(
             if (level > MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN) return
             val details = text.trim().take(600)
             if (details.isEmpty()) return
+            nativePlaybackLogFailure(details)?.let(::markTerminalFailure)
             val attributes = mapOf(
                 "prefix" to prefix,
                 "level" to level.toString(),
@@ -188,6 +202,24 @@ class MpvVideoEngine(
             when (property) {
                 "track-list/count" -> readTracks()
                 "video-params/h" -> _state.update { it.copy(videoHeight = value.toInt()) }
+                "video-params/w" -> _state.update {
+                    it.copy(diagnostics = it.diagnostics.copy(videoWidth = value.toInt()))
+                }
+                "audio-params/channel-count" -> _state.update {
+                    val codec = it.diagnostics.audioFormat.substringBefore(" · ").takeIf(String::isNotBlank)
+                    val channels = when (value.toInt()) {
+                        1 -> "单声道"
+                        2 -> "2.0"
+                        6 -> "5.1"
+                        8 -> "7.1"
+                        else -> "${value.toInt()} 声道"
+                    }
+                    it.copy(
+                        diagnostics = it.diagnostics.copy(
+                            audioFormat = listOfNotNull(codec, channels).joinToString(" · "),
+                        ),
+                    )
+                }
                 "decoder-frame-drop-count" -> _state.update {
                     it.copy(
                         diagnostics = it.diagnostics.copy(
@@ -287,6 +319,18 @@ class MpvVideoEngine(
                 "video-codec" -> _state.update {
                     it.copy(diagnostics = it.diagnostics.copy(videoCodec = value))
                 }
+                "video-params/gamma" -> _state.update {
+                    it.copy(diagnostics = it.diagnostics.copy(dynamicRange = mpvDynamicRange(value)))
+                }
+                "audio-codec-name" -> _state.update {
+                    val channels = it.diagnostics.audioFormat.substringAfter(" · ", "")
+                        .takeIf(String::isNotBlank)
+                    it.copy(
+                        diagnostics = it.diagnostics.copy(
+                            audioFormat = listOfNotNull(value.uppercase(), channels).joinToString(" · "),
+                        ),
+                    )
+                }
             }
         }
 
@@ -317,7 +361,13 @@ class MpvVideoEngine(
                             )
                         }
                     }
-                    _state.update { it.copy(buffering = false) }
+                    _state.update {
+                        it.copy(
+                            buffering = false,
+                            fallbacksExhausted = false,
+                            automaticFallbackBlocked = false,
+                        )
+                    }
                     readTracks()
                     readVideoSize()
                     logAudioOutput()
@@ -371,6 +421,10 @@ class MpvVideoEngine(
                         message = "mpv surface re-attach failed",
                         throwable = it,
                     )
+                    markTerminalFailure(
+                        fallbackMessage = "mpv 无法重新连接视频画面，正在尝试其他播放器",
+                        details = it.message,
+                    )
                 }
             return
         }
@@ -385,7 +439,7 @@ class MpvVideoEngine(
                     event = "initialization_failed",
                     message = "MPVLib.create returned null",
                 )
-                _state.update { it.copy(error = "无法初始化 mpv", buffering = false) }
+                markTerminalFailure("无法初始化 mpv，正在尝试其他播放器")
                 return
             }
             created = instance
@@ -441,7 +495,11 @@ class MpvVideoEngine(
             instance.observeProperty("eof-reached", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             instance.observeProperty("track-list/count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("video-params/h", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+            instance.observeProperty("video-params/w", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+            instance.observeProperty("video-params/gamma", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("video-codec", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("audio-codec-name", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("audio-params/channel-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("estimated-vf-fps", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("video-bitrate", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("cache-speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
@@ -452,7 +510,7 @@ class MpvVideoEngine(
 
             instance.attachSurface(surface)
             instance.setPropertyString("force-window", "yes")
-            replaceFile(currentUrl())
+            check(replaceFile(currentUrl())) { "mpv loadfile command failed" }
             safeLogcat(Log.INFO, TAG, "mpv loadfile issued")
             AppLog.info(
                 category = "player.mpv",
@@ -480,7 +538,10 @@ class MpvVideoEngine(
                 throwable = it,
                 attributes = mapOf("itemIndex" to _state.value.currentIndex.toString()),
             )
-            _state.update { state -> state.copy(error = "mpv 启动失败", buffering = false) }
+            markTerminalFailure(
+                fallbackMessage = "mpv 启动失败，正在尝试其他播放器",
+                details = it.message,
+            )
         }
     }
 
@@ -565,30 +626,32 @@ class MpvVideoEngine(
         pendingSeekMs = 0L
         lastPositionMs = -POSITION_STEP_MS
         val transcoding = index in transcodedIndices
+        val nextItem = items.getOrNull(index)
         _state.update {
             it.copy(
                 currentIndex = index,
                 positionMs = 0L,
                 durationMs = 0L,
                 bufferedPositionMs = 0L,
+                videoHeight = nextItem?.sourceVideoHeight(transcoding) ?: 0,
                 buffering = true,
                 ended = false,
                 error = null,
                 transcoding = transcoding,
                 fallbacksExhausted = false,
+                automaticFallbackBlocked = false,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
-                diagnostics = it.diagnostics.copy(
-                    playMethod = if (transcoding) {
-                        PlaybackMethod.Transcode.label
-                    } else {
-                        items.getOrNull(index)?.playMethod?.label ?: PlaybackMethod.DirectPlay.label
-                    },
-                    bufferedDurationMs = 0L,
+                diagnostics = initialPlaybackDiagnostics(
+                    engine = "libmpv",
+                    decoder = it.diagnostics.decoder,
+                    item = nextItem,
+                    quality = quality,
+                    transcoding = transcoding,
                 ),
             )
         }
-        replaceFile(playbackUrl(items[index], index))
+        loadFileOrFail(playbackUrl(items[index], index))
     }
 
     override fun currentPositionMs(): Long = _state.value.positionMs
@@ -603,13 +666,15 @@ class MpvVideoEngine(
                 buffering = true,
                 bufferedPositionMs = position.coerceAtLeast(0L),
                 ended = false,
+                fallbacksExhausted = false,
+                automaticFallbackBlocked = false,
             )
         }
         if (mpv == null) {
             attachedSurface?.let(::attach)
             return
         }
-        replaceFile(currentUrl())
+        loadFileOrFail(currentUrl())
     }
 
     override fun release() {
@@ -652,7 +717,7 @@ class MpvVideoEngine(
      * transcode, then its progressive MP4. Returns false once the chain is spent, which is
      * what tells the caller to stop retrying and report the failure.
      */
-    override fun switchToTranscode(): Boolean {
+    override fun switchToTranscode(reason: String?): Boolean {
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return false
         val next = when {
@@ -688,14 +753,22 @@ class MpvVideoEngine(
                 bufferedPositionMs = it.positionMs,
                 ended = false,
                 transcoding = true,
+                fallbacksExhausted = false,
+                automaticFallbackBlocked = false,
                 diagnostics = it.diagnostics.copy(
                     playMethod = "服务器转码",
+                    dynamicRange = "",
+                    audioFormat = "",
+                    fallbackReason = reason ?: when (next) {
+                        Step.Transcode -> "直放失败，已切换服务器转码"
+                        Step.Progressive -> "HLS 转码不可用，已改用 MP4 转码"
+                    },
                     bufferedDurationMs = 0L,
                 ),
             )
         }
         if (next == Step.Transcode) {
-            replaceFile(currentUrl())
+            loadFileOrFail(currentUrl())
             return true
         }
 
@@ -719,7 +792,7 @@ class MpvVideoEngine(
                 return@launch
             }
             progressiveIndices += index
-            replaceFile(currentUrl())
+            loadFileOrFail(currentUrl())
         }
         return true
     }
@@ -732,6 +805,7 @@ class MpvVideoEngine(
     }
 
     private fun handleEndFile() {
+        if (_state.value.automaticFallbackBlocked) return
         val reachedEof = runCatching {
             _state.value.ended || mpv?.getPropertyBoolean("eof-reached") == true
         }.getOrDefault(false)
@@ -747,15 +821,7 @@ class MpvVideoEngine(
         // Try the next stream down before saying it can't be played: the common cause is a
         // codec this device has no decoder for, which the server can transcode away.
         if (switchToTranscode()) return
-        _state.update {
-            it.copy(
-                playing = false,
-                buffering = false,
-                ended = false,
-                fallbacksExhausted = true,
-                error = "mpv 无法播放此媒体，服务器也没有可用的转码流",
-            )
-        }
+        markTerminalFailure("mpv 无法播放此媒体，服务器也没有可用的转码流")
     }
 
     private fun selectTrack(property: String, id: String) {
@@ -861,10 +927,38 @@ class MpvVideoEngine(
     }
 
     /** Issues `loadfile replace` and reserves the END_FILE that closes its predecessor. */
-    private fun replaceFile(url: String) {
+    private fun replaceFile(url: String): Boolean {
         val replacing = endFileTracker.beforeLoad()
-        if (!withMpvResult { it.command(arrayOf("loadfile", url)) }) {
+        val loaded = withMpvResult { it.command(arrayOf("loadfile", url)) }
+        if (!loaded) {
             endFileTracker.rollbackLoad(replacing)
+        }
+        return loaded
+    }
+
+    private fun loadFileOrFail(url: String): Boolean {
+        if (replaceFile(url)) return true
+        markTerminalFailure("mpv 无法加载媒体，正在尝试其他播放器")
+        return false
+    }
+
+    private fun markTerminalFailure(
+        fallbackMessage: String,
+        details: String? = null,
+    ) {
+        markTerminalFailure(terminalNativePlaybackFailure(fallbackMessage, details))
+    }
+
+    private fun markTerminalFailure(failure: NativePlaybackFailure) {
+        _state.update {
+            it.copy(
+                playing = false,
+                buffering = false,
+                ended = false,
+                error = failure.message,
+                fallbacksExhausted = true,
+                automaticFallbackBlocked = failure.blocksAutomaticFallback,
+            )
         }
     }
 

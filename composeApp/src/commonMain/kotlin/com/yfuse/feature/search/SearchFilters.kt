@@ -3,6 +3,7 @@ package com.yfuse.feature.search
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -22,6 +23,7 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
 
 internal enum class SearchFilterSheet { Server, Library, Year, Genre, Status, Sort }
 
@@ -42,6 +44,7 @@ internal fun SearchFilterBar(
         SearchFilterSheet.Sort to state.sort.label,
     )
     LazyRow(
+        modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 18.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -60,6 +63,7 @@ internal fun SearchFilterBar(
                 color = if (active) accent else palette.body,
                 modifier = Modifier
                     .pressable(onClick = { onOpen(sheet) })
+                    .touchTarget()
                     .glass(
                         shape = GlassShapes.chip,
                         fill = if (active) accent.copy(alpha = 0.13f) else palette.card2,
@@ -76,6 +80,7 @@ internal fun SearchFilterBar(
                     color = Color.White,
                     modifier = Modifier
                         .pressable(onClick = onClear)
+                        .touchTarget()
                         .glass(GlassShapes.chip, accent.copy(alpha = 0.82f), accent)
                         .padding(horizontal = 13.dp, vertical = 7.dp),
                 )

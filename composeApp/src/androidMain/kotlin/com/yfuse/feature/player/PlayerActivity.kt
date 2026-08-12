@@ -88,10 +88,16 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
 import com.yfuse.core.data.danmakuBindingKey
 import com.yfuse.core.cast.CastManager
+import com.yfuse.core.cast.CastCapability
+import com.yfuse.core.cast.CastPlaybackStatus
+import com.yfuse.core.cast.CastTermination
+import com.yfuse.core.cast.castRecoveryDecision
+import com.yfuse.core.cast.formatDlnaTime
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.languageDisplayName
 import com.yfuse.core.model.PlaybackSegment
@@ -182,6 +188,7 @@ class PlayerActivity : ComponentActivity() {
     private var playbackGate: WatchGatedPlayback? = null
     private var activeState = PlaybackState()
     private lateinit var audioManager: AudioManager
+    private var remoteCastManager: CastManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var hasAudioFocus = false
     private var resumeAfterTransientFocusLoss = false
@@ -246,9 +253,9 @@ class PlayerActivity : ComponentActivity() {
     private val mediaActionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                ACTION_PREVIOUS -> playbackGate?.selectPrevious()
+                ACTION_PREVIOUS -> selectAdjacentPlayback(-1)
                 ACTION_PLAY_PAUSE -> togglePlaybackWithFocus()
-                ACTION_NEXT -> playbackGate?.selectNext()
+                ACTION_NEXT -> selectAdjacentPlayback(1)
             }
         }
     }
@@ -273,16 +280,31 @@ class PlayerActivity : ComponentActivity() {
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean = when (keyCode) {
         KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
-            audioManager.adjustStreamVolume(
-                AudioManager.STREAM_MUSIC,
-                if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-                    AudioManager.ADJUST_RAISE
-                } else {
-                    AudioManager.ADJUST_LOWER
-                },
-                // No flags: the adjustment happens, the system panel does not.
-                0,
-            )
+            val castManager = remoteCastManager
+            val cast = castManager?.state?.value
+            if (castManager != null && cast?.hasActiveSession == true) {
+                val currentVolume = cast.volume
+                if (
+                    currentVolume != null &&
+                    cast.capabilities.volume != CastCapability.Unsupported
+                ) {
+                    val delta = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 0.05f else -0.05f
+                    lifecycleScope.launch {
+                        castManager.setVolume((currentVolume + delta).coerceIn(0f, 1f))
+                    }
+                }
+            } else {
+                audioManager.adjustStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                        AudioManager.ADJUST_RAISE
+                    } else {
+                        AudioManager.ADJUST_LOWER
+                    },
+                    // No flags: the adjustment happens, the system panel does not.
+                    0,
+                )
+            }
             volumeKeyPresses.value++
             true
         }
@@ -359,6 +381,7 @@ class PlayerActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
 
         val koin = GlobalContext.get()
+        remoteCastManager = koin.get()
         embyRepository = koin.get()
         serverRegistry = koin.get()
         val preferences = runCatching { koin.get<ThemePreferences>() }
@@ -404,12 +427,17 @@ class PlayerActivity : ComponentActivity() {
         val accent = preferences?.accent?.value ?: AccentColor.Blue
         val playbackSink = runCatching {
             val registry = koin.get<ServerRegistry>()
-            val selectedServerId = items.getOrNull(
-                initialStartIndex,
-            )?.serverId
-            val server = selectedServerId?.let(registry::serverById) ?: registry.defaultServer
-            val repo = koin.get<EmbyRepository>()
-            server?.let { EmbyPlaybackEventSink(repo, it) }
+            val reportingServerId = when (
+                val target = playbackReportingTarget(items.getOrNull(initialStartIndex))
+            ) {
+                is PlaybackReportingTarget.SavedServer ->
+                    target.id.takeIf { registry.serverById(it) != null }
+                PlaybackReportingTarget.DefaultServer -> registry.defaultServer?.id
+                PlaybackReportingTarget.Disabled -> null
+            }
+            reportingServerId?.let {
+                koin.get<PlaybackReportingCoordinator>().sinkFor(it)
+            }
         }.onFailure {
             AppLog.warning(
                 category = "feature.player",
@@ -435,7 +463,8 @@ class PlayerActivity : ComponentActivity() {
                     initialEngine = initialEngine,
                     decoderMode = decoderMode,
                     autoNext = autoNext,
-                    quality = quality,
+                    initialQuality = quality,
+                    onQualityChanged = { preferences?.setQuality(it) },
                     inPictureInPicture = inPictureInPicture,
                     playbackSink = playbackSink,
                     danmakuPreferences = danmakuPreferences,
@@ -809,6 +838,11 @@ class PlayerActivity : ComponentActivity() {
             setCallback(
                 object : MediaSession.Callback() {
                     override fun onPlay() {
+                        val castManager = remoteCastManager
+                        if (castManager?.state?.value?.hasActiveSession == true) {
+                            lifecycleScope.launch { castManager.resume() }
+                            return
+                        }
                         if (ensureAudioFocus()) {
                             startPlaybackKeepAliveService(fromUserAction = true)
                             playbackGate?.play()
@@ -816,19 +850,29 @@ class PlayerActivity : ComponentActivity() {
                     }
 
                     override fun onPause() {
-                        playbackGate?.pause()
+                        val castManager = remoteCastManager
+                        if (castManager?.state?.value?.hasActiveSession == true) {
+                            lifecycleScope.launch { castManager.pause() }
+                        } else {
+                            playbackGate?.pause()
+                        }
                     }
 
                     override fun onSeekTo(pos: Long) {
-                        playbackGate?.seekTo(pos)
+                        val castManager = remoteCastManager
+                        if (castManager?.state?.value?.hasActiveSession == true) {
+                            lifecycleScope.launch { castManager.seekTo(pos) }
+                        } else {
+                            playbackGate?.seekTo(pos)
+                        }
                     }
 
                     override fun onSkipToNext() {
-                        playbackGate?.selectNext()
+                        selectAdjacentPlayback(1)
                     }
 
                     override fun onSkipToPrevious() {
-                        playbackGate?.selectPrevious()
+                        selectAdjacentPlayback(-1)
                     }
                 },
             )
@@ -891,7 +935,10 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun updateMediaSession(state: PlaybackState) {
-        if (state.playing && !ensureAudioFocus()) {
+        val remoteActive = remoteCastManager?.state?.value?.hasActiveSession == true
+        if (remoteActive) {
+            abandonAudioFocus()
+        } else if (state.playing && !ensureAudioFocus()) {
             activeEngine?.pause()
         } else if (state.ended || state.error != null) {
             abandonAudioFocus()
@@ -924,11 +971,41 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun togglePlaybackWithFocus() {
+        val castManager = remoteCastManager
+        if (castManager?.state?.value?.hasActiveSession == true) {
+            lifecycleScope.launch {
+                if (castManager.state.value.lastRemoteWasPlaying) {
+                    castManager.pause()
+                } else {
+                    castManager.resume()
+                }
+            }
+            return
+        }
         if (activeState.playing) {
             playbackGate?.pause()
         } else if (ensureAudioFocus()) {
             startPlaybackKeepAliveService(fromUserAction = true)
             playbackGate?.play()
+        }
+    }
+
+    private fun selectAdjacentPlayback(offset: Int) {
+        val castManager = remoteCastManager
+        val cast = castManager?.state?.value
+        if (castManager == null || cast?.hasActiveSession != true) {
+            if (offset < 0) playbackGate?.selectPrevious() else playbackGate?.selectNext()
+            return
+        }
+        val targetIndex = activeState.currentIndex + offset
+        val item = playbackItems.value.getOrNull(targetIndex) ?: return
+        val deviceId = cast.activeDeviceId ?: return
+        val mediaUrl = item.transcodeUrl.ifBlank { item.url }
+        lifecycleScope.launch {
+            if (castManager.play(deviceId, mediaUrl, item.title, 0L)) {
+                activeEngine?.selectItem(targetIndex)
+                activeEngine?.pause()
+            }
         }
     }
 
@@ -1147,7 +1224,8 @@ private fun PlayerRoot(
     initialEngine: PlayerEngine,
     decoderMode: DecoderMode,
     autoNext: Boolean,
-    quality: PlaybackQuality,
+    initialQuality: PlaybackQuality,
+    onQualityChanged: (PlaybackQuality) -> Unit,
     inPictureInPicture: Boolean,
     playbackSink: PlaybackEventSink?,
     danmakuPreferences: DanmakuPreferences,
@@ -1195,6 +1273,12 @@ private fun PlayerRoot(
     // every handover so the switch is seamless.
     var resume by remember { mutableStateOf(startIndex to startPositionMs) }
     var engineGeneration by remember { mutableIntStateOf(0) }
+    var selectedQuality by remember(initialQuality) { mutableStateOf(initialQuality) }
+    var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
+    var handoverItemId by remember { mutableStateOf<String?>(null) }
+    var audioRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
+    var subtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
+    var restoreSubtitlesOff by remember { mutableStateOf(false) }
     var scaleMode by remember { mutableStateOf(VideoScaleMode.Fit) }
     var subtitleControls by remember { mutableStateOf(SubtitleControlState()) }
     var pendingSubtitleLanguage by remember { mutableStateOf<String?>(null) }
@@ -1205,14 +1289,15 @@ private fun PlayerRoot(
     var versionChoices by remember {
         mutableStateOf(emptyMap<String, PlayerMediaVersion>())
     }
-    val activeItems = remember(items, versionChoices) {
-        if (versionChoices.isEmpty()) {
+    val activeItems = remember(items, versionChoices, selectedQuality) {
+        val versionedItems = if (versionChoices.isEmpty()) {
             items
         } else {
             items.map { item ->
                 versionChoices[item.id]?.let(item::withVersion) ?: item
             }
         }
+        versionedItems.map { it.withPlaybackQuality(selectedQuality) }
     }
 
     // A refreshed queue is applied as one deliberate engine handover. Keeping activeItems out
@@ -1231,7 +1316,7 @@ private fun PlayerRoot(
                 startPositionMs = resume.second,
                 decoderMode = decoderMode,
                 autoNext = autoNext,
-                quality = quality,
+                quality = selectedQuality,
                 customUserAgent = customUserAgent,
                 scope = scope,
                 stopEncoding = { sessionId ->
@@ -1245,7 +1330,7 @@ private fun PlayerRoot(
                 startPositionMs = resume.second,
                 decoderMode = decoderMode,
                 autoNext = autoNext,
-                quality = quality,
+                quality = selectedQuality,
                 customUserAgent = customUserAgent,
                 scope = scope,
                 stopEncoding = { sessionId ->
@@ -1260,7 +1345,7 @@ private fun PlayerRoot(
                 scope = scope,
                 decoderMode = decoderMode,
                 autoNext = autoNext,
-                quality = quality,
+                quality = selectedQuality,
                 customUserAgent = customUserAgent,
                 videoCacheBytes = videoCacheBytes,
                 stopEncoding = { sessionId ->
@@ -1296,7 +1381,40 @@ private fun PlayerRoot(
         }
     }
 
-    val state by engine.state.collectAsState()
+    val localState by engine.state.collectAsState()
+    val castManager = remember { GlobalContext.get().get<CastManager>() }
+    val castState by castManager.state.collectAsState()
+    var completedCastHandoffRevision by remember { mutableStateOf<Long?>(null) }
+    val pendingUnexpectedHandoff = castState.termination == CastTermination.Unexpected &&
+        completedCastHandoffRevision != castState.sessionRevision
+    val castAuthoritative = castState.hasActiveSession || pendingUnexpectedHandoff
+    val localCastItem = activeItems.getOrNull(localState.currentIndex)
+    val castPlayMethod = if (localCastItem?.transcodeUrl?.isNotBlank() == true) {
+        PlaybackMethod.Transcode.label
+    } else {
+        localCastItem?.playMethod?.label ?: PlaybackMethod.DirectPlay.label
+    }
+    val state = if (castAuthoritative) {
+        localState.withRemoteCast(castState, castPlayMethod)
+    } else {
+        localState
+    }
+
+    LaunchedEffect(castState.sessionRevision, castState.termination) {
+        val decision = castRecoveryDecision(
+            state = castState,
+            fallbackPositionMs = localState.positionMs,
+        ) ?: return@LaunchedEffect
+        if (completedCastHandoffRevision == castState.sessionRevision) return@LaunchedEffect
+        engine.seekTo(decision.positionMs)
+        if (decision.resumePlayback) engine.play() else engine.pause()
+        completedCastHandoffRevision = castState.sessionRevision
+        Toast.makeText(
+            context,
+            "投屏连接已断开，已回到本机 ${decision.positionMs / 1000} 秒",
+            Toast.LENGTH_LONG,
+        ).show()
+    }
     // The same guard, for the cases the initial choice cannot cover: a queue that moves
     // into a Dolby-only episode, or someone picking libmpv by hand while one is playing.
     // The server's transcode is the only thing left that will put a correct picture up.
@@ -1309,7 +1427,7 @@ private fun PlayerRoot(
         // The engine says whether it had anywhere to fall back to. When it did not, the
         // picture is going to be wrong and the log is the only place that will say why —
         // so it must not claim a switch that never happened.
-        val switched = engine.switchToTranscode()
+        val switched = engine.switchToTranscode("当前内核无法正确输出此 Dolby Vision 配置")
         AppLog.warning(
             category = "player",
             event = if (switched) "dolby_requires_transcode" else "dolby_undecodable",
@@ -1502,13 +1620,31 @@ private fun PlayerRoot(
         if (state.audioTracks.isEmpty() && state.subtitleTracks.isEmpty()) return@LaunchedEffect
         val requested = trackRequest.consume(currentItem?.id) ?: return@LaunchedEffect
         requested.audioLanguage?.let { language ->
-            state.audioTracks.matchingLanguage(language)?.let(engine::selectAudioTrack)
+            state.audioTracks.matchingLanguage(language)?.let { trackId ->
+                state.audioTracks.firstOrNull { it.id == trackId }?.let { track ->
+                    handoverItemId = currentItem?.id
+                    audioRestore = track.toRestorePreference()
+                }
+                engine.selectAudioTrack(trackId)
+            }
         }
         when (val subtitle = requested.subtitleLanguage) {
             null -> Unit
-            PlaybackTrackRequest.SUBTITLES_OFF -> engine.selectSubtitleTrack(EngineTrack.OFF)
+            PlaybackTrackRequest.SUBTITLES_OFF -> {
+                handoverItemId = currentItem?.id
+                subtitleRestore = null
+                restoreSubtitlesOff = true
+                engine.selectSubtitleTrack(EngineTrack.OFF)
+            }
             else -> state.subtitleTracks.matchingLanguage(subtitle)
-                ?.let(engine::selectSubtitleTrack)
+                ?.let { trackId ->
+                    state.subtitleTracks.firstOrNull { it.id == trackId }?.let { track ->
+                        handoverItemId = currentItem?.id
+                        subtitleRestore = track.toRestorePreference()
+                        restoreSubtitlesOff = false
+                    }
+                    engine.selectSubtitleTrack(trackId)
+                }
         }
     }
 
@@ -1769,7 +1905,16 @@ private fun PlayerRoot(
     // what keeps 倍速 shared: a guest's own speed change from the settings menu gets
     // quietly overwritten back to the room's rate within one tick instead of needing a
     // separate lock on that control.
-    LaunchedEffect(watchState.connected, watchState.reconnecting, watchState.isHost) {
+    LaunchedEffect(
+        watchState.connected,
+        watchState.reconnecting,
+        watchState.isHost,
+        castAuthoritative,
+    ) {
+        if (castAuthoritative) {
+            mediaMatcher.reset()
+            return@LaunchedEffect
+        }
         if (!watchState.connected || watchState.isHost) {
             mediaMatcher.reset()
             if (watchState.connected) watchTogether.updateSyncDrift(0L)
@@ -1906,6 +2051,26 @@ private fun PlayerRoot(
     }
     val latestState by rememberUpdatedState(state)
     val latestActiveItems by rememberUpdatedState(activeItems)
+
+    fun capturePlaybackHandover() {
+        val snapshot = latestState
+        val itemId = latestActiveItems.getOrNull(snapshot.currentIndex)?.id ?: return
+        val sameItem = handoverItemId == itemId
+        handoverItemId = itemId
+        if (snapshot.audioTracks.isNotEmpty()) {
+            audioRestore = snapshot.audioTracks.firstOrNull { it.selected }?.toRestorePreference()
+        } else if (!sameItem) {
+            audioRestore = null
+        }
+        if (snapshot.subtitleTracks.isNotEmpty()) {
+            val selectedSubtitle = snapshot.subtitleTracks.firstOrNull { it.selected }
+            subtitleRestore = selectedSubtitle?.toRestorePreference()
+            restoreSubtitlesOff = selectedSubtitle == null
+        } else if (!sameItem) {
+            subtitleRestore = null
+            restoreSubtitlesOff = false
+        }
+    }
     // One actor owns the entire reporting lifetime. Rebinding it serializes a version switch as
     // stop-old → start-new, while a tail append only extends its queue and leaves the current
     // encoding alone. Recreating two independent reporters cannot guarantee either property.
@@ -2054,6 +2219,7 @@ private fun PlayerRoot(
 
                 // Read the position only after cleanup succeeds. Until this point the old
                 // engine remains attached, so a rejected/timeout cleanup is non-destructive.
+                capturePlaybackHandover()
                 engine.pause()
                 resume = itemIndex to engine.currentPositionMs()
                 versionsTried = updatedVersionAttempts(
@@ -2075,6 +2241,7 @@ private fun PlayerRoot(
     fun switchEngine(target: PlayerEngine) {
         if (target == kind) return
         // Read the position before the old engine is torn down.
+        capturePlaybackHandover()
         engine.pause()
         val positionMs = engine.currentPositionMs()
         AppLog.info(
@@ -2090,6 +2257,43 @@ private fun PlayerRoot(
         )
         resume = state.currentIndex to positionMs
         kind = target
+    }
+
+    fun selectQuality(target: PlaybackQuality) {
+        if (target == selectedQuality) return
+        capturePlaybackHandover()
+        engine.pause()
+        resume = state.currentIndex to engine.currentPositionMs()
+        selectedQuality = target
+        onQualityChanged(target)
+        engineGeneration++
+    }
+
+    LaunchedEffect(engine, requestedPlaybackSpeed) {
+        if (state.speed != requestedPlaybackSpeed) engine.setSpeed(requestedPlaybackSpeed)
+    }
+    LaunchedEffect(engine, currentItem?.id, state.audioTracks, audioRestore) {
+        if (currentItem?.id != handoverItemId) return@LaunchedEffect
+        val target = audioRestore?.let(state.audioTracks::bestRestoreMatch) ?: return@LaunchedEffect
+        if (!target.selected) engine.selectAudioTrack(target.id)
+    }
+    LaunchedEffect(
+        engine,
+        currentItem?.id,
+        state.subtitleTracks,
+        subtitleRestore,
+        restoreSubtitlesOff,
+    ) {
+        if (currentItem?.id != handoverItemId || state.subtitleTracks.isEmpty()) {
+            return@LaunchedEffect
+        }
+        if (restoreSubtitlesOff) {
+            if (state.subtitleTracks.any { it.selected }) engine.selectSubtitleTrack(EngineTrack.OFF)
+            return@LaunchedEffect
+        }
+        val target = subtitleRestore?.let(state.subtitleTracks::bestRestoreMatch)
+            ?: return@LaunchedEffect
+        if (!target.selected) engine.selectSubtitleTrack(target.id)
     }
 
     LaunchedEffect(engine, kind, subtitleControls.offsetMs) {
@@ -2163,8 +2367,48 @@ private fun PlayerRoot(
     }
     val (volume, setVolume) = rememberSystemVolume()
     val (brightness, setBrightness) = rememberWindowBrightness()
-    val castManager = remember { GlobalContext.get().get<CastManager>() }
-    val castState by castManager.state.collectAsState()
+
+    suspend fun loadCastItem(
+        deviceId: String,
+        index: Int,
+        positionMs: Long,
+    ): Boolean {
+        val item = latestActiveItems.getOrNull(index) ?: return false
+        // Receiver compatibility is explicit: prefer Emby's H.264/AAC stream and only use
+        // the original when the server did not provide one. CastManager validates before it
+        // touches the current receiver session, so a bad next URL cannot evict this item.
+        val castUrl = item.transcodeUrl.ifBlank { item.url }
+        val loaded = castManager.play(
+            deviceId = deviceId,
+            mediaUrl = castUrl,
+            title = item.title,
+            positionMs = positionMs,
+        )
+        if (!loaded) return false
+        if (localState.currentIndex != index) engine.selectItem(index)
+        engine.pause()
+        return true
+    }
+
+    var autoAdvancedCastRevision by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(
+        castState.status,
+        castState.sessionRevision,
+        localState.currentIndex,
+        autoNext,
+    ) {
+        if (
+            !autoNext || castState.status != CastPlaybackStatus.Ended ||
+            autoAdvancedCastRevision == castState.sessionRevision
+        ) {
+            return@LaunchedEffect
+        }
+        val deviceId = castState.activeDeviceId ?: return@LaunchedEffect
+        val next = localState.currentIndex + 1
+        if (next !in activeItems.indices) return@LaunchedEffect
+        autoAdvancedCastRevision = castState.sessionRevision
+        loadCastItem(deviceId, next, 0L)
+    }
 
     Box(
         Modifier
@@ -2213,20 +2457,96 @@ private fun PlayerRoot(
                 filled = scaleMode != VideoScaleMode.Fit,
                 onBack = onBack,
                 onEnterPictureInPicture = onEnterPictureInPicture,
-                onPlayPause = { playbackGate.togglePlayPause() },
-                onRetry = { playbackGate.retry() },
-                onSeek = playbackGate::seekTo,
-                onSelectItem = playbackGate::selectItem,
-                onPreviousItem = playbackGate::selectPrevious,
-                onNextItem = playbackGate::selectNext,
+                onPlayPause = {
+                    if (castState.hasActiveSession) {
+                        scope.launch {
+                            if (
+                                castState.status == CastPlaybackStatus.Playing ||
+                                castState.status == CastPlaybackStatus.Buffering ||
+                                (
+                                    castState.status == CastPlaybackStatus.Error &&
+                                        castState.lastRemoteWasPlaying
+                                    )
+                            ) {
+                                castManager.pause()
+                            } else {
+                                castManager.resume()
+                            }
+                        }
+                    } else {
+                        playbackGate.togglePlayPause()
+                    }
+                },
+                onRetry = {
+                    val deviceId = castState.activeDeviceId
+                    if (castState.hasActiveSession && deviceId != null) {
+                        scope.launch { loadCastItem(deviceId, state.currentIndex, state.positionMs) }
+                    } else {
+                        playbackGate.retry()
+                    }
+                },
+                onSeek = { positionMs ->
+                    if (castState.hasActiveSession) {
+                        scope.launch { castManager.seekTo(positionMs) }
+                    } else {
+                        playbackGate.seekTo(positionMs)
+                    }
+                },
+                onSelectItem = { index ->
+                    val deviceId = castState.activeDeviceId
+                    if (castState.hasActiveSession && deviceId != null) {
+                        scope.launch { loadCastItem(deviceId, index, 0L) }
+                    } else {
+                        playbackGate.selectItem(index)
+                    }
+                },
+                onPreviousItem = {
+                    val previous = state.currentIndex - 1
+                    val deviceId = castState.activeDeviceId
+                    if (castState.hasActiveSession && deviceId != null && previous in activeItems.indices) {
+                        scope.launch { loadCastItem(deviceId, previous, 0L) }
+                        true
+                    } else {
+                        playbackGate.selectPrevious()
+                    }
+                },
+                onNextItem = {
+                    val next = state.currentIndex + 1
+                    val deviceId = castState.activeDeviceId
+                    if (castState.hasActiveSession && deviceId != null && next in activeItems.indices) {
+                        scope.launch { loadCastItem(deviceId, next, 0L) }
+                        true
+                    } else {
+                        playbackGate.selectNext()
+                    }
+                },
                 onRefreshEpisodes = onRefreshEpisodes,
-                onSelectAudio = engine::selectAudioTrack,
+                onSelectAudio = { id ->
+                    state.audioTracks.firstOrNull { it.id == id }?.let { track ->
+                        handoverItemId = currentItem?.id
+                        audioRestore = track.toRestorePreference()
+                    }
+                    engine.selectAudioTrack(id)
+                },
                 onSelectSubtitle = { id ->
                     val track = state.subtitleTracks.firstOrNull { it.id == id }
-                    if (track?.requiresStyledRenderer == true && kind != PlayerEngine.Mpv) {
+                    if (id == EngineTrack.OFF) {
+                        handoverItemId = currentItem?.id
+                        subtitleRestore = null
+                        restoreSubtitlesOff = true
+                        engine.selectSubtitleTrack(id)
+                    } else if (track?.requiresStyledRenderer == true && kind != PlayerEngine.Mpv) {
                         pendingSubtitleLanguage = track.language ?: track.label
                         switchEngine(PlayerEngine.Mpv)
+                        handoverItemId = currentItem?.id
+                        subtitleRestore = track.toRestorePreference()
+                        restoreSubtitlesOff = false
                     } else {
+                        track?.let {
+                            handoverItemId = currentItem?.id
+                            subtitleRestore = it.toRestorePreference()
+                            restoreSubtitlesOff = false
+                        }
                         engine.selectSubtitleTrack(id)
                     }
                 },
@@ -2237,7 +2557,10 @@ private fun PlayerRoot(
                 ),
                 remoteSubtitles = remoteSubtitles,
                 remoteSubtitleActions = remoteSubtitleActions,
-                onSpeed = { newSpeed -> playbackGate.setSpeed(newSpeed) },
+                onSpeed = { newSpeed ->
+                    requestedPlaybackSpeed = newSpeed
+                    playbackGate.setSpeed(newSpeed)
+                },
                 onToggleFill = {
                     scaleMode = scaleMode.next()
                     (engine as? MpvVideoEngine)?.setScaleMode(scaleMode)
@@ -2245,40 +2568,76 @@ private fun PlayerRoot(
                     Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
                 },
                 trickplay = currentItem?.trickplay,
-                volume = volume,
-                onVolume = { setVolume(it) },
+                volume = castState.volume?.takeIf { castState.hasActiveSession } ?: volume,
+                onVolume = { requestedVolume ->
+                    if (castState.hasActiveSession) {
+                        scope.launch { castManager.setVolume(requestedVolume) }
+                    } else {
+                        setVolume(requestedVolume)
+                    }
+                },
                 volumeKeyPresses = volumeKeyPresses.collectAsState().value,
                 brightness = brightness,
                 onBrightness = { setBrightness(it) },
                 engineOptions = PlayerEngine.selectable.map { it.label to (it == kind) },
                 onSelectEngine = { index -> switchEngine(PlayerEngine.selectable[index]) },
+                qualityOptions = PlaybackQuality.entries.map { it.label to (it == selectedQuality) },
+                onSelectQuality = { index ->
+                    PlaybackQuality.entries.getOrNull(index)?.let(::selectQuality)
+                },
                 // Manual escape hatch when the picture is black but audio plays. Offered on
                 // every engine now — it used to be ExoPlayer-only, which left the native
                 // engines with no way out of a file the device can't decode.
                 transcodeLabel = "转码播放",
                 transcodeActive = state.transcoding,
-                onTranscode = { engine.switchToTranscode() },
+                onTranscode = {
+                    if (!state.transcoding) {
+                        engine.switchToTranscode("用户手动选择服务器转码")
+                    }
+                },
                 castDevices = castState.devices.map { it.id to it.name },
                 castingDeviceId = castState.activeDeviceId,
                 castDiscovering = castState.discovering,
                 castError = castState.error,
+                castStatus = castState.activeDevice?.let {
+                    "${it.name} · ${castState.status.label}"
+                },
+                castPosition = castState.activeDevice?.let {
+                    if (!castState.positionConfirmed) {
+                        "等待接收端确认"
+                    } else buildString {
+                        append(formatDlnaTime(castState.positionMs))
+                        if (castState.durationMs > 0L) {
+                            append(" / ")
+                            append(formatDlnaTime(castState.durationMs))
+                        }
+                    }
+                },
+                castCapabilities = castState.activeDevice?.let {
+                    val capabilities = castState.capabilities
+                    "播放 ${capabilities.playPause.label} · " +
+                        "跳转 ${capabilities.seek.label} · " +
+                        "音量 ${capabilities.volume.label}"
+                },
                 onDiscoverCast = { scope.launch { castManager.discover() } },
                 onCastTo = { deviceId ->
                     val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls
                     scope.launch {
-                        // Cast receivers reliably support H.264/AAC HLS; an original MKV,
-                        // ASS/PGS subtitle, or lossless audio track is far less portable.
-                        val castUrl = item.transcodeUrl.ifBlank { item.url }
-                        castManager.play(deviceId, castUrl, item.title)
-                        if (castManager.state.value.activeDeviceId == deviceId) {
-                            playbackGate.pause()
-                        }
+                        loadCastItem(deviceId, state.currentIndex, state.positionMs)
                     }
                 },
                 onStopCast = {
                     scope.launch {
-                        castManager.stop()
-                        playbackGate.play()
+                        val handoffPosition = if (castState.positionConfirmed) {
+                            castState.positionMs
+                        } else {
+                            localState.positionMs
+                        }
+                        val resumeLocally = castState.lastRemoteWasPlaying
+                        if (castManager.stop()) {
+                            engine.seekTo(handoffPosition)
+                            if (resumeLocally) engine.play() else engine.pause()
+                        }
                     }
                 },
                 danmaku = DanmakuPanelState(
@@ -2318,8 +2677,8 @@ private fun PlayerRoot(
                     ?.takeIf { serverNames.size > 1 }
                     ?.let(serverNames::get),
                 containerLabel = currentItem?.activeVersion?.container,
-                dolbyVision = currentItem?.activeVersion?.dolbyVision == true,
-                dolbyAtmos = currentItem?.activeVersion?.dolbyAtmos == true,
+                dolbyVision = !state.transcoding && currentItem?.activeVersion?.dolbyVision == true,
+                dolbyAtmos = !state.transcoding && currentItem?.activeVersion?.dolbyAtmos == true,
                 versions = currentItem?.versions.orEmpty().map { version ->
                     version.id to listOfNotNull(
                         version.label,

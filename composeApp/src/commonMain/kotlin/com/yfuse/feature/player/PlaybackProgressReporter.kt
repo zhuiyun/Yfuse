@@ -1,8 +1,12 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.PlaybackEventOutbox
+import com.yfuse.core.data.PlaybackOutboxEventKind
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
@@ -55,15 +59,15 @@ internal class EmbyPlaybackEventSink(
     private val server: SavedServer,
 ) : PlaybackEventSink {
     override suspend fun started(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean) {
-        repo.reportPlaybackStarted(server, itemId, sessionId, positionTicks, isPaused)
+        repo.reportPlaybackStarted(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
     }
 
     override suspend fun progress(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean) {
-        repo.reportPlaybackProgress(server, itemId, sessionId, positionTicks, isPaused)
+        repo.reportPlaybackProgress(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
     }
 
     override suspend fun stopped(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean) {
-        repo.reportPlaybackStopped(server, itemId, sessionId, positionTicks, isPaused)
+        repo.reportPlaybackStopped(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
         // Belt and braces. `Playing/Stopped` is the polite request; some server versions
         // leave the ffmpeg process running anyway, and an orphaned encoding is what makes
         // the *next* attempt at the same file fail with a 4xx instead of playing.
@@ -77,7 +81,14 @@ internal class EmbyPlaybackEventSink(
         isPaused: Boolean,
         playMethod: String,
     ) {
-        repo.reportPlaybackStarted(server, itemId, sessionId, positionTicks, isPaused, playMethod)
+        repo.reportPlaybackStarted(
+            server,
+            itemId,
+            sessionId,
+            positionTicks,
+            isPaused,
+            playMethod,
+        ).getOrThrow()
     }
 
     override suspend fun progressWithMethod(
@@ -87,7 +98,14 @@ internal class EmbyPlaybackEventSink(
         isPaused: Boolean,
         playMethod: String,
     ) {
-        repo.reportPlaybackProgress(server, itemId, sessionId, positionTicks, isPaused, playMethod)
+        repo.reportPlaybackProgress(
+            server,
+            itemId,
+            sessionId,
+            positionTicks,
+            isPaused,
+            playMethod,
+        ).getOrThrow()
     }
 
     override suspend fun stoppedWithMethod(
@@ -97,12 +115,152 @@ internal class EmbyPlaybackEventSink(
         isPaused: Boolean,
         playMethod: String,
     ) {
-        repo.reportPlaybackStopped(server, itemId, sessionId, positionTicks, isPaused, playMethod)
+        repo.reportPlaybackStopped(
+            server,
+            itemId,
+            sessionId,
+            positionTicks,
+            isPaused,
+            playMethod,
+        ).getOrThrow()
         stopEncoding(sessionId)
     }
 
     override suspend fun stopEncoding(sessionId: String): Boolean =
         repo.stopTranscoding(server, sessionId).isSuccess
+}
+
+/**
+ * Persists before returning to the reporter actor. Network delivery happens on the coordinator's
+ * application scope, so a failed request cannot terminate the actor or discard a later stop.
+ */
+internal class ReliablePlaybackEventSink(
+    private val serverId: String,
+    private val outbox: PlaybackEventOutbox,
+    private val directSink: PlaybackEventSink,
+    private val wakeDelivery: (String) -> Unit,
+) : PlaybackEventSink {
+    override suspend fun started(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ) = submit(
+        PlaybackOutboxEventKind.Started,
+        itemId,
+        sessionId,
+        positionTicks,
+        isPaused,
+        "DirectPlay",
+    )
+
+    override suspend fun progress(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ) = submit(
+        PlaybackOutboxEventKind.Progress,
+        itemId,
+        sessionId,
+        positionTicks,
+        isPaused,
+        "DirectPlay",
+    )
+
+    override suspend fun stopped(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ) = submit(
+        PlaybackOutboxEventKind.Stopped,
+        itemId,
+        sessionId,
+        positionTicks,
+        isPaused,
+        "DirectPlay",
+    )
+
+    override suspend fun startedWithMethod(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+        playMethod: String,
+    ) = submit(
+        PlaybackOutboxEventKind.Started,
+        itemId,
+        sessionId,
+        positionTicks,
+        isPaused,
+        playMethod,
+    )
+
+    override suspend fun progressWithMethod(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+        playMethod: String,
+    ) = submit(
+        PlaybackOutboxEventKind.Progress,
+        itemId,
+        sessionId,
+        positionTicks,
+        isPaused,
+        playMethod,
+    )
+
+    override suspend fun stoppedWithMethod(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+        playMethod: String,
+    ) = submit(
+        PlaybackOutboxEventKind.Stopped,
+        itemId,
+        sessionId,
+        positionTicks,
+        isPaused,
+        playMethod,
+    )
+
+    override suspend fun stopEncoding(sessionId: String): Boolean =
+        directSink.stopEncoding(sessionId)
+
+    private fun submit(
+        kind: PlaybackOutboxEventKind,
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+        playMethod: String,
+    ) {
+        val accepted = outbox.enqueue(
+            kind = kind,
+            serverId = serverId,
+            itemId = itemId,
+            sessionId = sessionId,
+            positionTicks = positionTicks,
+            isPaused = isPaused,
+            playMethod = playMethod,
+        )
+        if (accepted == null) {
+            AppLog.error(
+                category = "playback.outbox",
+                event = "event_rejected",
+                message = "Playback report could not be queued",
+                attributes = mapOf(
+                    "serverId" to serverId,
+                    "kind" to kind.name,
+                ),
+            )
+            return
+        }
+        wakeDelivery(serverId)
+    }
 }
 
 /**
@@ -156,17 +314,41 @@ internal class PlaybackProgressReporter(
                     val command = synchronized(commandLock) {
                         pendingCommands.removeFirstOrNull()
                     } ?: break
-                    when (command) {
-                        is Command.Update -> handleUpdate(command.state)
-                        is Command.Rebind -> handleRebind(command.items, command.state)
-                        is Command.Close -> {
-                            if (activeIndex >= 0 || !command.state.ended) {
-                                handleUpdate(command.state)
+                    val closeAfterCommand = command is Command.Close
+                    try {
+                        when (command) {
+                            is Command.Update -> handleUpdate(command.state)
+                            is Command.Rebind -> handleRebind(command.items, command.state)
+                            is Command.Close -> try {
+                                if (activeIndex >= 0 || !command.state.ended) {
+                                    handleUpdate(command.state)
+                                }
+                            } finally {
+                                // Even a throwing sink must not prevent the terminal report from
+                                // being attempted or leave the actor's active binding uncleared.
+                                stopActive()
                             }
-                            stopActive()
-                            commandWakeups.close()
-                            return@launch
                         }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        AppLog.error(
+                            category = "playback.reporting",
+                            event = "command_failed",
+                            message = "Playback reporting command failed; actor will continue",
+                            throwable = error,
+                            attributes = mapOf(
+                                "command" to when (command) {
+                                    is Command.Update -> "update"
+                                    is Command.Rebind -> "rebind"
+                                    is Command.Close -> "close"
+                                },
+                            ),
+                        )
+                    }
+                    if (closeAfterCommand) {
+                        commandWakeups.close()
+                        return@launch
                     }
                 }
             }

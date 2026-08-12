@@ -19,11 +19,20 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 
+enum class LibraryContentSource {
+    None,
+    Cached,
+    Live,
+}
+
 data class LibraryState(
     val servers: List<SavedServer> = emptyList(),
     val currentServer: SavedServer? = null,
     val loading: Boolean = false,
     val content: HomeContent = HomeContent(),
+    val contentSource: LibraryContentSource = LibraryContentSource.None,
+    /** Timestamp of the live response that produced [content]; null for pre-v2 cache entries. */
+    val updatedAtEpochMs: Long? = null,
     val error: String? = null,
 )
 
@@ -44,7 +53,8 @@ private sealed interface Action {
 private sealed interface Msg {
     data class Data(val servers: List<SavedServer>, val current: SavedServer?) : Msg
     data object Loading : Msg
-    data class Loaded(val content: HomeContent) : Msg
+    data class Cached(val content: HomeContent, val updatedAtEpochMs: Long?) : Msg
+    data class Loaded(val content: HomeContent, val updatedAtEpochMs: Long) : Msg
     data class FavoriteChanged(val itemId: String, val favorite: Boolean) : Msg
     data class Failed(val message: String) : Msg
 }
@@ -69,6 +79,7 @@ class LibraryStoreFactory(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     private val cache: LibraryCache,
+    private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ) {
     fun create(): Store<LibraryIntent, LibraryState, Nothing> =
         storeFactory.create(
@@ -105,7 +116,9 @@ class LibraryStoreFactory(
                         // rotation keeps newer in-memory state, so an older disk snapshot
                         // must not overwrite it while the authenticated refresh is pending.
                         if (state().content.isEmpty) {
-                            cache.read(server.id)?.let { dispatch(Msg.Loaded(it)) }
+                            cache.readSnapshot(server.id)?.let { snapshot ->
+                                dispatch(Msg.Cached(snapshot.content, snapshot.updatedAtEpochMs))
+                            }
                         }
                         load(server)
                     }
@@ -147,8 +160,9 @@ class LibraryStoreFactory(
                     repo.homeContent(server)
                         .onSuccess { content ->
                             if (!ownsLoad(generation, connection)) return@onSuccess
-                            cache.write(server.id, content)
-                            dispatch(Msg.Loaded(content))
+                            val updatedAtEpochMs = nowEpochMs().coerceAtLeast(0L)
+                            cache.write(server.id, content, updatedAtEpochMs)
+                            dispatch(Msg.Loaded(content, updatedAtEpochMs))
                         }
                         .onFailure { error ->
                             if (!ownsLoad(generation, connection)) return@onFailure
@@ -189,11 +203,29 @@ class LibraryStoreFactory(
                     currentServer = msg.current,
                     loading = if (resetTransientState) false else loading,
                     content = if (resetTransientState) HomeContent() else content,
+                    contentSource = if (resetTransientState) {
+                        LibraryContentSource.None
+                    } else {
+                        contentSource
+                    },
+                    updatedAtEpochMs = if (resetTransientState) null else updatedAtEpochMs,
                     error = if (resetTransientState) null else error,
                 )
             }
             Msg.Loading -> copy(loading = true, error = null)
-            is Msg.Loaded -> copy(loading = false, content = msg.content, error = null)
+            is Msg.Cached -> copy(
+                content = msg.content,
+                contentSource = LibraryContentSource.Cached,
+                updatedAtEpochMs = msg.updatedAtEpochMs,
+                error = null,
+            )
+            is Msg.Loaded -> copy(
+                loading = false,
+                content = msg.content,
+                contentSource = LibraryContentSource.Live,
+                updatedAtEpochMs = msg.updatedAtEpochMs,
+                error = null,
+            )
             is Msg.FavoriteChanged -> copy(
                 content = content.copy(
                     featured = content.featured.map {
@@ -215,7 +247,15 @@ class LibraryStoreFactory(
                     },
                 ),
             )
-            is Msg.Failed -> copy(loading = false, error = msg.message)
+            is Msg.Failed -> copy(
+                loading = false,
+                contentSource = if (content.isEmpty) {
+                    LibraryContentSource.None
+                } else {
+                    LibraryContentSource.Cached
+                },
+                error = msg.message,
+            )
         }
     }
 }

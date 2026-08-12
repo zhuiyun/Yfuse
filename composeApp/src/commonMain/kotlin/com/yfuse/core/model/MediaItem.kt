@@ -33,6 +33,32 @@ data class MediaItem(
     /** User-specific Emby state returned through UserData. */
     val isFavorite: Boolean = false,
     val played: Boolean = false,
+    /**
+     * Membership id returned by `/Playlists/{id}/Items`.
+     *
+     * Emby removes a playlist row by this id rather than by the media [id]. Keeping it on
+     * the row also lets two intentional occurrences of the same title remain distinct.
+     */
+    val playlistItemId: String? = null,
+)
+
+/** The two server-owned organization containers surfaced by the library home screen. */
+@Serializable
+enum class MediaContainerKind {
+    BoxSet,
+    Playlist,
+}
+
+/** A real Emby BoxSet or Playlist. No synthetic local collection is represented here. */
+@Serializable
+data class MediaContainer(
+    val id: String,
+    val title: String,
+    val kind: MediaContainerKind,
+    /** Pins navigation and writes to the server from which this container was read. */
+    val serverId: String,
+    val posterTag: String? = null,
+    val itemCount: Int? = null,
 )
 
 /** One horizontal row on the home screen (e.g. "电影-国产电影 · 最新"). */
@@ -75,6 +101,13 @@ data class LibraryPage(
     val startIndex: Int = 0,
 )
 
+/** A page of BoxSet or Playlist containers, used by the container directory grid. */
+data class MediaContainerPage(
+    val containers: List<MediaContainer> = emptyList(),
+    val totalCount: Int = 0,
+    val startIndex: Int = 0,
+)
+
 /** Exact server-wide title counts; null on [HomeContent] means the count request failed. */
 @Serializable
 data class LibraryCounts(
@@ -89,6 +122,12 @@ data class HomeContent(
     val resume: List<MediaItem> = emptyList(),
     val rows: List<HomeRow> = emptyList(),
     val counts: LibraryCounts? = null,
+    /** Defaults preserve pre-collections cache payloads. */
+    val collections: List<MediaContainer> = emptyList(),
+    /** Defaults preserve pre-playlists cache payloads. */
+    val playlists: List<MediaContainer> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = featured.isEmpty() && resume.isEmpty() && rows.isEmpty()
+    val isEmpty: Boolean get() =
+        featured.isEmpty() && resume.isEmpty() && rows.isEmpty() &&
+            collections.isEmpty() && playlists.isEmpty()
 }

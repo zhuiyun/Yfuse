@@ -73,9 +73,16 @@ class ProfileComponent(
         libraryCache.clear(id)
     }
 
-    fun exportServers(): String = registry.exportBackup()
+    fun exportServers(
+        passphrase: CharArray,
+        createdAtEpochSeconds: Long,
+    ): Result<String> = registry.exportProtectedBackup(passphrase, createdAtEpochSeconds)
 
-    fun importServers(payload: String): Result<Int> = registry.importBackup(payload)
+    fun importServers(
+        payload: String,
+        passphrase: CharArray,
+        nowEpochSeconds: Long,
+    ): Result<Int> = registry.importProtectedBackup(payload, passphrase, nowEpochSeconds)
 
     fun recoveryItem(snapshot: PlaybackRecoverySnapshot): PlayerMediaItem? {
         val server = snapshot.serverId?.let(registry::serverById) ?: registry.defaultServer

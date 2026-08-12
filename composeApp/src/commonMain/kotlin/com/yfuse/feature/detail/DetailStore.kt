@@ -14,6 +14,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
@@ -80,6 +81,11 @@ data class DetailState(
     val error: String? = null,
     val actionMessage: String? = null,
     val sourceFailure: SourceSelectionFailure? = null,
+    val organizationContainers: List<MediaContainer> = emptyList(),
+    val organizationLoading: Boolean = false,
+    val organizationError: String? = null,
+    val addingContainerIds: Set<String> = emptySet(),
+    val addedContainerIds: Set<String> = emptySet(),
 )
 
 sealed interface DetailIntent {
@@ -91,6 +97,8 @@ sealed interface DetailIntent {
     data object ToggleFavorite : DetailIntent
     data object TogglePlayed : DetailIntent
     data object AddToWatchLater : DetailIntent
+    data object LoadOrganizationContainers : DetailIntent
+    data class AddToOrganizationContainer(val containerId: String) : DetailIntent
     /** 从头播放 — the same target as [Play], with the stored progress ignored. */
     data object PlayFromStart : DetailIntent
     data class SelectSource(val serverId: String, val itemId: String) : DetailIntent
@@ -108,6 +116,15 @@ sealed interface DetailIntent {
         val itemId: String?,
         val versionId: String?,
     ) : DetailIntent
+}
+
+private fun Throwable.toOrganizationMessage(fallback: String): String {
+    val denied = (this as? EmbyErrorException)?.error as? EmbyError.AccessDenied
+    return if (denied != null && denied.provider == null) {
+        "当前账号没有权限使用此合集或播放列表"
+    } else {
+        toUserMessage(fallback)
+    }
 }
 
 sealed interface DetailLabel {
@@ -180,6 +197,12 @@ private sealed interface DetailMsg {
     ) : DetailMsg
     data class AudioLanguageSelected(val language: String?) : DetailMsg
     data class SubtitleLanguageSelected(val language: String?) : DetailMsg
+    data object OrganizationLoading : DetailMsg
+    data class OrganizationLoaded(val containers: List<MediaContainer>) : DetailMsg
+    data class OrganizationLoadFailed(val message: String) : DetailMsg
+    data class OrganizationAdding(val containerId: String) : DetailMsg
+    data class OrganizationAdded(val containerId: String) : DetailMsg
+    data class OrganizationAddFailed(val containerId: String, val message: String) : DetailMsg
 }
 
 class DetailStoreFactory(
@@ -221,6 +244,7 @@ class DetailStoreFactory(
         private var playFromStartWhenSelectionReady = false
         private var sourceLoadGeneration = 0L
         private var relatedLoadGeneration = 0L
+        private var organizationLoadGeneration = 0L
         private val sourceCoordinator = SourceSelectionCoordinator(repo)
         private val seriesCatalogLoader = SeriesCatalogLoader(repo)
 
@@ -235,6 +259,9 @@ class DetailStoreFactory(
                 DetailIntent.ToggleFavorite -> toggleFavorite()
                 DetailIntent.TogglePlayed -> togglePlayed()
                 DetailIntent.AddToWatchLater -> addToWatchLater()
+                DetailIntent.LoadOrganizationContainers -> loadOrganizationContainers()
+                is DetailIntent.AddToOrganizationContainer ->
+                    addToOrganizationContainer(intent.containerId)
                 is DetailIntent.SelectSource -> {
                     val current = state()
                     if (
@@ -1090,6 +1117,90 @@ class DetailStoreFactory(
                     }
             }
         }
+
+        private fun loadOrganizationContainers() {
+            val current = state()
+            val detail = current.detail ?: return
+            val server = current.server ?: return
+            val generation = ++organizationLoadGeneration
+            dispatch(DetailMsg.OrganizationLoading)
+            scope.launch {
+                repo.mediaContainers(server)
+                    .onSuccess { containers ->
+                        if (
+                            generation == organizationLoadGeneration &&
+                            isVisibleSource(server.id, detail.id)
+                        ) {
+                            dispatch(DetailMsg.OrganizationLoaded(containers))
+                        }
+                    }
+                    .onFailure {
+                        if (
+                            generation == organizationLoadGeneration &&
+                            isVisibleSource(server.id, detail.id)
+                        ) {
+                            AppLog.warning(
+                                category = "feature.detail",
+                                event = "organization_containers_failed",
+                                message = "Existing media containers could not be listed",
+                                throwable = it,
+                                attributes = mapOf("serverId" to server.id),
+                            )
+                            dispatch(
+                                DetailMsg.OrganizationLoadFailed(
+                                    it.toOrganizationMessage("无法加载合集和播放列表"),
+                                ),
+                            )
+                        }
+                    }
+            }
+        }
+
+        private fun addToOrganizationContainer(containerId: String) {
+            val current = state()
+            val detail = current.detail ?: return
+            val server = current.server ?: return
+            if (containerId in current.addingContainerIds || containerId in current.addedContainerIds) {
+                return
+            }
+            val container = current.organizationContainers.firstOrNull { it.id == containerId }
+                ?: return
+            // A container response from another account must never be reused after a source switch.
+            if (container.serverId != server.id) {
+                dispatch(DetailMsg.ActionMessage("容器所属服务器已切换，请重新加载"))
+                return
+            }
+            dispatch(DetailMsg.OrganizationAdding(container.id))
+            scope.launch {
+                repo.addItemToMediaContainer(
+                    server = server,
+                    containerId = container.id,
+                    kind = container.kind,
+                    itemId = detail.id,
+                ).onSuccess {
+                    if (isVisibleSource(server.id, detail.id)) {
+                        dispatch(DetailMsg.OrganizationAdded(container.id))
+                        dispatch(DetailMsg.ActionMessage("已加入${container.title}"))
+                    }
+                }.onFailure {
+                    if (isVisibleSource(server.id, detail.id)) {
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "organization_add_failed",
+                            message = "Adding media to an existing container failed",
+                            throwable = it,
+                            attributes = mapOf(
+                                "serverId" to server.id,
+                                "containerId" to container.id,
+                            ),
+                        )
+                        val message = it.toOrganizationMessage("加入合集或播放列表失败")
+                        dispatch(DetailMsg.OrganizationAddFailed(container.id, message))
+                        dispatch(DetailMsg.ActionMessage(message))
+                    }
+                }
+            }
+        }
     }
 
     private object ReducerImpl : Reducer<DetailState, DetailMsg> {
@@ -1160,6 +1271,32 @@ class DetailStoreFactory(
             is DetailMsg.SourceFailure -> copy(sourceFailure = msg.value, selectionLoading = false)
             is DetailMsg.AudioLanguageSelected -> copy(preferredAudioLanguage = msg.language)
             is DetailMsg.SubtitleLanguageSelected -> copy(preferredSubtitleLanguage = msg.language)
+            DetailMsg.OrganizationLoading -> copy(
+                organizationLoading = true,
+                organizationError = null,
+            )
+            is DetailMsg.OrganizationLoaded -> copy(
+                organizationContainers = msg.containers,
+                organizationLoading = false,
+                organizationError = null,
+            )
+            is DetailMsg.OrganizationLoadFailed -> copy(
+                organizationLoading = false,
+                organizationError = msg.message,
+            )
+            is DetailMsg.OrganizationAdding -> copy(
+                addingContainerIds = addingContainerIds + msg.containerId,
+                organizationError = null,
+            )
+            is DetailMsg.OrganizationAdded -> copy(
+                addingContainerIds = addingContainerIds - msg.containerId,
+                addedContainerIds = addedContainerIds + msg.containerId,
+                organizationError = null,
+            )
+            is DetailMsg.OrganizationAddFailed -> copy(
+                addingContainerIds = addingContainerIds - msg.containerId,
+                organizationError = msg.message,
+            )
             is DetailMsg.PlaybackSelectionLoaded -> {
                 // Episode resolution captures sourceDetail before it suspends. Favorite/played
                 // mutations can commit while that request is in flight, so never replace the
@@ -1173,6 +1310,8 @@ class DetailStoreFactory(
                 val retainedSource = visibleSource ?: committedSource
                 val sourceChanged = retainedSource == null
                 val resolvedSource = retainedSource ?: msg.sourceDetail
+                val organizationSourceChanged =
+                    server?.id != msg.server.id || detail?.id != resolvedSource.id
                 val versionId = msg.preferredVersionId
                     ?.takeIf { preferred ->
                         msg.target.versions.any { it.id == preferred }
@@ -1194,6 +1333,15 @@ class DetailStoreFactory(
                     } else {
                         selectedSeasonId
                     },
+                    organizationContainers = if (organizationSourceChanged) {
+                        emptyList()
+                    } else {
+                        organizationContainers
+                    },
+                    organizationLoading = if (organizationSourceChanged) false else organizationLoading,
+                    organizationError = if (organizationSourceChanged) null else organizationError,
+                    addingContainerIds = if (organizationSourceChanged) emptySet() else addingContainerIds,
+                    addedContainerIds = if (organizationSourceChanged) emptySet() else addedContainerIds,
                     episodes = msg.episodes ?: episodes,
                     episodesLoading = false,
                     selectionLoading = false,

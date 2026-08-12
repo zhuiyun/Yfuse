@@ -15,6 +15,14 @@ import kotlin.test.assertTrue
 class ThemePreferencesTest {
 
     @Test
+    fun original_quality_survives_recreation() {
+        val settings = MapSettings()
+        ThemePreferences(settings).setQuality(PlaybackQuality.Original)
+
+        assertEquals(PlaybackQuality.Original, ThemePreferences(settings).quality.value)
+    }
+
+    @Test
     fun player_preferences_survive_recreation() {
         val settings = MapSettings()
         ThemePreferences(settings).apply {

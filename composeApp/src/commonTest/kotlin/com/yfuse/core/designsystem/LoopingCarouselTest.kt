@@ -34,6 +34,14 @@ class LoopingCarouselTest {
     }
 
     @Test
+    fun accessibility_state_exposes_the_real_page_and_count() {
+        val start = loopingCarouselStartPage(itemCount = 5)
+
+        assertEquals("第 1 项，共 5 项", loopingCarouselStateDescription(start, itemCount = 5))
+        assertEquals("第 5 项，共 5 项", loopingCarouselStateDescription(start - 1, itemCount = 5))
+    }
+
+    @Test
     fun empty_and_single_item_carousels_stay_on_one_page() {
         assertEquals(1, loopingCarouselPageCount(itemCount = 0))
         assertEquals(1, loopingCarouselPageCount(itemCount = 1))

@@ -61,7 +61,7 @@ internal fun PlaybackVersionSection(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("播放版本", style = AppTypography.body.strong, color = palette.text)
+            Text("版本与来源", style = AppTypography.body.strong, color = palette.text)
             Spacer(Modifier.height(3.dp))
             Text(
                 if (switching) "正在切换资源…" else summary,
@@ -93,7 +93,7 @@ internal fun PlaybackVersionDialog(
 ) {
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
-            title = "播放版本",
+            title = "版本与来源",
             subtitle = if (switching) "正在解析所选资源" else title,
             onClose = onDismiss,
         )
@@ -102,7 +102,10 @@ internal fun PlaybackVersionDialog(
             Text("播放来源", style = AppTypography.caption.strong, color = Color.White.copy(alpha = 0.62f))
             selectableSources.forEach { source ->
                 OverlayOptionRow(
-                    label = source.serverName,
+                    label = listOfNotNull(
+                        source.serverName,
+                        source.source?.summary?.takeIf { it.isNotBlank() },
+                    ).joinToString(" · "),
                     selected = source.serverId == selectedServerId && source.itemId == selectedItemId,
                     onClick = { source.itemId?.let { onSelectSource(source.serverId, it) } },
                 )

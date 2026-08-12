@@ -38,6 +38,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.ActionToast
+import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -56,6 +58,8 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibrarySort
+import com.yfuse.core.model.MediaContainerKind
+import com.yfuse.core.network.EmbyImages
 
 /**
  * 「查看更多」 grid.
@@ -105,7 +109,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
     // stuck at `true` with nothing left to emit, and paging would stop halfway down a
     // library. Restarting after every append re-reads it instead. The store's own guard is
     // what ends this — a page that adds nothing sets the total to what is loaded.
-    LaunchedEffect(gridState, state.items.size, state.loadMoreError) {
+    LaunchedEffect(gridState, state.loadedCount, state.loadMoreError) {
         // A failed page waits for the footer's 重试 instead of retrying on every scroll.
         if (state.loadMoreError != null) return@LaunchedEffect
         snapshotFlow { shouldLoadMore }.collect {
@@ -149,7 +153,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 // The server's total, not the loaded count: paging means those differ, and
                 // a number that climbed as the user scrolled was reporting the wrong thing.
                 Text(
-                    "${state.totalCount.coerceAtLeast(state.items.size)} 部",
+                    "${state.totalCount.coerceAtLeast(state.loadedCount)} ${if (state.directoryKind != null) "个" else "部"}",
                     style = AppTypography.caption.medium,
                     color = palette.sub2,
                 )
@@ -183,6 +187,18 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 }
             }
 
+            if (state.containerKind == MediaContainerKind.Playlist) {
+                Text(
+                    text = "按服务器中的手工顺序显示",
+                    style = AppTypography.caption.medium,
+                    color = palette.sub2,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Dimens.pageHorizontal)
+                        .padding(bottom = 10.dp),
+                )
+            }
+
             if (state.genres.isNotEmpty()) {
                 GenreFilterRow(
                     genres = state.genres,
@@ -198,15 +214,15 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
 
             Box(Modifier.fillMaxSize()) {
                 when {
-                    state.loading && state.items.isEmpty() -> SkeletonGrid()
+                    state.loading && state.loadedCount == 0 -> SkeletonGrid()
 
-                    state.error != null && state.items.isEmpty() -> ErrorState(
+                    state.error != null && state.loadedCount == 0 -> ErrorState(
                         message = state.error!!,
                         onRetry = { component.store.accept(GridIntent.Retry) },
                         modifier = Modifier.align(Alignment.Center),
                     )
 
-                    state.items.isEmpty() -> EmptyGridHint(
+                    state.loadedCount == 0 -> EmptyGridHint(
                         title = component.title,
                         filtered = state.genre != null,
                         onClearGenre = { component.store.accept(GridIntent.SetGenre(null)) },
@@ -226,18 +242,81 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        items(state.items, key = { it.id }) { item ->
-                            PosterCard(
-                                baseUrl = baseUrl,
-                                accessToken = accessToken,
-                                item = item,
-                                showProgress = false,
-                                onClick = { component.onOpenItem(item.id) },
+                        if (state.directoryKind != null) {
+                            items(
+                                items = state.containers,
+                                key = { "${it.serverId}-${it.kind}-${it.id}" },
+                            ) { container ->
+                                CaptionedPoster(
+                                    url = EmbyImages.primary(
+                                        baseUrl = baseUrl,
+                                        itemId = container.id,
+                                        tag = container.posterTag,
+                                        maxHeight = 450,
+                                        accessToken = accessToken,
+                                    ),
+                                    title = container.title,
+                                    year = container.itemCount?.let { "$it 项" },
+                                    progress = null,
+                                    onClick = { component.onOpenContainer(container) },
+                                    modifier = motionAwareItem(),
+                                )
+                            }
+                        } else {
+                        items(state.items, key = { it.playlistItemId ?: it.id }) { item ->
+                            Box(
                                 // Appended pages fade in where they land rather than
                                 // appearing mid-scroll, and a sort change cross-dissolves
                                 // instead of swapping the grid between two frames.
                                 modifier = motionAwareItem(),
-                            )
+                            ) {
+                                PosterCard(
+                                    baseUrl = baseUrl,
+                                    accessToken = accessToken,
+                                    serverId = component.serverId,
+                                    item = item,
+                                    showProgress = false,
+                                    onClick = { component.onOpenItem(item.id) },
+                                )
+                                if (state.containerKind != null) {
+                                    Box(
+                                        Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(3.dp)
+                                            .pressable(
+                                                onClickLabel = "从${if (state.containerKind == MediaContainerKind.Playlist) "播放列表" else "合集"}移除${item.title}",
+                                                onClick = {
+                                                    component.store.accept(
+                                                        GridIntent.RequestRemove(
+                                                            item.playlistItemId ?: item.id,
+                                                        ),
+                                                    )
+                                                },
+                                            )
+                                            .touchTarget(),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .size(30.dp)
+                                                .glass(
+                                                    shape = GlassShapes.chip,
+                                                    fill = palette.background.copy(alpha = 0.82f),
+                                                    border = palette.border,
+                                                ),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                AppIcons.Close,
+                                                contentDescription = null,
+                                                tint = palette.text,
+                                                modifier = Modifier.size(12.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         }
                         if (state.loadingMore || state.loadMoreError != null) {
                             item(
@@ -273,6 +352,43 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 }
             }
         }
+
+        state.pendingRemoval?.let { item ->
+            val containerLabel = if (state.containerKind == MediaContainerKind.Playlist) {
+                "播放列表"
+            } else {
+                "合集"
+            }
+            GlassDialog(onDismiss = { component.store.accept(GridIntent.CancelRemove) }) {
+                OverlayHeader(
+                    title = "从$containerLabel 移除？",
+                    subtitle = item.title,
+                    onClose = { component.store.accept(GridIntent.CancelRemove) },
+                )
+                Text(
+                    text = "只会移除此容器中的条目，不会删除服务器上的媒体文件。",
+                    style = AppTypography.body.regular,
+                    color = palette.sub,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                OverlayOptionRow(
+                    label = "确认移除",
+                    selected = false,
+                    onClick = { component.store.accept(GridIntent.ConfirmRemove) },
+                )
+                OverlayOptionRow(
+                    label = "取消",
+                    selected = false,
+                    onClick = { component.store.accept(GridIntent.CancelRemove) },
+                )
+            }
+        }
+
+        ActionToast(
+            message = state.actionMessage,
+            onDismiss = { component.store.accept(GridIntent.DismissMessage) },
+            modifier = Modifier.padding(bottom = 24.dp),
+        )
     }
 }
 

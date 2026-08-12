@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
@@ -258,6 +259,44 @@ class PlayerStoreTest {
         assertEquals("hls/alternate", switched.transcodeUrl)
         assertEquals("progressive/alternate", switched.fallbackTranscodeUrl)
         assertEquals("session-alternate", switched.playSessionId)
+    }
+
+    @Test
+    fun manual_quality_caps_active_and_alternate_transcodes_without_touching_identity() {
+        val alternate = PlayerMediaVersion(
+            id = "alternate",
+            label = "4K",
+            detail = "",
+            url = "https://host/direct-alt?api_key=token",
+            transcodeUrl = "https://host/hls-alt?PlaySessionId=alt-session",
+            fallbackTranscodeUrl = "https://host/mp4-alt?PlaySessionId=alt-session",
+            playSessionId = "alt-session",
+        )
+        val item = PlayerMediaItem(
+            id = "movie",
+            url = "https://host/direct?api_key=token",
+            transcodeUrl = "https://host/hls?PlaySessionId=session",
+            fallbackTranscodeUrl = "https://host/mp4?PlaySessionId=session",
+            title = "电影",
+            versions = listOf(alternate),
+            playSessionId = "session",
+        )
+
+        val capped = item.withPlaybackQuality(PlaybackQuality.Sd)
+
+        assertEquals(item.url, capped.url)
+        assertEquals("session", capped.playSessionId)
+        listOf(
+            capped.transcodeUrl,
+            capped.fallbackTranscodeUrl,
+            capped.versions.single().transcodeUrl,
+            capped.versions.single().fallbackTranscodeUrl,
+        ).forEach { url ->
+            assertTrue("MaxWidth=854" in url, url)
+            assertTrue("VideoBitrate=2000000" in url, url)
+        }
+        assertTrue("PlaySessionId=session" in capped.transcodeUrl)
+        assertTrue("PlaySessionId=alt-session" in capped.versions.single().transcodeUrl)
     }
 
     @Test

@@ -167,6 +167,32 @@ private fun Format.trackQualifier(type: Int): String? {
     }
 }
 
+@UnstableApi
+private fun Format.dynamicRangeLabel(): String = when {
+    codecs.orEmpty().contains("dvhe", ignoreCase = true) ||
+        codecs.orEmpty().contains("dvh1", ignoreCase = true) -> "Dolby Vision"
+    colorInfo?.colorTransfer == C.COLOR_TRANSFER_ST2084 -> "HDR10 / PQ"
+    colorInfo?.colorTransfer == C.COLOR_TRANSFER_HLG -> "HLG"
+    colorInfo != null -> "SDR"
+    else -> ""
+}
+
+private fun Format.audioFormatLabel(): String {
+    val codec = (codecs ?: sampleMimeType?.substringAfterLast('/'))
+        ?.uppercase()
+        ?.takeIf(String::isNotBlank)
+    val channels = channelCount.takeIf { it > 0 }?.let { count ->
+        when (count) {
+            1 -> "单声道"
+            2 -> "2.0"
+            6 -> "5.1"
+            8 -> "7.1"
+            else -> "$count 声道"
+        }
+    }
+    return listOfNotNull(codec, channels).joinToString(" · ")
+}
+
 /**
  * ExoPlayer behind the engine-agnostic [VideoEngine] contract.
  *
@@ -185,32 +211,35 @@ class ExoVideoEngine(
     private val scope: CoroutineScope,
     decoderMode: DecoderMode,
     autoNext: Boolean,
-    quality: PlaybackQuality,
+    private val quality: PlaybackQuality,
     customUserAgent: String,
     videoCacheBytes: Long,
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
 
+    /** Keep quality enforcement inside the engine as well as at the launcher boundary. */
+    private val items = items.map { it.withPlaybackQuality(quality) }.toMutableList()
+    private val startTranscoding = this.items.getOrNull(startIndex)
+        ?.startsWithServerTranscode(quality) == true
+
     private val _state = MutableStateFlow(
         PlaybackState(
             currentIndex = startIndex,
             itemCount = items.size.coerceAtLeast(1),
-            diagnostics = PlaybackDiagnostics(
+            transcoding = startTranscoding,
+            videoHeight = this.items.getOrNull(startIndex)?.sourceVideoHeight(startTranscoding) ?: 0,
+            diagnostics = initialPlaybackDiagnostics(
                 engine = "Media3 / ExoPlayer",
                 decoder = decoderMode.label,
-                playMethod = items.getOrNull(startIndex)?.playMethod?.label
-                    ?: PlaybackMethod.DirectPlay.label,
+                item = this.items.getOrNull(startIndex),
+                quality = quality,
             ),
         ),
     )
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
-    /** Grows via [appendItems]; index-keyed state below stays valid because entries only
-     *  ever arrive at the end. */
-    private val items = items.toMutableList()
-
     private val transcodedIndices = items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
-        index.takeIf { item.playMethod == PlaybackMethod.Transcode }
+        index.takeIf { item.startsWithServerTranscode(quality) }
     }
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
@@ -318,10 +347,29 @@ class ExoVideoEngine(
                 it.copy(
                     diagnostics = it.diagnostics.copy(
                         videoCodec = format.codecs ?: format.sampleMimeType ?: "未知",
+                        videoWidth = format.width.takeIf { value -> value > 0 }
+                            ?: it.diagnostics.videoWidth,
+                        dynamicRange = format.dynamicRangeLabel()
+                            .ifBlank { it.diagnostics.dynamicRange },
                         bitrateBitsPerSecond = format.bitrate.takeIf { value -> value > 0 }
                             ?.toLong() ?: it.diagnostics.bitrateBitsPerSecond,
                         frameRate = format.frameRate.takeIf { value -> value > 0f }
                             ?: it.diagnostics.frameRate,
+                    ),
+                )
+            }
+        }
+
+        override fun onAudioInputFormatChanged(
+            eventTime: AnalyticsListener.EventTime,
+            format: Format,
+            decoderReuseEvaluation: DecoderReuseEvaluation?,
+        ) {
+            _state.update {
+                it.copy(
+                    diagnostics = it.diagnostics.copy(
+                        audioFormat = format.audioFormatLabel()
+                            .ifBlank { it.diagnostics.audioFormat },
                     ),
                 )
             }
@@ -389,10 +437,13 @@ class ExoVideoEngine(
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val index = player.currentMediaItemIndex
+            val item = items.getOrNull(index)
+            val transcoding = index in transcodedIndices
             _state.update {
                 it.copy(
                     currentIndex = index,
-                    transcoding = index in transcodedIndices,
+                    transcoding = transcoding,
+                    videoHeight = item?.sourceVideoHeight(transcoding) ?: 0,
                     fallbacksExhausted = false,
                     automaticFallbackBlocked = false,
                     positionMs = 0L,
@@ -400,13 +451,12 @@ class ExoVideoEngine(
                     bufferedPositionMs = 0L,
                     error = null,
                     ended = false,
-                    diagnostics = it.diagnostics.copy(
-                        playMethod = if (index in transcodedIndices) {
-                            PlaybackMethod.Transcode.label
-                        } else {
-                            items.getOrNull(index)?.playMethod?.label ?: PlaybackMethod.DirectPlay.label
-                        },
-                        bufferedDurationMs = 0L,
+                    diagnostics = initialPlaybackDiagnostics(
+                        engine = "Media3 / ExoPlayer",
+                        decoder = it.diagnostics.decoder,
+                        item = item,
+                        quality = quality,
+                        transcoding = transcoding,
                     ),
                 )
             }
@@ -417,7 +467,12 @@ class ExoVideoEngine(
         }
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
-            _state.update { it.copy(videoHeight = videoSize.height) }
+            _state.update {
+                it.copy(
+                    videoHeight = videoSize.height,
+                    diagnostics = it.diagnostics.copy(videoWidth = videoSize.width),
+                )
+            }
         }
 
         override fun onTracksChanged(tracks: Tracks) {
@@ -814,7 +869,7 @@ class ExoVideoEngine(
      * the chain — a decode failure on the transcoded stream reported success, so no error
      * was ever shown and playback simply stopped. One step per call, false when spent.
      */
-    override fun switchToTranscode(): Boolean {
+    override fun switchToTranscode(reason: String?): Boolean {
         val index = player.currentMediaItemIndex
         if (index in transcodedIndices) return switchToProgressiveTranscode()
         val item = items.getOrNull(index) ?: return false
@@ -829,6 +884,9 @@ class ExoVideoEngine(
                 transcoding = true,
                 diagnostics = it.diagnostics.copy(
                     playMethod = "服务器转码",
+                    dynamicRange = "",
+                    audioFormat = "",
+                    fallbackReason = reason ?: "直放失败，已切换服务器转码",
                     bufferedDurationMs = 0L,
                 ),
             )
@@ -854,8 +912,21 @@ class ExoVideoEngine(
      */
     override fun appendItems(items: List<PlayerMediaItem>): Boolean {
         if (items.isEmpty()) return true
-        this.items += items
-        player.addMediaItems(items.map { mediaItem(it.url, it.title) })
+        val qualityItems = items.map { it.withPlaybackQuality(quality) }
+        val offset = this.items.size
+        qualityItems.forEachIndexed { relativeIndex, item ->
+            if (item.startsWithServerTranscode(quality)) transcodedIndices += offset + relativeIndex
+        }
+        this.items += qualityItems
+        player.addMediaItems(
+            qualityItems.mapIndexed { relativeIndex, item ->
+                val index = offset + relativeIndex
+                mediaItem(
+                    if (index in transcodedIndices) item.transcodeUrl else item.url,
+                    item.title,
+                )
+            },
+        )
         _state.update { it.copy(itemCount = this.items.size.coerceAtLeast(1)) }
         AppLog.info(
             category = "player.exo",
@@ -880,7 +951,18 @@ class ExoVideoEngine(
         progressiveTransitionIndices += index
         val position = player.currentPosition
         _state.update {
-            it.copy(error = null, buffering = true, bufferedPositionMs = position)
+            it.copy(
+                error = null,
+                buffering = true,
+                bufferedPositionMs = position,
+                transcoding = true,
+                diagnostics = it.diagnostics.copy(
+                    playMethod = PlaybackMethod.Transcode.label,
+                    dynamicRange = "",
+                    audioFormat = "",
+                    fallbackReason = "HLS 转码不可用，已改用 MP4 转码",
+                ),
+            )
         }
         // Stop reading HLS before deleting its encoder. Starting MP4 first can briefly leave
         // two ffmpeg jobs under one session; one-slot servers reject the second with HTTP 400.

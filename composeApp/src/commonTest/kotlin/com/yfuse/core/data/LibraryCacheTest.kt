@@ -5,6 +5,7 @@ import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.LibraryCounts
 import com.yfuse.core.model.MediaItem
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -34,12 +35,52 @@ class LibraryCacheTest {
             counts = LibraryCounts(movieCount = 42, seriesCount = 7),
         )
 
-        cache.write("server1", content)
+        cache.write("server1", content, updatedAtEpochMs = 1_700_000_000_000L)
+        cache.write(
+            "server2",
+            HomeContent(featured = listOf(item("other"))),
+            updatedAtEpochMs = 1_700_000_000_001L,
+        )
 
-        val restored = cache.read("server1")
-        assertEquals(content, restored)
-        // Servers do not share a shelf.
-        assertNull(cache.read("server2"))
+        val restored = requireNotNull(cache.readSnapshot("server1"))
+        assertEquals(content, restored.content)
+        assertEquals(1_700_000_000_000L, restored.updatedAtEpochMs)
+        // Servers do not share either a shelf or its freshness timestamp.
+        val other = requireNotNull(cache.readSnapshot("server2"))
+        assertEquals("other", other.content.featured.single().id)
+        assertEquals(1_700_000_000_001L, other.updatedAtEpochMs)
+    }
+
+    @Test
+    fun legacyRawContentRemainsReadableWithUnknownFreshness() {
+        val settings = MapSettings()
+        val cache = LibraryCache(settings)
+        val content = HomeContent(featured = listOf(item("legacy")))
+        settings.putString(
+            "library.cache.server1",
+            Json.encodeToString(HomeContent.serializer(), content),
+        )
+
+        val restored = requireNotNull(cache.readSnapshot("server1"))
+
+        assertEquals(content, restored.content)
+        assertNull(restored.updatedAtEpochMs)
+        assertEquals(content, cache.read("server1"))
+    }
+
+    @Test
+    fun pre_container_cache_shape_uses_empty_container_defaults() {
+        val settings = MapSettings()
+        settings.putString(
+            "library.cache.server1",
+            """{"rows":[{"libraryId":"old","title":"旧媒体库","items":[]}]}""",
+        )
+
+        val restored = requireNotNull(LibraryCache(settings).readSnapshot("server1"))
+
+        assertEquals("old", restored.content.rows.single().libraryId)
+        assertTrue(restored.content.collections.isEmpty())
+        assertTrue(restored.content.playlists.isEmpty())
     }
 
     @Test
@@ -54,23 +95,25 @@ class LibraryCacheTest {
                 resume = many,
                 rows = (1..30).map { HomeRow("lib$it", "行 $it", many) },
             ),
+            updatedAtEpochMs = 123L,
         )
 
-        val restored = requireNotNull(cache.read("server1"))
-        assertEquals(8, restored.featured.size)
-        assertEquals(12, restored.resume.size)
-        assertEquals(12, restored.rows.size)
-        assertTrue(restored.rows.all { it.items.size == 20 })
+        val restored = requireNotNull(cache.readSnapshot("server1"))
+        assertEquals(123L, restored.updatedAtEpochMs)
+        assertEquals(8, restored.content.featured.size)
+        assertEquals(12, restored.content.resume.size)
+        assertEquals(12, restored.content.rows.size)
+        assertTrue(restored.content.rows.all { it.items.size == 20 })
     }
 
     @Test
     fun empty_content_clears_the_entry_rather_than_storing_nothing() {
         val cache = LibraryCache(MapSettings())
-        cache.write("server1", HomeContent(featured = listOf(item("a"))))
+        cache.write("server1", HomeContent(featured = listOf(item("a"))), 123L)
 
-        cache.write("server1", HomeContent())
+        cache.write("server1", HomeContent(), 456L)
 
-        assertNull(cache.read("server1"))
+        assertNull(cache.readSnapshot("server1"))
     }
 
     @Test
@@ -81,6 +124,16 @@ class LibraryCacheTest {
 
         assertNull(cache.read("server1"))
         // Dropped on the first failed read, so the next launch doesn't retry the same blob.
+        assertNull(settings.getStringOrNull("library.cache.server1"))
+    }
+
+    @Test
+    fun malformedV2EnvelopeDoesNotFallBackToAnEmptyLegacyShape() {
+        val settings = MapSettings()
+        val cache = LibraryCache(settings)
+        settings.putString("library.cache.server1", """{"v":2,"updatedAt":123}""")
+
+        assertNull(cache.readSnapshot("server1"))
         assertNull(settings.getStringOrNull("library.cache.server1"))
     }
 }

@@ -67,6 +67,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSizing
+import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
@@ -81,6 +82,7 @@ import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
+import com.yfuse.core.designsystem.loopingCarouselSemantics
 import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.scrim
@@ -159,6 +161,7 @@ fun HomeScreen(component: HomeComponent) {
                 item {
                     HomeHeroCarousel(
                         items = state.featuredSlides.take(5),
+                        userName = state.server?.userName,
                         height = heroHeight,
                         visible = heroVisible,
                         onOpenProfile = component.onOpenProfile,
@@ -295,6 +298,7 @@ fun HomeScreen(component: HomeComponent) {
 @Composable
 private fun HomeHeroCarousel(
     items: List<TmdbItem>,
+    userName: String?,
     height: androidx.compose.ui.unit.Dp,
     visible: Boolean,
     onOpenProfile: () -> Unit,
@@ -342,7 +346,9 @@ private fun HomeHeroCarousel(
         } else {
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .loopingCarouselSemantics(pagerState.currentPage, items.size),
                 beyondViewportPageCount = 1,
                 key = { page -> page },
             ) { page ->
@@ -356,6 +362,7 @@ private fun HomeHeroCarousel(
         }
 
         HeroHeader(
+            userName = userName,
             onOpenProfile = onOpenProfile,
             onOpenSearch = onOpenSearch,
             onOpenCalendar = onOpenCalendar,
@@ -464,6 +471,7 @@ private fun HeroSlide(
  */
 @Composable
 private fun HeroHeader(
+    userName: String?,
     onOpenProfile: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenCalendar: () -> Unit,
@@ -495,7 +503,7 @@ private fun HeroHeader(
             }
         }
         Box(
-            Modifier.size(44.dp).pressable(onClick = onOpenCalendar),
+            Modifier.size(48.dp).pressable(onClick = onOpenCalendar),
             contentAlignment = Alignment.Center,
         ) {
             Box(
@@ -517,7 +525,7 @@ private fun HeroHeader(
             }
         }
         Box(
-            Modifier.size(44.dp).pressable(onClick = onOpenSearch),
+            Modifier.size(48.dp).pressable(onClick = onOpenSearch),
             contentAlignment = Alignment.Center,
         ) {
             Box(
@@ -535,12 +543,26 @@ private fun HeroHeader(
         }
         Box(
             Modifier
-                .size(44.dp)
+                .size(48.dp)
                 .pressable(onClickLabel = "打开个人中心", onClick = onOpenProfile)
-                .semantics { contentDescription = "个人中心" },
+                .semantics {
+                    contentDescription = userName
+                        ?.takeIf(String::isNotBlank)
+                        ?.let { "个人中心，$it" }
+                        ?: "个人中心"
+                },
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.size(36.dp).clip(CircleShape).background(PrimaryGradient))
+            Box(
+                Modifier.size(38.dp).clip(CircleShape).background(PrimaryGradient),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    homeUserInitial(userName),
+                    style = AppTypography.body.strong,
+                    color = Color.White,
+                )
+            }
         }
     }
 }
@@ -567,7 +589,7 @@ private fun HeroCaption(
             ),
     ) {
         Text(
-            "✦ 今日精选",
+            "TMDB · 今日精选",
             style = AppTypography.caption.medium,
             color = Color.White,
             modifier = Modifier
@@ -600,7 +622,7 @@ private fun HeroCaption(
         ) {
             Row(
                 Modifier
-                    .height(44.dp)
+                    .height(48.dp)
                     .pressable(onClick = onPlay)
                     .glass(
                         shape = GlassShapes.chip,
@@ -641,8 +663,7 @@ private fun HeroCircleButton(icon: ImageVector, label: String, onClick: () -> Un
     Box(
         Modifier
             .pressable(onClick = onClick)
-            .touchTarget()
-            .size(42.dp)
+            .size(48.dp)
             .glass(
                 shape = CircleShape,
                 fill = Color(0xFF11151F).copy(alpha = 0.38f),
@@ -652,6 +673,30 @@ private fun HeroCircleButton(icon: ImageVector, label: String, onClick: () -> Un
     ) {
         Icon(icon, label, tint = Color.White, modifier = Modifier.size(15.dp))
     }
+}
+
+internal fun homeUserInitial(userName: String?): String = userName
+    ?.trim()
+    ?.firstOrNull(Char::isLetterOrDigit)
+    ?.uppercaseChar()
+    ?.toString()
+    ?: "访"
+
+@Composable
+private fun HomeSourceBadge(source: String) {
+    val accent = LocalAccentColors.current
+    Text(
+        source,
+        style = AppTypography.caption.strong,
+        color = accent.accent,
+        modifier = Modifier
+            .glass(
+                shape = GlassShapes.chip,
+                fill = accent.container,
+                border = accent.border,
+            )
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+    )
 }
 
 @Composable
@@ -669,7 +714,13 @@ private fun NextUpShelf(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text("下一集", style = AppTypography.section.strong, color = palette.text)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("下一集", style = AppTypography.section.strong, color = palette.text)
+                    HomeSourceBadge("Emby")
+                }
                 Text(
                     "继续追你正在看的剧集",
                     style = AppTypography.caption.regular,
@@ -695,8 +746,13 @@ private fun NextUpShelf(
                     url = EmbyImages.primary(entry.server.baseUrl, item.posterItemId, item.posterTag, accessToken = entry.server.accessToken),
                     fallbackUrls = emptyList(),
                     title = item.title,
-                    year = item.subtitle ?: item.year?.toString(),
+                    year = listOfNotNull(
+                        "Emby",
+                        entry.server.serverName.takeIf(String::isNotBlank),
+                        item.subtitle ?: item.year?.toString(),
+                    ).joinToString(" · "),
                     onClick = { onClick(entry) },
+                    sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
                     modifier = Modifier.width(MediaSizing.landscapeCardWidth),
                     posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
                 )
@@ -722,7 +778,13 @@ private fun ContinueWatching(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("继续观看", style = AppTypography.section.strong, color = palette.text)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("继续观看", style = AppTypography.section.strong, color = palette.text)
+                HomeSourceBadge("Emby")
+            }
             Text(
                 "全部 ›",
                 style = AppTypography.caption.medium,
@@ -753,13 +815,15 @@ private fun ContinueWatching(
                     ),
                     title = item.title,
                     year = listOfNotNull(
+                        "Emby",
+                        entry.server.serverName.takeIf(String::isNotBlank),
                         item.year?.toString(),
-                        entry.server.serverName,
                     ).joinToString(" · "),
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
                     // Keep the home content continuously rendered on pop. A shared-media
                     // overlay can briefly outlive the disposed detail image and flash blank.
                     onClick = { onClick(entry) },
+                    sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
                     modifier = Modifier.width(MediaSizing.landscapeCardWidth),
                     posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
                 )
@@ -784,7 +848,13 @@ private fun Recommended(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, style = AppTypography.section.strong, color = palette.text)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, style = AppTypography.section.strong, color = palette.text)
+                HomeSourceBadge("TMDB")
+            }
             Text(
                 "全部 ›",
                 style = AppTypography.caption.medium,
@@ -812,10 +882,10 @@ private fun Recommended(
                         TmdbImages.media(item.backdropPath, "original"),
                     ),
                     title = item.title,
-                    year = if (showReleaseDate) {
+                    year = "TMDB · " + if (showReleaseDate) {
                         item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
                     } else {
-                        item.year
+                        item.year ?: "年份未知"
                     },
                     // The same title can appear in 热门 and 正在上映 at once.
                     // A shared-element key must be unique within a screen, so

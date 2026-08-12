@@ -28,6 +28,25 @@ class EmbyStreamTest {
         val original = EmbyStream.transcode("http://emby", "movie", "token")
 
         assertEquals(original, EmbyStream.withQuality(original, PlaybackQuality.Auto))
+        assertEquals(original, EmbyStream.withQuality(original, PlaybackQuality.Original))
+    }
+
+    @Test
+    fun selected_quality_adds_limits_to_a_server_negotiated_url() {
+        val negotiated =
+            "https://emby/Videos/movie/master.m3u8?api_key=token&PlaySessionId=session"
+
+        val capped = EmbyStream.withQuality(negotiated, PlaybackQuality.Hd)
+
+        assertTrue("MaxWidth=1280" in capped, capped)
+        assertTrue("VideoBitrate=4000000" in capped, capped)
+        assertTrue("api_key=token" in capped, capped)
+        assertTrue("PlaySessionId=session" in capped, capped)
+    }
+
+    @Test
+    fun selected_quality_does_not_materialize_a_missing_transcode_url() {
+        assertEquals("", EmbyStream.withQuality("", PlaybackQuality.FullHd))
     }
 
     @Test

@@ -95,7 +95,7 @@ internal fun TmdbRowPage(
                         Text(title, style = AppTypography.section.strong, color = palette.text)
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            "${items.size} 部",
+                            "TMDB · ${items.size} 部",
                             style = AppTypography.caption.regular,
                             color = palette.sub2,
                         )
@@ -124,10 +124,10 @@ internal fun TmdbRowPage(
                                 TmdbImages.media(item.backdropPath, "w780"),
                             ),
                             title = item.title,
-                            year = if (showReleaseDate) {
+                            year = "TMDB · " + if (showReleaseDate) {
                                 item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
                             } else {
-                                item.year
+                                item.year ?: "年份未知"
                             },
                             // The same title can sit in two shelves at once, and this page is
                             // opened from one of them; a shared element would compete with the

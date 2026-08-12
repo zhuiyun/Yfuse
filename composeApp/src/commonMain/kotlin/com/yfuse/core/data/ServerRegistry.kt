@@ -4,12 +4,16 @@ import com.russhwolf.settings.Settings
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServersData
+import com.yfuse.core.security.SecureStore
+import com.yfuse.core.security.ServerMigrationCrypto
+import com.yfuse.core.security.VaultCrypto
+import com.yfuse.core.security.toBase64Url
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /**
  * Enough history for stale routes and queued work without letting repeated address edits grow
@@ -18,8 +22,27 @@ import kotlinx.serialization.SerialName
 internal const val MAX_SERVER_PREVIOUS_IDS = 8
 
 @Serializable
+private data class PersistedServerRegistry(
+    @SerialName("v") val version: Int,
+    @SerialName("d") val defaultServerId: String? = null,
+    @SerialName("s") val servers: List<PersistedServer> = emptyList(),
+)
+
+/** Deliberately contains only non-secret metadata. [secretRef] is random and carries no token. */
+@Serializable
+private data class PersistedServer(
+    @SerialName("i") val id: String,
+    @SerialName("b") val baseUrl: String,
+    @SerialName("n") val serverName: String,
+    @SerialName("u") val userId: String,
+    @SerialName("a") val userName: String,
+    @SerialName("p") val previousIds: Set<String> = emptySet(),
+    @SerialName("r") val secretRef: String,
+)
+
+@Serializable
 private data class PortableServerBackup(
-    @SerialName("v") val version: Int = 1,
+    @SerialName("v") val version: Int = 2,
     @SerialName("d") val defaultServerId: String? = null,
     @SerialName("s") val servers: List<PortableServer> = emptyList(),
 )
@@ -33,19 +56,49 @@ private data class PortableServer(
     @SerialName("t") val accessToken: String,
 )
 
+private data class LoadedRegistry(
+    val data: ServersData,
+    val secretRefs: Map<String, String>,
+)
+
+private data class SecretWrite(
+    val ref: String,
+    val newToken: String,
+    val previousToken: String?,
+)
+
 /**
- * Single source of truth for the list of saved servers and the default
- * selection. Backed by multiplatform-settings; exposes a [StateFlow] so all
- * tabs stay in sync.
+ * Single source of truth for saved Emby sessions.
+ *
+ * Ordinary settings contain only [PersistedServerRegistry]. Bearer tokens are independently
+ * encrypted by [secureStore], whose master key must be non-exportable platform-keystore material.
+ * Missing or unauthenticatable secrets are never replaced with a plaintext fallback: that saved
+ * session is removed and the user must log in again.
  */
-class ServerRegistry(private val settings: Settings) {
+class ServerRegistry(
+    private val settings: Settings,
+    private val secureStore: SecureStore,
+    private val crypto: VaultCrypto = VaultCrypto(),
+) {
 
     private companion object {
         const val KEY = "servers.data"
+        const val PERSISTED_VERSION = 2
+        const val PORTABLE_BACKUP_VERSION = 2
+        const val MAX_SERVERS = 100
+        const val MAX_TOKEN_CHARS = 4_096
+        const val SECRET_KEY_PREFIX = "emby-token:"
+        val VALID_SECRET_REF = Regex("[A-Za-z0-9_-]{43}")
     }
 
-    private val json = Json { ignoreUnknownKeys = true }
-    private val _data = MutableStateFlow(load())
+    private val json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+    }
+    private val migrationCrypto = ServerMigrationCrypto(crypto)
+    private val loaded = load()
+    private var secretRefs: Map<String, String> = loaded.secretRefs
+    private val _data = MutableStateFlow(loaded.data)
     val data: StateFlow<ServersData> = _data.asStateFlow()
 
     val defaultServer: SavedServer? get() = _data.value.defaultServer
@@ -184,45 +237,18 @@ class ServerRegistry(private val settings: Settings) {
         )
     }
 
-    /**
-     * Replaces the local registry with a decrypted account-sync snapshot.
-     *
-     * The cloud service only stores ciphertext, so validation belongs here after authenticated
-     * decryption. IDs are re-derived instead of trusted and the whole change is committed once,
-     * preventing observers from seeing a half-applied server list.
-     */
+    /** Replaces the local registry with an already authenticated account-sync snapshot. */
     fun replaceFromSync(snapshot: ServersData): Result<Int> = runCatching {
-        require(snapshot.servers.size <= 100) { "同步的服务器数量过多" }
+        require(snapshot.servers.size <= MAX_SERVERS) { "同步的服务器数量过多" }
         val normalized = snapshot.servers.map { server ->
-            val baseUrl = server.baseUrl.trim().trimEnd('/')
-            require(baseUrl.length in 8..2_048 &&
-                (baseUrl.startsWith("https://") || baseUrl.startsWith("http://"))
-            ) { "同步的服务器地址无效" }
-            val userId = server.userId.trim()
-            val token = server.accessToken.trim()
-            require(userId.isNotEmpty() && userId.length <= 256 && token.length in 1..4_096) {
-                "同步的服务器凭据无效"
-            }
-            server.copy(
-                id = SavedServer.idOf(baseUrl, userId),
-                baseUrl = baseUrl,
-                serverName = server.serverName
-                    .replace('\r', ' ')
-                    .replace('\n', ' ')
-                    .trim()
-                    .take(60)
-                    .ifBlank { "Emby" },
-                userId = userId,
-                userName = server.userName
-                    .replace('\r', ' ')
-                    .replace('\n', ' ')
-                    .trim()
-                    .take(128),
-                accessToken = token,
-                previousIds = recentPreviousIds(
-                    SavedServer.idOf(baseUrl, userId),
-                    server.previousIds.take(MAX_SERVER_PREVIOUS_IDS),
-                ),
+            normalizeImportedServer(
+                baseUrl = server.baseUrl,
+                serverName = server.serverName,
+                userId = server.userId,
+                userName = server.userName,
+                accessToken = server.accessToken,
+                previousIds = server.previousIds,
+                invalidMessagePrefix = "同步的",
             )
         }
         require(normalized.map { it.id }.distinct().size == normalized.size) {
@@ -239,16 +265,17 @@ class ServerRegistry(private val settings: Settings) {
         normalized.size
     }
 
-    /** Versioned portable backup shared by file and QR import/export, including display names. */
-    fun exportBackup(): String {
+    /** Creates an AES-256-GCM package; no API returns the credential-bearing plaintext backup. */
+    fun exportProtectedBackup(
+        passphrase: CharArray,
+        createdAtEpochSeconds: Long,
+        ttlSeconds: Long = ServerMigrationCrypto.DEFAULT_TTL_SECONDS,
+    ): Result<String> = runCatching {
         val current = _data.value
-        AppLog.info(
-            category = "server.migration",
-            event = "backup_created",
-            message = "Portable server backup created",
-            attributes = mapOf("serverCount" to current.servers.size.toString()),
-        )
-        return json.encodeToString(
+        require(current.servers.isNotEmpty()) { "暂无可迁移的服务器" }
+        require(ttlSeconds in 60..ServerMigrationCrypto.MAX_TTL_SECONDS) { "迁移包有效期无效" }
+        require(createdAtEpochSeconds <= Long.MAX_VALUE - ttlSeconds) { "迁移包时间无效" }
+        val plaintext = json.encodeToString(
             PortableServerBackup.serializer(),
             PortableServerBackup(
                 defaultServerId = current.defaultServerId,
@@ -256,42 +283,66 @@ class ServerRegistry(private val settings: Settings) {
                     PortableServer(it.baseUrl, it.serverName, it.userId, it.userName, it.accessToken)
                 },
             ),
+        ).encodeToByteArray()
+        try {
+            migrationCrypto.protect(
+                plaintext = plaintext,
+                passphrase = passphrase,
+                createdAtEpochSeconds = createdAtEpochSeconds,
+                expiresAtEpochSeconds = createdAtEpochSeconds + ttlSeconds,
+            )
+        } finally {
+            plaintext.fill(0)
+        }
+    }.onSuccess {
+        AppLog.info(
+            category = "server.migration",
+            event = "protected_backup_created",
+            message = "Passphrase-protected server backup created",
+            attributes = mapOf("serverCount" to _data.value.servers.size.toString()),
+        )
+    }.onFailure {
+        AppLog.warning(
+            category = "server.migration",
+            event = "protected_backup_create_failed",
+            message = "Passphrase-protected server backup could not be created",
+            throwable = it,
         )
     }
 
-    /**
-     * Validates then merges a portable backup. Existing server/user pairs are
-     * updated with the imported token; unrelated local entries are preserved.
-     */
-    fun importBackup(payload: String): Result<Int> =
-        runCatching {
+    /** Decrypts, validates, and merges a v2 package. Plaintext/v1 packages are rejected. */
+    fun importProtectedBackup(
+        payload: String,
+        passphrase: CharArray,
+        nowEpochSeconds: Long,
+    ): Result<Int> = runCatching {
+        val plaintext = migrationCrypto.unprotect(payload, passphrase, nowEpochSeconds)
+        try {
             val backup = try {
-                json.decodeFromString(PortableServerBackup.serializer(), payload.trim())
-            } catch (e: Exception) {
-                error("二维码内容无法识别，请确认扫描的是 Yfuse 服务器迁移码")
+                json.decodeFromString(PortableServerBackup.serializer(), plaintext.decodeToString())
+            } catch (_: Exception) {
+                // Do not retain the parser exception: malformed plaintext may be echoed in its
+                // message and later diagnostics must never acquire a bearer-token fragment.
+                throw IllegalArgumentException("受保护迁移包中的服务器数据已损坏")
             }
-            require(backup.version == 1) { "不支持的备份版本" }
-            require(backup.servers.isNotEmpty()) { "备份中没有服务器" }
+            require(backup.version == PORTABLE_BACKUP_VERSION) { "不支持的服务器数据版本" }
+            require(backup.servers.isNotEmpty()) { "迁移包中没有服务器" }
+            require(backup.servers.size <= MAX_SERVERS) { "迁移包中的服务器数量过多" }
             val current = _data.value
-            val imported = backup.servers.map {
-                require(it.baseUrl.startsWith("http://") || it.baseUrl.startsWith("https://")) {
-                    "服务器地址无效"
-                }
-                require(it.userId.isNotBlank() && it.accessToken.isNotBlank()) { "账号凭据不完整" }
-                SavedServer(
-                    id = SavedServer.idOf(it.baseUrl, it.userId),
-                    baseUrl = it.baseUrl,
-                    serverName = it.serverName,
-                    userId = it.userId,
-                    userName = it.userName,
-                    accessToken = it.accessToken,
-                    previousIds = current.servers
-                        .firstOrNull { saved ->
-                            saved.id == SavedServer.idOf(it.baseUrl, it.userId)
-                        }
-                        ?.previousIds
-                        .orEmpty(),
+            val imported = backup.servers.map { portable ->
+                val id = SavedServer.idOf(portable.baseUrl.trim().trimEnd('/'), portable.userId.trim())
+                normalizeImportedServer(
+                    baseUrl = portable.baseUrl,
+                    serverName = portable.serverName,
+                    userId = portable.userId,
+                    userName = portable.userName,
+                    accessToken = portable.accessToken,
+                    previousIds = current.servers.firstOrNull { it.id == id }?.previousIds.orEmpty(),
+                    invalidMessagePrefix = "迁移包中的",
                 )
+            }
+            require(imported.map { it.id }.distinct().size == imported.size) {
+                "迁移包中包含重复服务器"
             }
             val ids = imported.mapTo(hashSetOf()) { it.id }
             val merged = current.servers
@@ -299,8 +350,8 @@ class ServerRegistry(private val settings: Settings) {
                 .map { it.copy(previousIds = it.previousIds - ids) } + imported
             val importedDefault = backup.defaultServerId?.let { oldId ->
                 backup.servers.firstOrNull {
-                    SavedServer.idOf(it.baseUrl, it.userId) == oldId
-                }?.let { SavedServer.idOf(it.baseUrl, it.userId) }
+                    SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) == oldId
+                }?.let { SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) }
             }
             commit(
                 ServersData(
@@ -309,68 +360,347 @@ class ServerRegistry(private val settings: Settings) {
                 ),
             )
             imported.size
+        } finally {
+            plaintext.fill(0)
         }
-            .onSuccess {
-                AppLog.info(
-                    category = "server.migration",
-                    event = "backup_imported",
-                    message = "Portable server backup imported",
-                    attributes = mapOf("serverCount" to it.toString()),
-                )
-            }
-            .onFailure {
-                AppLog.warning(
-                    category = "server.migration",
-                    event = "backup_import_failed",
-                    message = "Portable server backup import failed",
-                    throwable = it,
-                )
-            }
+    }.onSuccess {
+        AppLog.info(
+            category = "server.migration",
+            event = "protected_backup_imported",
+            message = "Passphrase-protected server backup imported",
+            attributes = mapOf("serverCount" to it.toString()),
+        )
+    }.onFailure {
+        AppLog.warning(
+            category = "server.migration",
+            event = "protected_backup_import_failed",
+            message = "Passphrase-protected server backup import failed",
+            throwable = it,
+        )
+    }
 
     private fun commit(data: ServersData) {
         val normalized = data.withBoundedPreviousIds()
+        require(normalized.servers.size <= MAX_SERVERS) { "服务器数量过多" }
+        require(normalized.servers.map { it.id }.distinct().size == normalized.servers.size) {
+            "服务器列表包含重复项"
+        }
+        normalized.servers.forEach { requireValidToken(it.accessToken) }
+
+        val oldData = _data.value
+        val oldRefs = secretRefs
+        val newRefs = assignSecretRefs(normalized, oldRefs)
+        val oldByRef = oldData.servers.mapNotNull { server ->
+            oldRefs[server.id]?.let { it to server }
+        }.toMap()
+        val writes = normalized.servers.mapNotNull { server ->
+            val ref = requireNotNull(newRefs[server.id])
+            val previous = oldByRef[ref]?.accessToken
+            if (previous == server.accessToken) null else SecretWrite(ref, server.accessToken, previous)
+        }
+
+        try {
+            writes.forEach { writeSecret(it.ref, it.newToken) }
+            persistMetadata(normalized, newRefs)
+        } catch (error: Exception) {
+            rollbackSecretWrites(writes)
+            throw error
+        }
+
+        secretRefs = newRefs
         _data.value = normalized
-        settings.putString(KEY, json.encodeToString(ServersData.serializer(), normalized))
+        val orphanedRefs = oldRefs.values.toSet() - newRefs.values.toSet()
+        orphanedRefs.forEach(::removeSecretBestEffort)
         clearOrphanedLibraryCaches(normalized)
     }
 
-    private fun load(): ServersData {
-        val raw = settings.getStringOrNull(KEY) ?: return ServersData()
-        return runCatching {
-            val decoded = json.decodeFromString(ServersData.serializer(), raw)
-            val normalized = decoded.withBoundedPreviousIds()
-            if (normalized != decoded) {
-                // One-time migration for registries written before alias history was bounded.
-                // A failed cleanup must not make otherwise valid saved servers disappear.
-                runCatching {
-                    settings.putString(KEY, json.encodeToString(ServersData.serializer(), normalized))
-                }.onFailure { error ->
-                    AppLog.warning(
-                        category = "server.registry",
-                        event = "alias_history_migration_failed",
-                        message = "Saved server alias history could not be compacted",
-                        throwable = error,
-                    )
-                }
+    private fun load(): LoadedRegistry {
+        val raw = settings.getStringOrNull(KEY) ?: return LoadedRegistry(ServersData(), emptyMap())
+        val persisted = runCatching {
+            json.decodeFromString(PersistedServerRegistry.serializer(), raw).also {
+                require(it.version == PERSISTED_VERSION) { "Unsupported persisted registry version" }
             }
-            clearOrphanedLibraryCaches(normalized)
-            normalized
+        }.getOrNull()
+        if (persisted != null) return hydratePersisted(persisted)
+
+        // Legacy ServersData stored bearer tokens directly. This is the only plaintext read path,
+        // and it is immediately replaced by token-free metadata or purged on any migration failure.
+        return runCatching {
+            val legacy = json.decodeFromString(ServersData.serializer(), raw).withBoundedPreviousIds()
+            migrateLegacyRegistry(legacy)
         }.onFailure {
             AppLog.error(
                 category = "server.registry",
-                event = "stored_data_invalid",
-                message = "Saved server registry could not be decoded",
-                throwable = it,
+                event = "legacy_secret_migration_failed",
+                message = "Legacy plaintext sessions were purged; users must log in again",
             )
-        }.getOrDefault(ServersData())
+            purgeOrdinaryRegistryBestEffort()
+        }.getOrDefault(LoadedRegistry(ServersData(), emptyMap()))
+    }
+
+    private fun migrateLegacyRegistry(legacy: ServersData): LoadedRegistry {
+        require(legacy.servers.size <= MAX_SERVERS) { "Legacy registry contains too many servers" }
+        require(legacy.servers.map { it.id }.distinct().size == legacy.servers.size) {
+            "Legacy registry contains duplicate servers"
+        }
+        legacy.servers.forEach { requireValidToken(it.accessToken) }
+        val refs = assignSecretRefs(legacy, emptyMap())
+        // Purge the credential-bearing JSON before touching the keystore. The decoded legacy
+        // value is already in memory, so this ordering closes the process-crash window: a crash
+        // from this point onward leaves either an empty v2 registry or complete v2 metadata,
+        // never the old plaintext token document.
+        purgeLegacyPlaintextOrThrow()
+        val written = mutableListOf<String>()
+        try {
+            legacy.servers.forEach { server ->
+                val ref = requireNotNull(refs[server.id])
+                writeSecret(ref, server.accessToken)
+                written += ref
+            }
+            persistMetadata(legacy, refs)
+        } catch (error: Exception) {
+            written.forEach(::removeSecretBestEffort)
+            throw error
+        }
+        clearOrphanedLibraryCaches(legacy)
+        AppLog.info(
+            category = "server.registry",
+            event = "legacy_secret_migration_complete",
+            message = "Legacy plaintext sessions moved to platform secure storage",
+            attributes = mapOf("serverCount" to legacy.servers.size.toString()),
+        )
+        return LoadedRegistry(legacy, refs)
+    }
+
+    private fun hydratePersisted(persisted: PersistedServerRegistry): LoadedRegistry {
+        require(persisted.servers.size <= MAX_SERVERS) { "Stored registry contains too many servers" }
+        val servers = mutableListOf<SavedServer>()
+        val refs = linkedMapOf<String, String>()
+        val seenIds = hashSetOf<String>()
+        val seenRefs = hashSetOf<String>()
+        var changed = false
+
+        persisted.servers.forEach { stored ->
+            val result = runCatching {
+                require(stored.id.isNotBlank() && seenIds.add(stored.id)) { "Duplicate or blank server id" }
+                require(VALID_SECRET_REF.matches(stored.secretRef) && seenRefs.add(stored.secretRef)) {
+                    "Invalid or duplicate secret reference"
+                }
+                val tokenBytes = secureStore.get(secretKey(stored.secretRef))
+                    ?: error("Saved session secret is missing")
+                val token = try {
+                    tokenBytes.decodeToString()
+                } finally {
+                    tokenBytes.fill(0)
+                }
+                requireValidToken(token)
+                SavedServer(
+                    id = stored.id,
+                    baseUrl = stored.baseUrl,
+                    serverName = stored.serverName,
+                    userId = stored.userId,
+                    userName = stored.userName,
+                    accessToken = token,
+                    previousIds = recentPreviousIds(stored.id, stored.previousIds),
+                )
+            }
+            result.onSuccess { server ->
+                servers += server
+                refs[server.id] = stored.secretRef
+                if (server.previousIds != stored.previousIds) changed = true
+            }.onFailure { error ->
+                changed = true
+                if (stored.secretRef !in refs.values && VALID_SECRET_REF.matches(stored.secretRef)) {
+                    removeSecretBestEffort(stored.secretRef)
+                }
+                AppLog.warning(
+                    category = "server.registry",
+                    event = "saved_session_unavailable",
+                    message = "A saved session was removed because its secure secret is unavailable; login is required",
+                    throwable = error,
+                    attributes = mapOf("serverId" to stored.id),
+                )
+            }
+        }
+
+        val requestedDefault = persisted.defaultServerId
+        val defaultId = requestedDefault?.takeIf { id -> servers.any { it.id == id } }
+            ?: servers.firstOrNull()?.id
+        if (defaultId != requestedDefault) changed = true
+        val data = ServersData(servers, defaultId)
+        if (changed) {
+            runCatching { persistMetadata(data, refs) }.onFailure { error ->
+                AppLog.warning(
+                    category = "server.registry",
+                    event = "invalid_session_metadata_cleanup_failed",
+                    message = "Unavailable session metadata could not be compacted",
+                    throwable = error,
+                )
+            }
+        }
+        clearOrphanedLibraryCaches(data)
+        return LoadedRegistry(data, refs)
+    }
+
+    private fun assignSecretRefs(
+        data: ServersData,
+        previous: Map<String, String>,
+    ): Map<String, String> {
+        val used = hashSetOf<String>()
+        return buildMap {
+            data.servers.forEach { server ->
+                val reusable = sequenceOf(server.id)
+                    .plus(server.previousIds.asSequence().toList().asReversed().asSequence())
+                    .mapNotNull(previous::get)
+                    .firstOrNull { it !in used }
+                val ref = reusable ?: generateSecretRef()
+                check(used.add(ref)) { "Secret reference collision" }
+                put(server.id, ref)
+            }
+        }
+    }
+
+    private fun generateSecretRef(): String {
+        val random = crypto.generateVaultKey()
+        return try {
+            random.toBase64Url()
+        } finally {
+            random.fill(0)
+        }
+    }
+
+    private fun persistMetadata(data: ServersData, refs: Map<String, String>) {
+        val persisted = PersistedServerRegistry(
+            version = PERSISTED_VERSION,
+            defaultServerId = data.defaultServerId,
+            servers = data.servers.map { server ->
+                PersistedServer(
+                    id = server.id,
+                    baseUrl = server.baseUrl,
+                    serverName = server.serverName,
+                    userId = server.userId,
+                    userName = server.userName,
+                    previousIds = server.previousIds,
+                    secretRef = requireNotNull(refs[server.id]),
+                )
+            },
+        )
+        settings.putString(KEY, json.encodeToString(PersistedServerRegistry.serializer(), persisted))
+    }
+
+    private fun writeSecret(ref: String, token: String) {
+        val bytes = token.encodeToByteArray()
+        try {
+            secureStore.put(secretKey(ref), bytes)
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    private fun rollbackSecretWrites(writes: List<SecretWrite>) {
+        writes.asReversed().forEach { write ->
+            runCatching {
+                write.previousToken?.let { writeSecret(write.ref, it) }
+                    ?: secureStore.remove(secretKey(write.ref))
+            }.onFailure { error ->
+                AppLog.error(
+                    category = "server.registry",
+                    event = "secret_write_rollback_failed",
+                    message = "A failed registry commit could not fully roll back secure storage",
+                    throwable = error,
+                )
+            }
+        }
+    }
+
+    private fun removeSecretBestEffort(ref: String) {
+        runCatching { secureStore.remove(secretKey(ref)) }.onFailure { error ->
+            AppLog.warning(
+                category = "server.registry",
+                event = "orphan_secret_remove_failed",
+                message = "An orphaned encrypted session could not be removed",
+                throwable = error,
+            )
+        }
+    }
+
+    private fun purgeLegacyPlaintextOrThrow() {
+        val empty = PersistedServerRegistry(version = PERSISTED_VERSION)
+        val safeValue = json.encodeToString(PersistedServerRegistry.serializer(), empty)
+        try {
+            settings.putString(KEY, safeValue)
+        } catch (_: Exception) {
+            try {
+                settings.remove(KEY)
+            } catch (removeError: Exception) {
+                throw IllegalStateException(
+                    "Legacy plaintext registry could not be removed",
+                    removeError,
+                )
+            }
+        }
+    }
+
+    private fun purgeOrdinaryRegistryBestEffort() {
+        runCatching(::purgeLegacyPlaintextOrThrow).onFailure { error ->
+            AppLog.error(
+                category = "server.registry",
+                event = "legacy_plaintext_purge_failed",
+                message = "Legacy plaintext registry could not be removed",
+                throwable = error,
+            )
+        }
+    }
+
+    private fun secretKey(ref: String): String = SECRET_KEY_PREFIX + ref
+
+    private fun requireValidToken(token: String) {
+        require(token.isNotBlank() && token.length <= MAX_TOKEN_CHARS) { "服务器访问令牌无效" }
+    }
+
+    private fun normalizeImportedServer(
+        baseUrl: String,
+        serverName: String,
+        userId: String,
+        userName: String,
+        accessToken: String,
+        previousIds: Iterable<String>,
+        invalidMessagePrefix: String,
+    ): SavedServer {
+        val normalizedBaseUrl = baseUrl.trim().trimEnd('/')
+        require(normalizedBaseUrl.length in 8..2_048 &&
+            (normalizedBaseUrl.startsWith("https://") || normalizedBaseUrl.startsWith("http://"))
+        ) { "${invalidMessagePrefix}服务器地址无效" }
+        val normalizedUserId = userId.trim()
+        val token = accessToken.trim()
+        require(normalizedUserId.isNotEmpty() && normalizedUserId.length <= 256 &&
+            token.length in 1..MAX_TOKEN_CHARS
+        ) { "${invalidMessagePrefix}服务器凭据无效" }
+        val id = SavedServer.idOf(normalizedBaseUrl, normalizedUserId)
+        return SavedServer(
+            id = id,
+            baseUrl = normalizedBaseUrl,
+            serverName = serverName
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .trim()
+                .take(60)
+                .ifBlank { "Emby" },
+            userId = normalizedUserId,
+            userName = userName
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .trim()
+                .take(128),
+            accessToken = token,
+            previousIds = recentPreviousIds(id, previousIds.take(MAX_SERVER_PREVIOUS_IDS)),
+        )
     }
 
     private fun clearOrphanedLibraryCaches(data: ServersData) {
         runCatching {
             LibraryCache(settings).clearOrphans(data.servers.mapTo(mutableSetOf()) { it.id })
         }.onFailure { error ->
-            // Registry state has already loaded/committed. Cache cleanup is best-effort and
-            // must never make a valid connection edit appear to have failed.
             AppLog.warning(
                 category = "server.registry",
                 event = "orphan_library_cache_clear_failed",
@@ -381,10 +711,7 @@ class ServerRegistry(private val settings: Settings) {
     }
 }
 
-/**
- * Later occurrences win so reusing an older alias makes it recent again. This matters when a
- * replacement collides with an existing saved connection and both histories are merged.
- */
+/** Later occurrences win so reusing an older alias makes it recent again. */
 private fun recentPreviousIds(
     currentId: String,
     vararg histories: Iterable<String>,

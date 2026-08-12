@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
@@ -67,9 +70,13 @@ import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.OfficialNavDisplay
+import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.OverlayButtonRow
+import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.overlayGlass
@@ -78,11 +85,16 @@ import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.library.LibraryScreen
 import com.yfuse.feature.player.ActivePlayback
+import com.yfuse.feature.player.PlayerLauncher
+import com.yfuse.feature.player.PlayerMediaItem
+import com.yfuse.core.data.PlaybackRecoveryEligibility
+import com.yfuse.core.network.EmbyStream
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.profile.ProfileTabScreen
 import com.yfuse.feature.search.SearchComponent
@@ -127,6 +139,29 @@ fun App(root: RootComponent) {
         val searchStack by root.search.stack.subscribeAsState()
         val profileStack by root.profile.stack.subscribeAsState()
         val miniPlayback by ActivePlayback.state.collectAsState()
+        val playbackRecovery = root.dependencies.playbackRecovery
+        val serverRegistry = root.dependencies.serverRegistry
+        val reportingCoordinator = root.dependencies.playbackReportingCoordinator
+        val startupRecovery = remember(playbackRecovery, serverRegistry) {
+            playbackRecovery.takeStartupEvaluation(serverRegistry.data.value.servers)
+        }
+        var recoveryPrompt by remember(startupRecovery) {
+            mutableStateOf(startupRecovery?.takeIf { it.shouldPrompt })
+        }
+        var recoveryLaunch by remember {
+            mutableStateOf<Pair<PlayerMediaItem, Long>?>(null)
+        }
+
+        LaunchedEffect(reportingCoordinator) {
+            reportingCoordinator.flushPending()
+        }
+        LaunchedEffect(startupRecovery) {
+            if (startupRecovery != null && !startupRecovery.shouldPrompt) {
+                // Invalid, completed-looking, removed-server and stale checkpoints should not
+                // keep being reconsidered on every later process start.
+                playbackRecovery.clear()
+            }
+        }
 
         // Watch-together lives above the tabs: an invite can arrive from a chat app at any
         // moment, and an active room has to stay visible after the player is dismissed —
@@ -235,15 +270,25 @@ fun App(root: RootComponent) {
         ) {
             SkeletonPulseProvider {
                 AppBackdrop {
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val expandedNavigation =
+                        windowWidthTier(maxWidth) == WindowWidthTier.Expanded
+                    val onSelectTab: (Tab) -> Unit = { tab ->
+                        if (tab == active) {
+                            root.reselectTab(tab, atRoot)
+                        } else {
+                            root.selectTab(tab)
+                        }
+                    }
                     Box(
                         Modifier
                             .fillMaxSize()
+                            .padding(start = if (expandedNavigation) 104.dp else 0.dp)
                             .backdropSource(backdrop),
                     ) {
-                        // Top-level tabs are a real Navigation 3 back stack: every non-Home root
-                        // previews Home during the system gesture, while each tab's nested host
-                        // continues to own its child routes. The shared host supplies the same
-                        // edge-reveal back transition used by nested destinations.
+                        // Top-level tabs are a real Navigation 3 back stack, while each tab's
+                        // nested host continues to own its child routes. Back navigation remains
+                        // functional, but its predictive and committed animations are disabled.
                         OfficialNavDisplay(
                             backStack = topLevelBackStack(active),
                             onBack = { root.selectTab(Tab.Home) },
@@ -264,22 +309,23 @@ fun App(root: RootComponent) {
                     }
 
                     if (showBottomBar && !overlays.any) {
-                        GlassTabBar(
-                            active = active,
-                            onSelect = { tab ->
-                                // Tapping the tab you are already on is not a no-op — see
-                                // [RootComponent.reselectTab].
-                                if (tab == active) {
-                                    root.reselectTab(tab, atRoot)
-                                } else {
-                                    root.selectTab(tab)
-                                }
-                            },
-                            backdrop = backdrop,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding(),
-                        )
+                        if (expandedNavigation) {
+                            GlassNavigationRail(
+                                active = active,
+                                onSelect = onSelectTab,
+                                backdrop = backdrop,
+                                modifier = Modifier.align(Alignment.CenterStart),
+                            )
+                        } else {
+                            GlassTabBar(
+                                active = active,
+                                onSelect = onSelectTab,
+                                backdrop = backdrop,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .navigationBarsPadding(),
+                            )
+                        }
                         // One slot above the tab bar, and the two things that can occupy it
                         // never coexist: while a player is alive the mini player carries the
                         // room note itself, and the room bar is for exactly the case where it
@@ -287,8 +333,16 @@ fun App(root: RootComponent) {
                         val bottomStackSlot = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
+                            .padding(start = if (expandedNavigation) 104.dp else 0.dp)
+                            .widthIn(max = 520.dp)
                             .padding(horizontal = Dimens.tabBarInset)
-                            .padding(bottom = Dimens.tabBarHeight + 22.dp)
+                            .padding(
+                                bottom = if (expandedNavigation) {
+                                    Dimens.tabBarInset
+                                } else {
+                                    Dimens.tabBarHeight + 22.dp
+                                },
+                            )
                         // Video backgrounding is represented by Android PiP. The old long,
                         // music-like mini controller duplicated transport controls and only
                         // appeared at tab roots, so it is intentionally not rendered here.
@@ -346,10 +400,107 @@ fun App(root: RootComponent) {
                             onDismiss = root::dismissInvite,
                         )
                     }
+
+                    recoveryPrompt
+                        ?.takeIf { pendingInvite == null && !roomInfoOpen }
+                        ?.let { evaluation ->
+                            val snapshot = evaluation.snapshot
+                            val server = evaluation.server
+                            val needsLogin = evaluation.eligibility ==
+                                PlaybackRecoveryEligibility.AuthenticationRequired
+                            GlassDialog(
+                                onDismiss = {
+                                    playbackRecovery.clear()
+                                    recoveryPrompt = null
+                                },
+                            ) {
+                                val palette = LocalPalette.current
+                                OverlayHeader(
+                                    title = "继续上次播放？",
+                                    subtitle = "检测到上次进程结束前保存的播放位置",
+                                )
+                                Text(
+                                    snapshot.title.ifBlank { "未命名视频" },
+                                    style = AppTypography.body.strong,
+                                    color = palette.text,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "上次看到 ${formatRecoveryPosition(snapshot.positionMs)}" +
+                                        server?.serverName?.let { " · $it" }.orEmpty(),
+                                    style = AppTypography.body.regular,
+                                    color = palette.body,
+                                )
+                                if (needsLogin) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        "此服务器的登录凭据已失效，请重新登录后再继续。",
+                                        style = AppTypography.caption.regular,
+                                        color = palette.error,
+                                    )
+                                }
+                                OverlayButtonRow(
+                                    dismissLabel = "忽略并清除",
+                                    confirmLabel = if (needsLogin) "前往我的" else "继续",
+                                    onDismiss = {
+                                        playbackRecovery.clear()
+                                        recoveryPrompt = null
+                                    },
+                                    onConfirm = resumeRecovery@{
+                                        if (needsLogin) {
+                                            // Keep the checkpoint: after re-login it remains available
+                                            // from 我的 and on a later cold start.
+                                            root.selectTab(Tab.Profile)
+                                            recoveryPrompt = null
+                                            return@resumeRecovery
+                                        }
+                                        val selectedServer = server ?: return@resumeRecovery
+                                        val urls = EmbyStream.streamUrls(
+                                            baseUrl = selectedServer.baseUrl,
+                                            itemId = snapshot.itemId,
+                                            token = selectedServer.accessToken,
+                                        )
+                                        recoveryLaunch = PlayerMediaItem(
+                                            id = snapshot.itemId,
+                                            url = urls.direct,
+                                            transcodeUrl = urls.transcode,
+                                            fallbackTranscodeUrl = urls.progressiveTranscode,
+                                            title = snapshot.title,
+                                            serverId = snapshot.serverId,
+                                            playSessionId = urls.playSessionId,
+                                        ) to snapshot.positionMs
+                                        recoveryPrompt = null
+                                    },
+                                    confirmEnabled = server != null,
+                                )
+                            }
+                        }
+
+                    recoveryLaunch?.let { (item, positionMs) ->
+                        PlayerLauncher(
+                            items = listOf(item),
+                            startIndex = 0,
+                            startPositionMs = positionMs,
+                            onLaunched = { recoveryLaunch = null },
+                        )
+                    }
+                    }
                 }
             }
         }
     }
+}
+
+internal fun formatRecoveryPosition(positionMs: Long): String {
+    val totalSeconds = positionMs.coerceAtLeast(0L) / 1_000L
+    val hours = totalSeconds / 3_600L
+    val minutes = totalSeconds % 3_600L / 60L
+    val seconds = totalSeconds % 60L
+    val minuteText = minutes.toString().padStart(2, '0')
+    val secondText = seconds.toString().padStart(2, '0')
+    return if (hours > 0L) "$hours:$minuteText:$secondText" else "$minuteText:$secondText"
 }
 
 internal fun topLevelBackStack(active: Tab): List<Tab> =
@@ -487,15 +638,16 @@ private fun GlassTabBar(
     )
     Row(
         modifier
+            .widthIn(max = 520.dp)
             .fillMaxWidth()
             // One group of four, so a screen reader announces "第 2 项，共 4 项" rather than
             // reading four unrelated controls.
             .selectableGroup()
             .padding(horizontal = Dimens.tabBarInset)
             .padding(bottom = Dimens.tabBarInset)
-            .height(Dimens.tabBarHeight)
+            .heightIn(min = Dimens.tabBarHeight)
             // The reference uses a true capsule rather than a rounded rectangle: the shell
-            // stays soft even after increasing the bar height.
+            // stays soft even when accessibility text makes the bar taller than its minimum.
             .shadow(Shadows.tabBar, CircleShape)
             .backdropBlur(backdrop, CircleShape)
             .overlayGlass(CircleShape, barFill, palette.tabbarBorder)
@@ -555,7 +707,7 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
             // This was `clickable(indication = null)` with nothing put back, so the one
             // control every session touches most had no press feedback at all.
             .pressable(
-                pressedScale = 0.92f,
+                pressedScale = 0.96f,
                 haptic = HapticSignal.Select,
                 // Without this every tab was announced as an unlabelled clickable region.
                 role = Role.Tab,
@@ -574,6 +726,75 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
             item.label,
             style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
             color = tint,
+        )
+    }
+}
+
+/** Expanded-width navigation keeps targets compact instead of stretching four across 840dp. */
+@Composable
+private fun GlassNavigationRail(
+    active: Tab,
+    onSelect: (Tab) -> Unit,
+    backdrop: BackdropState,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    Column(
+        modifier
+            .padding(start = Dimens.tabBarInset, top = 72.dp, bottom = 72.dp)
+            .width(76.dp)
+            .fillMaxHeight()
+            .selectableGroup()
+            .shadow(Shadows.tabBar, GlassShapes.tabBar)
+            .backdropBlur(backdrop, GlassShapes.tabBar)
+            .overlayGlass(GlassShapes.tabBar, palette.glassStrong, palette.tabbarBorder)
+            .padding(horizontal = 6.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        tabs.forEach { item ->
+            RailTabButton(
+                item = item,
+                selected = active == item.tab,
+                onClick = { onSelect(item.tab) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun RailTabButton(item: TabItem, selected: Boolean, onClick: () -> Unit) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val tint by animateColorAsState(
+        targetValue = if (selected) accent.accent else palette.sub2,
+        animationSpec = Motion.settle<Color>(reduceMotion),
+        label = "railTabTint",
+    )
+    Column(
+        Modifier
+            .width(64.dp)
+            .heightIn(min = 58.dp)
+            .clip(GlassShapes.card)
+            .background(if (selected) accent.container else Color.Transparent)
+            .pressable(
+                pressedScale = 0.96f,
+                haptic = HapticSignal.Select,
+                role = Role.Tab,
+                onClick = onClick,
+            )
+            .semantics(mergeDescendants = true) { this.selected = selected },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(item.icon, contentDescription = item.label, tint = tint, modifier = Modifier.size(21.dp))
+        Spacer(Modifier.height(4.dp))
+        Text(
+            item.label,
+            style = AppTypography.caption.medium,
+            color = tint,
+            maxLines = 1,
         )
     }
 }

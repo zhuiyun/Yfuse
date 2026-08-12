@@ -4,18 +4,192 @@ import kotlinx.coroutines.flow.StateFlow
 
 data class CastDevice(val id: String, val name: String)
 
+enum class CastPlaybackStatus(val label: String) {
+    Idle("空闲"),
+    Connecting("连接中"),
+    Buffering("缓冲中"),
+    Playing("播放中"),
+    Paused("已暂停"),
+    Ended("已结束"),
+    Disconnected("已断开"),
+    Error("错误"),
+}
+
+/** A nullable Boolean is too easy for UI code to accidentally render as false. */
+enum class CastCapability(val label: String) {
+    Supported("支持"),
+    Unsupported("不支持"),
+    Unknown("未知"),
+}
+
+data class CastCapabilities(
+    val playPause: CastCapability = CastCapability.Unknown,
+    val seek: CastCapability = CastCapability.Unknown,
+    val stop: CastCapability = CastCapability.Unknown,
+    val volume: CastCapability = CastCapability.Unknown,
+)
+
+enum class CastTermination {
+    UserStop,
+    Unexpected,
+}
+
 data class CastState(
     val devices: List<CastDevice> = emptyList(),
     val discovering: Boolean = false,
-    val activeDeviceId: String? = null,
+    /** Increments for every load attempt, so a second disconnect is independently handled. */
+    val sessionRevision: Long = 0L,
+    val status: CastPlaybackStatus = CastPlaybackStatus.Idle,
+    val activeDevice: CastDevice? = null,
+    /** True only after a receiver acknowledged a usable media session. */
+    val sessionConfirmed: Boolean = false,
+    val positionMs: Long = 0L,
+    val positionConfirmed: Boolean = false,
+    val durationMs: Long = 0L,
+    /** Receiver volume, 0f..1f; null until a receiver confirms it. */
+    val volume: Float? = null,
+    val capabilities: CastCapabilities = CastCapabilities(),
+    /** Last confirmed transport intent, retained through buffering/disconnection. */
+    val lastRemoteWasPlaying: Boolean = false,
+    val termination: CastTermination? = null,
     val error: String? = null,
-)
+) {
+    val activeDeviceId: String? get() = activeDevice?.id
+
+    val hasActiveSession: Boolean
+        get() = activeDevice != null && sessionConfirmed && termination == null &&
+            status != CastPlaybackStatus.Idle &&
+            status != CastPlaybackStatus.Disconnected
+}
 
 interface CastManager {
     val state: StateFlow<CastState>
     suspend fun discover()
-    suspend fun play(deviceId: String, mediaUrl: String, title: String)
-    suspend fun stop()
+
+    /** Returns only after the receiver accepted the load and exposed a usable session. */
+    suspend fun play(
+        deviceId: String,
+        mediaUrl: String,
+        title: String,
+        positionMs: Long = 0L,
+    ): Boolean
+
+    suspend fun resume(): Boolean
+    suspend fun pause(): Boolean
+    suspend fun seekTo(positionMs: Long): Boolean
+    suspend fun setVolume(volume: Float): Boolean
+
+    /** True only when the receiver acknowledged stop (or no session remained). */
+    suspend fun stop(): Boolean
+}
+
+internal fun CastState.connectingTo(device: CastDevice, positionMs: Long): CastState = copy(
+    status = CastPlaybackStatus.Connecting,
+    sessionRevision = sessionRevision + 1L,
+    activeDevice = device,
+    sessionConfirmed = false,
+    positionMs = positionMs.coerceAtLeast(0L),
+    positionConfirmed = false,
+    durationMs = 0L,
+    capabilities = CastCapabilities(),
+    lastRemoteWasPlaying = false,
+    termination = null,
+    error = null,
+)
+
+internal fun CastState.remoteUpdate(
+    status: CastPlaybackStatus,
+    positionMs: Long? = null,
+    durationMs: Long? = null,
+    volume: Float? = null,
+    capabilities: CastCapabilities? = null,
+): CastState = copy(
+    status = status,
+    sessionConfirmed = true,
+    positionMs = positionMs?.coerceAtLeast(0L) ?: this.positionMs,
+    positionConfirmed = positionMs != null || positionConfirmed,
+    durationMs = durationMs?.coerceAtLeast(0L) ?: this.durationMs,
+    volume = volume?.coerceIn(0f, 1f) ?: this.volume,
+    capabilities = capabilities ?: this.capabilities,
+    lastRemoteWasPlaying = when (status) {
+        CastPlaybackStatus.Playing -> true
+        CastPlaybackStatus.Paused, CastPlaybackStatus.Ended -> false
+        else -> lastRemoteWasPlaying
+    },
+    termination = null,
+    error = null,
+)
+
+internal fun CastState.commandFailed(message: String): CastState = copy(
+    status = CastPlaybackStatus.Error,
+    termination = null,
+    error = message,
+)
+
+internal fun CastState.unexpectedDisconnect(message: String): CastState = copy(
+    status = CastPlaybackStatus.Disconnected,
+    capabilities = CastCapabilities(),
+    termination = CastTermination.Unexpected,
+    error = message,
+)
+
+internal fun CastState.userStopped(): CastState = copy(
+    status = CastPlaybackStatus.Idle,
+    activeDevice = null,
+    sessionConfirmed = false,
+    capabilities = CastCapabilities(),
+    termination = CastTermination.UserStop,
+    error = null,
+)
+
+data class CastRecoveryDecision(
+    val positionMs: Long,
+    val resumePlayback: Boolean,
+)
+
+/** Pure policy used by PlayerActivity; an explicit Stop can never look like a disconnect. */
+fun castRecoveryDecision(
+    state: CastState,
+    fallbackPositionMs: Long = 0L,
+): CastRecoveryDecision? {
+    if (state.termination != CastTermination.Unexpected) return null
+    return CastRecoveryDecision(
+        positionMs = if (state.positionConfirmed) {
+            state.positionMs
+        } else {
+            fallbackPositionMs
+        }.coerceAtLeast(0L),
+        resumePlayback = state.lastRemoteWasPlaying,
+    )
+}
+
+/** DLNA REL_TIME parser. Invalid/NOT_IMPLEMENTED values stay unknown instead of becoming zero. */
+fun parseDlnaTimeMillis(value: String?): Long? {
+    val text = value?.trim()?.takeIf { it.isNotEmpty() && it != "NOT_IMPLEMENTED" } ?: return null
+    val parts = text.split(':')
+    if (parts.size != 3) return null
+    val hours = parts[0].toLongOrNull() ?: return null
+    val minutes = parts[1].toLongOrNull()?.takeIf { it in 0..59 } ?: return null
+    val seconds = parts[2].toDoubleOrNull()?.takeIf { it >= 0.0 && it < 60.0 } ?: return null
+    return ((hours * 3_600L + minutes * 60L) * 1_000L + seconds * 1_000.0).toLong()
+}
+
+fun formatDlnaTime(positionMs: Long): String {
+    val totalSeconds = positionMs.coerceAtLeast(0L) / 1_000L
+    val hours = totalSeconds / 3_600L
+    val minutes = totalSeconds % 3_600L / 60L
+    val seconds = totalSeconds % 60L
+    return hours.toString().padStart(2, '0') + ":" +
+        minutes.toString().padStart(2, '0') + ":" +
+        seconds.toString().padStart(2, '0')
+}
+
+internal fun castMediaUrlError(url: String): String? = when {
+    url.isBlank() -> "没有可用的投屏地址"
+    !(url.startsWith("http://", true) || url.startsWith("https://", true)) ->
+        "投屏地址必须使用 HTTP 或 HTTPS"
+    url.any(Char::isWhitespace) -> "投屏地址无效"
+    else -> null
 }
 
 expect fun createCastManager(): CastManager

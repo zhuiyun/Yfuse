@@ -48,22 +48,24 @@ internal class FallbackSettleWindow(private val requiredPolls: Int) {
 
 /** Official libmdk Android facade adapted to Yfuse's engine-neutral player contract. */
 class MdkVideoEngine(
-    private val items: List<PlayerMediaItem>,
+    items: List<PlayerMediaItem>,
     startIndex: Int,
     startPositionMs: Long,
     private val decoderMode: DecoderMode,
     private val autoNext: Boolean,
-    quality: PlaybackQuality,
+    private val quality: PlaybackQuality,
     private val customUserAgent: String,
     private val scope: CoroutineScope,
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
 
+    private val items = items.map { it.withPlaybackQuality(quality) }
+
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
      *  rest of the season. */
     private val transcodedIndices = items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
-        index.takeIf { item.playMethod == PlaybackMethod.Transcode }
+        index.takeIf { item.startsWithServerTranscode(quality) }
     }
     private val progressiveIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
@@ -72,11 +74,15 @@ class MdkVideoEngine(
         PlaybackState(
             currentIndex = startIndex,
             itemCount = items.size.coerceAtLeast(1),
-            diagnostics = PlaybackDiagnostics(
+            transcoding = startIndex in transcodedIndices,
+            videoHeight = items.getOrNull(startIndex)
+                ?.sourceVideoHeight(startIndex in transcodedIndices)
+                ?: 0,
+            diagnostics = initialPlaybackDiagnostics(
                 engine = "MDK",
                 decoder = decoderMode.label,
-                playMethod = items.getOrNull(startIndex)?.playMethod?.label
-                    ?: PlaybackMethod.DirectPlay.label,
+                item = items.getOrNull(startIndex),
+                quality = quality,
             ),
         ),
     )
@@ -113,9 +119,23 @@ class MdkVideoEngine(
         if (released) return
         attachedView = view
         val instance = ensurePlayer() ?: return
-        instance.setSurfaceView(view)
-        if (_state.value.durationMs == 0L && instance.mediaStatus() == 0) {
-            loadCurrent(instance)
+        runCatching {
+            instance.setSurfaceView(view)
+            if (_state.value.durationMs == 0L && instance.mediaStatus() == 0) {
+                loadCurrent(instance)
+            }
+        }.onFailure {
+            safeLogcat(Log.ERROR, MDK_TAG, "MDK surface attach failed", it)
+            AppLog.error(
+                category = "player.mdk",
+                event = "surface_attach_failed",
+                message = "MDK surface attach failed",
+                throwable = it,
+            )
+            markTerminalFailure(
+                fallbackMessage = "MDK 无法连接视频画面，正在尝试其他播放器",
+                details = it.message,
+            )
         }
     }
 
@@ -183,6 +203,7 @@ class MdkVideoEngine(
         tracksLoadedForIndex = -1
         endHandled = false
         val transcoding = index in transcodedIndices
+        val nextItem = items.getOrNull(index)
         _state.update {
             it.copy(
                 currentIndex = index,
@@ -191,20 +212,20 @@ class MdkVideoEngine(
                 positionMs = 0L,
                 durationMs = 0L,
                 bufferedPositionMs = 0L,
-                videoHeight = 0,
+                videoHeight = nextItem?.sourceVideoHeight(transcoding) ?: 0,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
                 error = null,
                 ended = false,
                 transcoding = transcoding,
                 fallbacksExhausted = false,
-                diagnostics = it.diagnostics.copy(
-                    playMethod = if (transcoding) {
-                        PlaybackMethod.Transcode.label
-                    } else {
-                        items.getOrNull(index)?.playMethod?.label ?: PlaybackMethod.DirectPlay.label
-                    },
-                    bufferedDurationMs = 0L,
+                automaticFallbackBlocked = false,
+                diagnostics = initialPlaybackDiagnostics(
+                    engine = "MDK",
+                    decoder = it.diagnostics.decoder,
+                    item = nextItem,
+                    quality = quality,
+                    transcoding = transcoding,
                 ),
             )
         }
@@ -224,6 +245,8 @@ class MdkVideoEngine(
                 buffering = true,
                 bufferedPositionMs = it.positionMs,
                 ended = false,
+                fallbacksExhausted = false,
+                automaticFallbackBlocked = false,
             )
         }
         ensurePlayer()?.let(::loadCurrent)
@@ -271,9 +294,10 @@ class MdkVideoEngine(
                 message = "MDK initialization failed",
                 throwable = it,
             )
-            _state.update { state ->
-                state.copy(error = "无法初始化 MDK 播放器", buffering = false)
-            }
+            markTerminalFailure(
+                fallbackMessage = "无法初始化 MDK 播放器，正在尝试其他播放器",
+                details = it.message,
+            )
         }.getOrNull()
     }
 
@@ -293,9 +317,10 @@ class MdkVideoEngine(
                 throwable = it,
                 attributes = mapOf("itemIndex" to _state.value.currentIndex.toString()),
             )
-            _state.update { state ->
-                state.copy(error = "MDK 启动失败", buffering = false)
-            }
+            markTerminalFailure(
+                fallbackMessage = "MDK 启动失败，正在尝试其他播放器",
+                details = it.message,
+            )
         }
     }
 
@@ -307,6 +332,12 @@ class MdkVideoEngine(
                 status and (MDKPlayer.STATUS_LOADED or MDKPlayer.STATUS_PREPARED) != 0
             val ended = status and MDKPlayer.STATUS_END != 0
             val invalid = status and MDKPlayer.STATUS_INVALID != 0
+            if (!loaded || invalid) {
+                nativePlaybackLogFailure(instance.lastError())?.let { failure ->
+                    markTerminalFailure(failure)
+                    return
+                }
+            }
             val bufferingFlags =
                 MDKPlayer.STATUS_LOADING or
                     MDKPlayer.STATUS_STALLED or
@@ -396,9 +427,10 @@ class MdkVideoEngine(
                     message = "MDK state polling failed",
                     throwable = it,
                 )
-                _state.update { state ->
-                    state.copy(error = "MDK 播放异常", buffering = false)
-                }
+                markTerminalFailure(
+                    fallbackMessage = "MDK 播放异常，正在尝试其他播放器",
+                    details = it.message,
+                )
             }
         }
     }
@@ -442,7 +474,7 @@ class MdkVideoEngine(
      * transcode, then its progressive MP4. Returns false once the chain is spent, which is
      * what tells the caller to stop retrying and report the failure.
      */
-    override fun switchToTranscode(): Boolean {
+    override fun switchToTranscode(reason: String?): Boolean {
         if (released) return false
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return false
@@ -478,8 +510,17 @@ class MdkVideoEngine(
                 bufferedPositionMs = it.positionMs,
                 ended = false,
                 transcoding = true,
+                fallbacksExhausted = false,
+                automaticFallbackBlocked = false,
                 diagnostics = it.diagnostics.copy(
                     playMethod = "服务器转码",
+                    dynamicRange = "",
+                    audioFormat = "",
+                    fallbackReason = reason ?: if (progressive) {
+                        "HLS 转码不可用，已改用 MP4 转码"
+                    } else {
+                        "直放失败，已切换服务器转码"
+                    },
                     bufferedDurationMs = 0L,
                 ),
             )
@@ -515,6 +556,26 @@ class MdkVideoEngine(
             ensurePlayer()?.let(::loadCurrent)
         }
         return true
+    }
+
+    private fun markTerminalFailure(
+        fallbackMessage: String,
+        details: String? = null,
+    ) {
+        markTerminalFailure(terminalNativePlaybackFailure(fallbackMessage, details))
+    }
+
+    private fun markTerminalFailure(failure: NativePlaybackFailure) {
+        _state.update {
+            it.copy(
+                playing = false,
+                buffering = false,
+                ended = false,
+                error = failure.message,
+                fallbacksExhausted = true,
+                automaticFallbackBlocked = failure.blocksAutomaticFallback,
+            )
+        }
     }
 
     private inline fun runMdk(block: (MDKPlayer) -> Unit) {

@@ -9,6 +9,7 @@ import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.ServerHealthMonitor
+import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.UserAgentPreferences
@@ -18,6 +19,7 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.feature.player.PlaybackSourcePreloader
+import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.watch.WatchInviteResolver
 
 /** Process-scoped services resolved once at the Android composition root. */
@@ -32,6 +34,7 @@ data class AppDependencies(
     val inviteResolver: WatchInviteResolver,
     val playbackSourcePreloader: PlaybackSourcePreloader?,
     val playbackRecovery: PlaybackRecoveryStore,
+    val playbackReportingCoordinator: PlaybackReportingCoordinator,
     val playbackPreferences: PlaybackPreferences,
     val playbackFailoverRequest: PlaybackFailoverRequest,
     val userAgentPreferences: UserAgentPreferences,
@@ -41,4 +44,5 @@ data class AppDependencies(
     val lanDiscovery: LanDiscovery,
     val account: AccountRepository,
     val serverHealthMonitor: ServerHealthMonitor,
+    val serverRegistry: ServerRegistry,
 )

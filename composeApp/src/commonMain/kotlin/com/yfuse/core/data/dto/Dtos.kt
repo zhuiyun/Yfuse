@@ -296,6 +296,10 @@ data class BaseItemDto(
     val Chapters: List<ChapterDto>? = null,
     /** mediaSourceId -> width -> sprite layout (Jellyfin 10.9+). */
     val Trickplay: Map<String, Map<String, TrickplayInfoDto>?>? = null,
+    /** Row identity returned only by `/Playlists/{id}/Items`; required for removal. */
+    val PlaylistItemId: String? = null,
+    /** Present for folders such as BoxSet/Playlist when requested through Fields. */
+    val ChildCount: Int? = null,
 )
 
 @Serializable
@@ -363,6 +367,7 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         providerIds = ProviderIds.orEmpty(),
         isFavorite = UserData?.IsFavorite == true,
         played = UserData?.Played == true,
+        playlistItemId = PlaylistItemId,
     )
 }
 

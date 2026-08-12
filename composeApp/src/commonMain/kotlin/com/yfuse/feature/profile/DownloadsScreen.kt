@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -27,6 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.TabBarInset
@@ -37,18 +45,45 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccent
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.OfflineMediaManager
+import com.yfuse.core.offline.summarizeOfflineQueue
 
 enum class DownloadFilter(val label: String) {
     All("全部"), Active("进行中"), Completed("已完成"), Failed("失败")
 }
 
 enum class DownloadSort(val label: String) { Updated("最近更新"), Name("名称"), Size("大小") }
+
+internal fun filterAndSortDownloads(
+    items: List<OfflineMedia>,
+    filter: DownloadFilter,
+    sort: DownloadSort,
+): List<OfflineMedia> = items.filter { item ->
+    when (filter) {
+        DownloadFilter.All -> true
+        DownloadFilter.Active -> item.status in setOf(
+            DownloadStatus.Queued,
+            DownloadStatus.WaitingForWifi,
+            DownloadStatus.Downloading,
+            DownloadStatus.Paused,
+        )
+        DownloadFilter.Completed -> item.status == DownloadStatus.Completed
+        DownloadFilter.Failed -> item.status == DownloadStatus.Failed
+    }
+}.let { values ->
+    when (sort) {
+        DownloadSort.Updated -> values.sortedByDescending { it.updatedAtEpochMs }
+        DownloadSort.Name -> values.sortedBy { it.title.lowercase() }
+        DownloadSort.Size -> values.sortedByDescending { maxOf(it.totalBytes, it.downloadedBytes) }
+    }
+}
 
 @Composable
 internal fun DownloadsScreen(
@@ -58,6 +93,7 @@ internal fun DownloadsScreen(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccent.current.color
+    val largeText = LocalDensity.current.fontScale >= 1.3f
     val items by manager.items.collectAsState()
     val wifiOnly by manager.wifiOnly.collectAsState()
     var filter by remember { mutableStateOf(DownloadFilter.All) }
@@ -65,29 +101,12 @@ internal fun DownloadsScreen(
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     val shown = remember(items, filter, sort) {
-        items.filter { item ->
-            when (filter) {
-                DownloadFilter.All -> true
-                DownloadFilter.Active -> item.status in setOf(
-                    DownloadStatus.Queued,
-                    DownloadStatus.WaitingForWifi,
-                    DownloadStatus.Downloading,
-                    DownloadStatus.Paused,
-                )
-                DownloadFilter.Completed -> item.status == DownloadStatus.Completed
-                DownloadFilter.Failed -> item.status == DownloadStatus.Failed
-            }
-        }.let { values ->
-            when (sort) {
-                DownloadSort.Updated -> values.sortedByDescending { it.updatedAtEpochMs }
-                DownloadSort.Name -> values.sortedBy { it.title.lowercase() }
-                DownloadSort.Size -> values.sortedByDescending { maxOf(it.totalBytes, it.downloadedBytes) }
-            }
-        }
+        filterAndSortDownloads(items, filter, sort)
     }
     val selectedItems = items.filter { it.id in selected }
-    val usedBytes = items.filter { it.status == DownloadStatus.Completed }.sumOf { it.downloadedBytes }
-    val activeCount = items.count { it.status in setOf(DownloadStatus.Queued, DownloadStatus.WaitingForWifi, DownloadStatus.Downloading, DownloadStatus.Paused) }
+    val summary = remember(items) { summarizeOfflineQueue(items) }
+    val canPauseAll = summary.active > 0
+    val canResumeAll = summary.paused > 0 || summary.failed > 0
 
     LazyColumn(
         Modifier.fillMaxSize().statusBarsPadding(),
@@ -100,7 +119,10 @@ internal fun DownloadsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    Modifier.size(36.dp).pressable(onClick = onBack)
+                    Modifier
+                        .pressable(onClickLabel = "返回", onClick = onBack)
+                        .touchTarget()
+                        .size(36.dp)
                         .glass(AppShapes.control, palette.card3, palette.border),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -109,18 +131,43 @@ internal fun DownloadsScreen(
                 Column(Modifier.padding(start = 12.dp).weight(1f)) {
                     Text("下载中心", style = AppTypography.section.strong, color = palette.text)
                     Text(
-                        "${items.size} 项 · $activeCount 进行中 · ${formatDownloadBytes(usedBytes)} 离线文件",
+                        "${summary.total} 项 · ${summary.active} 进行中 · " +
+                            "${summary.paused} 已暂停 · ${summary.failed} 失败",
                         style = AppTypography.caption.medium,
                         color = palette.sub2,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "${summary.completed} 已完成 · " +
+                            "${formatDownloadBytes(summary.completedBytes)} 离线文件" +
+                            if (summary.retryScheduled > 0) {
+                                " · ${summary.retryScheduled} 项待自动重试"
+                            } else {
+                                ""
+                            },
+                        style = AppTypography.caption.regular,
+                        color = palette.hint,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Text(
                     if (selected.isEmpty()) "多选" else "完成",
                     style = AppTypography.body.strong,
                     color = accent,
-                    modifier = Modifier.pressable {
-                        selected = if (selected.isEmpty()) shown.mapTo(linkedSetOf()) { it.id } else emptySet()
-                    }.padding(8.dp),
+                    modifier = Modifier
+                        .pressable(
+                            onClickLabel = if (selected.isEmpty()) "选中当前下载" else "退出多选",
+                        ) {
+                            selected = if (selected.isEmpty()) {
+                                shown.mapTo(linkedSetOf()) { it.id }
+                            } else {
+                                emptySet()
+                            }
+                        }
+                        .touchTarget()
+                        .padding(horizontal = 8.dp),
                 )
             }
         }
@@ -132,22 +179,81 @@ internal fun DownloadsScreen(
                     .padding(horizontal = 15.dp, vertical = 13.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("下载策略", style = AppTypography.body.strong, color = palette.text)
-                    Text(sort.label, style = AppTypography.caption.strong, color = accent, modifier = Modifier.pressable {
-                        sort = DownloadSort.entries[(DownloadSort.entries.indexOf(sort) + 1) % DownloadSort.entries.size]
-                    })
-                }
                 Row(
-                    Modifier.fillMaxWidth().pressable { manager.setWifiOnly(!wifiOnly) },
+                    Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column {
+                    Text("下载策略", style = AppTypography.body.strong, color = palette.text)
+                    Text(
+                        sort.label,
+                        style = AppTypography.caption.strong,
+                        color = accent,
+                        modifier = Modifier
+                            .pressable(onClickLabel = "更改排序，当前${sort.label}") {
+                                sort = DownloadSort.entries[
+                                    (DownloadSort.entries.indexOf(sort) + 1) % DownloadSort.entries.size
+                                ]
+                            }
+                            .touchTarget()
+                            .padding(horizontal = 8.dp),
+                    )
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .pressable(
+                            role = Role.Switch,
+                            onClickLabel = if (wifiOnly) "允许蜂窝网络下载" else "仅允许 Wi-Fi 下载",
+                        ) { manager.setWifiOnly(!wifiOnly) }
+                        .touchTarget()
+                        .semantics { toggleableState = ToggleableState(wifiOnly) },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
                         Text("仅 Wi-Fi 下载", style = AppTypography.body.strong, color = palette.text)
                         Text("关闭后可能使用蜂窝流量", style = AppTypography.caption.regular, color = palette.sub2)
                     }
                     Text(if (wifiOnly) "已开启" else "已关闭", style = AppTypography.body.strong, color = if (wifiOnly) accent else palette.sub2)
+                }
+                Text("队列控制", style = AppTypography.caption.strong, color = palette.sub2)
+                if (largeText) {
+                    Column(
+                        Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        BatchAction(
+                            label = "全部暂停",
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = canPauseAll,
+                            onClick = manager::pauseAll,
+                        )
+                        BatchAction(
+                            label = "全部继续/重试",
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = canResumeAll,
+                            onClick = manager::resumeAll,
+                        )
+                    }
+                } else {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        BatchAction(
+                            label = "全部暂停",
+                            modifier = Modifier.weight(1f),
+                            enabled = canPauseAll,
+                            onClick = manager::pauseAll,
+                        )
+                        BatchAction(
+                            label = "全部继续/重试",
+                            modifier = Modifier.weight(1f),
+                            enabled = canResumeAll,
+                            onClick = manager::resumeAll,
+                        )
+                    }
                 }
             }
         }
@@ -163,7 +269,13 @@ internal fun DownloadsScreen(
                         value.label,
                         style = if (active) AppTypography.body.strong else AppTypography.body.medium,
                         color = if (active) accent else palette.body,
-                        modifier = Modifier.pressable { filter = value }
+                        modifier = Modifier
+                            .pressable(
+                                role = Role.RadioButton,
+                                onClickLabel = "筛选${value.label}下载",
+                            ) { filter = value }
+                            .touchTarget()
+                            .semantics { this.selected = active }
                             .glass(
                                 GlassShapes.chip,
                                 if (active) accent.copy(alpha = 0.13f) else palette.card2,
@@ -176,17 +288,42 @@ internal fun DownloadsScreen(
 
         if (selectedItems.isNotEmpty()) {
             item {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal)
-                        .glass(GlassShapes.card, palette.card2, palette.border)
-                        .padding(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    BatchAction("暂停") { selectedItems.forEach { manager.pause(it.id) } }
-                    BatchAction("继续/重试") { selectedItems.forEach { manager.resume(it.id) } }
-                    BatchAction("删除", danger = true) {
-                        selectedItems.forEach { manager.remove(it.id) }
-                        selected = emptySet()
+                val batchSurface = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Dimens.pageHorizontal)
+                    .glass(GlassShapes.card, palette.card2, palette.border)
+                    .padding(10.dp)
+                if (largeText) {
+                    Column(
+                        batchSurface,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        BatchAction("暂停", Modifier.fillMaxWidth()) {
+                            selectedItems.forEach { manager.pause(it.id) }
+                        }
+                        BatchAction("继续/重试", Modifier.fillMaxWidth()) {
+                            selectedItems.forEach { manager.resume(it.id) }
+                        }
+                        BatchAction("删除", Modifier.fillMaxWidth(), danger = true) {
+                            selectedItems.forEach { manager.remove(it.id) }
+                            selected = emptySet()
+                        }
+                    }
+                } else {
+                    Row(
+                        batchSurface,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        BatchAction("暂停", Modifier.weight(1f)) {
+                            selectedItems.forEach { manager.pause(it.id) }
+                        }
+                        BatchAction("继续/重试", Modifier.weight(1f)) {
+                            selectedItems.forEach { manager.resume(it.id) }
+                        }
+                        BatchAction("删除", Modifier.weight(1f), danger = true) {
+                            selectedItems.forEach { manager.remove(it.id) }
+                            selected = emptySet()
+                        }
                     }
                 }
             }
@@ -228,14 +365,27 @@ internal fun DownloadsScreen(
 }
 
 @Composable
-private fun BatchAction(label: String, danger: Boolean = false, onClick: () -> Unit) {
+private fun BatchAction(
+    label: String,
+    modifier: Modifier = Modifier,
+    danger: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccent.current.color
     Text(
         label,
         style = AppTypography.body.strong,
-        color = if (danger) Semantic.Error else accent,
-        modifier = Modifier.pressable(onClick = onClick)
+        color = when {
+            !enabled -> palette.hint
+            danger -> Semantic.Error
+            else -> accent
+        },
+        textAlign = TextAlign.Center,
+        modifier = modifier
+            .pressable(enabled = enabled, onClickLabel = label, onClick = onClick)
+            .touchTarget()
             .glass(GlassShapes.chip, palette.card3, palette.border)
             .padding(horizontal = 11.dp, vertical = 7.dp),
     )
@@ -260,6 +410,7 @@ private fun DownloadTaskRow(
             .pressable(onClick = if (selectionMode) onToggleSelected else {
                 { if (item.playable) onPlay() else if (item.status == DownloadStatus.Downloading) onPause() else onResume() }
             })
+            .heightIn(min = MinTouchTarget)
             .glass(
                 GlassShapes.card,
                 if (selected) accent.copy(alpha = 0.10f) else palette.card,
@@ -277,7 +428,11 @@ private fun DownloadTaskRow(
                 Text(
                     downloadStatusText(item),
                     style = AppTypography.caption.medium,
-                    color = if (item.status == DownloadStatus.Failed) Semantic.Error else palette.sub2,
+                    color = when {
+                        item.status == DownloadStatus.Failed -> Semantic.Error
+                        item.nextRetryAt > 0L -> Semantic.Warning
+                        else -> palette.sub2
+                    },
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -297,7 +452,12 @@ private fun DownloadTaskRow(
                     AppIcons.Close,
                     "删除下载",
                     tint = palette.sub2,
-                    modifier = Modifier.padding(start = 10.dp).size(28.dp).pressable(onClick = onRemove).padding(7.dp),
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .pressable(onClickLabel = "删除下载", onClick = onRemove)
+                        .touchTarget()
+                        .size(28.dp)
+                        .padding(7.dp),
                 )
             }
         }
@@ -310,7 +470,7 @@ private fun DownloadTaskRow(
 }
 
 private fun downloadStatusText(item: OfflineMedia): String = when (item.status) {
-    DownloadStatus.Queued -> "等待下载"
+    DownloadStatus.Queued -> item.error ?: if (item.nextRetryAt > 0L) "等待自动重试" else "等待下载"
     DownloadStatus.WaitingForWifi -> "等待 Wi-Fi"
     DownloadStatus.Downloading -> "${formatDownloadBytes(item.downloadedBytes)} / ${formatDownloadBytes(item.totalBytes)}"
     DownloadStatus.Paused -> "已暂停 · ${formatDownloadBytes(item.downloadedBytes)}"

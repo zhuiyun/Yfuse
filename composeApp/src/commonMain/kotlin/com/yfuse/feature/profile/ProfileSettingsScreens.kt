@@ -7,6 +7,51 @@ import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 
+internal data class PlaybackOptionCopy(
+    val label: String,
+    val summary: String,
+    val description: String,
+)
+
+internal fun PlayerEngine.playbackOptionCopy(): PlaybackOptionCopy = when (this) {
+    PlayerEngine.Exo -> PlaybackOptionCopy(
+        label = "兼容优先（ExoPlayer）",
+        summary = "兼容优先",
+        description = "使用 Android Media3，适合作为默认选择",
+    )
+    PlayerEngine.Mpv -> PlaybackOptionCopy(
+        label = "格式优先（MPV）",
+        summary = "格式优先",
+        description = "使用 libmpv，覆盖更多封装、编码与字幕格式",
+    )
+    PlayerEngine.Mdk -> PlaybackOptionCopy(
+        label = "原生内核（MDK）",
+        summary = "原生内核",
+        description = "使用 MDK 原生播放栈，供高级兼容性选择",
+    )
+}
+
+internal fun DecoderMode.playbackOptionCopy(): PlaybackOptionCopy = when (this) {
+    DecoderMode.Hardware -> PlaybackOptionCopy(
+        label = "硬件优先",
+        summary = "硬件优先",
+        description = "优先使用设备硬件解码，通常更省电",
+    )
+    DecoderMode.Software -> PlaybackOptionCopy(
+        label = "软件兼容（FFmpeg）",
+        summary = "软件兼容",
+        description = "使用软件解码，更耗电，但可兼容部分硬件不支持的编码",
+    )
+    DecoderMode.Auto -> PlaybackOptionCopy(
+        label = "自动选择",
+        summary = "自动选择",
+        description = "由当前播放内核根据媒体与设备自行选择",
+    )
+}
+
+internal fun playbackSettingsSummary(engine: PlayerEngine, decoder: DecoderMode): String =
+    "${engine.playbackOptionCopy().summary} · ${decoder.playbackOptionCopy().summary}"
+
 @Composable
 internal fun PlaybackSettingsScreen(
     onBack: () -> Unit,
@@ -23,21 +68,36 @@ internal fun PlaybackSettingsScreen(
 ) {
     SettingsPage(
         title = "播放",
-        subtitle = "播放器、解码与播放行为",
+        subtitle = "播放行为与高级兼容选项",
         onBack = onBack,
     ) {
         item {
-            Section(title = "播放体验") {
+            Section(title = "播放行为") {
                 SettingsCard {
-                    SettingRow("默认播放器内核", "${engine.label} ›", true, onEngine)
-                    SettingsDivider()
-                    SettingRow("解码内核", "${decoder.label} ›", true, onDecoder)
-                    SettingsDivider()
                     SwitchRow("自动播放下一集", autoNext, true, onAutoNext)
                     SettingsDivider()
                     SettingRow("视频缓存大小", "${videoCacheSize.label} ›", true, onVideoCache)
                     SettingsDivider()
                     SettingRow("片头片尾", skipSegments, true, onSkipSegments)
+                }
+            }
+        }
+        item {
+            Section(title = "高级播放内核") {
+                SettingsCard {
+                    SettingRow(
+                        "播放内核",
+                        "${engine.playbackOptionCopy().label} ›",
+                        true,
+                        onEngine,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "解码方式",
+                        "${decoder.playbackOptionCopy().label} ›",
+                        true,
+                        onDecoder,
+                    )
                 }
             }
         }

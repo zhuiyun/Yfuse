@@ -58,12 +58,16 @@ internal fun SettingsPanel(
     state: PlaybackState,
     speeds: List<Float>,
     engineOptions: List<Pair<String, Boolean>>,
+    qualityOptions: List<Pair<String, Boolean>>,
     transcodeLabel: String?,
     transcodeActive: Boolean,
     castDevices: List<Pair<String, String>>,
     castingDeviceId: String?,
     castDiscovering: Boolean,
     castError: String?,
+    castStatus: String?,
+    castPosition: String?,
+    castCapabilities: String?,
     danmaku: DanmakuPanelState,
     danmakuActions: DanmakuPanelActions,
     onOpenDanmakuSearch: () -> Unit,
@@ -79,6 +83,7 @@ internal fun SettingsPanel(
     filled: Boolean,
     onToggleFill: () -> Unit,
     onSelectEngine: (Int) -> Unit,
+    onSelectQuality: (Int) -> Unit,
     onTranscode: () -> Unit,
     onDiscoverCast: () -> Unit,
     onCastTo: (String) -> Unit,
@@ -96,7 +101,9 @@ internal fun SettingsPanel(
 ) {
     val tabs = buildList {
         add(Tab.Playback)
-        if (state.subtitleTracks.isNotEmpty() || state.audioTracks.size > 1) add(Tab.Tracks)
+        // Keep the subtitle entry reachable even when the current file has no embedded
+        // track: online/third-party search is the recovery path in exactly that state.
+        add(Tab.Tracks)
         add(Tab.Picture)
         add(Tab.Danmaku)
         add(Tab.Cast)
@@ -219,24 +226,34 @@ internal fun SettingsPanel(
                                         onClick = { subtitleActions.onScale(scale) },
                                     )
                                 }
-                            GroupLabel("第三方字幕")
-                            OptionRow(
-                                if (remoteSubtitles.loading) "正在搜索中文字幕…" else "搜索中文字幕",
-                                false,
-                                onClick = remoteSubtitleActions.onSearch,
+                        } else {
+                            Text(
+                                "当前版本没有可用字幕，可继续搜索第三方字幕。",
+                                style = AppTypography.caption.medium,
+                                color = Color.White.copy(alpha = 0.68f),
                             )
-                            remoteSubtitles.results.forEach { result ->
-                                OptionRow(
-                                    label = listOf(result.label, result.detail)
-                                        .filter(String::isNotBlank)
-                                        .joinToString(" · "),
-                                    selected = remoteSubtitles.downloadingId == result.id,
-                                    onClick = { remoteSubtitleActions.onDownload(result.id) },
-                                )
-                            }
-                            remoteSubtitles.message?.let { message ->
-                                Text(message, style = AppTypography.caption.medium, color = Color.White.copy(alpha = 0.68f))
-                            }
+                        }
+                        GroupLabel("第三方字幕")
+                        OptionRow(
+                            if (remoteSubtitles.loading) "正在搜索中文字幕…" else "搜索中文字幕",
+                            false,
+                            onClick = remoteSubtitleActions.onSearch,
+                        )
+                        remoteSubtitles.results.forEach { result ->
+                            OptionRow(
+                                label = listOf(result.label, result.detail)
+                                    .filter(String::isNotBlank)
+                                    .joinToString(" · "),
+                                selected = remoteSubtitles.downloadingId == result.id,
+                                onClick = { remoteSubtitleActions.onDownload(result.id) },
+                            )
+                        }
+                        remoteSubtitles.message?.let { message ->
+                            Text(
+                                message,
+                                style = AppTypography.caption.medium,
+                                color = Color.White.copy(alpha = 0.68f),
+                            )
                         }
                         if (state.audioTracks.isNotEmpty()) {
                             GroupLabel("音轨")
@@ -274,6 +291,18 @@ internal fun SettingsPanel(
                         GroupLabel("播放速度")
                         speeds.forEach { speed ->
                             OptionRow(speedLabel(speed), speed == state.speed, onClick = { onSpeed(speed) })
+                        }
+
+                        if (qualityOptions.isNotEmpty()) {
+                            GroupLabel("播放画质")
+                            qualityOptions.forEachIndexed { index, (label, selected) ->
+                                OptionRow(label, selected, onClick = { onSelectQuality(index) })
+                            }
+                            Text(
+                                "4K / 1080P / 720P / 480P 会请求服务器按该上限转码；原画与自动优先采用服务器协商的直放。",
+                                style = AppTypography.caption.medium,
+                                color = Color.White.copy(alpha = 0.62f),
+                            )
                         }
 
                     }
@@ -382,10 +411,18 @@ internal fun SettingsPanel(
                         DiagnosticRow("内核", diagnostics.engine.ifBlank { "未知" })
                         DiagnosticRow("解码器", diagnostics.decoder)
                         DiagnosticRow("播放方式", diagnostics.playMethod)
+                        DiagnosticRow("所选画质", diagnostics.requestedQuality)
                         DiagnosticRow(
                             "画面",
                             buildString {
-                                append(if (state.videoHeight > 0) "${state.videoHeight}P" else "未知分辨率")
+                                append(
+                                    when {
+                                        diagnostics.videoWidth > 0 && state.videoHeight > 0 ->
+                                            "${diagnostics.videoWidth} × ${state.videoHeight}"
+                                        state.videoHeight > 0 -> "${state.videoHeight}P"
+                                        else -> "未知分辨率"
+                                    },
+                                )
                                 if (diagnostics.frameRate > 0f) {
                                     append(" · ")
                                     append(diagnostics.frameRate.asFrameRate())
@@ -393,6 +430,8 @@ internal fun SettingsPanel(
                             },
                         )
                         DiagnosticRow("视频编码", diagnostics.videoCodec)
+                        DiagnosticRow("动态范围", diagnostics.dynamicRange.ifBlank { "未知" })
+                        DiagnosticRow("音频", diagnostics.audioFormat.ifBlank { "未知" })
                         DiagnosticRow("当前码率", diagnostics.bitrateBitsPerSecond.asBitrate())
                         DiagnosticRow("网络速度", diagnostics.networkBitsPerSecond.asBitrate())
                         DiagnosticRow(
@@ -400,6 +439,9 @@ internal fun SettingsPanel(
                             "${diagnostics.bufferedDurationMs / 1000.0f}s · ${diagnostics.bufferEvents} 次",
                         )
                         DiagnosticRow("丢帧", "${diagnostics.droppedFrames} 帧")
+                        diagnostics.fallbackReason?.takeIf(String::isNotBlank)?.let { reason ->
+                            DiagnosticRow("降级原因", reason)
+                        }
 
                         // The room's own state, next to the playback state it is driving.
                         // When 一起看 misbehaves the question is always the same — am I
@@ -432,6 +474,9 @@ internal fun SettingsPanel(
 
                     Tab.Cast -> {
                         GroupLabel("局域网投屏设备")
+                        castStatus?.let { DiagnosticRow("状态", it) }
+                        castPosition?.let { DiagnosticRow("远端进度", it) }
+                        castCapabilities?.let { DiagnosticRow("远端能力", it) }
                         if (castDiscovering) {
                             Text(
                                 "正在发现 DLNA 设备…",

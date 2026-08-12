@@ -60,10 +60,29 @@ fun AnimatedSplashApp(
     val dark = themeMode.resolveDark(systemDark)
 
     val context = LocalContext.current
-    val stillFrame = remember(reduceMotion) { reduceMotion || context.systemAnimationsOff() }
+    val systemAnimationsOff = remember(context) { context.systemAnimationsOff() }
+    val stillFrame = reduceMotion || systemAnimationsOff
+    val splashHistory = remember(context) {
+        context.getSharedPreferences(SplashHistoryPreferences, Context.MODE_PRIVATE)
+    }
+    val firstSplash = rememberSaveable {
+        !splashHistory.getBoolean(SplashHistorySeenKey, false)
+    }
+    val timing = remember(firstSplash, reduceMotion, systemAnimationsOff) {
+        splashTiming(
+            firstLaunch = firstSplash,
+            reduceMotion = reduceMotion,
+            systemAnimationsOff = systemAnimationsOff,
+        )
+    }
 
     var splashVisible by rememberSaveable {
         mutableStateOf(root.themePreferences.splashAnimation.value)
+    }
+    LaunchedEffect(splashVisible, firstSplash, splashHistory) {
+        if (splashVisible && firstSplash) {
+            splashHistory.edit().putBoolean(SplashHistorySeenKey, true).apply()
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -85,6 +104,7 @@ fun AnimatedSplashApp(
                 // cold start where the phone and the app disagreed.
                 entryDark = systemDark,
                 stillFrame = stillFrame,
+                timing = timing,
                 onFinished = { splashVisible = false },
             )
         }
@@ -104,6 +124,7 @@ private fun AnimatedSplashScreen(
     dark: Boolean,
     entryDark: Boolean,
     stillFrame: Boolean,
+    timing: SplashTiming,
     onFinished: () -> Unit,
 ) {
     StatusBarIconStyle(darkIcons = !dark)
@@ -111,25 +132,28 @@ private fun AnimatedSplashScreen(
     val clock = remember(choreography) { Animatable(0f) }
     val tagline = rememberSaveable { SplashTaglines.random() }
 
-    LaunchedEffect(choreography, stillFrame) {
+    LaunchedEffect(choreography, stillFrame, timing) {
         if (stillFrame) {
             // "Reduce motion" still gets the brand, just none of the choreography: jump to the
-            // resolved frame, hold it, and hand over on the same cross-fade.
+            // resolved frame, hold it briefly, then use at most a short opacity hand-off.
             clock.snapTo(choreography.fadeStartMs)
-            delay(StillFrameHoldMs)
+            delay(timing.stillFrameHoldMs)
         } else {
             clock.animateTo(
                 targetValue = choreography.fadeStartMs,
-                animationSpec = tween(choreography.fadeStartMs.toInt(), easing = LinearEasing),
+                // The drawings keep their authored timeline; startup policy controls how
+                // quickly the clock travels through it.
+                animationSpec = tween(timing.motionDurationMs, easing = LinearEasing),
             )
         }
-        clock.animateTo(
-            targetValue = choreography.durationMs,
-            animationSpec = tween(
-                durationMillis = (choreography.durationMs - choreography.fadeStartMs).toInt(),
-                easing = LinearEasing,
-            ),
-        )
+        if (timing.fadeDurationMs == 0) {
+            clock.snapTo(choreography.durationMs)
+        } else {
+            clock.animateTo(
+                targetValue = choreography.durationMs,
+                animationSpec = tween(timing.fadeDurationMs, easing = LinearEasing),
+            )
+        }
         onFinished()
     }
 
@@ -245,8 +269,53 @@ internal fun Resources.isNightMode(): Boolean =
 private fun Context.systemAnimationsOff(): Boolean =
     Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 
-/** How long the reduce-motion path holds the resolved frame before handing over. */
-private const val StillFrameHoldMs = 520L
+internal data class SplashTiming(
+    val motionDurationMs: Int,
+    val fadeDurationMs: Int,
+    val stillFrameHoldMs: Long,
+)
+
+/**
+ * The full illustration is a first-launch welcome, not a compulsory two-second gate.
+ * Later launches retain the same choreography at a compact media-client pace.
+ */
+internal fun splashTiming(
+    firstLaunch: Boolean,
+    reduceMotion: Boolean,
+    systemAnimationsOff: Boolean,
+): SplashTiming = when {
+    systemAnimationsOff -> SplashTiming(
+        motionDurationMs = 0,
+        fadeDurationMs = 0,
+        stillFrameHoldMs = SystemAnimationsOffHoldMs,
+    )
+    reduceMotion -> SplashTiming(
+        motionDurationMs = 0,
+        fadeDurationMs = ReducedMotionFadeMs,
+        stillFrameHoldMs = ReducedMotionHoldMs,
+    )
+    firstLaunch -> SplashTiming(
+        motionDurationMs = FirstLaunchMotionMs,
+        fadeDurationMs = FirstLaunchFadeMs,
+        stillFrameHoldMs = 0,
+    )
+    else -> SplashTiming(
+        motionDurationMs = ReturningLaunchMotionMs,
+        fadeDurationMs = ReturningLaunchFadeMs,
+        stillFrameHoldMs = 0,
+    )
+}
+
+private const val SplashHistoryPreferences = "yfuse_splash_history"
+private const val SplashHistorySeenKey = "has_seen_full_splash"
+
+private const val FirstLaunchMotionMs = 1_000
+private const val FirstLaunchFadeMs = 120
+private const val ReturningLaunchMotionMs = 420
+private const val ReturningLaunchFadeMs = 100
+private const val ReducedMotionHoldMs = 260L
+private const val ReducedMotionFadeMs = 80
+private const val SystemAnimationsOffHoldMs = 180L
 
 private const val EntryTintMs = 300f
 
