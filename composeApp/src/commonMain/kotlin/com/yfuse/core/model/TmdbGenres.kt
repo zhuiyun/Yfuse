@@ -4,11 +4,11 @@ package com.yfuse.core.model
  * TMDB genre ids to the names this app shows.
  *
  * List responses carry `genre_ids` and never the names — those come from a separate
- * `/genre/*/list` call per language. The ids are a fixed, documented set that has not changed
+ * `/genre/{movie,tv}/list` call per language. The ids are a fixed, documented set that has not changed
  * in years, so a table is one lookup instead of a network round trip on a screen that already
  * has the data it needs to draw.
  *
- * Movie and TV ids share one map: where the two lists overlap they agree (16 動畫, 35 喜剧,
+ * Movie and TV ids share one map: where the two lists overlap they agree (16 动画, 35 喜剧,
  * 18 剧情 …), and where they do not they do not collide.
  */
 object TmdbGenres {

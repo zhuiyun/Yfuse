@@ -77,7 +77,7 @@ internal fun PlaybackSettingsScreen(
         item {
             Section(title = "播放行为") {
                 SettingsCard {
-                    SwitchRow("自动播放下一集", autoNext, true, onAutoNext)
+                    SwitchRow("自动播放下一集", autoNext, true, onChange = onAutoNext)
                     SettingsDivider()
                     SettingRow("视频缓存大小", "${videoCacheSize.label} ›", true, onVideoCache)
                     SettingsDivider()
@@ -167,9 +167,9 @@ internal fun WatchTogetherSettingsScreen(
         item {
             Section(title = "聊天显示") {
                 SettingsCard {
-                    SwitchRow("聊天弹幕", chatDanmaku, true, onChatDanmaku)
+                    SwitchRow("聊天弹幕", chatDanmaku, true, onChange = onChatDanmaku)
                     SettingsDivider()
-                    SwitchRow("聊天消息浮层", chatPreview, true, onChatPreview)
+                    SwitchRow("聊天消息浮层", chatPreview, true, onChange = onChatPreview)
                 }
             }
         }
@@ -279,27 +279,27 @@ internal fun AppearanceSettingsScreen(
                         "减少透明效果",
                         reduceTransparency,
                         true,
-                        onReduceTransparency,
                         icon = AppIcons.Subtitle,
                         iconTint = SettingTint.subtitle,
+                        onChange = onReduceTransparency,
                     )
                     SettingsDivider()
                     SwitchRow(
                         "大号文字",
                         largeText,
                         true,
-                        onLargeText,
                         icon = AppIcons.Info,
                         iconTint = SettingTint.language,
+                        onChange = onLargeText,
                     )
                     SettingsDivider()
                     SwitchRow(
                         "减少动画",
                         reduceMotion,
                         true,
-                        onReduceMotion,
                         icon = AppIcons.Refresh,
                         iconTint = SettingTint.advanced,
+                        onChange = onReduceMotion,
                     )
                 }
             }

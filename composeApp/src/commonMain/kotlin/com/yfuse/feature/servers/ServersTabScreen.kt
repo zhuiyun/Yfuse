@@ -522,10 +522,9 @@ private fun ServerCard(
             .shadow(GlassLift.control, GlassShapes.card)
             .liquidGlass(
                 shape = GlassShapes.card,
-                fill = Brush.linearGradient(
-                    0f to lerp(palette.card, badgeColor, if (palette.isDark) 0.20f else 0.16f),
-                    1f to palette.card,
-                ),
+                // One tinted colour, not a gradient: liquidGlass draws its own body ramp
+                // over whatever fill it is given, and it takes a Color.
+                fill = lerp(palette.card, badgeColor, if (palette.isDark) 0.20f else 0.16f),
                 border = lerp(palette.border, badgeColor, 0.28f),
                 sheen = 0.52f,
             )

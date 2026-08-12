@@ -1112,9 +1112,11 @@ internal fun SwitchRow(
     title: String,
     checked: Boolean,
     embedded: Boolean = false,
-    onChange: (Boolean) -> Unit,
+    // Ahead of [onChange] so a trailing-lambda call still binds the lambda to it; as the
+    // last parameters these captured `{ … }` and asked for a Color instead.
     icon: ImageVector? = null,
     iconTint: Color = Color.Unspecified,
+    onChange: (Boolean) -> Unit,
 ) {
     val palette = LocalPalette.current
     val interactionSource = remember { MutableInteractionSource() }
