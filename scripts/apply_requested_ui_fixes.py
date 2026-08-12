@@ -60,7 +60,7 @@ replace_exact(
             val frost = frostedSurfaceFill(resolvedFill, palette)
             Brush.linearGradient(listOf(frost, frost))
         }
-        else -> {
+        else ->
 ''',
     count=3,
 )
