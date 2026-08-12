@@ -6,6 +6,7 @@ import com.yfuse.core.designsystem.DEFAULT_BACKGROUND_DIM
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
+import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
@@ -37,6 +38,7 @@ class ThemePreferences(private val settings: Settings) {
         const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v2"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
         const val KEY_GLASS_STYLE = "appearance.glassStyle"
+        const val KEY_SERVER_LAYOUT = "appearance.serverLayout"
         const val KEY_BACKGROUND_IMAGE = "appearance.backgroundImage"
         const val KEY_BACKGROUND_DIM = "appearance.backgroundDim"
         /** A content:// grant is long but not unbounded; refuse anything that is not a URI. */
@@ -96,6 +98,12 @@ class ThemePreferences(private val settings: Settings) {
     /** Which material floating surfaces are drawn in; see [GlassStyle]. */
     val glassStyle: StateFlow<GlassStyle> = _glassStyle.asStateFlow()
 
+    private val _serverLayout =
+        MutableStateFlow(load(KEY_SERVER_LAYOUT, ServerLayout.entries, ServerLayout.Grid))
+
+    /** Whether the 服务器 tab draws cards in a grid or rows in a list. */
+    val serverLayout: StateFlow<ServerLayout> = _serverLayout.asStateFlow()
+
     private val _backgroundImage =
         MutableStateFlow(settings.getStringOrNull(KEY_BACKGROUND_IMAGE)?.takeIf(String::isNotBlank))
 
@@ -145,6 +153,11 @@ class ThemePreferences(private val settings: Settings) {
     fun setMode(mode: ThemeMode) {
         _mode.value = mode
         settings.putString(KEY_MODE, mode.name)
+    }
+
+    fun setServerLayout(layout: ServerLayout) {
+        _serverLayout.value = layout
+        settings.putString(KEY_SERVER_LAYOUT, layout.name)
     }
 
     fun setGlassStyle(style: GlassStyle) {

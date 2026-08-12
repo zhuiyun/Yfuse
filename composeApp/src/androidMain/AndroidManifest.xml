@@ -89,25 +89,12 @@
             </intent-filter>
         </activity-alias>
         <activity-alias
-            android:name="com.yfuse.LauncherIndigo"
+            android:name="com.yfuse.LauncherCloud"
             android:targetActivity="com.yfuse.MainActivity"
             android:exported="true"
             android:enabled="false"
-            android:icon="@mipmap/ic_launcher_indigo"
-            android:roundIcon="@mipmap/ic_launcher_indigo"
-            android:label="Yfuse">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name="com.yfuse.LauncherForest"
-            android:targetActivity="com.yfuse.MainActivity"
-            android:exported="true"
-            android:enabled="false"
-            android:icon="@mipmap/ic_launcher_forest"
-            android:roundIcon="@mipmap/ic_launcher_forest"
+            android:icon="@mipmap/ic_launcher_cloud"
+            android:roundIcon="@mipmap/ic_launcher_cloud"
             android:label="Yfuse">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

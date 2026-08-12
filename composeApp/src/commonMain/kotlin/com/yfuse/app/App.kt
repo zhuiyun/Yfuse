@@ -89,7 +89,6 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
-import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.overlayGlass
@@ -98,7 +97,7 @@ import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.designsystem.windowWidthTier
+import com.yfuse.core.designsystem.useNavigationRail
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
 import com.yfuse.feature.library.LibraryComponent
@@ -308,8 +307,7 @@ fun App(root: RootComponent) {
                     dim = backgroundDim,
                 ) {
                     BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val expandedNavigation =
-                        windowWidthTier(maxWidth) == WindowWidthTier.Expanded
+                    val expandedNavigation = useNavigationRail(maxWidth, maxHeight)
                     val onSelectTab: (Tab) -> Unit = { tab ->
                         if (tab == active) {
                             root.reselectTab(tab, atRoot)
@@ -783,10 +781,12 @@ private fun CollapsedNavButton(active: Tab, backdrop: BackdropState, onClick: ()
                 onClickLabel = "展开导航栏",
                 onClick = onClick,
             )
-            .shadow(Shadows.tabBar, GlassShapes.card)
-            .backdropBlur(backdrop, GlassShapes.card)
+            // Round, like the search key beside it and like the capsule it collapsed out of.
+            // A rounded square made the pair read as two unrelated controls.
+            .shadow(Shadows.tabBar, CircleShape)
+            .backdropBlur(backdrop, CircleShape)
             .overlayGlass(
-                GlassShapes.card,
+                CircleShape,
                 palette.glassStrong.copy(alpha = if (palette.isDark) 0.86f else 0.92f),
                 palette.tabbarBorder,
             ),

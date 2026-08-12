@@ -139,7 +139,7 @@ fun Modifier.glass(
     } else {
         Color.White.copy(alpha = 0.58f)
     }
-    val surface = if (accessibility.reduceTransparency) {
+    val surface = if (accessibility.reduceTransparency || frostedGlass()) {
         Brush.linearGradient(listOf(resolvedFill, resolvedFill))
     } else {
         cssLinearGradient(
@@ -223,7 +223,7 @@ fun Modifier.solidGlass(
     } else {
         border
     }
-    val surface = if (accessibility.reduceTransparency) {
+    val surface = if (accessibility.reduceTransparency || frostedGlass()) {
         Brush.linearGradient(listOf(resolvedFill, resolvedFill))
     } else {
         cssLinearGradient(
@@ -287,11 +287,10 @@ fun Modifier.liquidGlass(
         val edge = reducedTransparencyBorder(border, palette) ?: border
         return this.clip(shape).background(flat).border(Dimens.hairline, edge, shape)
     }
-    // 毛玻璃 is the same material with the specular taken off — [Modifier.glass]'s soft
-    // diagonal sheen and nothing else. Routed here rather than at each of the two hundred
-    // call sites, so one preference reaches every floating surface in the app.
-    if (LocalGlassStyle.current == GlassStyle.Frosted) {
-        return glass(shape = shape, fill = fill, border = border)
+    // 毛玻璃: no specular, no body ramp — a flat translucent pane and its edge. Routing to
+    // glass() was not enough, because that variant has a diagonal sheen of its own.
+    if (frostedGlass()) {
+        return this.clip(shape).background(fill).border(Dimens.hairline, border, shape)
     }
     // The theme is the wrong signal here — the play key is pale glass under both, and 返回
     // is dense glass over artwork on the light one. What the fill composites to is the right
@@ -326,10 +325,27 @@ fun Modifier.liquidGlass(
 }
 
 /**
- * Which glass [Modifier.liquidGlass] draws. Defaults to the product direction; the user's
- * choice is provided by [YfuseTheme].
+ * Which glass the app draws. Defaults to the product direction; the user's choice is provided
+ * by [YfuseTheme].
  */
 val LocalGlassStyle = staticCompositionLocalOf { GlassStyle.Liquid }
+
+/**
+ * True when the user has asked for 毛玻璃.
+ *
+ * Every glass variant consults this, not just [Modifier.liquidGlass]. The preference first
+ * shipped reaching only that one, which is 18 of the app's 187 glass surfaces — the other 169
+ * go through [Modifier.glass], [Modifier.solidGlass], [Modifier.flatGlass] or
+ * [Modifier.overlayGlass], so switching materials changed almost nothing on screen and read
+ * as a setting that did not work.
+ *
+ * What it removes is the specular: the diagonal white sheen and, on liquid glass, the body
+ * ramp. What stays is the translucency, the fill and the luminous edge — so 毛玻璃 is a
+ * softer material rather than an opaque one, which is what 减弱透明度 is for.
+ */
+@Composable
+@ReadOnlyComposable
+fun frostedGlass(): Boolean = LocalGlassStyle.current == GlassStyle.Frosted
 
 /** 液态玻璃 lift — the shadow that separates a glass control from the page beneath it. */
 object GlassLift {

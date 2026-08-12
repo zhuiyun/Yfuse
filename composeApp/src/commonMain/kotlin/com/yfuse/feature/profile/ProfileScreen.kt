@@ -1,5 +1,7 @@
 package com.yfuse.feature.profile
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -76,16 +79,20 @@ import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.SettingTint
+import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.SplashAnimation
@@ -1716,38 +1723,52 @@ private fun Long.asRecoveryClock(): String {
 private fun PillSwitch(checked: Boolean) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val shape = AppShapes.pill
-    val offTrack = palette.sub2.copy(alpha = if (palette.isDark) 0.24f else 0.26f)
-    val offBorder = palette.sub2.copy(alpha = if (palette.isDark) 0.62f else 0.78f)
-    val knobFill = if (checked) accent.onAccent else palette.background
-    val knobBorder = if (checked) {
-        accent.onAccent.copy(alpha = 0.88f)
-    } else {
-        palette.sub2.copy(alpha = 0.72f)
-    }
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // The knob slid nowhere: both states were drawn from scratch with an alignment swap, so
+    // flipping a switch was a cut. A switch is the one control whose *movement* is the
+    // feedback — the thumb travelling is what says the value changed — so the position is
+    // animated and the track colour crossfades with it, on the same spring.
+    val progress by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = Motion.settle<Float>(reduceMotion),
+        label = "switchKnob",
+    )
+    val track by animateColorAsState(
+        targetValue = if (checked) {
+            accent.accent
+        } else {
+            palette.sub2.copy(alpha = if (palette.isDark) 0.30f else 0.28f)
+        },
+        animationSpec = Motion.settle<Color>(reduceMotion),
+        label = "switchTrack",
+    )
     Box(
         Modifier
-            .width(38.dp)
-            .height(22.dp)
-            .glass(
-                shape,
-                if (checked) {
-                    accent.accent
-                } else {
-                    offTrack
-                },
-                if (checked) accent.border else offBorder,
-            ),
-        contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
+            .width(46.dp)
+            .height(28.dp)
+            .clip(AppShapes.pill)
+            .background(track),
+        contentAlignment = Alignment.CenterStart,
     ) {
         Box(
             Modifier
-                .padding(horizontal = 2.dp)
-                .size(18.dp)
-                .glass(CircleShape, knobFill, knobBorder),
+                .padding(horizontal = 3.dp)
+                // Travel is the track's inner width less the thumb, so the thumb lands flush
+                // against each end instead of being placed by an alignment flip.
+                .offset(x = SwitchTravel * progress)
+                .size(22.dp)
+                // The thumb is the one opaque part: it has to read as a physical object on
+                // top of the track in both themes, and a translucent one over the accent
+                // fill turned into a pale smudge.
+                .shadow(GlassLift.control, CircleShape)
+                .clip(CircleShape)
+                .background(Color.White),
         )
     }
 }
+
+/** How far the thumb travels: 46dp track, 3dp of inset each side, a 22dp thumb. */
+private val SwitchTravel = 18.dp
 
 /** Single-choice list. Picking a row applies it and closes — there is no confirm step. */
 @Composable

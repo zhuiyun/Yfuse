@@ -10,7 +10,9 @@ import com.yfuse.core.data.ServerActivityStore
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerStatsStore
+import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.util.componentScope
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +40,7 @@ class ServersTabComponent(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     dependencies: AppDependencies,
+    private val themePreferences: ThemePreferences,
     /** Where a newly chosen server is meant to take the user. */
     val onOpenLibrary: () -> Unit,
 ) : ComponentContext by componentContext {
@@ -53,6 +56,11 @@ class ServersTabComponent(
     val health: ServerHealthMonitor = dependencies.serverHealthMonitor
     val activity: ServerActivityStore = dependencies.serverActivity
     val stats: ServerStatsStore = dependencies.serverStats
+
+    /** Grid or list; see [ServerLayout]. */
+    val layout: StateFlow<ServerLayout> = themePreferences.serverLayout
+
+    fun setLayout(value: ServerLayout) = themePreferences.setServerLayout(value)
     private val libraryCache: LibraryCache = dependencies.libraryCache
     private val scope = componentScope(lifecycle)
 

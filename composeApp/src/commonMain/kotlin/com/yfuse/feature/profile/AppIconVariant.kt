@@ -8,10 +8,18 @@ package com.yfuse.feature.profile
  * choice of colour, not of logo.
  */
 enum class AppIconVariant(val label: String, val description: String) {
-    Default("默认", "浅色底，随包附带的原始图标"),
-    Graphite("石墨", "深灰底，适合深色主屏"),
-    Indigo("靛蓝", "靛蓝底"),
-    Forest("森绿", "墨绿底"),
+    Default("当前标志", "随包附带的水火标志，浅色底"),
+    Graphite("当前标志 · 石墨", "同一标志，深灰底，适合深色主屏"),
+
+    /**
+     * The mark this app carried before the current one.
+     *
+     * Kept as a real choice rather than for nostalgia: people recognise their apps by the
+     * icon, and an update that replaces it makes the app briefly disappear from a home screen
+     * its owner navigates by shape. This puts the old one back for anyone who wants it — and
+     * it pairs with 开屏动画's 折带展开, which is that mark's own choreography.
+     */
+    CloudPlayer("云朵播放器", "旧版云朵标志，与「折带展开」开屏配套"),
 }
 
 /** The variant the launcher is currently showing. */

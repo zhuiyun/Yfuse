@@ -14,8 +14,7 @@ import com.yfuse.core.util.androidAppContext
 private fun AppIconVariant.componentClass(): String = when (this) {
     AppIconVariant.Default -> "com.yfuse.MainActivity"
     AppIconVariant.Graphite -> "com.yfuse.LauncherGraphite"
-    AppIconVariant.Indigo -> "com.yfuse.LauncherIndigo"
-    AppIconVariant.Forest -> "com.yfuse.LauncherForest"
+    AppIconVariant.CloudPlayer -> "com.yfuse.LauncherCloud"
 }
 
 actual fun currentAppIconVariant(): AppIconVariant {
