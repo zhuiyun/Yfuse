@@ -194,8 +194,12 @@ private fun AnimatedSplashScreen(
                     // B lays the streak column and the mark out across one row 240 units
                     // wide; this is that row. The old square canvas framed a centred
                     // drawing, and the mark alone is only 70% of what goes in here now.
-                    .fillMaxWidth(0.74f)
-                    .sizeIn(maxWidth = 380.dp)
+                    //
+                    // Taken in from 0.74: at three quarters of the width the mark dominated
+                    // a launch that lasts about a second, and left the wordmark under it
+                    // looking like a caption rather than the other half of a lockup.
+                    .fillMaxWidth(0.64f)
+                    .sizeIn(maxWidth = 330.dp)
                     .aspectRatio(1f),
             ) {
                 with(choreography) { drawMark(clock.value, mark) }
