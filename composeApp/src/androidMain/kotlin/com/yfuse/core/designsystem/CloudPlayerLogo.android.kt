@@ -10,7 +10,7 @@ import com.yfuse.R
 @Composable
 actual fun CloudPlayerLogo(modifier: Modifier) {
     Image(
-        painter = painterResource(R.drawable.cloud_player_logo),
+        painter = painterResource(R.drawable.yfuse_mark),
         contentDescription = null,
         modifier = modifier,
         contentScale = ContentScale.Fit,

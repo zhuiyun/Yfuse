@@ -13,12 +13,14 @@ import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.designsystem.TabReselection
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.core.model.StartupTab
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.search.SearchComponent
+import com.yfuse.feature.servers.ServersTabComponent
 import com.yfuse.feature.watch.WatchInviteResolver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,8 +28,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * App shell: four always-alive tabs — 首页 / 库 / 搜索 / 我的.
- * Server management now lives inside the 我的 tab.
+ * App shell: five always-alive tabs — 首页 / 库 / 服务器 / 搜索 / 我的.
+ *
+ * 服务器 is its own tab rather than a section of 我的: which server the app is reading from
+ * decides what every other tab contains, and that decision was buried three taps deep.
  */
 class RootComponent(
     componentContext: ComponentContext,
@@ -41,14 +45,15 @@ class RootComponent(
     val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
 
-    enum class Tab { Home, Browse, Search, Profile }
+    enum class Tab { Home, Browse, Servers, Search, Profile }
 
-    // Someone who has already connected a server opens this app to watch what is on it, so
-    // that is where a cold start lands. 首页 is TMDB recommendations — the right first
-    // screen only while there is no library to show yet, which doubles as the prompt to go
-    // and add one.
+    // Where a cold start lands. [StartupTab.Automatic] keeps the rule this used to hard-code:
+    // someone who has already connected a server opens the app to watch what is on it, while
+    // 首页's TMDB recommendations are the right first screen only until there is a library to
+    // show — at which point they double as the prompt to go and add one. The other values are
+    // the user overriding that guess; see [StartupTab].
     private val _activeTab = MutableValue(
-        if (registry.data.value.servers.isEmpty()) Tab.Home else Tab.Browse,
+        startupTab(themePreferences.startupTab.value, registry.data.value.servers.isNotEmpty()),
     )
     val activeTab: Value<Tab> = _activeTab
 
@@ -84,6 +89,17 @@ class RootComponent(
         dependencies = dependencies,
     )
 
+    /** 服务器: the saved servers as a grid. */
+    val servers = ServersTabComponent(
+        componentContext = childContext(key = "servers"),
+        storeFactory = storeFactory,
+        repo = repo,
+        registry = registry,
+        dependencies = dependencies,
+        // Choosing a server is never the goal in itself — it is choosing what 库 will show.
+        onOpenLibrary = { selectTab(Tab.Browse) },
+    )
+
     val search = SearchComponent(
         componentContext = childContext(key = "search"),
         storeFactory = storeFactory,
@@ -97,10 +113,10 @@ class RootComponent(
     val profile = ProfileTabComponent(
         componentContext = childContext(key = "profile"),
         storeFactory = storeFactory,
-        repo = repo,
         registry = registry,
         themePreferences = themePreferences,
         onEnterWatchRoom = ::enterWatchRoom,
+        onOpenServers = { selectTab(Tab.Servers) },
         dependencies = dependencies,
     )
 
@@ -146,6 +162,8 @@ class RootComponent(
         when (tab) {
             Tab.Home -> home.popToRoot()
             Tab.Browse -> browse.popToRoot()
+            // 服务器 has no pushed routes — its add/edit surfaces are modals over the grid.
+            Tab.Servers -> Unit
             Tab.Search -> search.popToRoot()
             Tab.Profile -> profile.popToRoot()
         }
@@ -235,3 +253,13 @@ class RootComponent(
         openSearch()
     }
 }
+
+/** The tab a cold start opens on. Extracted so the rule is testable without a component. */
+internal fun startupTab(preference: StartupTab, hasServers: Boolean): RootComponent.Tab =
+    when (preference) {
+        StartupTab.Home -> RootComponent.Tab.Home
+        StartupTab.Library -> RootComponent.Tab.Browse
+        StartupTab.Servers -> RootComponent.Tab.Servers
+        StartupTab.Automatic ->
+            if (hasServers) RootComponent.Tab.Browse else RootComponent.Tab.Home
+    }

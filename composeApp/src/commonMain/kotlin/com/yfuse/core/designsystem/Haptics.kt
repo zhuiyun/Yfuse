@@ -4,6 +4,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 
@@ -57,15 +59,24 @@ expect fun rememberHaptics(): Haptics
  * has already happened — the indicator only spins after release. The tick is what tells a
  * thumb it can stop pulling. Re-arms on the way back, so a pull that hovers around the
  * threshold does not rattle.
+ *
+ * [refreshing] is not optional in spirit. A refresh nobody pulled for — a cold start's
+ * first load, a retry button, a server switch — drives the very same indicator through the
+ * very same threshold, and this fired for it: opening the app buzzed the phone, from a
+ * gesture haptic, with no gesture. Pass the flag the `PullToRefreshBox` is given and the
+ * tick stays attached to the finger that earned it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RefreshThresholdHaptics(state: PullToRefreshState) {
+fun RefreshThresholdHaptics(state: PullToRefreshState, refreshing: Boolean = false) {
     val haptics = LocalHaptics.current
+    // Read through a holder: the effect outlives any single value of [refreshing], and
+    // restarting it on every change would rearm the tick mid-pull.
+    val programmatic by rememberUpdatedState(refreshing)
     LaunchedEffect(state, haptics) {
         var armed = false
         snapshotFlow { state.distanceFraction >= 1f }.collect { past ->
-            if (past && !armed) haptics.play(HapticSignal.Threshold)
+            if (past && !armed && !programmatic) haptics.play(HapticSignal.Threshold)
             armed = past
         }
     }

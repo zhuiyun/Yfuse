@@ -31,10 +31,10 @@ private class AndroidShareHandler(private val context: Context) : ShareHandler {
 
     override fun copyText(text: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        clipboard?.setPrimaryClip(ClipData.newPlainText("Yfuse 一起看邀请", text))
+        clipboard?.setPrimaryClip(ClipData.newPlainText("Yfuse 文本", text))
         // Android 13+ shows its own copy confirmation, so only older versions need this.
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
-            Toast.makeText(context, "邀请已复制", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
         }
     }
 

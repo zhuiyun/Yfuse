@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
                     lanDiscovery = koin.get(),
                     account = koin.get(),
                     serverHealthMonitor = koin.get(),
+                    serverActivity = koin.get(),
                     serverRegistry = koin.get(),
                 ),
             )

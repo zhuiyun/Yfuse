@@ -20,6 +20,7 @@ import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.ServerActivityStore
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
@@ -74,6 +75,7 @@ fun appModule(
     single { PlaybackFailoverRequest() }
     single { PlaybackRecoveryStore(get()) }
     single { PlaybackEventOutbox(get()) }
+    single { ServerActivityStore(get()) }
     single { UserAgentPreferences(get()) }
     single { WatchTogetherPreferences(get()) }
     single { DanmakuPreferences(get()) }
@@ -93,7 +95,7 @@ fun appModule(
         )
     }
     single { EmbyRepository(get()) }
-    single { PlaybackReportingCoordinator(get(), get(), get()) }
+    single { PlaybackReportingCoordinator(get(), get(), get(), get()) }
     single { ServerHealthMonitor(get(), get()) }
     single { AiringScheduleCache(get()) }
     single {

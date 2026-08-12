@@ -4,6 +4,7 @@ import com.russhwolf.settings.Settings
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
+import com.yfuse.core.model.StartupTab
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
@@ -25,7 +26,14 @@ class ThemePreferences(private val settings: Settings) {
         const val KEY_LARGE_TEXT = "accessibility.largeText"
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
-        const val KEY_SPLASH_VARIANT = "appearance.splashVariant"
+        /**
+         * Bumped with the water-fire rework. The two variants behind One/Two were replaced
+         * wholesale — different artwork, different choreography — so a stored "Two" now
+         * selects an animation its owner never chose. Reading a new key drops those values
+         * and lands everyone on the current default, which is the design's own pick.
+         */
+        const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v2"
+        const val KEY_STARTUP_TAB = "appearance.startupTab"
     }
 
     // The design is the light "轻雾玻璃" direction; dark is the alternative.
@@ -68,6 +76,12 @@ class ThemePreferences(private val settings: Settings) {
     private val _splashAnimation =
         MutableStateFlow(settings.getBoolean(KEY_SPLASH_ANIMATION, true))
     val splashAnimation: StateFlow<Boolean> = _splashAnimation.asStateFlow()
+
+    private val _startupTab =
+        MutableStateFlow(load(KEY_STARTUP_TAB, StartupTab.entries, StartupTab.Automatic))
+
+    /** Which tab a cold start lands on; see [StartupTab]. */
+    val startupTab: StateFlow<StartupTab> = _startupTab.asStateFlow()
 
     private val _splashVariant =
         MutableStateFlow(load(KEY_SPLASH_VARIANT, SplashAnimation.entries, SplashAnimation.One))
@@ -124,6 +138,11 @@ class ThemePreferences(private val settings: Settings) {
     fun setSplashAnimation(enabled: Boolean) {
         _splashAnimation.value = enabled
         settings.putBoolean(KEY_SPLASH_ANIMATION, enabled)
+    }
+
+    fun setStartupTab(tab: StartupTab) {
+        _startupTab.value = tab
+        settings.putString(KEY_STARTUP_TAB, tab.name)
     }
 
     fun setSplashVariant(variant: SplashAnimation) {

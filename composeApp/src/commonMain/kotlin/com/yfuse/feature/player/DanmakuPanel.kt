@@ -242,19 +242,12 @@ internal fun DanmakuSearchPanel(
     modifier: Modifier = Modifier,
 ) {
     val search = state.search
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)).noRippleClickable(onDismiss))
-    Column(
-        modifier
-            .fillMaxHeight()
-            .width(340.dp)
-            .glass(
-                shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp),
-                fill = PlayerTokens.drawerFillLandscape,
-                border = Color.White.copy(alpha = 0.24f),
-            )
-            .noRippleClickable { }
-            .imePadding()
-            .padding(horizontal = 14.dp, vertical = 16.dp),
+    // Same drawer as 设置 and 房间聊天 — see [PlayerSidePanel]. Dimmed, because this one
+    // is typed into rather than glanced at.
+    PlayerSidePanel(
+        onDismiss = onDismiss,
+        modifier = modifier,
+        dim = true,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(

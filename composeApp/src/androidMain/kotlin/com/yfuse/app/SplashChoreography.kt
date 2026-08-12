@@ -1,5 +1,6 @@
 package com.yfuse.app
 
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.yfuse.core.designsystem.SplashAnimation
 import kotlin.math.PI
@@ -24,14 +25,19 @@ internal interface SplashChoreography {
     /** Where the choreography ends and the cross-fade to the app begins. */
     val fadeStartMs: Float
 
-    /** Draws the mark for [nowMs] into a square canvas. */
-    fun DrawScope.drawMark(nowMs: Float)
+    /**
+     * Draws the mark for [nowMs] into a square canvas.
+     *
+     * [mark] is the ribbon artwork with its motion bars removed — the bars are rebuilt by
+     * [drawMotionBar] so a choreography can move them independently of the shape they
+     * trail. Passed in rather than loaded here because a `DrawScope` cannot read
+     * resources, and reloading the bitmap per frame during startup is the one place in
+     * the app where that would actually be felt.
+     */
+    fun DrawScope.drawMark(nowMs: Float, mark: ImageBitmap)
 
     /** 0..1 settle progress of the "Yfuse" wordmark. */
     fun wordmark(nowMs: Float): Float
-
-    /** 0..1 settle progress of the tagline. */
-    fun tagline(nowMs: Float): Float
 }
 
 internal val SplashAnimation.choreography: SplashChoreography
@@ -39,6 +45,9 @@ internal val SplashAnimation.choreography: SplashChoreography
         SplashAnimation.One -> SplashOne
         SplashAnimation.Two -> SplashTwo
     }
+
+/** How long every choreography leaves for the hand-off to the app. */
+internal const val FadeMs = 120f
 
 // ---- Shared easing and spring maths. ----
 
@@ -49,6 +58,10 @@ internal fun span(nowMs: Float, start: Float, duration: Float): Float =
 internal fun smooth(value: Float): Float = value * value * (3f - 2f * value)
 
 internal fun easeOutCubic(value: Float): Float = 1f - (1f - value) * (1f - value) * (1f - value)
+
+/** `cubic-bezier(0.16,1,0.3,1)` — the design's charge-in curve, near enough. */
+internal fun easeOutExpo(value: Float): Float =
+    if (value >= 1f) 1f else 1f - 2f.pow(-10f * value)
 
 internal fun easeOutBack(value: Float): Float {
     val shifted = value - 1f

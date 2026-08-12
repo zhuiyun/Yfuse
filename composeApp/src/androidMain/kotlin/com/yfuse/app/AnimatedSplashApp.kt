@@ -31,12 +31,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yfuse.R
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.LightPalette
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -130,7 +133,6 @@ private fun AnimatedSplashScreen(
     StatusBarIconStyle(darkIcons = !dark)
 
     val clock = remember(choreography) { Animatable(0f) }
-    val tagline = rememberSaveable { SplashTaglines.random() }
 
     LaunchedEffect(choreography, stillFrame, timing) {
         if (stillFrame) {
@@ -184,74 +186,62 @@ private fun AnimatedSplashScreen(
                 },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // The ribbon without its own motion lines: 折带展开 animates the streak
+            // separately, and a mark that already carried one would draw two.
+            val mark = ImageBitmap.imageResource(R.drawable.yfuse_mark_ribbon)
             Canvas(
                 Modifier
-                    .fillMaxWidth(0.88f)
-                    .sizeIn(maxWidth = 430.dp, maxHeight = 430.dp)
+                    // B lays the streak column and the mark out across one row 240 units
+                    // wide; this is that row. The old square canvas framed a centred
+                    // drawing, and the mark alone is only 70% of what goes in here now.
+                    .fillMaxWidth(0.74f)
+                    .sizeIn(maxWidth = 380.dp)
                     .aspectRatio(1f),
             ) {
-                with(choreography) { drawMark(clock.value) }
+                with(choreography) { drawMark(clock.value, mark) }
             }
-            Spacer(Modifier.height(16.dp))
-            SplashWordmark(
-                dark = dark,
-                tagline = tagline,
-                wordmark = { choreography.wordmark(clock.value) },
-                taglineProgress = { choreography.tagline(clock.value) },
-            )
+            Spacer(Modifier.height(18.dp))
+            SplashWordmark(wordmark = { choreography.wordmark(clock.value) })
         }
     }
 }
 
-/** Colourful name resolves first, then the tagline floats into place. */
+/**
+ * The name, and nothing under it.
+ *
+ * This slot has now held two things that were cut. The wordmark used to be filled with a
+ * blue-purple gradient of its own and followed by a cloud-and-water tagline, both written
+ * for the previous mark. A gradient rule replaced them and was cut in turn: on a 1.2s
+ * launch a progress bar is a progress bar, and it invites the reading that something is
+ * being waited for. The artwork carries the colour; the name says whose it is.
+ */
 @Composable
 private fun SplashWordmark(
-    dark: Boolean,
-    tagline: String,
     wordmark: () -> Float,
-    taglineProgress: () -> Float,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = "Yfuse",
-            style = TextStyle(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF68D7FF),
-                        Color(0xFF2F91F4),
-                        Color(0xFF675FF2),
-                    ),
-                ),
-                fontSize = 30.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 3.sp,
-            ),
-            // An earlier pass animated letterSpacing and Modifier.blur. letterSpacing
-            // re-measured and re-laid-out the text on every frame, and blur built a fresh
-            // RenderEffect on every frame while being a silent no-op below API 31, which is
-            // most of our minSdk 26 range. A scale reads the same and never leaves the layer.
-            modifier = Modifier.graphicsLayer {
-                val settled = wordmark()
-                alpha = settled
-                scaleX = lerp(1.09f, 1f, settled)
-                scaleY = lerp(1.04f, 1f, settled)
-                translationY = lerp(9f, 0f, settled).dp.toPx()
-            },
-        )
-        Spacer(Modifier.height(9.dp))
-        Text(
-            text = tagline,
-            color = if (dark) Color.White.copy(alpha = 0.72f) else Color(0xFF526A84),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            letterSpacing = 2.2.sp,
-            modifier = Modifier.graphicsLayer {
-                val settled = taglineProgress()
-                alpha = settled
-                translationY = lerp(10f, 0f, settled).dp.toPx()
-            },
-        )
-    }
+    Text(
+        text = "Yfuse",
+        style = TextStyle(
+            // The mark's own run, left to right: water into fire. Flat ink was the safe
+            // choice while the wordmark sat under a blue-purple logo; under this one it
+            // is the only grey thing on the screen.
+            brush = WordmarkBrush,
+            fontSize = 30.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 1.sp,
+        ),
+        // An earlier pass animated letterSpacing and Modifier.blur. letterSpacing
+        // re-measured and re-laid-out the text on every frame, and blur built a fresh
+        // RenderEffect on every frame while being a silent no-op below API 31, which is
+        // most of our minSdk 26 range. A scale reads the same and never leaves the layer.
+        modifier = Modifier.graphicsLayer {
+            val settled = wordmark()
+            alpha = settled
+            scaleX = lerp(1.09f, 1f, settled)
+            scaleY = lerp(1.04f, 1f, settled)
+            translationY = lerp(9f, 0f, settled).dp.toPx()
+        },
+    )
 }
 
 /**
@@ -323,41 +313,26 @@ internal fun splashTiming(
 private const val SplashHistoryPreferences = "yfuse_splash_history"
 private const val SplashHistorySeenKey = "has_seen_full_splash"
 
-private const val FirstLaunchMotionMs = 1_000
+private const val FirstLaunchMotionMs = 1_080
 private const val FirstLaunchFadeMs = 120
-private const val ReturningLaunchMotionMs = 420
-private const val ReturningLaunchFadeMs = 100
+private const val ReturningLaunchMotionMs = 1_080
+private const val ReturningLaunchFadeMs = 120
 private const val ReducedMotionHoldMs = 260L
 private const val ReducedMotionFadeMs = 80
 private const val SystemAnimationsOffHoldMs = 180L
 
 private const val EntryTintMs = 300f
 
-/** Punctuation stays off every line. */
-private val SplashTaglines = listOf(
-    "水落云起，万象初醒",
-    "一滴入云，清梦徐开",
-    "云生水意，光影成诗",
-    "水漾云舒，万象缓缓而来",
-    "云水初逢，光影正好",
-    "一滴落下，云海轻开",
-    "水吻云端，万象初生",
-    "云藏水意，光影徐来",
-    "清水入云，唤醒一场梦",
-    "水起微澜，云生万象",
-    "一滴清露，落入云间",
-    "云水相依，光影成诗",
-    "水落无声，云开有梦",
-    "云舒水漾，万象缓生",
-    "一滴入梦，云起天光",
-    "水映流云，光影悠然",
-    "云从水起，梦向光生",
-    "水落云间，静候花开",
-    "清澜轻漾，云端初醒",
-    "云水有意，光影无边",
-    "一滴清澈，荡开云海",
-    "水过云间，岁月生光",
-    "云起于水，梦生于光",
-    "水色轻盈，云影成诗",
-    "云水初醒，万象皆明",
+/**
+ * 水 → 火, the palette from 「Yfuse 水火 Logo」, run across the wordmark in the same
+ * direction the mark runs it. Identical in both themes: these are brand colours, and both
+ * ends of the ramp clear the light and the dark page.
+ */
+private val WordmarkBrush = Brush.linearGradient(
+    colorStops = arrayOf(
+        0f to Color(0xFF22D3EE),
+        0.34f to Color(0xFF2563EB),
+        0.68f to Color(0xFFF97316),
+        1f to Color(0xFFEAB308),
+    ),
 )

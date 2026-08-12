@@ -5,8 +5,6 @@ import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.account.AccountRepository
-import com.yfuse.core.data.EmbyRepository
-import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackPreferences
@@ -16,38 +14,26 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.network.EmbyStream
-import com.yfuse.core.network.LanDiscovery
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.clearImageCache
 import com.yfuse.feature.player.PlayerMediaItem
-import com.yfuse.feature.servers.ServersStoreFactory
 import com.yfuse.app.AppDependencies
 
 class ProfileComponent(
     componentContext: ComponentContext,
     storeFactory: StoreFactory,
     private val registry: ServerRegistry,
-    repo: EmbyRepository,
     val themePreferences: ThemePreferences,
     /** Re-opens the player on the current 一起看 room; see `RootComponent.enterWatchRoom`. */
     val onEnterWatchRoom: () -> Unit,
+    /** Switches to the 服务器 tab, which owns the list this page used to embed. */
+    val onOpenServers: () -> Unit,
     val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
 
     val store = ProfileStoreFactory(storeFactory, registry).create()
-
-    /**
-     * 添加服务器 is a modal on this screen rather than a pushed route, so its state
-     * lives alongside the profile's instead of behind a navigation stack.
-     */
-    val serversStore = ServersStoreFactory(
-        storeFactory = storeFactory,
-        repo = repo,
-        registry = registry,
-        discovery = dependencies.lanDiscovery,
-    ).create()
 
     val offlineMedia: OfflineMediaManager = dependencies.offlineMediaManager
     val syncManager: ServerSyncManager = dependencies.serverSyncManager
@@ -56,7 +42,6 @@ class ProfileComponent(
     val userAgentPreferences: UserAgentPreferences = dependencies.userAgentPreferences
     val danmakuPreferences: DanmakuPreferences = dependencies.danmakuPreferences
     val skipSegmentPreferences: SkipSegmentPreferences = dependencies.skipSegmentPreferences
-    private val libraryCache: LibraryCache = dependencies.libraryCache
     val watchTogetherPreferences: WatchTogetherPreferences = dependencies.watchTogetherPreferences
     val watchTogether: WatchTogetherClient = dependencies.watchTogether
     val account: AccountRepository = dependencies.account
@@ -64,14 +49,6 @@ class ProfileComponent(
 
     /** Clear the shared image cache; offline video files and library metadata are untouched. */
     suspend fun onClearCache() = clearImageCache()
-
-    /** Long-pressing a non-current server row removes it. */
-    fun onRemoveServer(id: String) {
-        registry.remove(id)
-        // The cached library would otherwise outlive the server it was read from, taking up
-        // room for a shelf nobody can open any more.
-        libraryCache.clear(id)
-    }
 
     fun exportServers(
         passphrase: CharArray,
@@ -102,7 +79,6 @@ class ProfileComponent(
     init {
         lifecycle.doOnDestroy {
             store.dispose()
-            serversStore.dispose()
         }
     }
 }

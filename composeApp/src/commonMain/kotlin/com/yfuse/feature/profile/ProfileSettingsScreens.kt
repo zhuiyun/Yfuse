@@ -179,12 +179,14 @@ internal fun AppearanceSettingsScreen(
     mode: ThemeMode,
     accent: AccentColor,
     splashSummary: String,
+    startupSummary: String,
     reduceTransparency: Boolean,
     largeText: Boolean,
     reduceMotion: Boolean,
     onThemeMode: () -> Unit,
     onAccent: () -> Unit,
     onSplash: () -> Unit,
+    onStartupTab: () -> Unit,
     onReduceTransparency: (Boolean) -> Unit,
     onLargeText: (Boolean) -> Unit,
     onReduceMotion: (Boolean) -> Unit,
@@ -202,6 +204,11 @@ internal fun AppearanceSettingsScreen(
                     SettingRow("强调色", "${accent.label}色 ›", true, onAccent)
                     SettingsDivider()
                     SettingRow("开屏动画", splashSummary, true, onSplash)
+                    SettingsDivider()
+                    // Which tab a cold start lands on. It sits under 外观 rather than in a
+                    // section of its own because it is the same kind of choice as the
+                    // theme: what the app looks like the moment it opens.
+                    SettingRow("启动进入", startupSummary, true, onStartupTab)
                 }
             }
         }

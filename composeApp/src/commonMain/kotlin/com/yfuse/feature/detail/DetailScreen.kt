@@ -227,10 +227,17 @@ fun DetailScreen(component: DetailComponent) {
         )
     }
     var resolvedHeroUrl by remember(heroIdentity) { mutableStateOf<String?>(null) }
+    // The poster is what the page takes its colour from, and the backdrop is only the
+    // stand-in. A backdrop is a frame of the film — a night exterior, a white-sky wide —
+    // chosen for what it shows rather than for what the title *is*; the poster is the
+    // artwork somebody graded to say that. Falling back to whatever the hero actually
+    // resolved keeps items with no poster tinted from a picture that is on screen rather
+    // than from one that failed to load.
+    val posterUrl = detail?.let { EmbyImages.poster(baseUrl, it, accessToken = accessToken) }
     // Artwork is allowed to set the mood, not to redefine the product. Harmonize the final
     // target before animation; doing the thresholded correction on every frame caused jumps.
     val detailAccent = rememberAnimatedArtworkAccent(
-        url = resolvedHeroUrl,
+        url = posterUrl ?: resolvedHeroUrl,
         fallback = Brand.Primary, // design-system: brand-identity
         darkTheme = palette.isDark,
         identity = heroIdentity,
@@ -286,7 +293,7 @@ fun DetailScreen(component: DetailComponent) {
     var shareSheetOpen by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
     var organizationSheetOpen by remember { mutableStateOf(false) }
-    var playbackVersionOpen by remember { mutableStateOf(false) }
+    var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
 
     // Mirroring the player's selection is a one-shot per *new* selection, not a standing
@@ -529,17 +536,56 @@ fun DetailScreen(component: DetailComponent) {
                     }
                 }
 
-                if (playableVersions.isNotEmpty() || comparableSources.any { it.reachable && it.itemId != null }) {
-                    item(key = "playback-version") {
-                        PlaybackVersionSection(
-                            summary = playbackVersionSummary(
-                                serverName = state.playServer?.serverName,
-                                version = selectedVersion,
-                                audioLanguage = state.preferredAudioLanguage,
-                                subtitleLanguage = state.preferredSubtitleLanguage,
-                            ),
-                            switching = state.selectionLoading,
-                            onClick = { playbackVersionOpen = true },
+                if (playableVersions.isNotEmpty()) {
+                    item(key = "versions") {
+                        VersionSection(
+                            versions = playableVersions,
+                            selectedId = state.selectedVersionId,
+                            accent = detailAccent,
+                            onSelect = {
+                                component.store.accept(DetailIntent.SelectVersion(it))
+                            },
+                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                        )
+                    }
+                }
+
+                // The tracks of whatever file will actually open. A film's own, or, for a
+                // series, the episode 继续观看 resolves to — the same copy the 杜比 badge
+                // above describes.
+                val playableVersion = selectedVersion
+                if (playableVersion != null &&
+                    (playableVersion.audioTracks.size > 1 ||
+                        playableVersion.subtitleTracks.isNotEmpty())
+                ) {
+                    item(key = "tracks") {
+                        TrackSection(
+                            version = playableVersion,
+                            audioLanguage = state.preferredAudioLanguage,
+                            subtitleLanguage = state.preferredSubtitleLanguage,
+                            accent = detailAccent,
+                            onSelectAudio = {
+                                component.store.accept(DetailIntent.SelectAudioLanguage(it))
+                            },
+                            onSelectSubtitle = {
+                                component.store.accept(DetailIntent.SelectSubtitleLanguage(it))
+                            },
+                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                        )
+                    }
+                }
+
+                if (comparableSources.any { it.reachable && it.source != null && it.itemId != null }) {
+                    item(key = "sources") {
+                        SourceSection(
+                            sources = comparableSources,
+                            selectedServerId = state.selectedSourceServerId,
+                            selectedItemId = state.selectedSourceItemId,
+                            accent = detailAccent,
+                            onSelect = { serverId, itemId ->
+                                component.store.accept(DetailIntent.SelectSource(serverId, itemId))
+                            },
+                            onSeeAll = { sourceListOpen = true },
                             modifier = Modifier.padding(top = Dimens.sectionGap),
                         )
                     }
@@ -702,24 +748,19 @@ fun DetailScreen(component: DetailComponent) {
             )
         }
 
-        if (playbackVersionOpen && detail != null) {
-            PlaybackVersionDialog(
-                title = detail.title,
+        if (sourceListOpen) {
+            SourceListDialog(
                 sources = comparableSources,
                 selectedServerId = state.selectedSourceServerId,
                 selectedItemId = state.selectedSourceItemId,
-                versions = playableVersions,
-                selectedVersionId = state.selectedVersionId,
-                selectedAudioLanguage = state.preferredAudioLanguage,
-                selectedSubtitleLanguage = state.preferredSubtitleLanguage,
-                switching = state.selectionLoading,
-                onSelectSource = { serverId, itemId ->
+                accent = detailAccent,
+                onSelect = { serverId, itemId ->
+                    val willPlay = state.selectedSourceServerId == serverId &&
+                        state.selectedSourceItemId == itemId
+                    if (willPlay) sourceListOpen = false
                     component.store.accept(DetailIntent.SelectSource(serverId, itemId))
                 },
-                onSelectVersion = { component.store.accept(DetailIntent.SelectVersion(it)) },
-                onSelectAudio = { component.store.accept(DetailIntent.SelectAudioLanguage(it)) },
-                onSelectSubtitle = { component.store.accept(DetailIntent.SelectSubtitleLanguage(it)) },
-                onDismiss = { playbackVersionOpen = false },
+                onDismiss = { sourceListOpen = false },
             )
         }
 
@@ -1689,7 +1730,8 @@ private fun GenreSection(genres: List<String>, modifier: Modifier = Modifier) {
                     style = AppTypography.body.strong,
                     color = palette.body,
                     modifier = Modifier
-                        .solidGlass(
+                        .shadow(GlassLift.control, GlassShapes.chip)
+                        .liquidGlass(
                             shape = GlassShapes.chip,
                             fill = if (palette.isDark) {
                                 Color.White.copy(alpha = 0.075f)
@@ -1697,6 +1739,7 @@ private fun GenreSection(genres: List<String>, modifier: Modifier = Modifier) {
                                 Color.White.copy(alpha = 0.72f)
                             },
                             border = palette.border,
+                            sheen = 0.7f,
                         )
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                 )

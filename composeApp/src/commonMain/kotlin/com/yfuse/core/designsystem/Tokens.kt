@@ -54,6 +54,23 @@ object Semantic {
     val Offline = Brand.Offline
 }
 
+/**
+ * Stable per-server solid colour, deliberately free of gradients.
+ *
+ * A saved server has no artwork of its own, so its badge is the only thing that tells two
+ * of them apart at a glance in a list or a grid. Derived from the id so the same machine
+ * keeps the same colour across launches, renames and devices.
+ */
+fun serverBadgeColor(id: String): Color =
+    ServerBadgeColors[(if (id.hashCode() == Int.MIN_VALUE) 0 else abs(id.hashCode())) % ServerBadgeColors.size]
+
+private val ServerBadgeColors = listOf(
+    Color(0xFF6689D3),
+    Color(0xFFC98F5B),
+    Color(0xFF8298C1),
+    Color(0xFF7198CB),
+)
+
 /** 主色渐变 135deg — used for avatars, server badges, category cards. */
 val PrimaryGradient: Brush = cssLinearGradient(
     135f,
@@ -266,7 +283,7 @@ object Dimens {
     val contentTop = 20.dp
 
     /** 滚动容器底部预留供浮层组避让（迷你播放器 + tab bar）. */
-    val contentBottom = 138.dp
+    val contentBottom = 122.dp
 
     /** 卡片间距 8–14px */ val cardGap = 14.dp
 
@@ -279,8 +296,16 @@ object Dimens {
 
     /** 大 26px — sheet、迷你播放器、tab bar. */ val large = 26.dp
 
-    /** 悬浮 Tab Bar — 参考大胶囊导航，保留 14dp 左右悬浮边距. */
-    val tabBarHeight = 68.dp
+    /**
+     * 悬浮 Tab Bar — 参考大胶囊导航，保留 14dp 左右悬浮边距.
+     *
+     * 68dp was a full quarter of the smallest phone's usable height once the inset and the
+     * navigation bar were counted, on a bar carrying a 22dp glyph and one line of 9.5px
+     * caption. 56dp still clears the 44dp touch floor with room to spare and gives the page
+     * back the difference — which [contentBottom] passes on as less dead space under every
+     * scrolling list in the app.
+     */
+    val tabBarHeight = 56.dp
     val tabBarInset = 14.dp
 
     /** 卡片描边 */ val hairline = 1.dp

@@ -42,8 +42,8 @@ enum class ThemeMode(val label: String) {
  * variant here is enough to make it selectable.
  */
 enum class SplashAnimation(val label: String, val description: String) {
-    One("云端跃入", "轻快水滴落入云端，普通启动约 0.5 秒"),
-    Two("涟漪绽放", "柔和水滴积成涟漪，普通启动约 0.5 秒"),
+    One("折带展开", "速度线冲入 → 折带绕轴展开 → 渐变线拉出"),
+    Two("水火交接", "标志弹入 → 光缝扫过 → 字标浮起"),
 }
 
 /**

@@ -37,7 +37,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,7 +70,11 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HeroCaptionClearance
+import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.HeroPageIndicator
+import com.yfuse.core.designsystem.heroScrim
+import com.yfuse.core.designsystem.heroSurface
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
@@ -80,7 +83,6 @@ import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
-import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.OverlayHeader
@@ -115,8 +117,13 @@ import kotlinx.coroutines.launch
  */
 private val HeroHeight = MediaSizing.heroHeight
 
-private val LibraryHeroIndicatorBottom = 14.dp
-private val LibraryHeroContentBottom = LibraryHeroIndicatorBottom + MinTouchTarget + 10.dp
+private val LibraryHeroIndicatorBottom = 12.dp
+
+/**
+ * The caption clears the whole dissolve band — white copy cannot follow the artwork into
+ * the page. Only the dots, whose ink is the page's, sit inside it.
+ */
+private val LibraryHeroContentBottom = HeroCaptionClearance
 
 /** How far the content column is pulled up over the lower edge of the hero. */
 private val HeroLift = 52.dp
@@ -194,7 +201,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val slideIndex = loopingCarouselItemIndex(pagerState.currentPage, slides.size)
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
-    var autoPlayEnabled by rememberSaveable(slides.map { it.id }) { mutableStateOf(true) }
+    // Interaction restarts the reel's clock instead of stopping it; see 首页's hero.
+    var interaction by remember { mutableStateOf(0) }
     val slide = slides.getOrNull(slideIndex)
     val slideUrl = slide?.let {
         EmbyImages.backdrop(baseUrl, it, accessToken = accessToken)
@@ -206,7 +214,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     )
 
     val pullState = rememberPullToRefreshState()
-    RefreshThresholdHaptics(pullState)
+    RefreshThresholdHaptics(pullState, refreshing = state.loading)
 
     var serverMenuOpen by remember { mutableStateOf(false) }
     val listState = component.listState
@@ -230,13 +238,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             freshnessNowEpochMs = System.currentTimeMillis()
         }
     }
-    LaunchedEffect(carouselDragging) {
-        if (carouselDragging) autoPlayEnabled = false
-    }
-    LaunchedEffect(slides.size, carouselDragging, reduceMotion, autoPlayEnabled, routeVisible) {
+    LaunchedEffect(slides.size, carouselDragging, reduceMotion, routeVisible, interaction) {
         // Same reasoning as 首页's reel: the largest moving thing on the page, and the one
         // 减弱动态效果 was not reaching.
-        if (!routeVisible || slides.size <= 1 || carouselDragging || reduceMotion || !autoPlayEnabled) {
+        if (!routeVisible || slides.size <= 1 || carouselDragging || reduceMotion) {
             return@LaunchedEffect
         }
         while (true) {
@@ -331,7 +336,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         pageCount = slides.size,
                                         selectedPage = slideIndex,
                                         onPageSelected = { targetIndex ->
-                                            autoPlayEnabled = false
+                                            interaction++
                                             carouselScope.launch {
                                                 val targetPage = loopingCarouselTargetPage(
                                                     currentPage = pagerState.currentPage,
@@ -350,10 +355,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                     )
                                                 }
                                             }
-                                        },
-                                        autoPlayRunning = if (reduceMotion) null else autoPlayEnabled,
-                                        onToggleAutoPlay = if (reduceMotion) null else {
-                                            { autoPlayEnabled = !autoPlayEnabled }
                                         },
                                         modifier = Modifier
                                             .align(Alignment.BottomCenter)
@@ -623,6 +624,10 @@ private fun HeroCarousel(
 ) {
     val sharedKey = MediaSharedElementKey(serverId, item.id)
     val openDetail = sharedMediaOnClick(sharedKey, onClick)
+    val palette = LocalPalette.current
+    val carouselSurface = remember(accent, palette.isDark) {
+        heroSurface(accent, palette.isDark)
+    }
     Box(
         Modifier
             .fillMaxWidth()
@@ -636,14 +641,10 @@ private fun HeroCarousel(
                 .sharedMediaArtwork(sharedKey)
                 .fillMaxSize(),
         )
+        // Share the detail hero's exact bottom-to-top colour stops and surface treatment.
         Box(
             Modifier.fillMaxSize().background(
-                scrim(
-                    0f to Color(0xFF0A0E1A).copy(alpha = 0.88f),
-                    0.42f to Color(0xFF0A0E1A).copy(alpha = 0.55f),
-                    0.62f to Color(0xFF0A0E1A).copy(alpha = 0.05f),
-                    1f to Color.Transparent,
-                ),
+                heroScrim(surface = carouselSurface, bottomSurface = palette.background),
             ),
         )
         Row(
@@ -712,7 +713,7 @@ private fun HeroCarousel(
         ) {
             Text(
                 item.title,
-                style = AppTypography.display.strong,
+                style = AppTypography.display.strong.copy(shadow = HeroTextShadow),
                 color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -721,19 +722,23 @@ private fun HeroCarousel(
                 Spacer(Modifier.height(6.dp))
                 Text(
                     item.subtitle,
-                    style = AppTypography.caption.regular,
-                    color = Color.White.copy(alpha = 0.78f),
+                    style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
+                    color = Color.White.copy(alpha = 0.88f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             if (!item.overview.isNullOrBlank()) {
-                // `400 11.5px/1.6`, `rgba(255,255,255,.7)`, clamped to two lines.
+                // `400 11.5px/1.6`, clamped to two lines. Opacity is up from .7: without a
+                // scrim under it, 70% white on a pale still is not copy any more.
                 Spacer(Modifier.height(10.dp))
                 Text(
                     item.overview,
-                    style = AppTypography.body.regular.copy(lineHeight = 20.8.sp),
-                    color = Color.White.copy(alpha = 0.7f),
+                    style = AppTypography.body.regular.copy(
+                        lineHeight = 20.8.sp,
+                        shadow = HeroTextShadow,
+                    ),
+                    color = Color.White.copy(alpha = 0.86f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )

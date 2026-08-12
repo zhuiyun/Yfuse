@@ -8,6 +8,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
+import com.yfuse.R
 import com.yfuse.app.choreography
 import kotlinx.coroutines.delay
 
@@ -39,7 +42,8 @@ actual fun SplashPreview(
 
     // The clock is read inside the draw lambda, so looping this in a settings list costs
     // recomposition nothing.
-    Canvas(modifier) { with(choreography) { drawMark(clock.value) } }
+    val mark = ImageBitmap.imageResource(R.drawable.yfuse_mark)
+    Canvas(modifier) { with(choreography) { drawMark(clock.value, mark) } }
 }
 
 private const val LoopHoldMs = 900L

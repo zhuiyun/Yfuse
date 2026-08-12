@@ -99,6 +99,7 @@ import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.profile.ProfileTabScreen
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.feature.search.SearchScreen
+import com.yfuse.feature.servers.ServersTabScreen
 import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
@@ -108,6 +109,7 @@ private data class TabItem(val tab: Tab, val label: String, val icon: ImageVecto
 private val tabs = listOf(
     TabItem(Tab.Home, "首页", AppIcons.Home),
     TabItem(Tab.Browse, "库", AppIcons.Grid),
+    TabItem(Tab.Servers, "服务器", AppIcons.Server),
     TabItem(Tab.Search, "搜索", AppIcons.SearchTab),
     TabItem(Tab.Profile, "我的", AppIcons.User),
 )
@@ -235,6 +237,8 @@ fun App(root: RootComponent) {
         val atRoot = when (active) {
             Tab.Home -> homeStack.active.instance is HomeTabComponent.Child.Home
             Tab.Browse -> browseStack.active.instance is LibraryComponent.Child.Home
+            // 服务器 is a single screen: it has no stack that could be anywhere but its root.
+            Tab.Servers -> true
             Tab.Search -> searchStack.active.instance is SearchComponent.Child.Home
             Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
         }
@@ -300,6 +304,7 @@ fun App(root: RootComponent) {
                                     when (tab) {
                                         Tab.Home -> HomeTabScreen(root.home)
                                         Tab.Browse -> LibraryScreen(root.browse)
+                                        Tab.Servers -> ServersTabScreen(root.servers)
                                         Tab.Search -> SearchScreen(root.search)
                                         Tab.Profile -> ProfileTabScreen(root.profile)
                                     }

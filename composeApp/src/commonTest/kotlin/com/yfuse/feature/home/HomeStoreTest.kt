@@ -1,5 +1,7 @@
 package com.yfuse.feature.home
 
+import app.cash.turbine.test
+import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.russhwolf.settings.MapSettings
@@ -10,6 +12,7 @@ import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.feature.homeRoutes
+import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import io.ktor.client.HttpClient
@@ -76,6 +79,41 @@ class HomeStoreTest {
         assertEquals(42, state.content.rows.single().items.single().id)
         assertEquals(null, state.error)
         assertNotNull(state.recommendationNotice)
+        store.dispose()
+    }
+
+    @Test
+    fun matched_recommendation_opens_emby_detail() = runTest {
+        val server = SavedServer(
+            id = "one",
+            baseUrl = "http://one",
+            serverName = "One",
+            userId = "u",
+            userName = "User",
+            accessToken = "token",
+        )
+        val registry = testRegistry().apply { addOrUpdate(server) }
+        val store = HomeStoreFactory(
+            storeFactory = DefaultStoreFactory(),
+            tmdb = unavailableTmdb(),
+            emby = testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                if (request.url.parameters["AnyProviderIdEquals"] == "tmdb.42") {
+                    json(
+                        """{"Items":[{"Id":"emby-42","Name":"缓存推荐","Type":"Movie","ProductionYear":2026}]}""",
+                    )
+                } else {
+                    homeRoutes(request)
+                }
+            },
+            registry = registry,
+            cache = TmdbHomeCache(MapSettings()),
+            cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+        ).create()
+
+        store.labels.test {
+            store.accept(HomeIntent.Open(CACHED_ITEM))
+            assertEquals(HomeLabel.OpenEmbyItem("one", "emby-42"), awaitItem())
+        }
         store.dispose()
     }
 

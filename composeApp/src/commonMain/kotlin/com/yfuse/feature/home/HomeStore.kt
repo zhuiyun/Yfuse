@@ -376,9 +376,11 @@ class HomeStoreFactory(
                     titleMatches && yearMatches && typeMatches
                 }
                 dispatch(Msg.Resolving(false))
-                // The visual detail always comes from TMDB; an Emby match only
-                // enables the play action.
-                publish(HomeLabel.OpenTmdbItem(item, match?.id))
+                if (match != null) {
+                    publish(HomeLabel.OpenEmbyItem(server.id, match.id))
+                } else {
+                    publish(HomeLabel.OpenTmdbItem(item, null))
+                }
             }
         }
 

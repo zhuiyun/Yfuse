@@ -1,3 +1,16 @@
+# ---- Android entry points ----
+# These classes are instantiated by Android or Google Cast from Manifest strings rather
+# than from bytecode references. Keep them explicitly: relying on AGP's generated AAPT
+# rules left the release DEX without the application and every app component.
+-keep class com.yfuse.YfuseApp { *; }
+-keep class com.yfuse.MainActivity { *; }
+-keep class com.yfuse.feature.player.PlayerActivity { *; }
+-keep class com.yfuse.feature.profile.QrScannerActivity { *; }
+-keep class com.yfuse.core.offline.OfflineDownloadService { *; }
+-keep class com.yfuse.update.UpdateDownloadService { *; }
+-keep class com.yfuse.feature.player.PlaybackKeepAliveService { *; }
+-keep class com.yfuse.core.cast.YfuseCastOptionsProvider { *; }
+
 # ---- kotlinx.serialization ----
 # Keep the generated serializers for our @Serializable model/DTO classes,
 # otherwise R8 strips them and JSON parsing throws at runtime.

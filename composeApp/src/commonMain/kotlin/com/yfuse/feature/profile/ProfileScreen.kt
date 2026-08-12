@@ -86,23 +86,25 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.serverBadgeColor
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
-import com.yfuse.feature.servers.ServersIntent
 import kotlinx.coroutines.launch
 
 /** Which option sheet is open — the prototype's `settingsSheetTab`. */
 private enum class Sheet {
     ThemeMode,
+    StartupTab,
     Accent,
     Engine,
     Decoder,
@@ -115,7 +117,6 @@ private enum class Sheet {
     WatchEndpoint,
     VideoCache,
 }
-
 private enum class ProfilePage {
     Root,
     Account,
@@ -144,6 +145,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val autoNext by prefs.autoNext.collectAsState()
     val splashAnimation by prefs.splashAnimation.collectAsState()
     val splashVariant by prefs.splashVariant.collectAsState()
+    val startupTab by prefs.startupTab.collectAsState()
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
@@ -162,14 +164,9 @@ fun ProfileScreen(component: ProfileComponent) {
     val recoverySnapshot by component.playbackRecovery.snapshot.collectAsState()
     val syncState by component.syncManager.state.collectAsState()
     val accountState by component.account.state.collectAsState()
-    val serversState by component.serversStore.states
-        .collectAsState(component.serversStore.state)
-    val serverHealth by component.serverHealthMonitor.health.collectAsState()
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
-    var confirmRemove by remember { mutableStateOf<SavedServer?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
-    var serversExpanded by remember { mutableStateOf(false) }
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
     var recoveryToPlay by remember {
@@ -185,11 +182,6 @@ fun ProfileScreen(component: ProfileComponent) {
 
     fun closePage() {
         pageStack = pageStack.dropLast(1)
-    }
-
-    val addServerOpen = serversState.dialogVisible
-    fun openAddServer() {
-        component.serversStore.accept(ServersIntent.OpenAddDialog)
     }
 
     StatusBarIconStyle(darkIcons = !palette.isDark)
@@ -266,12 +258,14 @@ fun ProfileScreen(component: ProfileComponent) {
                             mode = mode,
                             accent = accent,
                             splashSummary = if (splashAnimation) "${splashVariant.label} ›" else "已关闭 ›",
+                            startupSummary = "${startupTab.label} ›",
                             reduceTransparency = reduceTransparency,
                             largeText = largeText,
                             reduceMotion = reduceMotion,
                             onThemeMode = { sheet = Sheet.ThemeMode },
                             onAccent = { sheet = Sheet.Accent },
                             onSplash = { openPage(ProfilePage.Splash) },
+                            onStartupTab = { sheet = Sheet.StartupTab },
                             onReduceTransparency = prefs::setReduceTransparency,
                             onLargeText = prefs::setLargeText,
                             onReduceMotion = prefs::setReduceMotion,
@@ -335,38 +329,22 @@ fun ProfileScreen(component: ProfileComponent) {
                             }
 
                             item {
-                                Section(
-                                    title = "我的服务器",
-                                    action = "+ 添加",
-                                    onAction = ::openAddServer,
-                                ) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        CollapsibleSummaryRow(
-                                            title = "${state.servers.size} 台服务器",
-                                            subtitle = state.currentServer?.serverName ?: "尚未连接",
-                                            expanded = serversExpanded,
-                                            onClick = { serversExpanded = !serversExpanded },
+                                // The list itself lives in the 服务器 tab now. What belongs
+                                // here is the one line that says how many there are and
+                                // which one is live — the rest of this page reads from it.
+                                Section(title = "我的服务器") {
+                                    SettingsCard {
+                                        SettingRow(
+                                            title = "服务器",
+                                            value = if (state.servers.isEmpty()) {
+                                                "尚未连接 ›"
+                                            } else {
+                                                val current = state.currentServer?.serverName
+                                                "${state.servers.size} 台 · ${current ?: "未选择"} ›"
+                                            },
+                                            embedded = true,
+                                            onClick = component.onOpenServers,
                                         )
-                                        if (serversExpanded) {
-                                            state.servers.forEach { server ->
-                                                ServerRow(
-                                                    server = server,
-                                                    isCurrent = server.id == state.currentServer?.id,
-                                                    health = serverHealth[server.id],
-                                                    onClick = {
-                                                        component.store.accept(
-                                                            ProfileIntent.SwitchServer(server.id),
-                                                        )
-                                                    },
-                                                    onLongClick = { confirmRemove = server },
-                                                    onEdit = {
-                                                        component.serversStore.accept(
-                                                            ServersIntent.EditServer(server),
-                                                        )
-                                                    },
-                                                )
-                                            }
-                                        }
                                     }
                                 }
                             }
@@ -487,6 +465,18 @@ fun ProfileScreen(component: ProfileComponent) {
                 options = ThemeMode.entries.map { it.label to (it == mode) },
                 onSelect = { index ->
                     prefs.setMode(ThemeMode.entries[index])
+                    sheet = null
+                },
+                onDismiss = { sheet = null },
+            )
+
+            Sheet.StartupTab -> OptionSheet(
+                title = "启动进入",
+                subtitle = "下次冷启动时打开的页面",
+                options = StartupTab.entries.map { it.label to (it == startupTab) },
+                descriptions = StartupTab.entries.map { it.description },
+                onSelect = { index ->
+                    prefs.setStartupTab(StartupTab.entries[index])
                     sheet = null
                 },
                 onDismiss = { sheet = null },
@@ -630,37 +620,6 @@ fun ProfileScreen(component: ProfileComponent) {
             )
 
             null -> Unit
-        }
-
-        if (addServerOpen) {
-            AddServerDialog(
-                state = serversState,
-                onIntent = component.serversStore::accept,
-                onDismiss = { component.serversStore.accept(ServersIntent.DismissDialog) },
-            )
-        }
-
-        confirmRemove?.let { server ->
-            val isCurrent = server.id == state.currentServer?.id
-            ConfirmDialog(
-                title = "移除服务器",
-                message = if (isCurrent) {
-                    "将退出「${server.serverName}」并从列表中移除，已下载的离线内容会保留。"
-                } else {
-                    "将从列表中移除「${server.serverName}」，之后可以重新登录。"
-                },
-                confirmLabel = "移除",
-                destructive = true,
-                onConfirm = {
-                    confirmRemove = null
-                    if (isCurrent) {
-                        component.store.accept(ProfileIntent.Logout)
-                    } else {
-                        component.onRemoveServer(server.id)
-                    }
-                },
-                onDismiss = { confirmRemove = null },
-            )
         }
 
         if (confirmClearCache) {
@@ -811,70 +770,6 @@ internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     )
 }
 
-@Composable
-private fun CollapsibleSummaryRow(
-    title: String,
-    subtitle: String,
-    expanded: Boolean,
-    onClick: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .pressable(onClick = onClick)
-            .glass(
-                shape = GlassShapes.card,
-                fill = palette.card2,
-                border = palette.border,
-            )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(34.dp)
-                .glass(
-                    shape = AppShapes.thumb,
-                    fill = accent.container,
-                    border = accent.border,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                AppIcons.Server,
-                contentDescription = null,
-                tint = accent.accent,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title, style = AppTypography.body.strong, color = palette.text)
-            Spacer(Modifier.height(2.dp))
-            Text(
-                subtitle,
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Text(
-            if (expanded) "收起" else "展开",
-            style = AppTypography.caption.strong,
-            color = accent.accent,
-        )
-        Icon(
-            AppIcons.ChevronDown,
-            contentDescription = if (expanded) "收起" else "展开",
-            tint = accent.accent,
-            modifier = Modifier.size(12.dp),
-        )
-    }
-}
-
 /**
  * Section header — `700 12px`, `--pg-sub2`, `letter-spacing:.5px`, `margin-bottom:8px`;
  * optional trailing action at `600 11px Manrope`, `#3D64C9`.
@@ -917,107 +812,6 @@ internal fun Section(
             }
         }
         content()
-    }
-}
-
-/**
- * Server row — `radius:14px`, `padding:11px 12px`, `gap:11px`; current uses
- * `rgba(61,100,201,.1)` over `rgba(61,100,201,.3)`, others `--pg-card2`-ish white.
- */
-@Composable
-private fun ServerRow(
-    server: SavedServer,
-    isCurrent: Boolean,
-    health: ServerHealth?,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    onEdit: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val shape = GlassShapes.chip
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .pressable(onLongClick = onLongClick, onClick = onClick)
-            .glass(
-                shape = shape,
-                fill = if (isCurrent) accent.container else palette.card2,
-                border = if (isCurrent) accent.border else palette.border,
-            )
-            .padding(horizontal = 12.dp, vertical = 11.dp),
-        horizontalArrangement = Arrangement.spacedBy(11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // A solid server colour keeps identity without adding a second material.
-        Box(
-            Modifier
-                .size(34.dp)
-                .clip(AppShapes.thumb)
-                .background(serverColor(server.id)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                server.serverName.take(1).uppercase(),
-                style = AppTypography.body.strong,
-                color = Color.White,
-            )
-        }
-        Column(Modifier.weight(1f)) {
-            Text(
-                server.serverName,
-                style = AppTypography.body.strong,
-                color = palette.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(
-                            when (health?.status) {
-                                ServerHealthStatus.Healthy -> Semantic.Success
-                                ServerHealthStatus.Degraded -> Semantic.Warning
-                                ServerHealthStatus.AuthRequired -> Semantic.Error
-                                ServerHealthStatus.Offline -> Semantic.Offline
-                                else -> Semantic.Offline
-                            },
-                        ),
-                )
-                Text(
-                    listOfNotNull(
-                        "当前使用".takeIf { isCurrent },
-                        server.userName.takeIf { it.isNotBlank() },
-                        health?.summary,
-                    ).joinToString(" · "),
-                    style = AppTypography.caption.regular,
-                    color = palette.sub,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (isCurrent) {
-            Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(13.dp))
-        } else {
-            Text("切换", style = AppTypography.caption.regular, color = Brand.Offline)
-        }
-        Box(
-            Modifier
-                .pressable(onClickLabel = "编辑服务器", onClick = onEdit)
-                .touchTarget()
-                .size(22.dp)
-                .clip(GlassShapes.chip),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(AppIcons.Edit, "编辑服务器", tint = palette.sub, modifier = Modifier.size(13.dp))
-        }
     }
 }
 
@@ -1668,14 +1462,3 @@ private fun OptionSheet(
         }
     }
 }
-
-/** Stable per-server solid colour, deliberately free of gradients. */
-private fun serverColor(id: String): Color =
-    serverColors[(id.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }) % serverColors.size]
-
-private val serverColors = listOf(
-    Color(0xFF6689D3),
-    Color(0xFFC98F5B),
-    Color(0xFF8298C1),
-    Color(0xFF7198CB),
-)

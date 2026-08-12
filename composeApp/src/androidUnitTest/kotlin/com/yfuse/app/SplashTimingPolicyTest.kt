@@ -7,27 +7,28 @@ import kotlin.test.assertTrue
 class SplashTimingPolicyTest {
 
     @Test
-    fun returning_launch_stays_inside_the_compact_startup_budget() {
+    fun every_launch_runs_the_same_12s_the_choreography_is_drawn_for() {
         val timing = splashTiming(
             firstLaunch = false,
             reduceMotion = false,
             systemAnimationsOff = false,
         )
 
-        val total = timing.motionDurationMs + timing.fadeDurationMs
-        assertTrue(total in 350..600)
+        // 折带展开's beats are authored against a 1_200ms clock; a shell that ran for any
+        // other length would simply be playing it at the wrong speed.
+        assertEquals(1_200, timing.motionDurationMs + timing.fadeDurationMs)
         assertEquals(0, timing.stillFrameHoldMs)
     }
 
     @Test
-    fun first_launch_gets_a_brief_welcome_without_the_old_two_second_gate() {
+    fun first_launch_is_not_a_longer_gate_than_any_other_launch() {
         val timing = splashTiming(
             firstLaunch = true,
             reduceMotion = false,
             systemAnimationsOff = false,
         )
 
-        assertEquals(1_120, timing.motionDurationMs + timing.fadeDurationMs)
+        assertEquals(1_200, timing.motionDurationMs + timing.fadeDurationMs)
     }
 
     @Test

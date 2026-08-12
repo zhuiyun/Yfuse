@@ -40,7 +40,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,11 +55,14 @@ import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ActionToast
+import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HeroCaptionClearance
+import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -68,7 +70,6 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.MediaSharedElementKey
-import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.touchTarget
@@ -80,12 +81,14 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.heroScrim
+import com.yfuse.core.designsystem.heroSurface
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
 import com.yfuse.core.designsystem.loopingCarouselSemantics
 import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
-import com.yfuse.core.designsystem.scrim
+import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.TmdbItem
@@ -96,7 +99,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val HomeHeroIndicatorBottom = 7.dp
-private val HomeHeroContentBottom = HomeHeroIndicatorBottom + MinTouchTarget + 10.dp
+
+/**
+ * The caption clears the whole dissolve band.
+ *
+ * White copy is legible on artwork and on the scrim over it; it is not legible on the page
+ * the artwork is turning into. Every line of the caption therefore stays above the band,
+ * and only the dots — whose ink is the page's — sit inside it.
+ */
+private val HomeHeroContentBottom = HeroCaptionClearance
 
 /**
  * 首页 — the prototype's `isHome` screen:
@@ -121,7 +132,7 @@ fun HomeScreen(component: HomeComponent) {
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
 
     val pullState = rememberPullToRefreshState()
-    RefreshThresholdHaptics(pullState)
+    RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
     // 首页's search, calendar and account entries live inside a hero that scrolls away, so
     // this tab is the one where tapping the tab again matters most.
     ScrollToTopOnReselect(listState)
@@ -314,21 +325,19 @@ private fun HomeHeroCarousel(
     val carouselScope = rememberCoroutineScope()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
-    // Any deliberate navigation pauses the reel. The adjacent pause/play control lets the
-    // user opt back in without leaving the screen.
-    var autoPlayEnabled by rememberSaveable(items.map { it.id }) { mutableStateOf(true) }
+    // Touching the reel restarts its clock rather than stopping it for good. The pause
+    // control this replaces could only be undone by finding it again, so a single swipe
+    // left the hero permanently still with a play glyph as the only clue why.
+    var interaction by remember { mutableStateOf(0) }
 
     LaunchedEffect(items.map { it.id }) {
         pagerState.scrollToPage(loopingCarouselStartPage(items.size))
     }
-    LaunchedEffect(carouselDragging) {
-        if (carouselDragging) autoPlayEnabled = false
-    }
-    LaunchedEffect(items.size, carouselDragging, reduceMotion, autoPlayEnabled, routeVisible, visible) {
+    LaunchedEffect(items.size, carouselDragging, reduceMotion, routeVisible, visible, interaction) {
         // 390dp of artwork moving on its own is the largest single piece of motion in the
         // app, and it was the one thing 减弱动态效果 did not switch off — the setting was
         // honoured in fifteen places and not in the most conspicuous one.
-        if (!routeVisible || !visible || items.size <= 1 || carouselDragging || reduceMotion || !autoPlayEnabled) {
+        if (!routeVisible || !visible || items.size <= 1 || carouselDragging || reduceMotion) {
             return@LaunchedEffect
         }
         while (true) {
@@ -374,7 +383,7 @@ private fun HomeHeroCarousel(
                 pageCount = items.size,
                 selectedPage = loopingCarouselItemIndex(pagerState.currentPage, items.size),
                 onPageSelected = { targetIndex ->
-                    autoPlayEnabled = false
+                    interaction++
                     carouselScope.launch {
                         val targetPage = loopingCarouselTargetPage(
                             currentPage = pagerState.currentPage,
@@ -391,10 +400,6 @@ private fun HomeHeroCarousel(
                         }
                     }
                 },
-                autoPlayRunning = if (reduceMotion) null else autoPlayEnabled,
-                onToggleAutoPlay = if (reduceMotion) null else {
-                    { autoPlayEnabled = !autoPlayEnabled }
-                },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = HomeHeroIndicatorBottom),
@@ -409,6 +414,28 @@ private fun HeroSlide(
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
 ) {
+    val palette = LocalPalette.current
+    val artworkUrls: List<String?> = remember(item) {
+        if (item == null) {
+            emptyList()
+        } else {
+            listOf(
+                TmdbImages.backdrop(item.backdropPath),
+                TmdbImages.media(item.backdropPath, "w1280"),
+                TmdbImages.poster(item.posterPath, "w780"),
+                TmdbImages.media(item.posterPath, "w780"),
+            )
+        }
+    }
+    val artworkAccent = rememberAnimatedArtworkAccent(
+        url = artworkUrls.firstOrNull { it != null },
+        fallback = Brand.Primary, // design-system: brand-identity
+        darkTheme = palette.isDark,
+        identity = item?.id,
+    )
+    val slideSurface = remember(artworkAccent, palette.isDark) {
+        heroSurface(artworkAccent, palette.isDark)
+    }
     Box(
         Modifier
             .fillMaxSize()
@@ -428,28 +455,16 @@ private fun HeroSlide(
             ),
     ) {
         if (item != null) {
-            // The shelves below already walk image.tmdb.org → media.themoviedb.org; the hero
-            // was the one artwork on this page still betting everything on the first host,
-            // so it was the one that came up blank.
             FallbackImage(
-                urls = listOf(
-                    TmdbImages.backdrop(item.backdropPath),
-                    TmdbImages.media(item.backdropPath, "w1280"),
-                    TmdbImages.poster(item.posterPath, "w780"),
-                    TmdbImages.media(item.posterPath, "w780"),
-                ),
+                urls = artworkUrls,
                 contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // 底部 90% → 透明的深色渐变压暗，保证任意剧照上标题都可读 (§4.1).
+        // Share the detail hero's exact bottom-to-top colour stops and surface treatment.
         Box(
             Modifier.fillMaxSize().background(
-                scrim(
-                    0f to Color(0xFF0A0E1A).copy(alpha = 0.90f),
-                    0.55f to Color(0xFF0A0E1A).copy(alpha = 0.10f),
-                    1f to Color(0xFF0A0E1A).copy(alpha = 0.35f),
-                ),
+                heroScrim(surface = slideSurface, bottomSurface = palette.background),
             ),
         )
 
@@ -492,10 +507,14 @@ private fun HeroHeader(
         ) {
             AppMark(Modifier.size(30.dp))
             Column {
-                Text("下午好", style = AppTypography.caption.regular, color = Color.White.copy(alpha = 0.75f))
+                Text(
+                    "下午好",
+                    style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
+                    color = Color.White.copy(alpha = 0.82f),
+                )
                 Text(
                     "继续你的旅程",
-                    style = AppTypography.section.strong,
+                    style = AppTypography.section.strong.copy(shadow = HeroTextShadow),
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -603,7 +622,7 @@ private fun HeroCaption(
         Spacer(Modifier.height(10.dp))
         Text(
             item.title,
-            style = AppTypography.display.strong,
+            style = AppTypography.display.strong.copy(shadow = HeroTextShadow),
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -612,8 +631,8 @@ private fun HeroCaption(
         Text(
             listOfNotNull(item.year, item.rating?.let { "评分 ${(it * 10).toInt() / 10.0}" })
                 .joinToString(" · "),
-            style = AppTypography.caption.regular,
-            color = Color.White.copy(alpha = 0.75f),
+            style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
+            color = Color.White.copy(alpha = 0.88f),
         )
         Spacer(Modifier.height(14.dp))
         Row(
@@ -952,13 +971,11 @@ private fun RecentAdded(
 /**
  * The app mark, sized to the prototype's 30px header slot.
  *
- * The launcher art is a square raster, and the launcher is the only place it is ever seen
- * masked. Dropped into the header unmasked it was the one hard-cornered square on a screen
- * of rounded everything, and read as a sticker rather than as the app. [GlassShapes.appIcon]
- * is the iOS icon curve — 22.37% of the side, continuous — so the mark in the header is the
- * same silhouette as the mark on the home screen the user just tapped.
+ * The mark is now the shape alone on transparency, so there is nothing to mask: the
+ * rounded clip that used to be here existed because the artwork was a square white tile,
+ * and clipping a transparent ribbon only risks shaving its corners off.
  */
 @Composable
 private fun AppMark(modifier: Modifier = Modifier) {
-    CloudPlayerLogo(modifier.clip(GlassShapes.appIcon))
+    CloudPlayerLogo(modifier)
 }

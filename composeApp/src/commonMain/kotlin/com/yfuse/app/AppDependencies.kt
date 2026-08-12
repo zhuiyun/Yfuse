@@ -8,6 +8,7 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
+import com.yfuse.core.data.ServerActivityStore
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
@@ -44,5 +45,6 @@ data class AppDependencies(
     val lanDiscovery: LanDiscovery,
     val account: AccountRepository,
     val serverHealthMonitor: ServerHealthMonitor,
+    val serverActivity: ServerActivityStore,
     val serverRegistry: ServerRegistry,
 )

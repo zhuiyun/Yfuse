@@ -1,6 +1,7 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +63,27 @@ fun ScrollToTopOnReselect(listState: LazyListState) {
             ) {
                 lastHandledOccurrence = event.occurrence
                 listState.motionAwareScrollToItem(index = 0, reduceMotion = reduceMotion)
+            }
+        }
+    }
+}
+
+/** Grid counterpart to the list overload; same gesture, same reasoning. */
+@Composable
+fun ScrollToTopOnReselect(gridState: LazyGridState) {
+    val signal = LocalTabReselected.current ?: return
+    val tabIdentity = LocalTabIdentity.current ?: return
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    var lastHandledOccurrence by rememberSaveable(tabIdentity) { mutableLongStateOf(0L) }
+    LaunchedEffect(signal, tabIdentity, gridState, reduceMotion) {
+        signal.collect { event ->
+            if (event == null) {
+                lastHandledOccurrence = 0L
+            } else if (event.targets(tabIdentity) &&
+                event.occurrence > lastHandledOccurrence
+            ) {
+                lastHandledOccurrence = event.occurrence
+                gridState.motionAwareScrollToItem(index = 0, reduceMotion = reduceMotion)
             }
         }
     }

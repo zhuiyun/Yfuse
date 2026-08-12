@@ -780,6 +780,7 @@ internal fun PlayerControls(
                 onBack = { settingsTab = null },
             ) {
                 SettingsPanel(
+                modifier = Modifier.align(Alignment.CenterEnd),
                 tab = tab,
                 state = state,
                 speeds = SPEEDS,

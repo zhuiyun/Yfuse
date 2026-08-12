@@ -67,7 +67,7 @@ import com.yfuse.core.util.withoutControlCharacters
  * Named because the player has to know: anything that floats up that corner has to be moved
  * clear of the panel while it is open, or it plays out behind it — see [WatchReactionOverlay].
  */
-internal val WatchChatPanelWidth = 340.dp
+internal val WatchChatPanelWidth = PlayerPanelWidth
 
 @Composable
 internal fun WatchChatPanel(
@@ -116,20 +116,8 @@ internal fun WatchChatPanel(
         if (onSend(text)) draft = ""
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)).noRippleClickable(onDismiss))
-    Column(
-        modifier
-            .fillMaxHeight()
-            .width(WatchChatPanelWidth)
-            .glass(
-                shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp),
-                fill = PlayerTokens.drawerFillLandscape,
-                border = Color.White.copy(alpha = 0.24f),
-            )
-            .noRippleClickable { }
-            .imePadding()
-            .padding(horizontal = 14.dp, vertical = 16.dp),
-    ) {
+    // Same drawer as 设置 and 搜索弹幕 — see [PlayerSidePanel].
+    PlayerSidePanel(onDismiss = onDismiss, modifier = modifier, dim = true) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

@@ -4,6 +4,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackOutboxEvent
 import com.yfuse.core.data.PlaybackOutboxEventKind
+import com.yfuse.core.data.ServerActivityStore
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +19,11 @@ class PlaybackReportingCoordinator(
     private val repository: EmbyRepository,
     private val registry: ServerRegistry,
     private val outbox: PlaybackEventOutbox,
+    /**
+     * Optional so the retry-scheduling tests can build a coordinator without one. Absent, the
+     * 服务器 grid simply has no 「上次观看」 to show.
+     */
+    private val activity: ServerActivityStore? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ) {
@@ -36,6 +42,10 @@ class PlaybackReportingCoordinator(
      */
     internal fun sinkFor(serverId: String): PlaybackEventSink? {
         val server = registry.serverById(serverId) ?: return null
+        // The one point in the app that knows playback is starting *and* which saved server
+        // it belongs to. Recorded against the canonical id so a server that has since been
+        // re-addressed keeps its history rather than starting again as a stranger.
+        activity?.recordWatch(server.id, nowEpochMs())
         matchingPendingIds(server.id).forEach { pendingId ->
             outbox.resumeAfterAuthentication(pendingId)
             wake(pendingId)
