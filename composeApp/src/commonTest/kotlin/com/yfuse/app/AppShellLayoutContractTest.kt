@@ -17,8 +17,9 @@ class AppShellLayoutContractTest {
 
         assertTrue(".height(Dimens.tabBarHeight)" in tabBar)
         assertFalse(".heightIn(min = Dimens.tabBarHeight)" in tabBar)
-        assertTrue("maxLines = 1" in tabButton)
-        assertTrue("overflow = TextOverflow.Ellipsis" in tabButton)
+        assertTrue("LiquidGlassTabIcon(" in tabButton)
+        assertTrue("contentDescription = item.label" in source)
+        assertFalse("Text(\n            item.label" in tabButton)
     }
 
     private fun projectFile(moduleRelativePath: String): File = sequenceOf(
