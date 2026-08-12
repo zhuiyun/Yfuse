@@ -1446,19 +1446,21 @@ private fun TransportRow(
             onClick = onPrevious,
         )
         if (state.buffering) {
-            Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
+            // Same footprint as the key it replaces, so the row does not shuffle sideways
+            // every time the stream stalls.
+            Box(Modifier.size(PlayKeySize), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
                     color = Color.White,
                     strokeWidth = 2.dp,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(22.dp),
                 )
             }
         } else {
             CircleControl(
                 if (state.playing) AppIcons.Pause else AppIcons.Play,
                 if (state.playing) "暂停" else "播放",
-                30.dp,
-                14.dp,
+                PlayKeySize,
+                17.dp,
                 enabled = !locked,
                 filled = true,
                 onClick = onPlayPause,
@@ -2065,9 +2067,16 @@ private fun CircleControl(
         Box(
             Modifier
                 .size(size)
-                .border(1.dp, Color.White.copy(alpha = if (filled) 0.42f else 0.62f), CircleShape)
+                // A filled key gets no ring. Outlined siblings are drawn *by* their hairline;
+                // putting the same hairline around a solid disc gave the play key two edges
+                // and made it read as a third kind of object wedged between two rings rather
+                // than as the emphatic member of their family.
                 .let {
-                    if (filled) it.background(PlayerTokens.playFill, CircleShape) else it
+                    if (filled) {
+                        it.background(PlayerTokens.playFill, CircleShape)
+                    } else {
+                        it.border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape)
+                    }
                 },
             contentAlignment = Alignment.Center,
         ) {
@@ -2080,6 +2089,15 @@ private fun CircleControl(
         }
     }
 }
+
+/**
+ * 播放/暂停 is the only control in the row anyone aims for without looking.
+ *
+ * It was 30dp against its siblings' 26 — close enough to read as an inconsistency rather than
+ * as emphasis. At 42 it is unmistakably the primary key, and the outlined siblings become
+ * what they are: secondary.
+ */
+private val PlayKeySize = 42.dp
 
 /** Slack around a control's ring, so a small ring still has a thumb-sized target. */
 private val ControlTouchPadding = 7.dp

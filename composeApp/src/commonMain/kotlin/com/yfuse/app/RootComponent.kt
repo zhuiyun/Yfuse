@@ -96,6 +96,7 @@ class RootComponent(
         repo = repo,
         registry = registry,
         dependencies = dependencies,
+        themePreferences = themePreferences,
         // Choosing a server is never the goal in itself — it is choosing what 库 will show.
         onOpenLibrary = { selectTab(Tab.Browse) },
     )

@@ -96,6 +96,7 @@ import com.yfuse.core.designsystem.serverTintColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.profile.AddServerDialog
@@ -124,6 +125,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
     val health by component.health.health.collectAsState()
     val lastWatched by component.activity.lastWatched.collectAsState()
     val serverStats by component.stats.stats.collectAsState()
+    val layout by component.layout.collectAsState()
     val gridState = rememberLazyGridState()
     val share = rememberShareHandler()
 
@@ -167,7 +169,14 @@ fun ServersTabScreen(component: ServersTabComponent) {
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(ServerCardMinWidth),
+                // 列表 is one column of the same card, not a second card design: everything
+                // the grid card shows is worth showing in a row too, and two implementations
+                // of the same thing drift apart on the next change to either.
+                columns = if (layout == ServerLayout.List) {
+                    GridCells.Fixed(1)
+                } else {
+                    GridCells.Adaptive(ServerCardMinWidth)
+                },
                 state = gridState,
                 modifier = Modifier.fillMaxSize().statusBarsPadding(),
                 contentPadding = PaddingValues(
@@ -193,6 +202,8 @@ fun ServersTabScreen(component: ServersTabComponent) {
                         onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
                         refreshing = refreshing,
                         onRefreshAll = { component.refreshAll() },
+                        layout = layout,
+                        onLayout = component::setLayout,
                     )
                 }
 
@@ -344,6 +355,8 @@ private fun ServersHeader(
     onAdd: () -> Unit,
     refreshing: Boolean,
     onRefreshAll: () -> Unit,
+    layout: ServerLayout,
+    onLayout: (ServerLayout) -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -379,6 +392,42 @@ private fun ServersHeader(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Box(
+                    Modifier
+                        .pressable(
+                            onClickLabel = if (layout == ServerLayout.Grid) {
+                                "改为列表展示"
+                            } else {
+                                "改为网格展示"
+                            },
+                            onClick = {
+                                onLayout(
+                                    if (layout == ServerLayout.Grid) {
+                                        ServerLayout.List
+                                    } else {
+                                        ServerLayout.Grid
+                                    },
+                                )
+                            },
+                        )
+                        .touchTarget()
+                        .shadow(GlassLift.control, CircleShape)
+                        .liquidGlass(
+                            shape = CircleShape,
+                            fill = palette.card2,
+                            border = palette.border,
+                            sheen = 0.9f,
+                        )
+                        .size(MinTouchTarget),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (layout == ServerLayout.Grid) AppIcons.Menu else AppIcons.Grid,
+                        contentDescription = null,
+                        tint = palette.sub2,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
                 Box(
                     Modifier
                         .pressable(

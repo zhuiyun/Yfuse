@@ -2,6 +2,7 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
@@ -136,6 +137,25 @@ private fun Color.chromaBoosted(factor: Float): Color {
         blue = (mean + (blue - mean) * factor).coerceIn(0f, 1f),
         alpha = alpha,
     )
+}
+
+/**
+ * The page's ground, washed toward the artwork the hero is currently showing.
+ *
+ * A hero used to dissolve into `palette.background` — a fixed grey — so the colour stopped
+ * dead at the bottom of the carousel and everything below it belonged to a different picture.
+ * Tinting the whole page instead makes the artwork the room the content sits in, and because
+ * the accent handed in is already animated, the room changes with the slide.
+ *
+ * Deliberately a small fraction. This colour ends up behind body copy, chips and cards whose
+ * inks were measured against the flat palette; far enough toward the artwork to be felt, not
+ * far enough to start deciding contrast.
+ */
+@Composable
+@ReadOnlyComposable
+fun pageTint(accent: Color): Color {
+    val palette = LocalPalette.current
+    return lerp(palette.background, accent, if (palette.isDark) 0.16f else 0.11f)
 }
 
 /**

@@ -283,7 +283,11 @@ object PlayerTokens {
     val hairline = Color.White.copy(alpha = 0.18f)
     val chipFill = Color.White.copy(alpha = 0.14f)
     val chipBorder = Color.White.copy(alpha = 0.22f)
-    val playFill = Color.White.copy(alpha = 0.68f)
+    /**
+     * Opaque, now that the play key has no ring to define it. At 0.68 the picture showed
+     * through the one control that has to be found at a glance in a dark room.
+     */
+    val playFill = Color.White.copy(alpha = 0.94f)
     val onPlay = Color(0xFF141A26)
     val trackFill = Color.White.copy(alpha = 0.22f)
     val trackFillLandscape = Color.White.copy(alpha = 0.24f)

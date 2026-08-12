@@ -83,6 +83,7 @@ import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
+import com.yfuse.core.designsystem.pageTint
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
 import com.yfuse.core.designsystem.loopingCarouselSemantics
@@ -131,6 +132,10 @@ fun HomeScreen(component: HomeComponent) {
     // The shelf opened out into a grid, or null. Held here rather than in the store: it is
     // which page is on screen, not anything about the data.
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
+    // The carousel owns which slide is settled, so it reports the colour up rather than the
+    // page trying to work it out from an index it does not hold.
+    var heroAccent by remember { mutableStateOf<Color?>(null) }
+    val ground = pageTint(heroAccent ?: Brand.Primary) // design-system: brand-identity
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
@@ -160,7 +165,7 @@ fun HomeScreen(component: HomeComponent) {
             isRefreshing = state.refreshing,
             onRefresh = { component.store.accept(HomeIntent.Refresh) },
             state = pullState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().background(ground),
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -181,6 +186,7 @@ fun HomeScreen(component: HomeComponent) {
                         onOpenCalendar = component.onOpenCalendar,
                         onPlay = { component.store.accept(HomeIntent.Open(it)) },
                         onFavorite = { component.store.accept(HomeIntent.Favorite(it)) },
+                        onAccent = { heroAccent = it },
                     )
                 }
 
@@ -318,6 +324,7 @@ private fun HomeHeroCarousel(
     onOpenCalendar: () -> Unit,
     onPlay: (TmdbItem) -> Unit,
     onFavorite: (TmdbItem) -> Unit,
+    onAccent: (Color) -> Unit,
 ) {
     val pagerState = rememberPagerState(
         pageCount = { loopingCarouselPageCount(items.size) },
@@ -363,10 +370,13 @@ private fun HomeHeroCarousel(
                 key = { page -> page },
             ) { page ->
                 val item = items[loopingCarouselItemIndex(page, items.size)]
+                val settled = page == pagerState.currentPage
                 HeroSlide(
                     item = item,
                     onPlay = { onPlay(item) },
                     onFavorite = { onFavorite(item) },
+                    settled = settled,
+                    onAccent = onAccent,
                 )
             }
         }
@@ -414,6 +424,8 @@ private fun HeroSlide(
     item: TmdbItem?,
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
+    settled: Boolean = false,
+    onAccent: (Color) -> Unit = {},
 ) {
     val palette = LocalPalette.current
     val artworkUrls: List<String?> = remember(item) {
@@ -436,6 +448,12 @@ private fun HeroSlide(
     )
     val slideSurface = remember(artworkAccent, palette.isDark) {
         heroSurface(artworkAccent, palette.isDark)
+    }
+    // Only the slide the reader is actually on gets to colour the page; the pager keeps its
+    // neighbours composed, and letting those report would tint the page from a slide that is
+    // off screen.
+    LaunchedEffect(settled, artworkAccent) {
+        if (settled) onAccent(artworkAccent)
     }
     Box(
         Modifier
@@ -465,7 +483,7 @@ private fun HeroSlide(
         // Share the detail hero's exact bottom-to-top colour stops and surface treatment.
         Box(
             Modifier.fillMaxSize().background(
-                heroScrim(surface = slideSurface, bottomSurface = palette.background),
+                heroScrim(surface = slideSurface, bottomSurface = pageTint(artworkAccent)),
             ),
         )
 

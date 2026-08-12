@@ -73,6 +73,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroCaptionClearance
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.HeroPageIndicator
+import com.yfuse.core.designsystem.pageTint
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -254,7 +255,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     }
     ScrollToTopOnReselect(listState)
 
-    Box(Modifier.fillMaxSize()) {
+    // The room the shelves sit in, taken from whatever the carousel is showing. `accent` is
+    // already animated, so the page changes colour with the slide rather than on a cut.
+    val ground = pageTint(accent)
+    Box(Modifier.fillMaxSize().background(ground)) {
         when {
             state.currentServer == null -> PageHint(
                 "还没有默认服务器，请到「我的」添加",
@@ -646,7 +650,11 @@ private fun HeroCarousel(
         // Share the detail hero's exact bottom-to-top colour stops and surface treatment.
         Box(
             Modifier.fillMaxSize().background(
-                heroScrim(surface = carouselSurface, bottomSurface = palette.background),
+                // Its own slide's tint rather than the page's: mid-swipe the neighbour
+                // dissolves into the colour it is about to give the page, so the two arrive
+                // together instead of the scrim stepping to the new ground after the pager
+                // settles. Same rule as 首页's hero.
+                heroScrim(surface = carouselSurface, bottomSurface = pageTint(accent)),
             ),
         )
         Row(
