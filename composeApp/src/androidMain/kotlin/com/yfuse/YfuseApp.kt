@@ -15,6 +15,7 @@ import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.SafeLogcatOutputGate
 import com.yfuse.core.network.imageCacheKeyForUrl
+import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.core.offline.offlineApplicationContext
 import com.yfuse.core.cast.initializeCastApplicationContext
@@ -31,6 +32,7 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         imageCacheContext = this
+        androidAppContext = this
         offlineApplicationContext = this
         initializeCastApplicationContext(this)
         val prefs = getSharedPreferences("yfuse", MODE_PRIVATE)

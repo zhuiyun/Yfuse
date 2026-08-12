@@ -45,6 +45,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -470,7 +471,22 @@ fun ConfirmDialog(
     }
 }
 
-/** One selectable row inside a [GlassDialog]. */
+/** Air between stacked [OverlayOptionRow]s — what replaced the hairline rules. */
+val OverlayOptionSpacing: Dp = 8.dp
+
+/**
+ * One selectable row inside a [GlassDialog].
+ *
+ * A tile rather than a band. These used to be full-bleed rows separated by 1dp rules, with
+ * the selected one a flat tint running edge to edge: on a panel that is itself liquid glass,
+ * that read as a table pasted onto the material, and the rules did the only work — telling
+ * one choice from the next — that spacing does better. Each option is now its own inset
+ * surface with its own edge, and choosing one lights that surface instead of striping the
+ * panel. Callers stack them with [OverlayOptionSpacing] and draw no dividers.
+ *
+ * Every picker in the app comes through here — 排序, 播放器内核, 视频缓存大小, 标记已看 — so
+ * the shape of a choice is decided once.
+ */
 @Composable
 fun OverlayOptionRow(
     label: String,
@@ -485,18 +501,28 @@ fun OverlayOptionRow(
     val fill = when {
         destructive -> palette.errorContainer
         selected -> accent.container
-        else -> Color.Transparent
+        else -> palette.card2
+    }
+    val border = when {
+        destructive -> palette.error.copy(alpha = 0.42f)
+        selected -> accent.border
+        else -> palette.border
+    }
+    val ink = when {
+        destructive -> palette.error
+        selected -> accent.accent
+        else -> palette.text
     }
     Row(
         modifier
             .fillMaxWidth()
-            // Every picker row in the app comes through here — 排序, 播放器内核, 标记已看.
             .pressable(
                 haptic = if (destructive) HapticSignal.Confirm else HapticSignal.Select,
                 // A row in a list of choices is a radio button, and saying so is what lets a
                 // screen reader announce "已选中" without the checkmark glyph being read as
                 // decoration.
                 role = Role.RadioButton,
+                focusShape = GlassShapes.chip,
                 onClick = onClick,
             )
             .semantics { this.selected = selected }
@@ -504,9 +530,9 @@ fun OverlayOptionRow(
             // and these rows are stacked, so a miss lands on the neighbouring choice rather
             // than on nothing.
             .heightIn(min = MinTouchTarget)
-            .background(fill)
-            .padding(horizontal = 12.dp, vertical = 11.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .flatGlass(GlassShapes.chip, fill, border)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -517,12 +543,9 @@ fun OverlayOptionRow(
                 } else {
                     AppTypography.body.medium
                 },
-                color = when {
-                    destructive -> palette.error
-                    selected -> accent.accent
-                    else -> palette.text
-                },
+                color = ink,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             if (description != null) {
                 Spacer(Modifier.height(3.dp))
@@ -530,13 +553,29 @@ fun OverlayOptionRow(
                     description,
                     style = AppTypography.caption.regular,
                     color = palette.sub2,
-                    maxLines = 1,
+                    // A choice that needs explaining gets two lines rather than an ellipsis
+                    // in the middle of the reason to pick it.
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        if (selected) {
-            Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(13.dp))
+        // The mark keeps its slot whether or not it is drawn, so labels do not shift
+        // sideways as the selection moves down the list.
+        Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+            if (selected) {
+                Box(
+                    Modifier.size(20.dp).clip(CircleShape).background(accent.accent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        AppIcons.Check,
+                        contentDescription = null,
+                        tint = accent.onAccent,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
+            }
         }
     }
 }

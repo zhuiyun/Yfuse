@@ -526,12 +526,25 @@ class EmbyRepository(private val client: HttpClient) {
     }
 
     /** Authenticated, cheap server probe used by the health monitor. */
-    suspend fun probeServer(server: SavedServer): Result<Long> = call("server_probe") {
-        val mark = TimeSource.Monotonic.markNow()
-        client.get("${normalizeBaseUrl(server.baseUrl)}/System/Info") {
-            header("X-Emby-Token", server.accessToken)
-        }.bodyAsText()
-        mark.elapsedNow().inWholeMilliseconds
+    suspend fun probeServer(server: SavedServer): Result<Long> =
+        probeAddress(server.baseUrl, server.accessToken)
+
+    /**
+     * Probes one address of a saved session. Routes of the same server share its token, so
+     * timing an alternate address needs the URL and nothing else.
+     */
+    suspend fun probeAddress(baseUrl: String, accessToken: String): Result<Long> =
+        call("server_probe") {
+            val mark = TimeSource.Monotonic.markNow()
+            client.get("${normalizeBaseUrl(baseUrl)}/System/Info") {
+                header("X-Emby-Token", accessToken)
+            }.bodyAsText()
+            mark.elapsedNow().inWholeMilliseconds
+        }
+
+    /** Server-wide Movie/Series totals, for the server cards' at-a-glance figures. */
+    suspend fun itemCounts(server: SavedServer): Result<LibraryCounts> = call("item_counts") {
+        fetchItemCounts(server)
     }
 
     /** Aggregates the home screen: continue-watching, latest-per-library, featured. */

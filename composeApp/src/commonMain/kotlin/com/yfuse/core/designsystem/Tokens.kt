@@ -71,6 +71,62 @@ private val ServerBadgeColors = listOf(
     Color(0xFF7198CB),
 )
 
+/**
+ * The tints a server can be given by hand.
+ *
+ * Wider and more saturated than [ServerBadgeColors], which only ever had to keep four
+ * auto-assigned badges apart. Once the colour is a choice it also washes the whole card, so
+ * the set has to span the hue circle: a grid of twelve servers the user has coloured
+ * themselves is navigated by colour before it is read.
+ */
+val ServerIconTints: List<Color> = listOf(
+    Color(0xFF5B8DEF),
+    Color(0xFF6E62D8),
+    Color(0xFF9B5FC0),
+    Color(0xFFD1588F),
+    Color(0xFFD1584F),
+    Color(0xFFD98A3C),
+    Color(0xFFC9A227),
+    Color(0xFF4FA36B),
+    Color(0xFF34A0A4),
+    Color(0xFF5E7A8C),
+)
+
+/**
+ * A server's colour: the one it was given, or the stable one derived from its id.
+ *
+ * Falling back to the derived colour rather than to a neutral means a user who never opens
+ * the icon picker still gets a grid where no two neighbours look alike.
+ */
+fun serverTintColor(id: String, customTint: Long?): Color =
+    customTint?.let { Color(it) } ?: serverBadgeColor(id)
+
+/**
+ * Fixed per-row colours for settings glyph tiles.
+ *
+ * Deliberately not the user's accent: every row would then be the same colour and the tiles
+ * would be decoration rather than landmarks. These are stable across themes and launches, so
+ * a row is found by its colour before its label is read.
+ */
+object SettingTint {
+    val appearance = Color(0xFF8B5FC9)
+    val language = Color(0xFF2F7BD8)
+    val general = Color(0xFF6B7280)
+    val library = Color(0xFF2FA8C9)
+    val components = Color(0xFF5B5FD0)
+    val subtitle = Color(0xFF3D8BE0)
+    val audio = Color(0xFFE0455F)
+    val playback = Color(0xFF3FA86A)
+    val danmaku = Color(0xFFD9852F)
+    val watchTogether = Color(0xFFC94FA0)
+    val account = Color(0xFF4E86D8)
+    val servers = Color(0xFF2FA88F)
+    val downloads = Color(0xFF3F8FD0)
+    val sync = Color(0xFF7A6BD0)
+    val advanced = Color(0xFF7B8494)
+    val cache = Color(0xFFB07A3F)
+}
+
 /** 主色渐变 135deg — used for avatars, server badges, category cards. */
 val PrimaryGradient: Brush = cssLinearGradient(
     135f,
@@ -408,6 +464,14 @@ object Motion {
 
     /** A full-width artwork change deserves more time than local component movement. */
     const val CAROUSEL = 500
+
+    /**
+     * One turn of an indeterminate spinner.
+     *
+     * Slow enough to read as "working" rather than "frantic" — the thing it reports on is a
+     * round of network probes, which takes about this long per server.
+     */
+    const val REFRESH_SPIN = 900
 
     /** 图片渐进加载：占位主色渐变 → 12px 模糊放大 1.05 → 清晰归位. */
     const val IMAGE_IN = 550

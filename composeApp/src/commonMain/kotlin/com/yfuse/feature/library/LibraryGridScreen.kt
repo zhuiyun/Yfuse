@@ -51,6 +51,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -340,15 +341,17 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
         if (sortOpen) {
             GlassDialog(onDismiss = { sortOpen = false }) {
                 OverlayHeader(title = "排序", onClose = { sortOpen = false })
-                LibrarySort.entries.forEach { option ->
-                    OverlayOptionRow(
-                        label = sortLabels[option].orEmpty(),
-                        selected = state.sort == option,
-                        onClick = {
-                            component.store.accept(GridIntent.SetSort(option))
-                            sortOpen = false
-                        },
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                    LibrarySort.entries.forEach { option ->
+                        OverlayOptionRow(
+                            label = sortLabels[option].orEmpty(),
+                            selected = state.sort == option,
+                            onClick = {
+                                component.store.accept(GridIntent.SetSort(option))
+                                sortOpen = false
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -371,16 +374,19 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     color = palette.sub,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
-                OverlayOptionRow(
-                    label = "确认移除",
-                    selected = false,
-                    onClick = { component.store.accept(GridIntent.ConfirmRemove) },
-                )
-                OverlayOptionRow(
-                    label = "取消",
-                    selected = false,
-                    onClick = { component.store.accept(GridIntent.CancelRemove) },
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                    OverlayOptionRow(
+                        label = "确认移除",
+                        selected = false,
+                        destructive = true,
+                        onClick = { component.store.accept(GridIntent.ConfirmRemove) },
+                    )
+                    OverlayOptionRow(
+                        label = "取消",
+                        selected = false,
+                        onClick = { component.store.accept(GridIntent.CancelRemove) },
+                    )
+                }
             }
         }
 

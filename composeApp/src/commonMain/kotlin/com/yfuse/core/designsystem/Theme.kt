@@ -25,9 +25,34 @@ enum class AccentColor(val label: String, val value: Long) {
     Orange("橙", 0xFFC07A4A),
     Pink("粉", 0xFFC98FA4),
     Green("绿", 0xFF5F9F6F),
+
+    // The second row. Six swatches left obvious gaps — no red, no yellow, nothing between
+    // 蓝 and 紫 — and a colour preference is picked by eye from what is on offer, so the
+    // gaps were the answer for anyone who wanted one of them. New entries only ever append:
+    // the choice persists by enum name, and reordering would repaint everyone's app.
+    Red("红", 0xFFC2564C),
+    Amber("黄", 0xFFC0982F),
+    Sky("天蓝", 0xFF4E93C4),
+    Indigo("靛", 0xFF5B5FB0),
     ;
 
     val color: Color get() = Color(value)
+}
+
+/**
+ * Which glass the app is made of.
+ *
+ * Both were already implemented and in use — [Modifier.glass] draws a soft diagonal sheen,
+ * [Modifier.liquidGlass] adds a body ramp and a specular highlight — but which surface got
+ * which was a decision made per call site, and the user had no say at all. 减弱透明度 was the
+ * only nearby control and it is an accessibility switch that flattens everything.
+ */
+enum class GlassStyle(val label: String) {
+    /** Softer and quieter: the sheen without the specular. */
+    Frosted("毛玻璃"),
+
+    /** The product default — lit edges, a body ramp, and a highlight that reads as a surface. */
+    Liquid("液态玻璃"),
 }
 
 /** Light / dark / follow-system. */
@@ -192,6 +217,7 @@ fun YfuseTheme(
     dark: Boolean,
     accent: AccentColor,
     accessibility: AccessibilityOptions = AccessibilityOptions(),
+    glassStyle: GlassStyle = GlassStyle.Liquid,
     content: @Composable () -> Unit,
 ) {
     val palette = if (dark) DarkPalette else LightPalette
@@ -207,6 +233,7 @@ fun YfuseTheme(
         LocalAccent provides accent,
         LocalAccentColors provides accentColors,
         LocalAccessibilityOptions provides accessibility,
+        LocalGlassStyle provides glassStyle,
         LocalDensity provides adjustedDensity,
         LocalHaptics provides rememberHaptics(),
     ) {

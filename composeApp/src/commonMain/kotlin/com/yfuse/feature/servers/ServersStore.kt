@@ -665,7 +665,10 @@ class ServersStoreFactory(
                 // can't be reversed to a password, and any host/account change requires
                 // re-authenticating anyway. editingServerId tells submit() to treat the
                 // result as a replacement rather than a brand-new server.
-                val parsed = parseBaseUrl(msg.server.baseUrl)
+                // The identity address, not whichever route is live: editing the connection
+                // re-derives the server's id, and a failover to a backup must not turn into
+                // a permanent change of which machine this entry stands for.
+                val parsed = parseBaseUrl(msg.server.primaryUrl)
                 val https = parsed.https ?: true
                 copy(
                     dialogVisible = true,

@@ -91,6 +91,7 @@ import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.model.TmdbGenres
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.network.EmbyImages
@@ -627,13 +628,59 @@ private fun HeroCaption(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            listOfNotNull(item.year, item.rating?.let { "评分 ${(it * 10).toInt() / 10.0}" })
-                .joinToString(" · "),
-            style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
-            color = Color.White.copy(alpha = 0.88f),
-        )
+        Spacer(Modifier.height(6.dp))
+        // ★ 6.2 · 2012 · 喜剧 · 电影 — the four things a person uses to decide whether to
+        // open something, in the order they weigh them. The line used to read
+        // 「2012 · 评分 6.2」: the word 评分 spends four characters saying what a star says,
+        // and the genre — the single most useful of the four when the title is unfamiliar —
+        // was not there at all.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            item.rating
+                ?.takeIf { it > 0.0 }
+                ?.let { rating ->
+                    Icon(
+                        AppIcons.StarFilled,
+                        contentDescription = "评分",
+                        tint = Brand.Imdb,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Text(
+                        ((rating * 10).toInt() / 10.0).toString(),
+                        style = AppTypography.caption.strong.copy(shadow = HeroTextShadow),
+                        color = Color.White,
+                        maxLines = 1,
+                    )
+                }
+            val facts = listOfNotNull(item.year, TmdbGenres.labelFor(item.genreIds))
+            if (facts.isNotEmpty()) {
+                Text(
+                    facts.joinToString(" · "),
+                    style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
+                    color = Color.White.copy(alpha = 0.88f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+            // Boxed rather than another dot-separated word: it is a classification, not
+            // another fact about this title, and the reference frames its rating the same way.
+            Text(
+                if (item.mediaType == "tv") "剧集" else "电影",
+                style = AppTypography.caption.medium,
+                color = Color.White.copy(alpha = 0.92f),
+                maxLines = 1,
+                modifier = Modifier
+                    .border(
+                        width = Dimens.hairline,
+                        color = Color.White.copy(alpha = 0.42f),
+                        shape = GlassShapes.chip,
+                    )
+                    .padding(horizontal = 6.dp, vertical = 1.dp),
+            )
+        }
         Spacer(Modifier.height(14.dp))
         Row(
             horizontalArrangement = Arrangement.spacedBy(9.dp),

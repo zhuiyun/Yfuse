@@ -83,6 +83,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.util.currentClockTime
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -1260,6 +1261,32 @@ private fun PlaybackErrorOverlay(
     }
 }
 
+/**
+ * Wall-clock time in the control overlay.
+ *
+ * Composed only while the controls are up, so the ticking coroutine lives exactly as long as
+ * the thing it updates. It re-reads on the minute boundary rather than every minute from
+ * whenever it happened to start, so the displayed minute changes when the real one does
+ * instead of up to 59 seconds late.
+ */
+@Composable
+private fun PlayerClock() {
+    var now by remember { mutableStateOf(currentClockTime()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val millisIntoMinute = System.currentTimeMillis() % 60_000L
+            delay(60_000L - millisIntoMinute)
+            now = currentClockTime()
+        }
+    }
+    Text(
+        now,
+        style = AppTypography.caption.strong,
+        color = Color.White.copy(alpha = 0.82f),
+        maxLines = 1,
+    )
+}
+
 /** `padding:14px 22px`, `linear-gradient(180deg,rgba(0,0,0,.5),transparent)`. */
 @Composable
 private fun TopBar(
@@ -1342,6 +1369,12 @@ private fun TopBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // The player hides the status bar, so while a film is running this is the only
+            // clock on screen. "How long has this been going" and "can I finish it before I
+            // have to leave" are questions people answer by looking up, and until now the
+            // answer required leaving the film.
+            PlayerClock()
+            Spacer(Modifier.width(6.dp))
             if (watchConnected) {
                 CircleControl(
                     AppIcons.Chat,

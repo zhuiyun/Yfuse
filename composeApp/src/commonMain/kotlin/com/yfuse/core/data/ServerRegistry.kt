@@ -3,7 +3,9 @@ package com.yfuse.core.data
 import com.russhwolf.settings.Settings
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServersData
+import com.yfuse.core.model.normalizedRoutes
 import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.ServerMigrationCrypto
 import com.yfuse.core.security.VaultCrypto
@@ -28,7 +30,13 @@ private data class PersistedServerRegistry(
     @SerialName("s") val servers: List<PersistedServer> = emptyList(),
 )
 
-/** Deliberately contains only non-secret metadata. [secretRef] is random and carries no token. */
+/**
+ * Deliberately contains only non-secret metadata. [secretRef] is random and carries no token.
+ *
+ * The route and icon fields were added after v2 shipped and all default, so a registry written
+ * by an older build still decodes and a downgrade only loses the additions rather than the
+ * session.
+ */
 @Serializable
 private data class PersistedServer(
     @SerialName("i") val id: String,
@@ -38,6 +46,10 @@ private data class PersistedServer(
     @SerialName("a") val userName: String,
     @SerialName("p") val previousIds: Set<String> = emptySet(),
     @SerialName("r") val secretRef: String,
+    @SerialName("rt") val routes: List<ServerRoute> = emptyList(),
+    @SerialName("ar") val activeRouteId: String? = null,
+    @SerialName("ie") val iconEmoji: String? = null,
+    @SerialName("it") val iconTint: Long? = null,
 )
 
 @Serializable
@@ -54,6 +66,10 @@ private data class PortableServer(
     @SerialName("u") val userId: String,
     @SerialName("a") val userName: String,
     @SerialName("t") val accessToken: String,
+    // Optional so a v2 package written before multi-route still imports.
+    @SerialName("rt") val routes: List<ServerRoute> = emptyList(),
+    @SerialName("ie") val iconEmoji: String? = null,
+    @SerialName("it") val iconTint: Long? = null,
 )
 
 private data class LoadedRegistry(
@@ -112,13 +128,15 @@ class ServerRegistry(
         val current = _data.value
         val existing = current.servers.firstOrNull { it.id == server.id }
         val replacing = existing != null
-        val normalized = server.copy(
-            previousIds = recentPreviousIds(
-                server.id,
-                server.previousIds,
-                existing?.previousIds.orEmpty(),
-            ),
-        )
+        val normalized = server
+            .copy(
+                previousIds = recentPreviousIds(
+                    server.id,
+                    server.previousIds,
+                    existing?.previousIds.orEmpty(),
+                ),
+            )
+            .carryingUserSettingsFrom(existing)
         val servers = current.servers
             .filterNot { it.id == server.id }
             .map { it.copy(previousIds = it.previousIds - server.id) } + normalized
@@ -180,6 +198,94 @@ class ServerRegistry(
         return true
     }
 
+    /**
+     * Replaces a server's route list.
+     *
+     * The primary route is the address the session was authenticated against, so it is taken
+     * from the saved server rather than from [routes]: a caller may reorder or rename, but
+     * cannot repoint the identity here — that is [replace]'s job, and it re-authenticates.
+     */
+    fun setRoutes(id: String, routes: List<ServerRoute>): Boolean {
+        val current = _data.value
+        val existing = current.servers.firstOrNull { it.id == id } ?: return false
+        val primary = ServerRoute(
+            id = ServerRoute.PRIMARY_ID,
+            name = routes.firstOrNull { it.id == ServerRoute.PRIMARY_ID }
+                ?.let { ServerRoute.sanitizeName(it.name) }
+                ?: ServerRoute.PRIMARY_NAME,
+            url = existing.primaryUrl,
+        )
+        val normalized = (listOf(primary) + routes.filterNot { it.id == ServerRoute.PRIMARY_ID })
+            .normalizedRoutes()
+        if (normalized.isEmpty()) return false
+        val updated = existing
+            .copy(routes = normalized, activeRouteId = existing.activeRouteId)
+            .withNormalizedRoutes()
+        if (updated == existing) return true
+        commit(
+            current.copy(
+                servers = current.servers.map { if (it.id == id) updated else it },
+            ),
+        )
+        AppLog.info(
+            category = "server.registry",
+            event = "server_routes_changed",
+            message = "Saved server route list changed",
+            attributes = mapOf(
+                "serverId" to id,
+                "routeCount" to normalized.size.toString(),
+            ),
+        )
+        return true
+    }
+
+    /**
+     * Points a server at one of its routes. Identity, session, and caches are untouched — only
+     * the address subsequent requests are sent to changes.
+     */
+    fun activateRoute(id: String, routeId: String): Boolean {
+        val current = _data.value
+        val existing = current.servers.firstOrNull { it.id == id } ?: return false
+        val route = existing.effectiveRoutes.firstOrNull { it.id == routeId } ?: return false
+        if (existing.activeRoute.id == route.id && existing.baseUrl == route.url) return true
+        commit(
+            current.copy(
+                servers = current.servers.map {
+                    if (it.id == id) it.activating(route).withNormalizedRoutes() else it
+                },
+            ),
+        )
+        AppLog.info(
+            category = "server.registry",
+            event = "server_route_activated",
+            message = "Saved server switched to another route",
+            attributes = mapOf("serverId" to id, "routeId" to route.id),
+        )
+        return true
+    }
+
+    /** Sets the card's emoji and tint. Both are cosmetic and neither affects identity. */
+    fun setIcon(id: String, emoji: String?, tint: Long?): Boolean {
+        val current = _data.value
+        val existing = current.servers.firstOrNull { it.id == id } ?: return false
+        val normalizedEmoji = sanitizeIconEmoji(emoji)
+        if (existing.iconEmoji == normalizedEmoji && existing.iconTint == tint) return true
+        commit(
+            current.copy(
+                servers = current.servers.map {
+                    if (it.id == id) it.copy(iconEmoji = normalizedEmoji, iconTint = tint) else it
+                },
+            ),
+        )
+        AppLog.info(
+            category = "server.registry",
+            event = "server_icon_changed",
+            message = "Saved server icon changed",
+            attributes = mapOf("serverId" to id),
+        )
+        return true
+    }
+
     /** Atomically replaces an edited server while preserving its list position and default. */
     fun replace(id: String, server: SavedServer): Boolean {
         val current = _data.value
@@ -187,15 +293,17 @@ class ServerRegistry(
         if (oldIndex < 0) return false
         val existing = current.servers[oldIndex]
         val colliding = current.servers.firstOrNull { it.id == server.id }
-        val replacement = server.copy(
-            previousIds = recentPreviousIds(
-                server.id,
-                server.previousIds,
-                existing.previousIds,
-                colliding?.previousIds.orEmpty(),
-                listOf(id),
-            ),
-        )
+        val replacement = server
+            .copy(
+                previousIds = recentPreviousIds(
+                    server.id,
+                    server.previousIds,
+                    existing.previousIds,
+                    colliding?.previousIds.orEmpty(),
+                    listOf(id),
+                ),
+            )
+            .carryingUserSettingsFrom(existing)
         val remaining = current.servers
             .filterNot { it.id == id || it.id == server.id }
             .map { it.copy(previousIds = it.previousIds - server.id) }
@@ -242,13 +350,16 @@ class ServerRegistry(
         require(snapshot.servers.size <= MAX_SERVERS) { "同步的服务器数量过多" }
         val normalized = snapshot.servers.map { server ->
             normalizeImportedServer(
-                baseUrl = server.baseUrl,
+                baseUrl = server.primaryUrl,
                 serverName = server.serverName,
                 userId = server.userId,
                 userName = server.userName,
                 accessToken = server.accessToken,
                 previousIds = server.previousIds,
                 invalidMessagePrefix = "同步的",
+                routes = server.routes,
+                iconEmoji = server.iconEmoji,
+                iconTint = server.iconTint,
             )
         }
         require(normalized.map { it.id }.distinct().size == normalized.size) {
@@ -280,7 +391,19 @@ class ServerRegistry(
             PortableServerBackup(
                 defaultServerId = current.defaultServerId,
                 servers = current.servers.map {
-                    PortableServer(it.baseUrl, it.serverName, it.userId, it.userName, it.accessToken)
+                    PortableServer(
+                        // The identity address, not the active one: a package restored on
+                        // another device must rebuild the same server ids, and the device it
+                        // was exported from may have been sitting on a backup route.
+                        baseUrl = it.primaryUrl,
+                        serverName = it.serverName,
+                        userId = it.userId,
+                        userName = it.userName,
+                        accessToken = it.accessToken,
+                        routes = it.routes,
+                        iconEmoji = it.iconEmoji,
+                        iconTint = it.iconTint,
+                    )
                 },
             ),
         ).encodeToByteArray()
@@ -339,6 +462,9 @@ class ServerRegistry(
                     accessToken = portable.accessToken,
                     previousIds = current.servers.firstOrNull { it.id == id }?.previousIds.orEmpty(),
                     invalidMessagePrefix = "迁移包中的",
+                    routes = portable.routes,
+                    iconEmoji = portable.iconEmoji,
+                    iconTint = portable.iconTint,
                 )
             }
             require(imported.map { it.id }.distinct().size == imported.size) {
@@ -502,12 +628,23 @@ class ServerRegistry(
                     userName = stored.userName,
                     accessToken = token,
                     previousIds = recentPreviousIds(stored.id, stored.previousIds),
-                )
+                    routes = stored.routes,
+                    activeRouteId = stored.activeRouteId,
+                    iconEmoji = sanitizeIconEmoji(stored.iconEmoji),
+                    iconTint = stored.iconTint,
+                ).withNormalizedRoutes()
             }
             result.onSuccess { server ->
                 servers += server
                 refs[server.id] = stored.secretRef
-                if (server.previousIds != stored.previousIds) changed = true
+                if (
+                    server.previousIds != stored.previousIds ||
+                    server.routes != stored.routes ||
+                    server.activeRouteId != stored.activeRouteId ||
+                    server.baseUrl != stored.baseUrl
+                ) {
+                    changed = true
+                }
             }.onFailure { error ->
                 changed = true
                 if (stored.secretRef !in refs.values && VALID_SECRET_REF.matches(stored.secretRef)) {
@@ -582,6 +719,10 @@ class ServerRegistry(
                     userName = server.userName,
                     previousIds = server.previousIds,
                     secretRef = requireNotNull(refs[server.id]),
+                    routes = server.routes,
+                    activeRouteId = server.activeRouteId,
+                    iconEmoji = server.iconEmoji,
+                    iconTint = server.iconTint,
                 )
             },
         )
@@ -666,6 +807,9 @@ class ServerRegistry(
         accessToken: String,
         previousIds: Iterable<String>,
         invalidMessagePrefix: String,
+        routes: List<ServerRoute> = emptyList(),
+        iconEmoji: String? = null,
+        iconTint: Long? = null,
     ): SavedServer {
         val normalizedBaseUrl = baseUrl.trim().trimEnd('/')
         require(normalizedBaseUrl.length in 8..2_048 &&
@@ -694,7 +838,29 @@ class ServerRegistry(
                 .take(128),
             accessToken = token,
             previousIds = recentPreviousIds(id, previousIds.take(MAX_SERVER_PREVIOUS_IDS)),
-        )
+            // The imported list is untrusted input: rebuild the primary from the address the
+            // id was just derived from and keep only the backups, so a package can never
+            // point a server's primary route somewhere its identity does not match.
+            routes = routes
+                .filterNot { it.id == ServerRoute.PRIMARY_ID }
+                .let { backups ->
+                    if (backups.isEmpty()) {
+                        emptyList()
+                    } else {
+                        val primaryName = routes
+                            .firstOrNull { it.id == ServerRoute.PRIMARY_ID }
+                            ?.name
+                            ?: ServerRoute.PRIMARY_NAME
+                        listOf(
+                            ServerRoute(ServerRoute.PRIMARY_ID, primaryName, normalizedBaseUrl),
+                        ) + backups
+                    }
+                }
+                .normalizedRoutes(),
+            activeRouteId = ServerRoute.PRIMARY_ID,
+            iconEmoji = sanitizeIconEmoji(iconEmoji),
+            iconTint = iconTint,
+        ).withNormalizedRoutes()
     }
 
     private fun clearOrphanedLibraryCaches(data: ServersData) {
@@ -709,6 +875,34 @@ class ServerRegistry(
             )
         }
     }
+}
+
+/**
+ * Carries the cosmetic and route settings of a saved server across a re-login or an edit.
+ *
+ * A fresh authentication only knows the address it was performed against, so without this a
+ * user who re-enters their password loses the icon they picked and every backup route they
+ * configured. The freshly authenticated address becomes the primary and the active one — it
+ * has just been proven to work, and it is what [SavedServer.id] was derived from — while the
+ * old backups survive under their existing ids.
+ */
+private fun SavedServer.carryingUserSettingsFrom(existing: SavedServer?): SavedServer {
+    if (existing == null) return this
+    val backups = existing.effectiveRoutes
+        .drop(1)
+        .filterNot { it.url == baseUrl }
+    val routes = if (backups.isEmpty()) {
+        emptyList()
+    } else {
+        val primaryName = existing.effectiveRoutes.first().name
+        listOf(ServerRoute(ServerRoute.PRIMARY_ID, primaryName, baseUrl)) + backups
+    }
+    return copy(
+        routes = routes.normalizedRoutes(),
+        activeRouteId = ServerRoute.PRIMARY_ID.takeIf { routes.isNotEmpty() },
+        iconEmoji = iconEmoji ?: existing.iconEmoji,
+        iconTint = iconTint ?: existing.iconTint,
+    )
 }
 
 /** Later occurrences win so reusing an older alias makes it recent again. */
@@ -732,6 +926,20 @@ private fun recentPreviousIds(
 
 private fun ServersData.withBoundedPreviousIds(): ServersData = copy(
     servers = servers.map { server ->
-        server.copy(previousIds = recentPreviousIds(server.id, server.previousIds))
+        server
+            .copy(previousIds = recentPreviousIds(server.id, server.previousIds))
+            .withNormalizedRoutes()
     },
 )
+
+/**
+ * One emoji at most. Stored icons are rendered as text, so an unbounded string would let a
+ * long paste stretch the card's header row and push the name out of it.
+ */
+private fun sanitizeIconEmoji(value: String?): String? = value
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() && it.none(Char::isWhitespace) }
+    ?.take(ServerIconEmojiMaxChars)
+
+/** A surrogate pair plus a variation selector or two — enough for one composed emoji. */
+internal const val ServerIconEmojiMaxChars = 8
