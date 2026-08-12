@@ -50,6 +50,40 @@ class UpdateCheckPolicyTest {
     }
 
     @Test
+    fun release_0_2_47_is_newer_than_installed_0_2_46_by_version_code() {
+        // Production 0.2.46 is build 108 and 0.2.47 is build 109. The display names never
+        // participate in ordering, so a patch release cannot be lost to string comparison.
+        assertTrue(isPublishedUpdateAvailable(publishedVersionCode = 109, installedVersionCode = 108))
+        assertFalse(isPublishedUpdateAvailable(publishedVersionCode = 108, installedVersionCode = 108))
+        assertFalse(isPublishedUpdateAvailable(publishedVersionCode = 107, installedVersionCode = 108))
+    }
+
+    @Test
+    fun initial_foreground_waits_for_launch_check_before_enabling_resume_checks() {
+        // onActivityResumed precedes composition of the splash-gated AppUpdateOverlay. Letting
+        // it check here can spend the daily prompt allowance on a dialog that the launch check
+        // immediately clears.
+        assertFalse(
+            shouldCheckForUpdateOnForeground(
+                wasBackground = true,
+                launchCheckStarted = false,
+            ),
+        )
+        assertTrue(
+            shouldCheckForUpdateOnForeground(
+                wasBackground = true,
+                launchCheckStarted = true,
+            ),
+        )
+        assertFalse(
+            shouldCheckForUpdateOnForeground(
+                wasBackground = false,
+                launchCheckStarted = true,
+            ),
+        )
+    }
+
+    @Test
     fun entering_home_checks_automatically_while_the_profile_check_stays_manual() {
         val overlaySource = projectFile(
             "src/androidMain/kotlin/com/yfuse/update/AppUpdateOverlay.kt",
@@ -60,9 +94,16 @@ class UpdateCheckPolicyTest {
         val profileSource = projectFile(
             "src/androidMain/kotlin/com/yfuse/feature/profile/AppUpdateTools.android.kt",
         ).readText()
+        val managerSource = projectFile(
+            "src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt",
+        ).readText()
 
         assertTrue("LaunchedEffect(Unit) { manager.checkOnLaunch() }" in overlaySource)
         assertTrue("RootComponent.Tab.Home) manager.checkIfDue()" in overlaySource)
+        assertTrue(
+            "shouldCheckForUpdateOnForeground(wasBackground, launchCheckStarted)" in managerSource,
+        )
+        assertFalse("if (wasBackground) checkIfDue()" in managerSource)
         // Nothing may run the unthrottled check on the way in.
         assertFalse("manager.check()" in overlaySource)
         assertFalse("updateManager.check()" in mainSource)

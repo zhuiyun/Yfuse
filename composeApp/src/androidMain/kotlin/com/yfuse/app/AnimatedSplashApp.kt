@@ -163,17 +163,6 @@ private fun AnimatedSplashScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .graphicsLayer {
-                // The layer composites the subtree as a group, so the opaque background and the
-                // mark cross-fade together instead of blending against each other.
-                alpha = 1f - smooth(
-                    span(
-                        clock.value,
-                        choreography.fadeStartMs,
-                        choreography.durationMs - choreography.fadeStartMs,
-                    ),
-                )
-            }
             .drawBehind {
                 val tint = smooth(span(clock.value, 0f, EntryTintMs))
                 drawRect(lerpColor(entryColor, targetColor, tint))
@@ -181,7 +170,18 @@ private fun AnimatedSplashScreen(
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    // Only the artwork fades. The splash surface remains opaque until this
+                    // whole layer is removed, so startup content can never leak through in a
+                    // half-composed frame during the hand-off.
+                    alpha = splashForegroundAlpha(
+                        nowMs = clock.value,
+                        fadeStartMs = choreography.fadeStartMs,
+                        durationMs = choreography.durationMs,
+                    )
+                },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Canvas(
@@ -260,6 +260,20 @@ private fun SplashWordmark(
  */
 internal fun splashBackground(dark: Boolean): Color =
     if (dark) DarkPalette.background else LightPalette.background
+
+/**
+ * The launch window must match the first Compose splash frame. When animation is disabled there
+ * is no Compose splash, so it instead matches the app theme that will be drawn immediately.
+ */
+internal fun launchWindowDarkMode(
+    splashEnabled: Boolean,
+    systemDark: Boolean,
+    appDark: Boolean,
+): Boolean = if (splashEnabled) systemDark else appDark
+
+/** Fades only the splash artwork; its background intentionally has no alpha transition. */
+internal fun splashForegroundAlpha(nowMs: Float, fadeStartMs: Float, durationMs: Float): Float =
+    1f - smooth(span(nowMs, fadeStartMs, durationMs - fadeStartMs))
 
 /** Whether the OS is in dark mode — the configuration the -night resources resolved against. */
 internal fun Resources.isNightMode(): Boolean =

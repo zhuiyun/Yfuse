@@ -645,9 +645,11 @@ private fun GlassTabBar(
             .selectableGroup()
             .padding(horizontal = Dimens.tabBarInset)
             .padding(bottom = Dimens.tabBarInset)
-            .heightIn(min = Dimens.tabBarHeight)
+            .height(Dimens.tabBarHeight)
             // The reference uses a true capsule rather than a rounded rectangle: the shell
-            // stays soft even when accessibility text makes the bar taller than its minimum.
+            // stays soft after increasing the fixed bar height. Text is already single-line and
+            // scaled by the accessibility typography tokens, so an unbounded minimum here lets
+            // the children's fillMaxHeight consume the whole screen.
             .shadow(Shadows.tabBar, CircleShape)
             .backdropBlur(backdrop, CircleShape)
             .overlayGlass(CircleShape, barFill, palette.tabbarBorder)
@@ -726,6 +728,8 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
             item.label,
             style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
             color = tint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

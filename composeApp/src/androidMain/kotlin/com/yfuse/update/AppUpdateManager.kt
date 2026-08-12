@@ -75,6 +75,26 @@ internal fun isAutomaticUpdateCheckDue(
     return last == 0L || now < last || now - last >= intervalMs
 }
 
+/** Release ordering is defined by Android's monotonic versionCode, not versionName parsing. */
+internal fun isPublishedUpdateAvailable(
+    publishedVersionCode: Int,
+    installedVersionCode: Int,
+): Boolean = publishedVersionCode > installedVersionCode
+
+/**
+ * The first foreground transition belongs to [AppUpdateManager.checkOnLaunch].
+ *
+ * Activity resume happens before the splash-gated update overlay is composed. Starting a due
+ * check there can discover the update and consume its daily prompt allowance; when the overlay
+ * later runs the mandatory launch check, that check clears the first prompt while entering
+ * Checking and the allowance prevents it from reopening. Once the launch check has started,
+ * later foreground transitions may use the normal interval gate.
+ */
+internal fun shouldCheckForUpdateOnForeground(
+    wasBackground: Boolean,
+    launchCheckStarted: Boolean,
+): Boolean = wasBackground && launchCheckStarted
+
 /** Persists automatic-check attempts so activity and process recreation cannot bypass the limit. */
 internal class AutomaticUpdateCheckGate(
     private val settings: Settings,
@@ -596,8 +616,12 @@ class AppUpdateManager(
                     val wasBackground = foregroundActivities == 0
                     foregroundActivities += 1
                     // Returning to Yfuse is the other moment 首页 is entered; the gate keeps
-                    // this from turning into a request every time the user switches apps.
-                    if (wasBackground) checkIfDue()
+                    // this from turning into a request every time the user switches apps. The
+                    // initial resume precedes the splash-gated overlay, so its check is owned by
+                    // checkOnLaunch rather than racing it and consuming the prompt allowance.
+                    if (shouldCheckForUpdateOnForeground(wasBackground, launchCheckStarted)) {
+                        checkIfDue()
+                    }
                 }
 
                 override fun onActivityPaused(activity: Activity) {
@@ -689,7 +713,7 @@ class AppUpdateManager(
                 }
             }.onSuccess { manifest ->
                 if (!isUpdateCheckSnapshotCurrent(checkSnapshot)) return@onSuccess
-                if (manifest.versionCode <= BuildConfig.VERSION_CODE) {
+                if (!isPublishedUpdateAvailable(manifest.versionCode, BuildConfig.VERSION_CODE)) {
                     if (activeDownload == null) {
                         if (!publishCurrentIfCheckCurrent(checkSnapshot)) return@onSuccess
                     } else {

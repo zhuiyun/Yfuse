@@ -14,6 +14,7 @@ import com.yfuse.app.AnimatedSplashApp
 import com.yfuse.app.AppDependencies
 import com.yfuse.app.RootComponent
 import com.yfuse.app.isNightMode
+import com.yfuse.app.launchWindowDarkMode
 import com.yfuse.app.splashBackground
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
@@ -37,13 +38,20 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // The starting window was painted from the -night resources, so it followed the OS
-        // rather than our own light/dark setting. Repaint the activity window in the colour we
-        // actually resolved, so nothing behind the Compose splash can flash the other way;
-        // AnimatedSplashApp eases the visible splash across the same gap.
+        // Keep the window on exactly the colour the first Compose frame will draw. With the
+        // animated splash enabled that frame deliberately starts from the system resource theme
+        // and eases towards the app theme. Repainting the window to the app theme here used to
+        // produce a system -> app -> system -> app flash when those themes differed.
         val koin = GlobalContext.get()
-        val dark = koin.get<ThemePreferences>().mode.value.resolveDark(resources.isNightMode())
-        window.setBackgroundDrawable(ColorDrawable(splashBackground(dark).toArgb()))
+        val themePreferences = koin.get<ThemePreferences>()
+        val systemDark = resources.isNightMode()
+        val appDark = themePreferences.mode.value.resolveDark(systemDark)
+        val windowDark = launchWindowDarkMode(
+            splashEnabled = themePreferences.splashAnimation.value,
+            systemDark = systemDark,
+            appDark = appDark,
+        )
+        window.setBackgroundDrawable(ColorDrawable(splashBackground(windowDark).toArgb()))
 
         val root = retainedComponent { ctx ->
             RootComponent(
@@ -52,7 +60,7 @@ class MainActivity : ComponentActivity() {
                 repo = koin.get<EmbyRepository>(),
                 tmdb = koin.get<TmdbRepository>(),
                 registry = koin.get<ServerRegistry>(),
-                themePreferences = koin.get<ThemePreferences>(),
+                themePreferences = themePreferences,
                 searchHistory = koin.get<SearchHistory>(),
                 syncManager = koin.get<ServerSyncManager>(),
                 dependencies = AppDependencies(

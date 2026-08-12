@@ -10,7 +10,9 @@ import com.yfuse.feature.testRepo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -22,8 +24,25 @@ import kotlin.test.assertTrue
 
 class SearchStoreTest {
 
-    @BeforeTest fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
-    @AfterTest fun tearDown() = Dispatchers.resetMain()
+    private lateinit var dispatcher: TestDispatcher
+
+    @BeforeTest
+    fun setUp() {
+        dispatcher = StandardTestDispatcher()
+        Dispatchers.setMain(dispatcher)
+    }
+
+    @AfterTest
+    fun tearDown() {
+        try {
+            // MockEngine and the Store share this scheduler. Drain cancellation here so an
+            // assertion or handler failure belongs to the test that launched it instead of
+            // surfacing as UncaughtExceptionsBeforeTest in the following test on Linux CI.
+            dispatcher.scheduler.advanceUntilIdle()
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
 
     @Test
     fun submit_searches_default_server_and_exposes_results() = runTest {
@@ -31,7 +50,7 @@ class SearchStoreTest {
         registry.addOrUpdate(
             SavedServer("id1", "http://host:8096", "我的服务器", "u1", "zhuiyun", "tok"),
         )
-        val repo = testRepo { request ->
+        val repo = testRepo(dispatcher) { request ->
             assertEquals("沙丘", request.url.parameters["SearchTerm"])
             json(
                 """{"Items":[{"Id":"m1","Name":"沙丘2","Type":"Movie","ProductionYear":2024,""" +
@@ -55,7 +74,7 @@ class SearchStoreTest {
     fun submit_without_server_shows_actionable_error() = runTest {
         val store = SearchStoreFactory(
             DefaultStoreFactory(),
-            testRepo { json("""{"Items":[]}""") },
+            testRepo(dispatcher) { json("""{"Items":[]}""") },
             testRegistry(),
         ).create()
 
@@ -113,7 +132,7 @@ class SearchStoreTest {
         )
         val store = SearchStoreFactory(
             DefaultStoreFactory(),
-            testRepo { json("""{"Items":[]}""") },
+            testRepo(dispatcher) { json("""{"Items":[]}""") },
             registry,
         ).create()
         store.accept(SearchIntent.SetType(SearchType.Movie))
@@ -150,7 +169,7 @@ class SearchStoreTest {
         )
         val store = SearchStoreFactory(
             DefaultStoreFactory(),
-            testRepo { error("network unavailable") },
+            testRepo(dispatcher) { error("network unavailable") },
             registry,
         ).create()
 
@@ -171,7 +190,7 @@ class SearchStoreTest {
             SavedServer("id1", "http://host:8096", "我的服务器", "u1", "zhuiyun", "tok"),
         )
         val starts = mutableListOf<String?>()
-        val repo = testRepo { request ->
+        val repo = testRepo(dispatcher) { request ->
             if (request.url.encodedPath.endsWith("/Persons")) {
                 return@testRepo json("""{"Items":[]}""")
             }
@@ -209,7 +228,7 @@ class SearchStoreTest {
         registry.addOrUpdate(
             SavedServer("id1", "http://host:8096", "我的服务器", "u1", "zhuiyun", "tok"),
         )
-        val store = SearchStoreFactory(DefaultStoreFactory(), testRepo {
+        val store = SearchStoreFactory(DefaultStoreFactory(), testRepo(dispatcher) {
             delay(10_000)
             json("""{"Items":[]}""")
         }, registry).create()
