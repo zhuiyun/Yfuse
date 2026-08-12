@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -41,7 +42,19 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 
 class HomeStoreTest {
-    @BeforeTest fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
+
+    /**
+     * One clock for the store and for the test that awaits it.
+     *
+     * `setMain(UnconfinedTestDispatcher())` builds a dispatcher on a *fresh* scheduler, so
+     * the store's own coroutines — it collects on Main — were being driven by a clock
+     * `runTest` neither advances nor waits for. Whether the test finished before that work
+     * did was then a race, which surfaced as an intermittent UncompletedCoroutinesError on
+     * CI. Sharing the scheduler makes the wait deterministic.
+     */
+    private val scheduler = TestCoroutineScheduler()
+
+    @BeforeTest fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher(scheduler))
     @AfterTest fun tearDown() = Dispatchers.resetMain()
 
     @Test
@@ -54,7 +67,7 @@ class HomeStoreTest {
     }
 
     @Test
-    fun unavailable_recommendations_do_not_claim_the_emby_server_is_offline() = runTest {
+    fun unavailable_recommendations_do_not_claim_the_emby_server_is_offline() = runTest(scheduler) {
         val store = homeStore(
             cache = TmdbHomeCache(MapSettings()),
             cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -68,7 +81,7 @@ class HomeStoreTest {
     }
 
     @Test
-    fun cached_recommendations_remain_visible_when_live_refresh_fails() = runTest {
+    fun cached_recommendations_remain_visible_when_live_refresh_fails() = runTest(scheduler) {
         val cache = TmdbHomeCache(MapSettings()).apply { write(CACHED_HOME) }
         val store = homeStore(cache, UnconfinedTestDispatcher(testScheduler))
 
@@ -83,7 +96,7 @@ class HomeStoreTest {
     }
 
     @Test
-    fun matched_recommendation_opens_emby_detail() = runTest {
+    fun matched_recommendation_opens_emby_detail() = runTest(scheduler) {
         val server = SavedServer(
             id = "one",
             baseUrl = "http://one",
@@ -118,7 +131,7 @@ class HomeStoreTest {
     }
 
     @Test
-    fun canceled_old_cache_write_finishes_before_the_newer_write() = runTest {
+    fun canceled_old_cache_write_finishes_before_the_newer_write() = runTest(scheduler) {
         val firstWriteStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
         val releaseFirstWrite = kotlinx.coroutines.CompletableDeferred<Unit>()
         var lastWrittenId: Int? = null
@@ -151,7 +164,7 @@ class HomeStoreTest {
     }
 
     @Test
-    fun known_unavailable_default_server_does_not_start_home_requests() = runTest {
+    fun known_unavailable_default_server_does_not_start_home_requests() = runTest(scheduler) {
         val baseUrl = "http://gy.emby.yun:8096"
         val registry = testRegistry().apply {
             addOrUpdate(
