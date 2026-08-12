@@ -513,6 +513,9 @@ Sheet.AppIcon -> AppIconSheet(
     onSelect = { chosen ->
         setAppIconVariant(chosen)
         appIcon = chosen
+        prefs.setSplashVariant(
+            if (chosen == AppIconVariant.CloudPlayer) SplashAnimation.One else SplashAnimation.Two,
+        )
         sheet = null
     },
     onDismiss = { sheet = null },
@@ -946,52 +949,14 @@ internal fun SettingRow(
 
 @Composable
 private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () -> Unit) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val largeText = LocalDensity.current.fontScale >= 1.3f
-    val rowModifier = Modifier
-        .fillMaxWidth()
-        .let {
-            if (embedded) it else {
-                it.glass(AppShapes.control, palette.card2, palette.border)
-            }
-        }
-        .pressable(onClick = onClick)
-        .heightIn(min = MinTouchTarget)
-        .padding(horizontal = 16.dp, vertical = 13.dp)
-    val label: @Composable () -> Unit = {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SettingIconTile(AppIcons.Download, SettingTint.downloads)
-            Text("下载与离线库", style = AppTypography.body.medium, color = palette.text)
-        }
-    }
-    BoxWithConstraints(rowModifier) {
-        val stacked = largeText || windowWidthTier(maxWidth) == WindowWidthTier.Compact
-        if (stacked) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                label()
-                Text(value, style = AppTypography.body.regular, color = palette.sub2, maxLines = 2)
-            }
-        } else {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.weight(1f)) { label() }
-                Text(
-                    value,
-                    style = AppTypography.body.regular,
-                    color = palette.sub2,
-                    maxLines = 2,
-                    textAlign = TextAlign.End,
-                )
-            }
-        }
-    }
+    SettingRow(
+        title = "下载与离线库",
+        value = value,
+        embedded = embedded,
+        onClick = onClick,
+        icon = AppIcons.Download,
+        iconTint = SettingTint.downloads,
+    )
 }
 
 /**

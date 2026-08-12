@@ -748,7 +748,6 @@ internal fun PlayerControls(
                 size = 42.dp,
                 iconSize = 17.dp,
                 enabled = !watchLocked,
-                filled = true,
                 interactive = false,
                 onClick = {},
                 modifier = Modifier.align(Alignment.Center),
@@ -1462,7 +1461,6 @@ private fun TransportRow(
                 PlayKeySize,
                 17.dp,
                 enabled = !locked,
-                filled = true,
                 onClick = onPlayPause,
             )
         }
@@ -1742,7 +1740,6 @@ private fun BottomBar(
                     "弹幕",
                     26.dp,
                     12.dp,
-                    filled = danmakuEnabled,
                     onClick = onOpenDanmaku,
                 )
                 // 字幕、音轨、投屏、倍速和画面选项统一进入同一个设置面板，首层只
@@ -2047,7 +2044,7 @@ private fun CircleControl(
     iconSize: Dp,
     enabled: Boolean = true,
     interactive: Boolean = true,
-    /** Filled rather than outlined. The one control that earns it is 播放/暂停. */
+    /** Filled emphasis is reserved for transient notification state such as unread chat. */
     filled: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,

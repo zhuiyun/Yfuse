@@ -113,6 +113,25 @@ private fun reducedTransparencyBorder(border: Color?, palette: Palette): Color? 
 }
 
 /**
+ * A visibly diffused pane for 毛玻璃.
+ *
+ * Simply removing the liquid specular left the same translucent fill underneath, which made
+ * the two settings nearly indistinguishable on real artwork. Frosted glass keeps the source
+ * colour but adds a restrained mist and a little more body; liquid glass keeps the clearer
+ * pane and directional reflection. Reduced transparency still wins before this is consulted.
+ */
+private fun frostedSurfaceFill(fill: Color, palette: Palette): Color {
+    val composited = fill.compositeOver(palette.background)
+    val pale = composited.luminance() >= 0.48f
+    val mist = if (pale) Color.White else Color(0xFF182235)
+    val mistAmount = if (pale) 0.18f else 0.12f
+    val minimumAlpha = if (pale) 0.68f else 0.52f
+    return lerp(fill, mist, mistAmount).copy(
+        alpha = maxOf(fill.alpha, minimumAlpha).coerceAtMost(0.94f),
+    )
+}
+
+/**
  * Primary liquid-glass surface. A translucent diagonal sheen, single-colour edge and
  * ambient tint preserve depth without a platform-specific blur dependency.
  */
@@ -139,9 +158,13 @@ fun Modifier.glass(
     } else {
         Color.White.copy(alpha = 0.58f)
     }
-    val surface = if (accessibility.reduceTransparency || frostedGlass()) {
-        Brush.linearGradient(listOf(resolvedFill, resolvedFill))
-    } else {
+    val surface = when {
+        accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
+        frostedGlass() -> {
+            val frost = frostedSurfaceFill(resolvedFill, palette)
+            Brush.linearGradient(listOf(frost, frost))
+        }
+        else ->
         cssLinearGradient(
             145f,
             0f to sheen,
@@ -186,9 +209,13 @@ fun Modifier.flatGlass(
     } else {
         border
     }
-    val surface = if (accessibility.reduceTransparency || frostedGlass()) {
-        Brush.linearGradient(listOf(resolvedFill, resolvedFill))
-    } else {
+    val surface = when {
+        accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
+        frostedGlass() -> {
+            val frost = frostedSurfaceFill(resolvedFill, palette)
+            Brush.linearGradient(listOf(frost, frost))
+        }
+        else ->
         cssLinearGradient(
             145f,
             0f to Color.White.copy(alpha = if (palette.isDark) 0.13f else 0.58f),
@@ -238,9 +265,13 @@ fun Modifier.solidGlass(
     } else {
         border
     }
-    val surface = if (accessibility.reduceTransparency || frostedGlass()) {
-        Brush.linearGradient(listOf(resolvedFill, resolvedFill))
-    } else {
+    val surface = when {
+        accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
+        frostedGlass() -> {
+            val frost = frostedSurfaceFill(resolvedFill, palette)
+            Brush.linearGradient(listOf(frost, frost))
+        }
+        else ->
         cssLinearGradient(
             145f,
             0f to Color.White.copy(alpha = if (palette.isDark) 0.16f else 0.72f),
@@ -305,7 +336,8 @@ fun Modifier.liquidGlass(
     // 毛玻璃: no specular, no body ramp — a flat translucent pane and its edge. Routing to
     // glass() was not enough, because that variant has a diagonal sheen of its own.
     if (frostedGlass()) {
-        return this.clip(shape).background(fill).border(Dimens.hairline, border, shape)
+        val frost = frostedSurfaceFill(fill, palette)
+        return this.clip(shape).background(frost).border(Dimens.hairline, border, shape)
     }
     // The theme is the wrong signal here — the play key is pale glass under both, and 返回
     // is dense glass over artwork on the light one. What the fill composites to is the right
