@@ -261,6 +261,7 @@ class LibraryStoreTest {
         assertEquals("new-token", refreshed.currentServer?.accessToken)
         assertEquals(LibraryContentSource.Live, refreshed.contentSource)
         store.dispose()
+        advanceUntilIdle()
     }
 
     @Test
