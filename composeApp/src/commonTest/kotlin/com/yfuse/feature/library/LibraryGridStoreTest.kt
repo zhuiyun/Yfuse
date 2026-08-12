@@ -10,10 +10,10 @@ import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import io.ktor.http.HttpMethod
@@ -172,16 +172,19 @@ class LibraryGridStoreTest {
 
     @Test
     fun failed_filter_change_never_displays_items_from_the_previous_criteria() = runTest {
-        // MockEngine may invoke the handler on a different thread from this test body. A plain
-        // mutable Boolean has no cross-thread visibility guarantee and can leave the retry seeing
-        // the stale `true` forever, which turns this race regression into a one-minute test hang.
-        val failFilteredRequest = MutableStateFlow(true)
-        val repo = testRepo { request ->
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        var filteredAttempts = 0
+        val repo = testRepo(dispatcher) { request ->
             when {
                 request.url.encodedPath.endsWith("/Genres") ->
                     json("""{"Items":[{"Id":"g1","Name":"科幻"}]}""")
-                request.url.parameters["Genres"] == "科幻" && failFilteredRequest.value ->
-                    throw kotlinx.io.IOException("filtered request failed")
+                request.url.parameters["Genres"] == "科幻" -> {
+                    filteredAttempts += 1
+                    if (filteredAttempts == 1) {
+                        throw kotlinx.io.IOException("filtered request failed")
+                    }
+                    json(page(from = 0, count = 2, total = 2))
+                }
                 else -> json(page(from = 0, count = 2, total = 2))
             }
         }
@@ -190,32 +193,31 @@ class LibraryGridStoreTest {
             repo,
             registry(),
             "lib1",
-            mainContext = UnconfinedTestDispatcher(testScheduler),
+            mainContext = dispatcher,
         ).create()
-        store.states.first { !it.loading && it.items.size == 2 && it.genres.isNotEmpty() }
+        advanceUntilIdle()
+        assertTrue(!store.state.loading && store.state.items.size == 2)
+        assertTrue(store.state.genres.isNotEmpty())
 
-        val failedState = async(start = CoroutineStart.UNDISPATCHED) {
-            store.states.first { it.genre == "科幻" && it.error != null }
-        }
         store.accept(GridIntent.SetGenre("科幻"))
+        advanceUntilIdle()
 
-        val failed = failedState.await()
+        val failed = store.state
+        assertEquals("科幻", failed.genre)
+        assertTrue(failed.error != null)
         assertTrue(failed.items.isEmpty())
         assertEquals(0, failed.totalCount)
         assertEquals(0, failed.nextStartIndex)
 
-        failFilteredRequest.value = false
-        val recoveredState = async(start = CoroutineStart.UNDISPATCHED) {
-            store.states.first {
-                !it.loading && it.items.size == 2 && it.genre == "科幻" && it.error == null
-            }
-        }
         store.accept(GridIntent.Retry)
-        val recovered = recoveredState.await()
+        advanceUntilIdle()
+        val recovered = store.state
+        assertTrue(!recovered.loading && recovered.items.size == 2)
+        assertEquals(2, filteredAttempts)
         assertEquals("科幻", recovered.genre)
         assertEquals(null, recovered.error)
         store.dispose()
-        runCurrent()
+        advanceUntilIdle()
     }
 
     @Test
