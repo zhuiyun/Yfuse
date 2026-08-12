@@ -100,10 +100,10 @@ private const val YEAR_MS = 365 * DAY_MS
  * a negative age.
  */
 fun formatWatchedAgo(lastWatchedAtEpochMs: Long?, nowEpochMs: Long): String {
-    val at = lastWatchedAtEpochMs?.takeIf { it > 0L } ?: return "从未观看"
+    val at = lastWatchedAtEpochMs?.takeIf { it > 0L } ?: return "未看过"
     val age = nowEpochMs - at
     return when {
-        age < MINUTE_MS -> "刚刚看过"
+        age < MINUTE_MS -> "刚看过"
         age < HOUR_MS -> "${age / MINUTE_MS} 分钟前"
         age < DAY_MS -> "${age / HOUR_MS} 小时前"
         age < MONTH_MS -> "${age / DAY_MS} 天前"

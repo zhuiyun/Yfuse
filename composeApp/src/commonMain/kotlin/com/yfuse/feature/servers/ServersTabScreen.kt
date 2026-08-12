@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -77,7 +78,7 @@ import com.yfuse.feature.profile.AddServerDialog
 import kotlinx.coroutines.delay
 
 /** Two on a 360dp phone; wider windows fill with more cards rather than stretching them. */
-private val ServerCardMinWidth = 148.dp
+private val ServerCardMinWidth = 158.dp
 
 /** How often 「上次观看」 re-reads the clock, so 「刚刚看过」 becomes 「1 分钟前」 on its own. */
 private const val AGE_TICK_MS = 30_000L
@@ -149,8 +150,8 @@ fun ServersTabScreen(component: ServersTabComponent) {
                 ),
                 // The cards carry their own shadow, so the air between them has to be
                 // wider than the shadow or the grid reads as one slab of tiles.
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
                     ServersHeader(
@@ -353,8 +354,13 @@ private fun ServerSummaryValue(value: String, label: String, color: Color) {
 }
 
 /**
- * One server. Name, reachability, and 上次观看 — the three things that decide whether this
- * is the machine to open right now.
+ * One server: name, reachability, and 上次观看.
+ *
+ * Laid out as two rows rather than a stack. The first version put the badge, the name, the
+ * account, the address, a status chip, the age and a "切换并打开" caption on seven separate
+ * lines, which made a 204dp tile — two of them filled a phone. Pairing the badge with the
+ * name recovers most of that height, and the card is a card, not a page: it exists to be
+ * compared with the eleven others next to it, so what it owes the reader is one glance.
  */
 @Composable
 private fun ServerCard(
@@ -372,17 +378,15 @@ private fun ServerCard(
     val badgeColor = serverBadgeColor(server.id)
     val surfaceModifier = if (isCurrent) {
         Modifier
-            .shadow(Shadows.primaryButton(accent.accent.copy(alpha = 0.70f)), GlassShapes.card)
+            .shadow(Shadows.primaryButton(accent.accent.copy(alpha = 0.55f)), GlassShapes.card)
             .glass(
                 shape = GlassShapes.card,
                 fill = Brush.linearGradient(
                     0f to lerp(accent.container, Color.White, if (palette.isDark) 0.04f else 0.18f),
-                    0.48f to lerp(accent.container, palette.card, 0.54f),
                     1f to palette.card,
                 ),
                 border = accent.border.copy(alpha = 0.72f),
             )
-            .border(1.dp, accent.border.copy(alpha = 0.40f), GlassShapes.card)
     } else {
         Modifier
             .shadow(GlassLift.control, GlassShapes.card)
@@ -393,10 +397,9 @@ private fun ServerCard(
                 sheen = 0.52f,
             )
     }
-    Column(
+    Box(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 158.dp)
             .semantics { selected = isCurrent }
             .pressable(
                 onClickLabel = if (isCurrent) "打开媒体库" else "切换到${server.serverName}",
@@ -404,31 +407,18 @@ private fun ServerCard(
                 onLongClickLabel = "服务器操作",
                 onClick = onClick,
             )
-            .then(surfaceModifier)
-            .padding(13.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
+            .then(surfaceModifier),
     ) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(3.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isCurrent) {
-                        Brush.horizontalGradient(listOf(accent.accent, badgeColor))
-                    } else {
-                        Brush.horizontalGradient(
-                            listOf(palette.border.copy(alpha = 0.22f), Color.Transparent),
-                        )
-                    },
-                ),
-        )
-        Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.padding(12.dp)) {
+        // The header keeps clear of the corner button's 44dp target, so a tap meant for
+        // the card cannot land on the menu and vice versa.
+        Row(
+            Modifier.padding(end = 30.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 Modifier
-                    .size(34.dp)
-                    .shadow(GlassLift.control, AppShapes.thumb)
+                    .size(30.dp)
                     .clip(AppShapes.thumb)
                     .background(
                         Brush.linearGradient(
@@ -439,102 +429,92 @@ private fun ServerCard(
             ) {
                 Text(
                     server.serverName.take(1).uppercase(),
-                    style = AppTypography.section.strong,
+                    style = AppTypography.body.strong,
                     color = Color.White,
                 )
             }
-            Spacer(Modifier.weight(1f))
-            if (isCurrent) {
-                Row(
-                    Modifier
-                        .liquidGlass(
-                            GlassShapes.chip,
-                            accent.container,
-                            accent.border.copy(alpha = 0.46f),
-                            sheen = 0.65f,
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        server.serverName,
+                        style = AppTypography.body.strong,
+                        color = palette.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (isCurrent) {
+                        Spacer(Modifier.width(5.dp))
+                        Icon(
+                            AppIcons.Check,
+                            contentDescription = "当前服务器",
+                            tint = accent.accent,
+                            modifier = Modifier.size(12.dp),
                         )
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(11.dp))
-                    Text("当前", style = AppTypography.caption.strong, color = accent.accent)
+                    }
                 }
-            }
-            Icon(
-                AppIcons.More,
-                contentDescription = "服务器操作",
-                tint = palette.sub2,
-                modifier = Modifier
-                    .pressable(onClickLabel = "服务器操作", onClick = onMore)
-                    .touchTarget()
-                    .padding(12.dp)
-                    .size(13.dp),
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        Text(
-            server.serverName,
-            style = AppTypography.body.strong,
-            color = palette.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            server.userName.ifBlank { "未记录账号" },
-            style = AppTypography.caption.regular,
-            color = palette.sub2,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(10.dp))
-        Row(
-            Modifier
-                .glass(
-                    shape = GlassShapes.chip,
-                    fill = statusColor.copy(alpha = if (palette.isDark) 0.12f else 0.08f),
-                    border = statusColor.copy(alpha = 0.20f),
+                Text(
+                    server.userName.ifBlank { "未记录账号" },
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                .padding(horizontal = 7.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            }
+        }
+        Spacer(Modifier.height(9.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(statusColor),
-            )
+            Box(Modifier.size(6.dp).clip(CircleShape).background(statusColor))
             Text(
                 latencyLabel(health),
                 style = AppTypography.caption.medium,
                 color = if (status == ServerHealthStatus.Unknown) palette.sub2 else statusColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                lastWatchedLabel,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
             )
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            lastWatchedLabel,
-            style = AppTypography.caption.regular,
-            color = palette.sub2,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.weight(1f))
-        Spacer(Modifier.height(8.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
+      }
+
+        // Its own control in the corner rather than a glyph in the header row. Inline, it
+        // was a bare 13dp mark that read as decoration and sat wherever the name left it;
+        // in the corner with a surface under it, it is somewhere to press and it is in the
+        // same place on all twelve cards.
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .pressable(onClickLabel = "服务器操作", onClick = onMore)
+                .touchTarget(),
+            contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                AppIcons.ChevronRight,
-                contentDescription = null,
-                tint = if (isCurrent) accent.accent else palette.sub2,
-                modifier = Modifier.size(13.dp),
-            )
+            Box(
+                Modifier
+                    .size(26.dp)
+                    .glass(
+                        shape = GlassShapes.thumb,
+                        fill = if (isCurrent) accent.container else palette.card2,
+                        border = if (isCurrent) accent.border.copy(alpha = 0.5f) else palette.border,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AppIcons.More,
+                    contentDescription = null,
+                    tint = if (isCurrent) accent.accent else palette.sub2,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
         }
     }
 }
@@ -553,10 +533,10 @@ private fun serverStatusColor(status: ServerHealthStatus): Color = when (status)
  * dot beside it has just said — and buries the milliseconds behind a separator.
  */
 internal fun latencyLabel(health: ServerHealth?): String = when (health?.status) {
-    ServerHealthStatus.Healthy -> health.latencyMs?.let { "延迟 $it ms" } ?: "在线"
-    ServerHealthStatus.Degraded -> health.message ?: "连接不稳定"
+    ServerHealthStatus.Healthy -> health.latencyMs?.let { "$it ms" } ?: "在线"
+    ServerHealthStatus.Degraded -> "不稳定"
     ServerHealthStatus.Offline -> "无法连接"
-    ServerHealthStatus.AuthRequired -> "需要重新登录"
+    ServerHealthStatus.AuthRequired -> "需重新登录"
     else -> "正在检查"
 }
 

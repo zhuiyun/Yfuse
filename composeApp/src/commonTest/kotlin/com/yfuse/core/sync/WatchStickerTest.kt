@@ -17,8 +17,11 @@ class WatchStickerTest {
     )
 
     @Test
-    fun catalogue_keeps_the_promised_32_presets_and_motion_variety() {
-        assertEquals(32, WatchStickers.presets.size)
+    fun expanded_catalogue_keeps_64_presets_across_every_category_and_motion_variety() {
+        assertEquals(64, WatchStickers.presets.size)
+        WatchStickerCategory.entries.forEach { category ->
+            assertTrue(WatchStickers.inCategory(category).isNotEmpty(), "$category must not be empty")
+        }
         val motions = WatchStickers.presets.map { it.motion }.toSet()
         assertTrue(WatchStickerMotion.Bounce in motions)
         assertTrue(WatchStickerMotion.Shake in motions)
@@ -26,6 +29,13 @@ class WatchStickerTest {
         assertTrue(WatchStickerMotion.Pulse in motions)
         assertTrue(WatchStickerMotion.Swing in motions)
         assertTrue(WatchStickerMotion.Wobble in motions)
+        assertTrue(WatchStickerMotion.Float in motions)
+        assertTrue(WatchStickerMotion.Jelly in motions)
+        assertTrue(WatchStickerMotion.Flip in motions)
+        assertTrue(WatchStickerMotion.Pop in motions)
+        assertTrue(WatchStickerMotion.Heartbeat in motions)
+        assertTrue(WatchStickerMotion.Orbit in motions)
+        assertTrue(WatchStickerMotion.Sway in motions)
     }
 
     @Test
@@ -56,6 +66,18 @@ class WatchStickerTest {
             "每条消息最多 $MAX_WATCH_CHAT_GRAPHEMES 字",
             validateWatchChat("字".repeat(MAX_WATCH_CHAT_GRAPHEMES + 1)).error,
         )
+    }
+
+    @Test
+    fun legacy_ids_keep_resolving_after_catalogue_expansion() {
+        listOf(
+            "laugh", "wow", "love", "cry", "clap", "fire", "think", "dead",
+            "heart", "rofl", "cool", "shock", "sleep", "sweat", "angry", "blush",
+            "thumb", "pray", "wave", "muscle", "eyes", "party", "star", "sparkle",
+            "popcorn", "cheers", "rocket", "spin", "bomb", "snow", "cat", "ghost",
+        ).forEach { id ->
+            assertEquals(id, WatchStickers.byId(id)?.id)
+        }
     }
 
     @Test

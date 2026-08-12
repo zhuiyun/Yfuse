@@ -142,6 +142,34 @@ data class DanmakuPanelActions(
     val onSend: (String) -> Unit = {},
 )
 
+private data class DanmakuDisplayPreset(
+    val label: String,
+    val summary: String,
+    val areaIndex: Int,
+    val fontIndex: Int,
+    val speedIndex: Int,
+    val opacityIndex: Int,
+)
+
+private val DanmakuDisplayPresets = listOf(
+    DanmakuDisplayPreset("轻量", "1/4 · 小 · 慢 · 50%", 0, 0, 0, 0),
+    DanmakuDisplayPreset("标准", "1/2 · 标准 · 标准 · 75%", 1, 1, 1, 1),
+    DanmakuDisplayPreset("热闹", "3/4 · 大 · 快 · 100%", 2, 2, 2, 2),
+)
+
+private fun DanmakuDisplayPreset.isSelected(state: DanmakuPanelState): Boolean =
+    state.areaOptions.getOrNull(areaIndex)?.second == true &&
+        state.fontOptions.getOrNull(fontIndex)?.second == true &&
+        state.speedOptions.getOrNull(speedIndex)?.second == true &&
+        state.opacityOptions.getOrNull(opacityIndex)?.second == true
+
+private fun DanmakuDisplayPreset.apply(actions: DanmakuPanelActions) {
+    actions.onSelectArea(areaIndex)
+    actions.onSelectFont(fontIndex)
+    actions.onSelectSpeed(speedIndex)
+    actions.onSelectOpacity(opacityIndex)
+}
+
 /** The 弹幕 tab of the settings panel. */
 @Composable
 internal fun DanmakuTab(
@@ -150,6 +178,8 @@ internal fun DanmakuTab(
     onOpenSearch: () -> Unit,
     onOpenSend: () -> Unit,
 ) {
+    var advancedVisible by remember { mutableStateOf(false) }
+
     GroupLabel("弹幕")
     OptionRow(
         if (state.enabled) "关闭弹幕" else "开启弹幕",
@@ -203,21 +233,38 @@ internal fun DanmakuTab(
     // The single most effective thing that can be done to fourteen thousand comments.
     OptionRow("合并重复弹幕", state.mergeDuplicates, onClick = actions.onToggleMerge)
 
-    GroupLabel("显示区域")
-    state.areaOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected, onClick = { actions.onSelectArea(index) })
+    GroupLabel("显示风格")
+    DanmakuDisplayPresets.forEach { preset ->
+        OptionRow(
+            label = "${preset.label} · ${preset.summary}",
+            selected = preset.isSelected(state),
+            onClick = { preset.apply(actions) },
+        )
     }
-    GroupLabel("字体大小")
-    state.fontOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected, onClick = { actions.onSelectFont(index) })
-    }
-    GroupLabel("移动速度")
-    state.speedOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected, onClick = { actions.onSelectSpeed(index) })
-    }
-    GroupLabel("透明度")
-    state.opacityOptions.forEachIndexed { index, (label, selected) ->
-        OptionRow(label, selected, onClick = { actions.onSelectOpacity(index) })
+
+    OptionRow(
+        label = if (advancedVisible) "收起高级设置" else "高级设置",
+        selected = advancedVisible,
+        onClick = { advancedVisible = !advancedVisible },
+    )
+
+    if (advancedVisible) {
+        GroupLabel("显示区域")
+        state.areaOptions.forEachIndexed { index, (label, selected) ->
+            OptionRow(label, selected, onClick = { actions.onSelectArea(index) })
+        }
+        GroupLabel("字体大小")
+        state.fontOptions.forEachIndexed { index, (label, selected) ->
+            OptionRow(label, selected, onClick = { actions.onSelectFont(index) })
+        }
+        GroupLabel("移动速度")
+        state.speedOptions.forEachIndexed { index, (label, selected) ->
+            OptionRow(label, selected, onClick = { actions.onSelectSpeed(index) })
+        }
+        GroupLabel("透明度")
+        state.opacityOptions.forEachIndexed { index, (label, selected) ->
+            OptionRow(label, selected, onClick = { actions.onSelectOpacity(index) })
+        }
     }
 }
 

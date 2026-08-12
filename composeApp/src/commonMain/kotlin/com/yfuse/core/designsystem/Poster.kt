@@ -325,13 +325,23 @@ fun Poster(
             }
         }
 
-        if (progress != null && progress > 0f) {
+        progress?.takeIf { it > 0f }?.let { rawProgress ->
+            val watched = rawProgress.coerceIn(0f, 1f)
+            // Keep the total duration visible: without a rail, a short watched segment
+            // reads like a decorative underline instead of resumable playback state.
             Box(
                 Modifier
                     .align(Alignment.BottomStart)
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
-                    .height(3.dp)
-                    .background(Brand.PrimaryGradBottom),
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .background(Color.Black.copy(alpha = 0.42f)),
+            )
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(watched)
+                    .height(4.dp)
+                    .background(PrimaryGradient),
             )
         }
     }

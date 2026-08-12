@@ -19,14 +19,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -64,6 +60,10 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
+import com.yfuse.core.designsystem.YfButton
+import com.yfuse.core.designsystem.YfButtonTone
+import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.YfLinkButton
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
@@ -111,9 +111,10 @@ internal fun AccountSettingsScreen(
                     Spacer(Modifier.height(6.dp))
                     Text(current.message, style = AppTypography.caption.regular, color = palette.sub)
                     Spacer(Modifier.height(10.dp))
-                    Button(onClick = account::retryRestore, modifier = Modifier.fillMaxWidth()) {
-                        Text("重试")
-                    }
+                    YfButton(
+                        label = "重试",
+                        onClick = account::retryRestore,
+                    )
                 }
             }
 
@@ -170,34 +171,28 @@ private fun SignedOutAccountCard(account: AccountRepository) {
         Spacer(Modifier.height(5.dp))
         Text("账号服务：IP 直连 · HTTPS", style = AppTypography.caption.regular, color = palette.sub2)
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
+        YfFormField(
             value = username,
             onValueChange = { username = it.take(40) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("账号名") },
-            singleLine = true,
+            label = "账号名",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             enabled = !busy,
         )
         Spacer(Modifier.height(9.dp))
-        OutlinedTextField(
+        YfFormField(
             value = password,
             onValueChange = { password = it.take(128) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("密码（至少 $MIN_PASSWORD_LENGTH 位）") },
-            singleLine = true,
+            label = "密码（至少 $MIN_PASSWORD_LENGTH 位）",
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             enabled = !busy,
         )
         if (registerMode) {
             Spacer(Modifier.height(9.dp))
-            OutlinedTextField(
+            YfFormField(
                 value = nickname,
                 onValueChange = { nickname = it.take(24) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("昵称（可选）") },
-                singleLine = true,
+                label = "昵称（可选）",
                 enabled = !busy,
             )
             Spacer(Modifier.height(11.dp))
@@ -210,7 +205,8 @@ private fun SignedOutAccountCard(account: AccountRepository) {
             Text(it, style = AppTypography.caption.medium, color = palette.error)
         }
         Spacer(Modifier.height(13.dp))
-        Button(
+        YfButton(
+            label = if (registerMode) "注册账号" else "登录账号",
             onClick = {
                 busy = true
                 error = null
@@ -233,14 +229,10 @@ private fun SignedOutAccountCard(account: AccountRepository) {
             },
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy && username.isNotBlank() && password.length >= MIN_PASSWORD_LENGTH,
-        ) {
-            if (busy) {
-                CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(8.dp))
-            }
-            Text(if (registerMode) "注册账号" else "登录账号")
-        }
-        TextButton(
+            loading = busy,
+        )
+        YfLinkButton(
+            label = if (registerMode) "已有账号？去登录" else "没有账号？创建一个",
             onClick = {
                 registerMode = !registerMode
                 password = ""
@@ -248,9 +240,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
             },
             modifier = Modifier.align(Alignment.CenterHorizontally),
             enabled = !busy,
-        ) {
-            Text(if (registerMode) "已有账号？去登录" else "没有账号？创建一个")
-        }
+        )
     }
 }
 
@@ -318,12 +308,10 @@ private fun SignedInAccountCard(
             )
         }
         Spacer(Modifier.height(14.dp))
-        OutlinedTextField(
+        YfFormField(
             value = nickname,
             onValueChange = { nickname = it.take(24) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("昵称") },
-            singleLine = true,
+            label = "昵称",
             enabled = !busy && !state.syncing,
         )
         Spacer(Modifier.height(10.dp))
@@ -333,7 +321,8 @@ private fun SignedInAccountCard(
             onSelect = { avatarId = it },
         )
         Spacer(Modifier.height(12.dp))
-        Button(
+        YfButton(
+            label = "保存资料",
             onClick = {
                 busy = true
                 localError = null
@@ -346,8 +335,10 @@ private fun SignedInAccountCard(
             },
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy && !state.syncing && nickname.isNotBlank(),
-        ) { Text("保存资料") }
-        TextButton(
+            loading = busy && !state.syncing,
+        )
+        YfLinkButton(
+            label = if (showPasswordForm) "取消修改密码" else "修改登录密码",
             onClick = {
                 showPasswordForm = !showPasswordForm
                 currentPassword = ""
@@ -357,66 +348,62 @@ private fun SignedInAccountCard(
             },
             modifier = Modifier.align(Alignment.CenterHorizontally),
             enabled = !busy && !state.syncing,
-        ) { Text(if (showPasswordForm) "取消修改密码" else "修改登录密码") }
+        )
         if (showPasswordForm) {
-            OutlinedTextField(
+            YfFormField(
                 value = currentPassword,
                 onValueChange = { currentPassword = it.take(128) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("当前密码") },
-                singleLine = true,
+                label = "当前密码",
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 enabled = !busy,
             )
             Spacer(Modifier.height(9.dp))
-            OutlinedTextField(
+            YfFormField(
                 value = newPassword,
                 onValueChange = { newPassword = it.take(128) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("新密码（至少 $MIN_PASSWORD_LENGTH 位）") },
-                singleLine = true,
+                label = "新密码（至少 $MIN_PASSWORD_LENGTH 位）",
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 enabled = !busy,
             )
             Spacer(Modifier.height(9.dp))
-            OutlinedTextField(
+            YfFormField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it.take(128) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("确认新密码") },
-                singleLine = true,
+                label = "确认新密码",
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 enabled = !busy,
             )
             Spacer(Modifier.height(10.dp))
-            Button(
+            YfButton(
+                label = "确认修改密码",
                 onClick = {
                     if (newPassword != confirmPassword) {
                         localError = "两次输入的新密码不一致"
-                        return@Button
-                    }
-                    busy = true
-                    localError = null
-                    val currentSecret = currentPassword.toCharArray()
-                    val newSecret = newPassword.toCharArray()
-                    currentPassword = ""
-                    newPassword = ""
-                    confirmPassword = ""
-                    scope.launch {
-                        val result = account.changePassword(currentSecret, newSecret)
-                        result.exceptionOrNull()?.let { localError = it.message ?: "修改密码失败" }
-                        if (result.isSuccess) showPasswordForm = false
-                        busy = false
+                    } else {
+                        busy = true
+                        localError = null
+                        val currentSecret = currentPassword.toCharArray()
+                        val newSecret = newPassword.toCharArray()
+                        currentPassword = ""
+                        newPassword = ""
+                        confirmPassword = ""
+                        scope.launch {
+                            val result = account.changePassword(currentSecret, newSecret)
+                            result.exceptionOrNull()?.let { localError = it.message ?: "修改密码失败" }
+                            if (result.isSuccess) showPasswordForm = false
+                            busy = false
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !busy && currentPassword.isNotEmpty() &&
                     newPassword.length >= MIN_PASSWORD_LENGTH &&
                     confirmPassword.length >= MIN_PASSWORD_LENGTH,
-            ) { Text("确认修改密码") }
+                loading = busy,
+            )
         }
     }
 
@@ -485,7 +472,8 @@ private fun SignedInAccountCard(
 
     Spacer(Modifier.height(16.dp))
     AccountCard {
-        TextButton(
+        YfButton(
+            label = "退出 Yfuse 账号",
             onClick = {
                 busy = true
                 scope.launch {
@@ -495,9 +483,9 @@ private fun SignedInAccountCard(
             },
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy && !state.syncing,
-        ) {
-            Text("退出 Yfuse 账号", color = palette.error)
-        }
+            loading = busy,
+            tone = YfButtonTone.Destructive,
+        )
     }
 
     if (confirmUpload) {

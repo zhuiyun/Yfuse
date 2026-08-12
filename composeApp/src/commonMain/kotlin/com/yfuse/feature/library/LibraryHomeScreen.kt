@@ -367,17 +367,19 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
                     item {
                         val liftPx = with(density) { HeroLift.roundToPx() }
-                        // Content wash `…transparent 320px`: the blend from the artwork into
-                        // the page has to be a fixed height. Fractional stops made it a
-                        // fraction of the whole content column, so a server with two
-                        // libraries got a thin smear and one with a dozen got a wash halfway
-                        // down the page — the same gradient reading differently per server.
-                        val wash = remember(accent, palette.background, density) {
+                        // Artwork tint only. This used to carry a `palette.background` stop
+                        // at 86% as well, to blend the hero into the page — a job
+                        // [Modifier.fadeIntoPage] now does at the hero itself, by removing
+                        // the artwork's alpha so the real page shows through. Painting a
+                        // *flat* background over that was the one thing guaranteed to break
+                        // it: the page is not flat, it is [appBackdropBrushes]' gradient, so
+                        // the band met it at a visible seam whose colour was almost, but
+                        // never quite, the page's own.
+                        val wash = remember(accent, density) {
                             Brush.verticalGradient(
                                 colorStops = arrayOf(
                                     0f to Color.Transparent,
-                                    0.16f to accent.copy(alpha = 0.10f),
-                                    0.34f to palette.background.copy(alpha = 0.86f),
+                                    0.20f to accent.copy(alpha = 0.10f),
                                     1f to Color.Transparent,
                                 ),
                                 startY = 0f,

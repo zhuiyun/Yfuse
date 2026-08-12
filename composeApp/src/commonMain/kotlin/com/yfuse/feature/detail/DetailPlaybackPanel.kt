@@ -130,9 +130,13 @@ internal fun PlaybackVersionDialog(
             .bestThenSelectedFirst {
                 it.serverId == selectedServerId && it.itemId == selectedItemId
             }
-        if (selectableSources.size > 1) {
+        // Drawn for a single source too. The rail used to need two before it appeared,
+        // which is right for a *comparison* and wrong for this dialog: most titles live on
+        // one server with one file, so the commonest case was 「版本与来源」 opening with
+        // nothing above the track lists and no answer to "which copy is this".
+        if (selectableSources.isNotEmpty()) {
             ComparisonRail(
-                label = "播放来源",
+                label = if (selectableSources.size > 1) "播放来源" else "来源",
                 items = selectableSources,
                 key = { "${it.serverId}:${it.itemId}" },
                 selected = { it.serverId == selectedServerId && it.itemId == selectedItemId },
@@ -160,9 +164,9 @@ internal fun PlaybackVersionDialog(
         }
 
         val orderedVersions = versions.bestThenSelectedFirst { it.id == selectedVersionId }
-        if (orderedVersions.size > 1) {
+        if (orderedVersions.isNotEmpty()) {
             ComparisonRail(
-                label = "文件版本",
+                label = if (orderedVersions.size > 1) "文件版本" else "文件",
                 items = orderedVersions,
                 key = { it.id },
                 selected = { it.id == selectedVersionId },
@@ -232,8 +236,9 @@ private fun <T> ComparisonRail(
     ) {
         itemsIndexed(items, key = { _, item -> key(item) }) { index, item ->
             ComparisonCard(
-                // The list is ranked, so "best" is a position, not a judgement made here.
-                best = index == 0,
+                // The list is ranked, so "best" is a position, not a judgement made here —
+                // and with nothing to rank against, "最佳" would be an award for turning up.
+                best = index == 0 && items.size > 1,
                 selected = selected(item),
                 onClick = { onSelect(item) },
             ) {

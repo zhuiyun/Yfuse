@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -1779,13 +1780,23 @@ private fun SeekBar(
     enabled: Boolean = true,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
+    val haptics = LocalHaptics.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     var dragFraction by remember { mutableStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
+    var widthPx by remember { mutableIntStateOf(1) }
     val latestOnScrubTo by rememberUpdatedState(onScrubTo)
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
     val shownFraction = if (dragging) dragFraction else fraction.coerceIn(0f, 1f)
+    val interaction by animateFloatAsState(
+        targetValue = if (dragging) 1f else 0f,
+        animationSpec = Motion.pressSpec(pressed = dragging, reduceMotion = reduceMotion),
+        label = "seek-interaction",
+    )
+    val trackHeight = 4.dp + 2.dp * interaction
+    val thumbDiameter = 8.dp + 6.dp * interaction
     val keyStep = (5_000f / durationMs.coerceAtLeast(1L)).coerceIn(0.01f, 0.1f)
     val commit: (Float) -> Boolean = { target ->
         if (!enabled) {
@@ -1800,6 +1811,7 @@ private fun SeekBar(
         modifier
             // Keep the painted track at 4dp while the whole 44dp row accepts the gesture.
             .height(SeekBarTouchHeight)
+            .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
             .then(
                 if (focused) {
                     Modifier.border(1.dp, accent.border, AppShapes.thumb)
@@ -1832,7 +1844,9 @@ private fun SeekBar(
                     .pointerInput(enabled) {
                         detectTapGestures { offset ->
                             val width = size.width.toFloat().coerceAtLeast(1f)
-                            latestOnCommit((offset.x / width).coerceIn(0f, 1f))
+                            if (commit((offset.x / width).coerceIn(0f, 1f))) {
+                                haptics.play(HapticSignal.Select)
+                            }
                         }
                     }.pointerInput(enabled) {
                         detectHorizontalDragGestures(
@@ -1840,10 +1854,12 @@ private fun SeekBar(
                                 val width = size.width.toFloat().coerceAtLeast(1f)
                                 dragging = true
                                 dragFraction = (offset.x / width).coerceIn(0f, 1f)
+                                haptics.play(HapticSignal.Select)
                                 latestOnScrubTo(dragFraction)
                             },
                             onDragEnd = {
                                 dragging = false
+                                haptics.play(HapticSignal.Confirm)
                                 latestOnCommit(dragFraction)
                             },
                             onDragCancel = {
@@ -1857,31 +1873,46 @@ private fun SeekBar(
                             latestOnScrubTo(dragFraction)
                         }
                     }
-            }.padding(vertical = if (dragging) 19.dp else 20.dp),
-        contentAlignment = Alignment.Center,
+            },
+        contentAlignment = Alignment.CenterStart,
     ) {
         Box(
             Modifier
-                .fillMaxHeight()
                 .fillMaxWidth()
+                .height(trackHeight)
                 .clip(AppShapes.track)
                 .background(PlayerTokens.trackFillLandscape),
         ) {
             Box(
                 Modifier
                     .fillMaxHeight()
-                    .fillMaxWidth(bufferedFraction.coerceIn(0f, 1f))
+                    .fillMaxWidth(bufferedFraction.coerceIn(shownFraction, 1f))
                     .clip(AppShapes.track)
                     .background(Color.White.copy(alpha = 0.44f)),
             )
             Box(
                 Modifier
                     .fillMaxHeight()
-                    .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                    .fillMaxWidth(shownFraction)
                     .clip(AppShapes.track)
                     .background(accent.accent),
             )
         }
+        Box(
+            Modifier
+                .size(thumbDiameter)
+                .offset {
+                    val thumbPx = thumbDiameter.roundToPx()
+                    IntOffset(
+                        x = (widthPx * shownFraction - thumbPx / 2f)
+                            .toInt()
+                            .coerceIn(-thumbPx / 2, (widthPx - thumbPx / 2).coerceAtLeast(0)),
+                        y = 0,
+                    )
+                }
+                .graphicsLayer { alpha = 0.72f + 0.28f * interaction }
+                .background(Color.White, CircleShape),
+        )
     }
 }
 

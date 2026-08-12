@@ -36,6 +36,36 @@ enum class WatchStickerMotion(
 
     /** A lazy tilt-and-squash. The all-purpose "this is alive". */
     Wobble(840),
+
+    /** Slow vertical drift with a tiny tilt; calmer than [Bounce]. */
+    Float(1_900),
+
+    /** Soft squash-and-stretch, useful for playful reactions. */
+    Jelly(980),
+
+    /** A continuous card-like turn around the Y axis. */
+    Flip(1_800),
+
+    /** Quick scale-up accent followed by a long settle. */
+    Pop(1_260),
+
+    /** Two compact beats per cycle. */
+    Heartbeat(1_180),
+
+    /** Small circular travel while turning slightly. */
+    Orbit(1_700),
+
+    /** Gentle side travel and tilt, less frantic than [Shake]. */
+    Sway(1_560),
+}
+
+/** The five shelves that keep the expanded tray quick to scan. */
+enum class WatchStickerCategory(val label: String) {
+    Reaction("反应"),
+    Mood("情绪"),
+    Cheer("互动"),
+    Movie("观影"),
+    Fun("趣味"),
 }
 
 /**
@@ -53,6 +83,7 @@ data class WatchSticker(
     val glyph: String,
     val label: String,
     val motion: WatchStickerMotion = WatchStickerMotion.Still,
+    val category: WatchStickerCategory = WatchStickerCategory.Reaction,
 )
 
 /**
@@ -67,53 +98,96 @@ data class WatchSticker(
 object WatchStickers {
 
     /**
-     * The presets, in tray order: the eight the room already had first, so the keys people
-     * have learned stay where they were, then the rest.
+     * 64 presets. Existing ids remain unchanged for history compatibility; new presets only
+     * append ids. Categories keep the expanded picker shallow enough to scan with one thumb.
      */
     val presets: List<WatchSticker> = listOf(
+        // Reaction
         WatchSticker("laugh", "😂", "笑哭", WatchStickerMotion.Wobble),
-        WatchSticker("wow", "😮", "惊讶", WatchStickerMotion.Pulse),
-        WatchSticker("love", "😍", "喜欢", WatchStickerMotion.Pulse),
-        WatchSticker("cry", "😭", "大哭", WatchStickerMotion.Shake),
-        WatchSticker("clap", "👏", "鼓掌", WatchStickerMotion.Bounce),
-        WatchSticker("fire", "🔥", "燃", WatchStickerMotion.Wobble),
-        WatchSticker("think", "🤔", "思考", WatchStickerMotion.Swing),
-        WatchSticker("dead", "💀", "笑死", WatchStickerMotion.Shake),
-
-        WatchSticker("heart", "❤️", "爱心", WatchStickerMotion.Pulse),
-        WatchSticker("rofl", "🤣", "笑翻", WatchStickerMotion.Wobble),
-        WatchSticker("cool", "😎", "酷", WatchStickerMotion.Still),
+        WatchSticker("wow", "😮", "惊讶", WatchStickerMotion.Pop),
+        WatchSticker("rofl", "🤣", "笑翻", WatchStickerMotion.Jelly),
         WatchSticker("shock", "😱", "吓到", WatchStickerMotion.Shake),
-        WatchSticker("sleep", "😴", "困了", WatchStickerMotion.Swing),
+        WatchSticker("dead", "💀", "笑死", WatchStickerMotion.Shake),
         WatchSticker("sweat", "😅", "尴尬", WatchStickerMotion.Wobble),
-        WatchSticker("angry", "😡", "生气", WatchStickerMotion.Shake),
-        WatchSticker("blush", "☺️", "害羞", WatchStickerMotion.Pulse),
+        WatchSticker("eyes", "👀", "盯", WatchStickerMotion.Sway),
+        WatchSticker("think", "🤔", "思考", WatchStickerMotion.Swing),
+        WatchSticker("facepalm", "🤦", "捂脸", WatchStickerMotion.Swing),
+        WatchSticker("shrug", "🤷", "摊手", WatchStickerMotion.Sway),
+        WatchSticker("mindblown", "🤯", "脑壳炸了", WatchStickerMotion.Pop),
+        WatchSticker("scream", "🫨", "震惊", WatchStickerMotion.Shake),
+        WatchSticker("peek", "🫣", "偷看", WatchStickerMotion.Sway),
 
-        WatchSticker("thumb", "👍", "赞", WatchStickerMotion.Bounce),
-        WatchSticker("pray", "🙏", "拜托", WatchStickerMotion.Bounce),
-        WatchSticker("wave", "👋", "招手", WatchStickerMotion.Swing),
-        WatchSticker("muscle", "💪", "加油", WatchStickerMotion.Bounce),
-        WatchSticker("eyes", "👀", "盯", WatchStickerMotion.Shake),
-        WatchSticker("party", "🎉", "撒花", WatchStickerMotion.Wobble),
-        WatchSticker("star", "⭐", "星星", WatchStickerMotion.Spin),
-        WatchSticker("sparkle", "✨", "闪闪", WatchStickerMotion.Pulse),
+        // Mood
+        WatchSticker("love", "😍", "喜欢", WatchStickerMotion.Heartbeat, WatchStickerCategory.Mood),
+        WatchSticker("cry", "😭", "大哭", WatchStickerMotion.Shake, WatchStickerCategory.Mood),
+        WatchSticker("heart", "❤️", "爱心", WatchStickerMotion.Heartbeat, WatchStickerCategory.Mood),
+        WatchSticker("cool", "😎", "酷", WatchStickerMotion.Sway, WatchStickerCategory.Mood),
+        WatchSticker("sleep", "😴", "困了", WatchStickerMotion.Float, WatchStickerCategory.Mood),
+        WatchSticker("angry", "😡", "生气", WatchStickerMotion.Shake, WatchStickerCategory.Mood),
+        WatchSticker("blush", "☺️", "害羞", WatchStickerMotion.Pulse, WatchStickerCategory.Mood),
+        WatchSticker("kiss", "😘", "亲亲", WatchStickerMotion.Pop, WatchStickerCategory.Mood),
+        WatchSticker("plead", "🥺", "拜托啦", WatchStickerMotion.Pulse, WatchStickerCategory.Mood),
+        WatchSticker("relief", "😌", "舒服了", WatchStickerMotion.Float, WatchStickerCategory.Mood),
+        WatchSticker("smirk", "😏", "懂的都懂", WatchStickerMotion.Sway, WatchStickerCategory.Mood),
+        WatchSticker("melting", "🫠", "融化", WatchStickerMotion.Jelly, WatchStickerCategory.Mood),
+        WatchSticker("salute", "🫡", "收到", WatchStickerMotion.Pop, WatchStickerCategory.Mood),
 
-        WatchSticker("popcorn", "🍿", "爆米花", WatchStickerMotion.Wobble),
-        WatchSticker("cheers", "🍻", "干杯", WatchStickerMotion.Swing),
-        WatchSticker("rocket", "🚀", "起飞", WatchStickerMotion.Bounce),
-        WatchSticker("spin", "🌀", "晕", WatchStickerMotion.Spin),
-        WatchSticker("bomb", "💣", "炸了", WatchStickerMotion.Shake),
-        WatchSticker("snow", "❄️", "冷", WatchStickerMotion.Spin),
-        WatchSticker("cat", "🐱", "猫", WatchStickerMotion.Bounce),
-        WatchSticker("ghost", "👻", "鬼", WatchStickerMotion.Swing),
+        // Cheer / room interaction
+        WatchSticker("clap", "👏", "鼓掌", WatchStickerMotion.Bounce, WatchStickerCategory.Cheer),
+        WatchSticker("thumb", "👍", "赞", WatchStickerMotion.Pop, WatchStickerCategory.Cheer),
+        WatchSticker("pray", "🙏", "拜托", WatchStickerMotion.Bounce, WatchStickerCategory.Cheer),
+        WatchSticker("wave", "👋", "招手", WatchStickerMotion.Swing, WatchStickerCategory.Cheer),
+        WatchSticker("muscle", "💪", "加油", WatchStickerMotion.Bounce, WatchStickerCategory.Cheer),
+        WatchSticker("party", "🎉", "撒花", WatchStickerMotion.Orbit, WatchStickerCategory.Cheer),
+        WatchSticker("sparkle", "✨", "闪闪", WatchStickerMotion.Pulse, WatchStickerCategory.Cheer),
+        WatchSticker("cheers", "🍻", "干杯", WatchStickerMotion.Swing, WatchStickerCategory.Cheer),
+        WatchSticker("ok", "👌", "可以", WatchStickerMotion.Pop, WatchStickerCategory.Cheer),
+        WatchSticker("victory", "✌️", "耶", WatchStickerMotion.Bounce, WatchStickerCategory.Cheer),
+        WatchSticker("hundred", "💯", "满分", WatchStickerMotion.Pop, WatchStickerCategory.Cheer),
+        WatchSticker("handheart", "🫶", "比心", WatchStickerMotion.Heartbeat, WatchStickerCategory.Cheer),
+        WatchSticker("fist", "👊", "冲", WatchStickerMotion.Pop, WatchStickerCategory.Cheer),
+
+        // Movie night
+        WatchSticker("fire", "🔥", "燃", WatchStickerMotion.Wobble, WatchStickerCategory.Movie),
+        WatchSticker("popcorn", "🍿", "爆米花", WatchStickerMotion.Jelly, WatchStickerCategory.Movie),
+        WatchSticker("star", "⭐", "星星", WatchStickerMotion.Spin, WatchStickerCategory.Movie),
+        WatchSticker("rocket", "🚀", "起飞", WatchStickerMotion.Bounce, WatchStickerCategory.Movie),
+        WatchSticker("bomb", "💣", "炸了", WatchStickerMotion.Shake, WatchStickerCategory.Movie),
+        WatchSticker("cinema", "🎬", "开场", WatchStickerMotion.Flip, WatchStickerCategory.Movie),
+        WatchSticker("tv", "📺", "追剧", WatchStickerMotion.Pop, WatchStickerCategory.Movie),
+        WatchSticker("music", "🎵", "音乐", WatchStickerMotion.Float, WatchStickerCategory.Movie),
+        WatchSticker("sleepmovie", "🥱", "看困了", WatchStickerMotion.Swing, WatchStickerCategory.Movie),
+        WatchSticker("rewind", "⏪", "倒回去", WatchStickerMotion.Sway, WatchStickerCategory.Movie),
+        WatchSticker("fast", "⏩", "快进", WatchStickerMotion.Sway, WatchStickerCategory.Movie),
+        WatchSticker("award", "🏆", "神作", WatchStickerMotion.Pop, WatchStickerCategory.Movie),
+
+        // Fun
+        WatchSticker("spin", "🌀", "晕", WatchStickerMotion.Spin, WatchStickerCategory.Fun),
+        WatchSticker("snow", "❄️", "冷", WatchStickerMotion.Spin, WatchStickerCategory.Fun),
+        WatchSticker("cat", "🐱", "猫", WatchStickerMotion.Bounce, WatchStickerCategory.Fun),
+        WatchSticker("ghost", "👻", "鬼", WatchStickerMotion.Float, WatchStickerCategory.Fun),
+        WatchSticker("dog", "🐶", "狗狗", WatchStickerMotion.Bounce, WatchStickerCategory.Fun),
+        WatchSticker("monkey", "🙈", "不敢看", WatchStickerMotion.Swing, WatchStickerCategory.Fun),
+        WatchSticker("alien", "👽", "外星人", WatchStickerMotion.Float, WatchStickerCategory.Fun),
+        WatchSticker("robot", "🤖", "机器人", WatchStickerMotion.Flip, WatchStickerCategory.Fun),
+        WatchSticker("unicorn", "🦄", "独角兽", WatchStickerMotion.Orbit, WatchStickerCategory.Fun),
+        WatchSticker("frog", "🐸", "青蛙", WatchStickerMotion.Jelly, WatchStickerCategory.Fun),
+        WatchSticker("duck", "🦆", "鸭鸭", WatchStickerMotion.Sway, WatchStickerCategory.Fun),
+        WatchSticker("poop", "💩", "离谱", WatchStickerMotion.Wobble, WatchStickerCategory.Fun),
+        WatchSticker("magic", "🪄", "魔法", WatchStickerMotion.Orbit, WatchStickerCategory.Fun),
     )
 
     private val index: Map<String, WatchSticker> = presets.associateBy(WatchSticker::id)
+    private val grouped: Map<WatchStickerCategory, List<WatchSticker>> =
+        presets.groupBy(WatchSticker::category)
 
     private const val PREFIX = "[sticker:"
     private const val SUFFIX = "]"
 
     fun byId(id: String): WatchSticker? = index[id]
+
+    fun inCategory(category: WatchStickerCategory): List<WatchSticker> =
+        grouped[category].orEmpty()
 
     /** What goes on the wire, and into the transcript, for [sticker]. */
     fun token(sticker: WatchSticker): String = "$PREFIX${sticker.id}$SUFFIX"

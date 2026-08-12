@@ -30,7 +30,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -60,6 +62,7 @@ import com.yfuse.core.util.graphemeCount
 import com.yfuse.core.util.takeGraphemes
 import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
 import com.yfuse.core.util.withoutControlCharacters
+import kotlinx.coroutines.launch
 
 /**
  * How much of the right edge the panel takes.
@@ -85,11 +88,16 @@ internal fun WatchChatPanel(
 ) {
     var draft by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val accent = rememberAccentColorsForSurface(dark = true)
+    var showJumpToLatest by remember { mutableStateOf(false) }
 
     LaunchedEffect(messages.lastOrNull()?.id, reduceMotion) {
-        if (messages.isEmpty()) return@LaunchedEffect
+        if (messages.isEmpty()) {
+            showJumpToLatest = false
+            return@LaunchedEffect
+        }
         // Follow the transcript only for someone already at the end of it. Scrolling back
         // through what was said and being thrown to the bottom because somebody typed is not
         // a list that scrolls badly — it is a list that undoes the scroll — and with a room
@@ -99,15 +107,32 @@ internal fun WatchChatPanel(
         // bottom is where the reader wants to be.
         val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
         when {
-            last == null -> listState.scrollToItem(messages.lastIndex)
+            last == null -> {
+                listState.scrollToItem(messages.lastIndex)
+                showJumpToLatest = false
+            }
             last.index >= messages.lastIndex - 1 -> {
                 if (reduceMotion) {
                     listState.scrollToItem(messages.lastIndex)
                 } else {
                     listState.animateScrollToItem(messages.lastIndex)
                 }
+                showJumpToLatest = false
             }
+            else -> showJumpToLatest = true
         }
+    }
+
+    LaunchedEffect(listState, messages.lastIndex) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+            .collect { lastVisibleIndex ->
+                if (
+                    messages.isNotEmpty() &&
+                    lastVisibleIndex >= messages.lastIndex - 1
+                ) {
+                    showJumpToLatest = false
+                }
+            }
     }
 
     fun submit() {
@@ -232,24 +257,57 @@ internal fun WatchChatPanel(
         )
 
         Spacer(Modifier.height(10.dp))
-        if (messages.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    "还没有消息\n发一句开始聊天吧",
-                    style = AppTypography.caption.medium,
-                    color = Color.White.copy(alpha = 0.42f),
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                state = listState,
-                verticalArrangement = Arrangement.spacedBy(9.dp),
-            ) {
-                items(messages, key = { it.id }) { message ->
-                    // Someone else's message arriving mid-film should not be a jump cut.
-                    WatchChatBubble(message, onRetry, motionAwareItem())
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (messages.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "还没有消息\n发一句开始聊天吧",
+                        style = AppTypography.caption.medium,
+                        color = Color.White.copy(alpha = 0.42f),
+                    )
                 }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
+                    items(messages, key = { it.id }) { message ->
+                        // Someone else's message arriving mid-film should not be a jump cut.
+                        WatchChatBubble(message, onRetry, motionAwareItem())
+                    }
+                }
+            }
+
+            if (showJumpToLatest && messages.isNotEmpty()) {
+                Text(
+                    "有新消息 · 回到最新",
+                    style = AppTypography.caption.strong,
+                    color = accent.onAccent,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 8.dp)
+                        .pressable(
+                            onClickLabel = "回到最新消息",
+                            onClick = {
+                                scope.launch {
+                                    if (reduceMotion) {
+                                        listState.scrollToItem(messages.lastIndex)
+                                    } else {
+                                        listState.animateScrollToItem(messages.lastIndex)
+                                    }
+                                    showJumpToLatest = false
+                                }
+                            },
+                        )
+                        .touchTarget()
+                        .glass(
+                            AppShapes.control,
+                            accent.accent,
+                            accent.border,
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
             }
         }
 
