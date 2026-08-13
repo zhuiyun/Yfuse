@@ -102,15 +102,19 @@ fun YfButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    // Buttons are glass first and accent second. A fully opaque accent fill turned the
+    // primary action into a glossy blue slab, which is a different material from the rest
+    // of the app. Keep only a restrained tint in the glass and let the edge/ink carry the
+    // hierarchy. Player chrome does not use this component and keeps its existing styling.
     val fill = when (tone) {
-        YfButtonTone.Primary -> accent.container
+        YfButtonTone.Primary -> accent.accent.copy(alpha = if (palette.isDark) 0.18f else 0.11f)
         YfButtonTone.Secondary -> palette.card2
-        YfButtonTone.Destructive -> palette.errorContainer
+        YfButtonTone.Destructive -> palette.error.copy(alpha = if (palette.isDark) 0.16f else 0.09f)
     }
     val border = when (tone) {
         YfButtonTone.Primary -> accent.border
         YfButtonTone.Secondary -> palette.border
-        YfButtonTone.Destructive -> palette.error
+        YfButtonTone.Destructive -> palette.error.copy(alpha = 0.72f)
     }
     val content = when (tone) {
         YfButtonTone.Primary -> accent.accent
@@ -166,8 +170,8 @@ fun YfLinkButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val fill = if (destructive) palette.errorContainer else palette.card2
-    val border = if (destructive) palette.error else palette.border
+    val fill = if (destructive) palette.error.copy(alpha = if (palette.isDark) 0.16f else 0.09f) else palette.card2
+    val border = if (destructive) palette.error.copy(alpha = 0.72f) else palette.border
     val content = if (destructive) palette.error else accent.accent
     Row(
         modifier
