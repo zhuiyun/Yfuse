@@ -314,7 +314,7 @@ class ServerRegistryTest {
     }
 
     @Test
-    fun publicCleartextCannotBeAddedAndAnOldPersistedSessionIsPurged() {
+    fun publicCleartextRequiresConfirmationAndAnOldUnconfirmedPersistedSessionIsPurged() {
         val settings = MapSettings()
         val secrets = TestSecureStore()
         val secure =
@@ -342,12 +342,19 @@ class ServerRegistryTest {
         assertTrue(secrets.storedKeys().isEmpty())
         assertFailsWith<IllegalArgumentException> {
             registry().addOrUpdate(
-                secure.copy(
-                    baseUrl = "http://media.example.com",
-                    localCleartextConfirmed = true,
-                ),
+                secure.copy(baseUrl = "http://media.example.com"),
             )
         }
+
+        val confirmed = registry()
+        confirmed.addOrUpdate(
+            secure.copy(
+                baseUrl = "http://media.example.com",
+                localCleartextConfirmed = true,
+            ),
+        )
+        assertEquals("http://media.example.com", confirmed.defaultServer?.baseUrl)
+        assertTrue(confirmed.defaultServer?.localCleartextConfirmed == true)
     }
 
     @Test
