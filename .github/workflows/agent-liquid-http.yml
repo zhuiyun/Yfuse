@@ -1,0 +1,77 @@
+name: Agent liquid glass and HTTP migration
+
+on:
+  push:
+    branches:
+      - agent/liquid-glass-http-0.2.56
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-liquid-glass-http-0.2.56
+  cancel-in-progress: true
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: agent/liquid-glass-http-0.2.56
+          fetch-depth: 1
+
+      - name: Apply requested changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/agent_liquid_http_patch.py
+          git diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y p7zip-full
+          fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+
+      - name: Compile Android
+        shell: bash
+        run: ./gradlew :composeApp:compileDebugKotlinAndroid --no-daemon
+
+      - name: Run affected tests
+        shell: bash
+        run: |
+          ./gradlew :composeApp:testDebugUnitTest --no-daemon \
+            --tests 'com.yfuse.core.network.ServerEndpointPolicyTest' \
+            --tests 'com.yfuse.core.designsystem.GlassTest' \
+            --tests 'com.yfuse.feature.servers.ServersStoreTest'
+
+      - name: Commit requested changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/agent-liquid-http.yml scripts/agent_liquid_http_patch.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "::error::Patch produced no changes"
+            exit 1
+          fi
+          git commit -m "feat: allow confirmed HTTP and unify glass actions"
+          git push origin HEAD:agent/liquid-glass-http-0.2.56
