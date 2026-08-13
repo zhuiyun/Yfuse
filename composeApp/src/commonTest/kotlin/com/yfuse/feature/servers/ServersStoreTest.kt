@@ -376,22 +376,15 @@ class ServersStoreTest {
         }
 
     @Test
-    fun public_http_is_rejected_even_after_risk_confirmation() =
+    fun public_http_requires_confirmation_then_enables_submit() =
         runTest {
-            val registry = testRegistry()
-            val store = store(registry) { error("public cleartext must not reach the network") }
-            store.accept(ServersIntent.HostChanged("http://media.example.com:8096/emby"))
+            val store = store(testRegistry()) { req -> authRoutes(req) }
+            store.accept(ServersIntent.HostChanged("http://media.example.com:8096"))
             store.accept(ServersIntent.UsernameChanged("user"))
-            store.accept(ServersIntent.PasswordChanged("password"))
-            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
 
             assertFalse(store.state.form.canSubmit)
-            store.accept(ServersIntent.Submit)
-            assertEquals("公网 Emby 服务器必须使用 HTTPS", store.state.form.error)
-            assertTrue(
-                registry.data.value.servers
-                    .isEmpty(),
-            )
+            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
+            assertTrue(store.state.form.canSubmit)
             store.dispose()
         }
 

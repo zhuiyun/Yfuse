@@ -753,6 +753,7 @@ private fun ServerCard(
                             server.serverName,
                             style = AppTypography.body.strong,
                             color = palette.text,
+                            minLines = 2,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
@@ -1218,7 +1219,7 @@ private fun ServerActionRow(
         Modifier
             .fillMaxWidth()
             .pressable(enabled = enabled, onClick = onClick)
-            .glass(
+            .liquidGlass(
                 shape = GlassShapes.chip,
                 // The destructive fill stays inside the row's own rounded shape instead of
                 // bleeding to the panel's edges the way the old option row's band did.
@@ -1379,7 +1380,7 @@ private fun ServerRoutesDialog(
             ) {
                 Spacer(Modifier.height(8.dp))
                 OverlayButton(
-                    label = if (localCleartextConfirmed) "已确认局域网 HTTP 风险" else "确认局域网 HTTP 风险",
+                    label = if (localCleartextConfirmed) "已确认 HTTP 风险" else "确认 HTTP 风险",
                     onClick = { localCleartextConfirmed = !localCleartextConfirmed },
                     modifier = Modifier.fillMaxWidth(),
                     tone =
@@ -1454,7 +1455,7 @@ private fun ServerRouteRow(
                 onClick = onActivate,
             ).semantics { selected = isActive }
             .heightIn(min = MinTouchTarget)
-            .flatGlass(
+            .liquidGlass(
                 shape = GlassShapes.chip,
                 fill = if (isActive) accent.container else palette.card2,
                 border = if (isActive) accent.border else palette.border,
@@ -1509,7 +1510,7 @@ private fun ServerRouteRow(
                         .pressable(onClickLabel = "删除${route.name}", onClick = onRemove)
                         .touchTarget()
                         .size(24.dp)
-                        .flatGlass(CircleShape, palette.card, palette.border)
+                        .liquidGlass(CircleShape, palette.card, palette.border)
                         .padding(7.dp),
             )
         }

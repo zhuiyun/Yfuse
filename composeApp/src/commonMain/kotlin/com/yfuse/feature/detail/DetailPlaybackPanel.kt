@@ -121,7 +121,7 @@ internal fun PlaybackVersionDialog(
     onSelectSubtitle: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
         OverlayHeader(
             title = "版本与来源",
             subtitle = if (switching) "正在解析所选资源" else title,

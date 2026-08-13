@@ -29,9 +29,9 @@ internal fun SavedServer.knownUnavailableEndpointReason(): String? {
 }
 
 /**
- * Emby credentials and bearer tokens may use cleartext only on an explicitly trusted LAN.
- * HTTPS is valid everywhere; HTTP to a public address is rejected even when the generic
- * Android network security config has to remain open for user-managed local servers.
+ * Emby endpoints may use HTTP when the user explicitly acknowledges the cleartext risk.
+ * HTTPS is valid without acknowledgement; HTTP is supported for both LAN and public
+ * self-hosted servers because users may expose Emby on arbitrary addresses and ports.
  */
 fun validateEmbyServerEndpoint(
     value: String,
@@ -59,7 +59,7 @@ fun validateEmbyServerEndpoint(
         return ServiceEndpointValidation(
             normalizedEndpoint = null,
             decision = EndpointTransportDecision.Invalid,
-            message = "请输入完整的 HTTPS 地址",
+            message = "请输入完整的 HTTP 或 HTTPS 地址",
         )
     }
     if (scheme == "https") {
@@ -67,13 +67,6 @@ fun validateEmbyServerEndpoint(
             normalizedEndpoint = normalized,
             decision = EndpointTransportDecision.Secure,
             message = null,
-        )
-    }
-    if (!host.isLocalServiceHost()) {
-        return ServiceEndpointValidation(
-            normalizedEndpoint = normalized,
-            decision = EndpointTransportDecision.PublicCleartextRejected,
-            message = "公网 Emby 服务器必须使用 HTTPS",
         )
     }
     return if (localCleartextConfirmed) {
@@ -86,7 +79,7 @@ fun validateEmbyServerEndpoint(
         ServiceEndpointValidation(
             normalizedEndpoint = normalized,
             decision = EndpointTransportDecision.LocalCleartextConfirmationRequired,
-            message = "局域网 HTTP 会暴露账号与令牌，请确认风险后继续",
+            message = "HTTP 未加密，会暴露账号与令牌，请确认风险后继续",
         )
     }
 }

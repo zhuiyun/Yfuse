@@ -452,7 +452,7 @@ internal fun DanmakuSendDialog(
     onDismiss: () -> Unit,
 ) {
     var draft by remember { mutableStateOf("") }
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
         OverlayHeader(
             title = "发送弹幕",
             subtitle = "发到当前匹配的那一集，出现在此刻的位置。",
