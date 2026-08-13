@@ -8,7 +8,6 @@ import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
-import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.PlaybackQuality
@@ -35,7 +34,6 @@ data class CloudSyncSnapshotV1(
 @Serializable
 data class CloudAppearanceSettings(
     val themeMode: String = ThemeMode.Light.name,
-    val accent: String = AccentColor.Blue.name,
     val autoNext: Boolean = true,
     val quality: String = PlaybackQuality.Auto.name,
     val reduceTransparency: Boolean = false,
@@ -74,7 +72,6 @@ fun captureCloudSyncSnapshot(
         appearance =
             CloudAppearanceSettings(
                 themeMode = theme.mode.value.name,
-                accent = theme.accent.value.name,
                 autoNext = theme.autoNext.value,
                 quality = theme.quality.value.name,
                 reduceTransparency = theme.reduceTransparency.value,
@@ -121,7 +118,6 @@ fun applyCloudSyncSnapshot(
         }
 
         val mode = ThemeMode.entries.named(snapshot.appearance.themeMode, ThemeMode.Light)
-        val accent = AccentColor.entries.named(snapshot.appearance.accent, AccentColor.Blue)
         val quality = PlaybackQuality.entries.named(snapshot.appearance.quality, PlaybackQuality.Auto)
         val splash =
             SplashAnimation.entries.named(
@@ -129,13 +125,10 @@ fun applyCloudSyncSnapshot(
                 SplashAnimation.One,
             )
         val skipMode = SkipMode.entries.named(snapshot.skipMode, SkipMode.Button)
-        // This is the only nested store with complex structural validation. Normalize it before
-        // any other preference is written so a rejected URL/version cannot leave a partial restore.
         val normalizedDanmaku = danmaku.validateSnapshot(snapshot.danmaku).getOrThrow()
 
         registry.replaceFromSync(snapshot.servers).getOrThrow()
         theme.setMode(mode)
-        theme.setAccent(accent)
         theme.setAutoNext(snapshot.appearance.autoNext)
         theme.setQuality(quality)
         theme.setReduceTransparency(snapshot.appearance.reduceTransparency)
@@ -150,8 +143,6 @@ fun applyCloudSyncSnapshot(
         serverSync.setProgress(snapshot.serverSync.syncProgress)
         serverSync.setArtwork(snapshot.serverSync.syncArtwork)
         serverSync.setFavorites(snapshot.serverSync.syncFavorites)
-        // Enabling this can launch an immediate synchronization after start(), so restore it only
-        // after every category switch it will consult is already in place.
         serverSync.setAutoSync(snapshot.serverSync.autoSync)
 
         (skip.bySeries.value.keys - snapshot.skipTimesBySeries.keys).forEach(skip::clear)

@@ -35,7 +35,7 @@ enum class YfButtonTone {
     Destructive,
 }
 
-/** A compact labelled field on the same glass, type and accent system as the rest of Yfuse. */
+/** A compact labelled field on the same glass, type and emphasis system as the rest of Yfuse. */
 @Composable
 fun YfFormField(
     value: String,
@@ -102,10 +102,12 @@ fun YfButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    // Buttons stay physically neutral. Meaning lives in ink and the hairline edge, so primary
+    // and destructive actions never turn into the large solid blue/red slabs this design rejects.
     val fill = when (tone) {
-        YfButtonTone.Primary -> accent.container
+        YfButtonTone.Primary -> palette.glassStrong
         YfButtonTone.Secondary -> palette.card2
-        YfButtonTone.Destructive -> palette.errorContainer
+        YfButtonTone.Destructive -> palette.glassStrong
     }
     val border = when (tone) {
         YfButtonTone.Primary -> accent.border
@@ -166,7 +168,7 @@ fun YfLinkButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val fill = if (destructive) palette.errorContainer else palette.card2
+    val fill = if (destructive) palette.glassStrong else palette.card2
     val border = if (destructive) palette.error else palette.border
     val content = if (destructive) palette.error else accent.accent
     Row(
@@ -180,13 +182,15 @@ fun YfLinkButton(
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,
-            ).liquidGlass(
+            )
+            .liquidGlass(
                 shape = AppShapes.control,
                 fill = fill,
                 border = border,
                 over = palette.background,
                 sheen = if (destructive) 0.74f else 0.62f,
-            ).padding(horizontal = 16.dp, vertical = 11.dp),
+            )
+            .padding(horizontal = 16.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {

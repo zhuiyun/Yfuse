@@ -21,15 +21,13 @@ class DesignSystemContractTest {
     }
 
     @Test
-    fun every_user_accent_remains_readable_in_both_themes() {
-        AccentColor.entries.forEach { preference ->
-            listOf(false, true).forEach { dark ->
-                val palette = if (dark) DarkPalette else LightPalette
-                val colors = preference.resolveColors(dark)
-                assertContrastAtLeast(colors.accent, palette.background, 4.5f, "$preference accent")
-                assertContrastAtLeast(colors.accent, colors.container, 4.5f, "$preference container")
-                assertContrastAtLeast(colors.onAccent, colors.accent, 4.5f, "$preference onAccent")
-            }
+    fun fixed_product_emphasis_remains_readable_in_both_themes() {
+        listOf(false, true).forEach { dark ->
+            val palette = if (dark) DarkPalette else LightPalette
+            val colors = resolveAccentColors(Brand.Primary, dark)
+            assertContrastAtLeast(colors.accent, palette.background, 4.5f, "brand accent")
+            assertContrastAtLeast(colors.accent, colors.container, 4.5f, "brand container")
+            assertContrastAtLeast(colors.onAccent, colors.accent, 4.5f, "brand onAccent")
         }
     }
 

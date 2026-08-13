@@ -22,7 +22,6 @@ import com.yfuse.core.designsystem.OverlayHeader
 @Composable
 internal fun PlayerGestureHelpOverlay(onDismiss: () -> Unit) {
     GlassDialog(
-        liquidButtons = false,
         onDismiss = onDismiss,
         modifier = Modifier.semantics { paneTitle = "播放器手势说明" },
     ) {

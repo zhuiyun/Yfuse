@@ -21,7 +21,7 @@ expect fun embyHttpEngine(): HttpClientEngine
  * treat us as the stock mobile client. The user's custom UA, if set, overrides this
  * everywhere — see [com.yfuse.core.data.UserAgentPreferences].
  */
-const val DEFAULT_EMBY_USER_AGENT: String = "Emby for Android Mobile"
+const val DEFAULT_EMBY_USER_AGENT: String = DEFAULT_EMBY_CLIENT_NAME
 
 /**
  * How long an Emby request may take before it is abandoned.

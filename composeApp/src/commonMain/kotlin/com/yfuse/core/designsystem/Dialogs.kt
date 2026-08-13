@@ -51,53 +51,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
-/**
- * One overlay material for the whole app, in one position.
- *
- * Before this existed each surface invented its own: a stock Material `AlertDialog`
- * (an opaque M3 surface that ignores the palette entirely), a hand-rolled anchored
- * menu, and a bottom option list — three different radii, scrims and entrances for
- * what the user reads as the same kind of interruption. [GlassDialog] is now the only
- * shape an overlay may take outside the player.
- *
- * It used to be two: a centred dialog for decisions and a bottom sheet for picking one
- * value out of a list, on the reasoning that a reversible choice belongs within thumb
- * reach. The split did not survive contact with where these are opened from — a switcher
- * chip at the top of a hero, a 更多 button in a detail page's action dock, an invite that
- * arrives over the whole app — and answering any of them from the bottom edge sent the
- * eye to the far end of the screen and back. One position, always centred, is what the
- * app settled on.
- *
- * The player is the exception to the rule, not to the material: its 一起看 and control-
- * request modals are [GlassDialog]s like everywhere else, but its own chrome — the
- * settings panel, the episode drawer, the skip pill — stays anchored to the edges. It is
- * landscape and owns the whole screen, so those edges are where the thumbs already are,
- * and a centred panel there would cover the picture it is describing.
- */
 private val ScrimColor = Color(0xFF0A0E16)
-
-/** 覆盖层圆角走 §8.4 的「大」档，与 sheet、迷你播放器、tab bar 同级. */
 private val OverlayShape = GlassShapes.card
-
-/** A centred decision panel stays readable instead of stretching across a tablet. */
 private val OverlayMaxWidth = 560.dp
-
-/** Centred overlays only need a short lift to separate them from the page below. */
 private val OverlayMotionOffset = 32.dp
-
-/** Leaving should get out of the way faster than the 280ms arrival. */
 internal const val OverlayExitDurationMs = 200
 
-/**
- * How many overlays are on screen right now, so the app shell can stand its own floating
- * furniture down while one is up.
- *
- * An overlay is composed by the screen that opens it, which sits *below* the floating tab
- * bar and mini player in the shell's stacking order. Its scrim therefore covered the page
- * but not the bar, which kept painting — and kept taking taps — on top of a bottom sheet
- * anchored to the same edge. Counted rather than a boolean because a sheet can hand off to
- * a confirmation dialog, and the second one must not clear the flag the first still needs.
- */
 @Stable
 class OverlayVisibility {
     var count by mutableStateOf(0)
@@ -114,7 +73,6 @@ class OverlayVisibility {
     }
 }
 
-/** Null outside the app shell — the player owns the whole screen and has no bar to yield. */
 val LocalOverlayVisibility = staticCompositionLocalOf<OverlayVisibility?> { null }
 
 @Composable
@@ -127,16 +85,7 @@ fun ReportOverlayVisible(enabled: Boolean = true) {
     }
 }
 
-/**
- * Centred modal. Use for decisions and forms — anything the user must answer before
- * carrying on. Tapping the scrim dismisses; taps inside the panel never leak through.
- *
- * Lifted into a platform [Dialog] window so its `Center` alignment is the real screen
- * centre even when the call site is nested inside a scrolling container (e.g. the
- * migration tools row in 「我的」 lives inside a `LazyColumn` with status-bar and
- * tab-bar insets, which would otherwise centre the dialog in the truncated viewport
- * rather than on the screen).
- */
+/** The one centred modal material used outside player chrome. */
 @Composable
 fun GlassDialog(
     onDismiss: () -> Unit,
@@ -145,20 +94,10 @@ fun GlassDialog(
     liquidButtons: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    // The dismissal the *caller* asked for, held until the exit animation has played.
-    //
-    // A platform [Dialog] leaves the composition the instant its state flips, so an overlay
-    // whose entrance was a 400ms 46dp rise left the screen in a single frame. Nothing in the
-    // app looked less finished: every modal in it opened beautifully and then blinked out.
-    // The window now outlives its own dismissal by exactly one animation.
     var leaving by remember { mutableStateOf(false) }
-    // Remembered so the identity is stable: it is handed down a static local and used as a
-    // `pointerInput` key, and a fresh lambda per recomposition would invalidate both.
     val requestDismiss = remember { { leaving = true } }
 
     Dialog(
-        // Back, scrim taps and explicit close buttons all keep the window alive until the
-        // same exit transition has finished. Calling [onDismiss] here tears it down at once.
         onDismissRequest = requestDismiss,
         properties =
             DialogProperties(
@@ -169,12 +108,7 @@ fun GlassDialog(
         ReportOverlayVisible()
         val palette = LocalPalette.current
         val modalOffset = with(LocalDensity.current) { OverlayMotionOffset.toPx() }
-        // 覆盖（播放器 / 菜单）— a restrained rise. The overlay used to borrow the tab
-        // switch's 260ms and a 0.94 scale, which is the one transition in the spec that is
-        // explicitly *not* for things that cover the page.
         val progress = rememberOverlayTransition(leaving = leaving, onLeft = onDismiss)
-        // Everything inside gets the animated way out, so 取消 and 关闭 leave the same way
-        // the scrim does — see [LocalOverlayDismiss].
         CompositionLocalProvider(
             LocalOverlayDismiss provides requestDismiss,
             LocalOverlayLiquidButtons provides liquidButtons,
@@ -190,35 +124,16 @@ fun GlassDialog(
                 val panelScrollState = rememberScrollState()
                 Column(
                     Modifier
-                        // The window is the whole display — system bars, cutout and all —
-                        // and in the player it is a short landscape one. Laid out against
-                        // the display rather than the part of it that can be seen, anything
-                        // with more than a few rows in it ran off the top and bottom edges:
-                        // 一起看 shows a room code, a control-mode switch and a card per
-                        // participant, and with the keyboard up there is barely a third of
-                        // a landscape screen left to put them in. [safeDrawingPadding]
-                        // covers the IME too, which is why there is no separate
-                        // `imePadding` here any more.
                         .safeDrawingPadding()
                         .padding(horizontal = 26.dp, vertical = 20.dp)
-                        // Constrain before filling: on a phone this consumes the available
-                        // width, while a tablet keeps a readable 560dp decision column.
                         .widthIn(max = OverlayMaxWidth)
                         .fillMaxWidth()
                         .graphicsLayer {
                             val entered = progress()
                             alpha = entered
                             translationY = modalOffset * (1f - entered)
-                        }.shadow(Shadows.sheet, OverlayShape)
-                        // 液态玻璃, like everything else that floats.
-                        //
-                        // This was an opaque `Color.White` / `#111A29` slab — the one surface
-                        // in an app built entirely out of translucent material that was not
-                        // made of it, and the one users look at longest while deciding
-                        // something. The dialog sits in its own window, so there is no in-app
-                        // backdrop to sample; the body ramp and specular of [liquidGlass] over
-                        // the scrim are what carry the material here, and the scrim is what
-                        // keeps the copy legible without an opaque fill.
+                        }
+                        .shadow(Shadows.sheet, OverlayShape)
                         .liquidGlass(
                             shape = OverlayShape,
                             fill =
@@ -230,14 +145,9 @@ fun GlassDialog(
                             border = palette.border,
                             over = ScrimColor,
                         )
-                        // Swallow taps so the scrim's dismiss gesture stops at the panel edge.
                         .pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
                         .padding(18.dp)
-                        // The panel wraps its content until there is no more room, and then
-                        // scrolls instead of growing past the screen. Callers used to cap
-                        // themselves at a fixed height — 420dp, 460dp — which is a number
-                        // taller than the landscape screen those dialogs also open on.
                         .then(
                             if (scrollable) {
                                 Modifier.verticalScroll(panelScrollState)
@@ -252,37 +162,12 @@ fun GlassDialog(
     }
 }
 
-/**
- * The animated way out of the overlay currently on screen, or null outside one.
- *
- * An overlay's own buttons hold the caller's `onDismiss`, which tears the window down on the
- * spot. Routing them through this instead means 取消 and 关闭 play the same exit as a tap on
- * the scrim, rather than the panel vanishing under the finger while the scrim behind it
- * fades politely.
- */
 private val LocalOverlayDismiss = staticCompositionLocalOf<(() -> Unit)?> { null }
 private val LocalOverlayLiquidButtons = staticCompositionLocalOf { true }
 
-/**
- * [fallback], unless an overlay is up and has an exit animation to play first.
- *
- * Call it for the *dismissing* half of an overlay only. A confirm button runs an action and
- * the action decides what happens to the overlay; only 取消, 关闭 and the scrim are simply
- * leaving.
- */
 @Composable
 fun overlayDismiss(fallback: () -> Unit): () -> Unit = LocalOverlayDismiss.current ?: fallback
 
-/**
- * Drives an overlay in and back out again, and calls [onLeft] once it has gone.
- *
- * Entrance and exit are the same 32dp rise on the same curve, played in opposite directions.
- * The exit is deliberately the shorter of the two — [Motion.POP]'s reasoning applies here as
- * well: arriving is worth watching, leaving is worth getting out of the way.
- *
- * Instant in both directions under 减弱动态效果, in which case [onLeft] still fires, just on
- * the next frame.
- */
 @Composable
 private fun rememberOverlayTransition(
     leaving: Boolean,
@@ -299,9 +184,6 @@ private fun rememberOverlayTransition(
                 durationMillis = overlayDurationMillis(leaving, reduceMotion),
                 easing = Motion.Curve,
             ),
-        // Fired by the animation itself rather than by a parallel delay, so the window is
-        // torn down on the frame the panel finishes leaving — never before it, and never a
-        // few frames after it.
         finishedListener = { if (leaving) onLeft() },
         label = "overlayTransition",
     )
@@ -318,7 +200,6 @@ internal fun overlayDurationMillis(
         else -> Motion.MODAL
     }
 
-/** Title row with an optional subtitle and a close affordance. */
 @Composable
 fun OverlayHeader(
     title: String,
@@ -352,7 +233,6 @@ fun OverlayHeader(
                 modifier =
                     Modifier
                         .pressable(onClick = close)
-                        // The chip stays 28dp; the region that answers to it is 44.
                         .touchTarget()
                         .size(28.dp)
                         .then(
@@ -367,15 +247,19 @@ fun OverlayHeader(
                             } else {
                                 Modifier.flatGlass(CircleShape, palette.card2, palette.border)
                             },
-                        ).padding(8.dp),
+                        )
+                        .padding(8.dp),
             )
         }
     }
 }
 
-/** Weight of an overlay button — one primary per overlay, at most one destructive. */
 enum class OverlayButtonTone { Primary, Plain, Destructive }
 
+/**
+ * Overlay actions always keep a neutral glass body. Primary/destructive meaning is carried by
+ * border and ink, never by a solid blue/red fill.
+ */
 @Composable
 fun OverlayButton(
     label: String,
@@ -387,14 +271,12 @@ fun OverlayButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    // Same 中 radius it always had; continuous now, like every other control.
     val shape = GlassShapes.chip
     val fill =
-        when {
-            tone == OverlayButtonTone.Primary && enabled -> accent.accent
-            tone == OverlayButtonTone.Primary -> accent.container
-            tone == OverlayButtonTone.Destructive -> palette.errorContainer
-            else -> palette.card2
+        when (tone) {
+            OverlayButtonTone.Primary -> palette.glassStrong
+            OverlayButtonTone.Destructive -> palette.glassStrong
+            OverlayButtonTone.Plain -> palette.card2
         }
     val border =
         when (tone) {
@@ -404,7 +286,7 @@ fun OverlayButton(
         }
     val ink =
         when (tone) {
-            OverlayButtonTone.Primary -> if (enabled) accent.onAccent else accent.accent
+            OverlayButtonTone.Primary -> accent.accent
             OverlayButtonTone.Destructive -> palette.error
             OverlayButtonTone.Plain -> palette.text
         }
@@ -425,11 +307,10 @@ fun OverlayButton(
             .height(46.dp)
             .pressable(
                 enabled = enabled && !loading,
-                // The key that commits — 发送, 确定, 删除 — is felt. 取消 is not: backing
-                // out of a dialog is not an event worth a buzz.
                 haptic = if (tone == OverlayButtonTone.Plain) null else HapticSignal.Confirm,
                 onClick = onClick,
-            ).then(surface),
+            )
+            .then(surface),
         contentAlignment = Alignment.Center,
     ) {
         if (loading) {
@@ -445,7 +326,6 @@ fun OverlayButton(
     }
 }
 
-/** 取消 / 确认 pair, equal width, confirmation on the right. */
 @Composable
 fun OverlayButtonRow(
     dismissLabel: String,
@@ -460,8 +340,6 @@ fun OverlayButtonRow(
         Modifier.fillMaxWidth().padding(top = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // 取消 is purely leaving, so it leaves the way the scrim does. 确定 is not — what it
-        // triggers decides whether the overlay closes at all.
         OverlayButton(dismissLabel, overlayDismiss(onDismiss), Modifier.weight(1f))
         OverlayButton(
             label = confirmLabel,
@@ -474,10 +352,6 @@ fun OverlayButtonRow(
     }
 }
 
-/**
- * Confirmation modal — a question, its consequence, and two ways out. Replaces the
- * stock `AlertDialog`, which rendered an opaque Material surface on a glass app.
- */
 @Composable
 fun ConfirmDialog(
     title: String,
@@ -513,22 +387,9 @@ fun ConfirmDialog(
     }
 }
 
-/** Air between stacked [OverlayOptionRow]s — what replaced the hairline rules. */
 val OverlayOptionSpacing: Dp = 8.dp
 
-/**
- * One selectable row inside a [GlassDialog].
- *
- * A tile rather than a band. These used to be full-bleed rows separated by 1dp rules, with
- * the selected one a flat tint running edge to edge: on a panel that is itself liquid glass,
- * that read as a table pasted onto the material, and the rules did the only work — telling
- * one choice from the next — that spacing does better. Each option is now its own inset
- * surface with its own edge, and choosing one lights that surface instead of striping the
- * panel. Callers stack them with [OverlayOptionSpacing] and draw no dividers.
- *
- * Every picker in the app comes through here — 排序, 播放器内核, 视频缓存大小, 标记已看 — so
- * the shape of a choice is decided once.
- */
+/** Selectable rows use the same neutral liquid body as buttons. */
 @Composable
 fun OverlayOptionRow(
     label: String,
@@ -540,15 +401,10 @@ fun OverlayOptionRow(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val fill =
-        when {
-            destructive -> palette.errorContainer
-            selected -> accent.container
-            else -> palette.card2
-        }
+    val fill = palette.card2
     val border =
         when {
-            destructive -> palette.error.copy(alpha = 0.42f)
+            destructive -> palette.error.copy(alpha = 0.72f)
             selected -> accent.border
             else -> palette.border
         }
@@ -563,16 +419,11 @@ fun OverlayOptionRow(
             .fillMaxWidth()
             .pressable(
                 haptic = if (destructive) HapticSignal.Confirm else HapticSignal.Select,
-                // A row in a list of choices is a radio button, and saying so is what lets a
-                // screen reader announce "已选中" without the checkmark glyph being read as
-                // decoration.
                 role = Role.RadioButton,
                 focusShape = GlassShapes.chip,
                 onClick = onClick,
-            ).semantics { this.selected = selected }
-            // 11dp of padding around a 12.5sp line came to roughly 39dp — under the floor,
-            // and these rows are stacked, so a miss lands on the neighbouring choice rather
-            // than on nothing.
+            )
+            .semantics { this.selected = selected }
             .heightIn(min = MinTouchTarget)
             .then(
                 if (LocalOverlayLiquidButtons.current) {
@@ -581,12 +432,13 @@ fun OverlayOptionRow(
                         fill = fill,
                         border = border,
                         over = palette.background,
-                        sheen = 0.62f,
+                        sheen = if (selected || destructive) 0.72f else 0.62f,
                     )
                 } else {
                     Modifier.flatGlass(GlassShapes.chip, fill, border)
                 },
-            ).padding(horizontal = 14.dp, vertical = 11.dp),
+            )
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -609,15 +461,11 @@ fun OverlayOptionRow(
                     description,
                     style = AppTypography.caption.regular,
                     color = palette.sub2,
-                    // A choice that needs explaining gets two lines rather than an ellipsis
-                    // in the middle of the reason to pick it.
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        // The mark keeps its slot whether or not it is drawn, so labels do not shift
-        // sideways as the selection moves down the list.
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
             if (selected) {
                 Box(

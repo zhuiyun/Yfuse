@@ -43,6 +43,7 @@ class HttpClientFactoryTest {
                 client.close()
             }
             assertTrue(assertNotNull(authorization).contains("Version=\"9.8.7\""))
+            assertTrue(assertNotNull(authorization).contains("Client=\"Emby for Android Mobile\""))
         }
 
     @Test

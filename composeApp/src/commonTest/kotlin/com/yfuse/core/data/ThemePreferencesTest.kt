@@ -1,7 +1,6 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
-import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
@@ -32,7 +31,6 @@ class ThemePreferencesTest {
             setAutoNext(false)
             setQuality(PlaybackQuality.FullHd)
             setMode(ThemeMode.System)
-            setAccent(AccentColor.Teal)
             setReduceTransparency(true)
             setLargeText(true)
             setReduceMotion(true)
@@ -48,7 +46,6 @@ class ThemePreferencesTest {
         assertFalse(restored.autoNext.value)
         assertEquals(PlaybackQuality.FullHd, restored.quality.value)
         assertEquals(ThemeMode.System, restored.mode.value)
-        assertEquals(AccentColor.Teal, restored.accent.value)
         assertTrue(restored.reduceTransparency.value)
         assertTrue(restored.largeText.value)
         assertTrue(restored.reduceMotion.value)
