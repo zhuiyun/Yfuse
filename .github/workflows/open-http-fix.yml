@@ -1,0 +1,433 @@
+name: Apply open HTTP fix
+
+on:
+  push:
+    branches:
+      - fix-open-http
+    paths:
+      - .github/workflows/open-http-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          ref: fix-open-http
+
+      - name: Apply HTTP policy cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(path):
+              return Path(path).read_text()
+
+          def write(path, text):
+              Path(path).write_text(text)
+
+          def replace_exact(text, old, new, expected=1, label="replacement"):
+              count = text.count(old)
+              if count != expected:
+                  raise RuntimeError(f"{label}: expected {expected}, found {count}")
+              return text.replace(old, new)
+
+          def sub_exact(text, pattern, repl, expected=1, label="regex replacement"):
+              out, count = re.subn(pattern, repl, text, flags=re.S)
+              if count != expected:
+                  raise RuntimeError(f"{label}: expected {expected}, found {count}")
+              return out
+
+          # Emby: HTTP and HTTPS are both accepted immediately.
+          p = "composeApp/src/commonMain/kotlin/com/yfuse/core/network/ServerEndpointPolicy.kt"
+          t = read(p)
+          t = t.replace(
+              " * Emby endpoints may use HTTP when the user explicitly acknowledges the cleartext risk.\n"
+              " * HTTPS is valid without acknowledgement; HTTP is supported for both LAN and public\n"
+              " * self-hosted servers because users may expose Emby on arbitrary addresses and ports.\n",
+              " * Emby endpoints may use HTTP or HTTPS on any host and port.\n"
+              " * Transport choice belongs to the user; this validator only checks address syntax.\n",
+          )
+          t = replace_exact(
+              t,
+              "fun validateEmbyServerEndpoint(\n",
+              '@Suppress("UNUSED_PARAMETER")\nfun validateEmbyServerEndpoint(\n',
+              label="suppress Emby compatibility parameter",
+          )
+          t = sub_exact(
+              t,
+              r'    if \(scheme == "https"\) \{.*?\n    \}\n\}\n$',
+              '''    return ServiceEndpointValidation(\n        normalizedEndpoint = normalized,\n        decision =\n            if (scheme == "https") {\n                EndpointTransportDecision.Secure\n            } else {\n                EndpointTransportDecision.Cleartext\n            },\n        message = null,\n    )\n}\n''',
+              label="Emby transport result",
+          )
+          write(p, t)
+
+          # Shared configurable endpoints: no HTTP/WS host restrictions or confirmations.
+          p = "composeApp/src/commonMain/kotlin/com/yfuse/core/network/ServiceEndpointPolicy.kt"
+          t = read(p)
+          t = replace_exact(
+              t,
+              "enum class EndpointTransportDecision {\n    Secure,\n",
+              "enum class EndpointTransportDecision {\n    Secure,\n    Cleartext,\n",
+              label="add Cleartext decision",
+          )
+          t = replace_exact(
+              t,
+              "            decision == EndpointTransportDecision.Secure ||\n                decision == EndpointTransportDecision.LocalCleartextConfirmed\n",
+              "            decision == EndpointTransportDecision.Secure ||\n                decision == EndpointTransportDecision.Cleartext ||\n                decision == EndpointTransportDecision.LocalCleartextConfirmed\n",
+              label="allow Cleartext decision",
+          )
+          t = t.replace(
+              " * Public endpoints must use HTTPS/WSS. HTTP/WS is reserved for loopback, private-address and\n"
+              " * local-name development servers and still requires a deliberate risk acknowledgement. This\n"
+              " * class contains no UI state so every settings flow can present its own confirmation dialog.\n",
+              " * HTTP, HTTPS, WS and WSS are accepted on public and local endpoints alike.\n"
+              " * This validator only checks that a usable endpoint was supplied.\n",
+          )
+          t = replace_exact(
+              t,
+              "fun validateServiceEndpoint(\n",
+              '@Suppress("UNUSED_PARAMETER")\nfun validateServiceEndpoint(\n',
+              label="suppress service compatibility parameter",
+          )
+          t = replace_exact(
+              t,
+              '            message = "请输入完整的 HTTPS 或 WSS 地址",\n',
+              '            message = "请输入完整的 HTTP、HTTPS、WS 或 WSS 地址",\n',
+              label="service invalid message",
+          )
+          t = sub_exact(
+              t,
+              r'    if \(explicitScheme == "https" \|\| explicitScheme == "wss"\) \{.*?\n    \}\n\}\n\ninternal fun String\.isLocalServiceHost',
+              '''    return ServiceEndpointValidation(\n        normalizedEndpoint = normalized,\n        decision =\n            if (explicitScheme == "https" || explicitScheme == "wss") {\n                EndpointTransportDecision.Secure\n            } else {\n                EndpointTransportDecision.Cleartext\n            },\n        message = null,\n    )\n}\n\ninternal fun String.isLocalServiceHost''',
+              label="service transport result",
+          )
+          write(p, t)
+
+          # Remove the Ktor runtime block that rejected public HTTP Emby requests.
+          p = "composeApp/src/commonMain/kotlin/com/yfuse/core/network/HttpClientFactory.kt"
+          t = read(p)
+          for imp in (
+              "import io.ktor.client.plugins.HttpSend\n",
+              "import io.ktor.client.plugins.plugin\n",
+              "import io.ktor.http.URLProtocol\n",
+          ):
+              t = replace_exact(t, imp, "", label=f"remove {imp.strip()}")
+          t = sub_exact(
+              t,
+              r'    \}\.also \{ client ->\n        client\.plugin\(HttpSend\)\.intercept \{ request ->.*?\n    \}\n\n/\*\*\n \* Client for arbitrary',
+              '''    }\n\n/**\n * Client for arbitrary''',
+              label="remove Emby HTTP interceptor",
+          )
+          write(p, t)
+
+          # Android cleartext is allowed for every host.
+          write(
+              "composeApp/src/androidMain/res/xml/network_security_config.xml",
+              '''<?xml version="1.0" encoding="utf-8"?>\n<network-security-config>\n    <base-config cleartextTrafficPermitted="true" />\n</network-security-config>\n''',
+          )
+
+          # Add/edit server dialog: remove all HTTP warning/confirmation UI.
+          p = "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AddServerDialog.kt"
+          t = read(p)
+          for imp in (
+              "import androidx.compose.foundation.layout.heightIn\n",
+              "import androidx.compose.ui.semantics.toggleableState\n",
+              "import androidx.compose.ui.state.ToggleableState\n",
+              "import com.yfuse.core.network.EndpointTransportDecision\n",
+          ):
+              t = replace_exact(t, imp, "", label=f"AddServerDialog remove {imp.strip()}")
+          t = replace_exact(
+              t,
+              "    val endpointValidation = validateEmbyServerEndpoint(form.url, form.httpRiskAccepted)\n",
+              "    val endpointValidation = validateEmbyServerEndpoint(form.url)\n",
+              label="AddServerDialog validation",
+          )
+          t = sub_exact(
+              t,
+              r'            Spacer\(Modifier\.height\(4\.dp\)\)\n            if \(!form\.https\) \{\n                EmbyHttpRiskNotice\(.*?\n            \}\n\n            Spacer\(Modifier\.height\(4\.dp\)\)\n            FieldLabel\("账号"\)',
+              '            Spacer(Modifier.height(4.dp))\n            FieldLabel("账号")',
+              label="remove AddServerDialog HTTP warning call",
+          )
+          t = sub_exact(
+              t,
+              r'@Composable\nprivate fun EmbyHttpRiskNotice\(.*?\n\}\n\n/\*\* Group label',
+              '/** Group label',
+              label="remove AddServerDialog HTTP warning component",
+          )
+          write(p, t)
+
+          # Standalone/manual and onboarding server flows: no HTTP warning or checkbox.
+          p = "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersScreen.kt"
+          t = read(p)
+          for imp in (
+              "import androidx.compose.ui.semantics.toggleableState\n",
+              "import androidx.compose.ui.state.ToggleableState\n",
+              "import com.yfuse.core.network.EndpointTransportDecision\n",
+          ):
+              t = replace_exact(t, imp, "", label=f"ServersScreen remove {imp.strip()}")
+          t = sub_exact(
+              t,
+              r'                    if \(!form\.https\) \{\n                        Spacer\(Modifier\.height\(10\.dp\)\)\n                        HttpRiskNotice\(.*?\n                    \}\n                    Spacer\(Modifier\.height\(10\.dp\)\)\n                    QuickConnectPanel',
+              '                    Spacer(Modifier.height(10.dp))\n                    QuickConnectPanel',
+              label="remove manual HTTP warning",
+          )
+          t = sub_exact(
+              t,
+              r'                            if \(!form\.https\) \{\n                                HttpRiskNotice\(.*?\n                            \}\n                            if \(form\.error != null\)',
+              '                            if (form.error != null)',
+              label="remove onboarding HTTP warning",
+          )
+          t = sub_exact(
+              t,
+              r'/\*\* HTTP is never silently accepted:.*?\n@Composable\nprivate fun HttpRiskNotice\(.*?\n\}\n\n@Composable\nprivate fun QuickConnectPanel',
+              '@Composable\nprivate fun QuickConnectPanel',
+              label="remove ServersScreen HTTP warning component",
+          )
+          t = t.replace(
+              "validateEmbyServerEndpoint(form.url, form.httpRiskAccepted).allowed",
+              "validateEmbyServerEndpoint(form.url).allowed",
+          )
+          write(p, t)
+
+          # Backup routes: allow HTTP immediately and remove the confirmation button.
+          p = "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt"
+          t = read(p)
+          t = replace_exact(
+              t,
+              "import com.yfuse.core.network.EndpointTransportDecision\n",
+              "",
+              label="ServersTabScreen decision import",
+          )
+          t = replace_exact(
+              t,
+              "    var localCleartextConfirmed by remember(server.id) { mutableStateOf(false) }\n",
+              "",
+              label="route cleartext state",
+          )
+          t = replace_exact(
+              t,
+              "                    localCleartextConfirmed = false\n",
+              "",
+              label="route cleartext reset",
+          )
+          t = replace_exact(
+              t,
+              "            val endpoint = validateEmbyServerEndpoint(draftUrl, localCleartextConfirmed)\n",
+              "            val endpoint = validateEmbyServerEndpoint(draftUrl)\n",
+              label="route endpoint validation",
+          )
+          t = sub_exact(
+              t,
+              r'            if \(endpoint\.decision == EndpointTransportDecision\.LocalCleartextConfirmationRequired \|\|\n                endpoint\.decision == EndpointTransportDecision\.LocalCleartextConfirmed\n            \) \{.*?\n            \}\n            Spacer\(Modifier\.height\(10\.dp\)\)',
+              '            Spacer(Modifier.height(10.dp))',
+              label="remove route HTTP confirmation",
+          )
+          t = replace_exact(
+              t,
+              "                                localCleartextConfirmed,\n",
+              "                                false,\n",
+              label="route save compatibility flag",
+          )
+          write(p, t)
+
+          # Together-watch endpoint editor: accept HTTP/WS without a warning or checkbox.
+          p = "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileDialogs.kt"
+          t = read(p)
+          t = replace_exact(
+              t,
+              "    var localCleartextConfirmed by remember(current) { mutableStateOf(false) }\n",
+              "",
+              label="watch cleartext state",
+          )
+          t = replace_exact(
+              t,
+              "    val validation = validateServiceEndpoint(normalized, localCleartextConfirmed)\n",
+              "    val validation = validateServiceEndpoint(normalized)\n",
+              label="watch endpoint validation",
+          )
+          t = replace_exact(
+              t,
+              "                        localCleartextConfirmed = false\n",
+              "",
+              label="watch cleartext reset",
+          )
+          t = sub_exact(
+              t,
+              r'        if \(validation\.decision == EndpointTransportDecision\.LocalCleartextConfirmationRequired \|\|\n            validation\.decision == EndpointTransportDecision\.LocalCleartextConfirmed\n        \) \{.*?\n        \}\n        Row\(',
+              '        Row(',
+              label="remove watch HTTP confirmation",
+          )
+          t = replace_exact(
+              t,
+              "                onClick = { onSave(normalized, localCleartextConfirmed) },\n",
+              "                onClick = { onSave(normalized, false) },\n",
+              label="watch save flag",
+          )
+          for imp, symbol in (
+              ("import androidx.compose.ui.semantics.toggleableState\n", "toggleableState"),
+              ("import androidx.compose.ui.state.ToggleableState\n", "ToggleableState"),
+              ("import com.yfuse.core.network.EndpointTransportDecision\n", "EndpointTransportDecision"),
+          ):
+              if symbol not in t.replace(imp, ""):
+                  t = t.replace(imp, "")
+          write(p, t)
+
+          # Together-watch persistence: keep user-selected HTTP/WS endpoints unchanged.
+          p = "composeApp/src/commonMain/kotlin/com/yfuse/core/data/WatchTogetherPreferences.kt"
+          t = read(p)
+          t = t.replace("import com.yfuse.core.network.EndpointTransportDecision\n", "")
+          t = t.replace('        private const val HTTPS_ENDPOINT_MIGRATION_KEY = "watchTogether.endpointHttpsMigration.v2"\n', "")
+          t = t.replace(
+              '        private const val CLEARTEXT_ENDPOINT_CONFIRMED_KEY =\n            "watchTogether.endpointCleartextConfirmed.v1"\n',
+              "",
+          )
+          t = sub_exact(
+              t,
+              r'        /\*\*\n         \* Public so invite links can omit the relay.*?\n        private val FORMER_OFFICIAL_ENDPOINTS =\n            setOf\(.*?\n            \)\n',
+              "",
+              label="remove former watch endpoint migration list",
+          )
+          t = sub_exact(
+              t,
+              r'    /\*\* Saves only endpoints accepted by the shared public/local cleartext policy\. \*/\n    fun setEndpoint\(.*?\n    \}\n\n    fun setProfile',
+              '''    /** Saves any syntactically valid HTTP(S) or WS(S) endpoint. */\n    @Suppress("UNUSED_PARAMETER")\n    fun setEndpoint(\n        value: String,\n        localCleartextConfirmed: Boolean = false,\n    ): ServiceEndpointValidation {\n        val validation = validateServiceEndpoint(value)\n        if (!validation.allowed) return validation\n        val normalized = validation.normalizedEndpoint ?: return validation\n        _endpoint.value = normalized\n        settings.putString(ENDPOINT_KEY, normalized)\n        return validation\n    }\n\n    fun setProfile''',
+              label="replace watch setEndpoint",
+          )
+          t = sub_exact(
+              t,
+              r'    /\*\*\n     \* Moves only the former built-in relay to HTTPS\..*?\n    private fun loadEndpoint\(\): String \{.*?\n    \}\n\n    private fun String\.normalizedWatchNickname',
+              '''    private fun loadEndpoint(): String {\n        val stored = settings.getString(ENDPOINT_KEY, DEFAULT_ENDPOINT)\n        val validation = validateServiceEndpoint(stored)\n        return validation.normalizedEndpoint?.takeIf { validation.allowed } ?: DEFAULT_ENDPOINT\n    }\n\n    private fun String.normalizedWatchNickname''',
+              label="replace watch loadEndpoint",
+          )
+          write(p, t)
+
+          # Tests: encode the new no-confirmation contract.
+          write(
+              "composeApp/src/commonTest/kotlin/com/yfuse/core/network/ServerEndpointPolicyTest.kt",
+              '''package com.yfuse.core.network\n\nimport com.yfuse.core.model.SavedServer\nimport kotlin.test.Test\nimport kotlin.test.assertEquals\nimport kotlin.test.assertNotNull\nimport kotlin.test.assertNull\nimport kotlin.test.assertTrue\n\nclass ServerEndpointPolicyTest {\n    @Test\n    fun retired_host_check_matches_the_parsed_host_only() {\n        assertNotNull(server("http://gf.emby.yun:19001").knownUnavailableEndpointReason())\n        assertNull(server("http://gf.emby.yun.example.com").knownUnavailableEndpointReason())\n        assertNull(server("http://47.112.219.60:19001").knownUnavailableEndpointReason())\n    }\n\n    @Test\n    fun emby_http_is_allowed_immediately_on_public_and_local_hosts() {\n        listOf(\n            "http://192.168.1.8:8096",\n            "http://10.0.0.8",\n            "http://media.local:8096",\n            "http://8.8.8.8:8096",\n            "http://media.example.com:8096",\n        ).forEach { endpoint ->\n            val result = validateEmbyServerEndpoint(endpoint)\n            assertTrue(result.allowed, endpoint)\n            assertEquals(EndpointTransportDecision.Cleartext, result.decision, endpoint)\n            assertNull(result.message, endpoint)\n        }\n    }\n\n    @Test\n    fun emby_https_is_allowed_for_public_and_local_hosts() {\n        listOf("https://media.example.com", "https://192.168.1.8:8920").forEach { endpoint ->\n            val result = validateEmbyServerEndpoint(endpoint)\n            assertTrue(result.allowed)\n            assertEquals(EndpointTransportDecision.Secure, result.decision)\n        }\n    }\n\n    @Test\n    fun endpoint_rejects_credentials_query_fragment_and_invalid_port() {\n        listOf(\n            "http://user:password@192.168.1.8:8096",\n            "http://192.168.1.8:8096?token=secret",\n            "http://192.168.1.8:8096/#fragment",\n            "http://192.168.1.8:99999",\n        ).forEach { endpoint ->\n            assertEquals(\n                EndpointTransportDecision.Invalid,\n                validateEmbyServerEndpoint(endpoint).decision,\n                endpoint,\n            )\n        }\n    }\n\n    private fun server(baseUrl: String) =\n        SavedServer(\n            id = SavedServer.idOf(baseUrl, "user"),\n            baseUrl = baseUrl,\n            serverName = "Emby",\n            userId = "user",\n            userName = "User",\n            accessToken = "token",\n        )\n}\n''',
+          )
+
+          write(
+              "composeApp/src/commonTest/kotlin/com/yfuse/core/network/ServiceEndpointPolicyTest.kt",
+              '''package com.yfuse.core.network\n\nimport com.yfuse.core.data.WatchTogetherPreferences\nimport kotlin.test.Test\nimport kotlin.test.assertEquals\nimport kotlin.test.assertNull\nimport kotlin.test.assertTrue\n\nclass ServiceEndpointPolicyTest {\n    @Test\n    fun official_watch_service_default_is_valid() {\n        val result = validateServiceEndpoint(WatchTogetherPreferences.DEFAULT_ENDPOINT)\n        assertTrue(result.allowed)\n        assertEquals(EndpointTransportDecision.Secure, result.decision)\n    }\n\n    @Test\n    fun secure_public_endpoints_are_accepted() {\n        listOf("https://watch.example.com", "wss://watch.example.com/socket").forEach { value ->\n            val result = validateServiceEndpoint(value)\n            assertTrue(result.allowed)\n            assertEquals(EndpointTransportDecision.Secure, result.decision)\n        }\n    }\n\n    @Test\n    fun cleartext_public_and_local_endpoints_are_accepted_without_confirmation() {\n        listOf(\n            "http://watch.example.com",\n            "ws://203.0.113.10/socket",\n            "http://localhost:8080",\n            "ws://192.168.1.20:8080/socket",\n        ).forEach { value ->\n            val result = validateServiceEndpoint(value)\n            assertTrue(result.allowed, value)\n            assertEquals(EndpointTransportDecision.Cleartext, result.decision, value)\n            assertNull(result.message, value)\n        }\n    }\n\n    @Test\n    fun incomplete_or_unsupported_addresses_are_invalid() {\n        listOf("watch.example.com", "ftp://watch.example.com", "https://").forEach { value ->\n            assertEquals(EndpointTransportDecision.Invalid, validateServiceEndpoint(value).decision)\n        }\n    }\n}\n''',
+          )
+
+          write(
+              "composeApp/src/commonTest/kotlin/com/yfuse/core/network/HttpClientFactoryTest.kt",
+              '''package com.yfuse.core.network\n\nimport io.ktor.client.engine.mock.MockEngine\nimport io.ktor.client.engine.mock.respond\nimport io.ktor.client.plugins.HttpTimeout\nimport io.ktor.client.plugins.pluginOrNull\nimport io.ktor.client.request.get\nimport io.ktor.http.HttpStatusCode\nimport kotlinx.coroutines.test.runTest\nimport kotlin.test.Test\nimport kotlin.test.assertEquals\nimport kotlin.test.assertNotNull\nimport kotlin.test.assertTrue\n\nclass HttpClientFactoryTest {\n    @Test\n    fun danmaku_client_installs_timeout_protection() {\n        val client = createDanmakuClient(MockEngine { respond("{}", HttpStatusCode.OK) })\n        try {\n            assertNotNull(client.pluginOrNull(HttpTimeout))\n        } finally {\n            client.close()\n        }\n    }\n\n    @Test\n    fun emby_identity_header_uses_the_injected_build_version() =\n        runTest {\n            var authorization: String? = null\n            val client =\n                createEmbyClient(\n                    engine =\n                        MockEngine { request ->\n                            authorization = request.headers["X-Emby-Authorization"]\n                            respond("{}", HttpStatusCode.OK)\n                        },\n                    appVersion = "9.8.7",\n                    timeouts = null,\n                )\n            try {\n                client.get("https://example.invalid/System/Info/Public")\n            } finally {\n                client.close()\n            }\n            assertTrue(assertNotNull(authorization).contains("Version=\\\"9.8.7\\\""))\n        }\n\n    @Test\n    fun emby_client_allows_public_and_local_http_and_https() =\n        runTest {\n            var engineCalls = 0\n            val client =\n                createEmbyClient(\n                    engine =\n                        MockEngine {\n                            engineCalls += 1\n                            respond("{}", HttpStatusCode.OK)\n                        },\n                    appVersion = "1.0.0",\n                    timeouts = null,\n                )\n            try {\n                client.get("http://media.example.com/System/Info/Public")\n                client.get("http://47.112.219.60:19001/System/Info/Public")\n                client.get("http://192.168.1.20/System/Info/Public")\n                client.get("https://media.example.com/System/Info/Public")\n            } finally {\n                client.close()\n            }\n            assertEquals(4, engineCalls)\n        }\n}\n''',
+          )
+
+          # ServersStore: the form must be submit-ready over HTTP without any acknowledgement.
+          p = "composeApp/src/commonTest/kotlin/com/yfuse/feature/servers/ServersStoreTest.kt"
+          t = read(p)
+          t = sub_exact(
+              t,
+              r'    @Test\n    fun http_requires_explicit_risk_confirmation\(\) =.*?\n        \}\n\n    @Test\n    fun public_http_requires_confirmation_then_enables_submit\(\) =.*?\n        \}\n',
+              '''    @Test\n    fun http_can_submit_without_risk_confirmation() =\n        runTest {\n            val store = store(testRegistry()) { authRoutes(it) }\n            store.accept(ServersIntent.HostChanged("http://192.168.1.8:8096/emby"))\n            store.accept(ServersIntent.UsernameChanged("user"))\n\n            assertTrue(store.state.form.canSubmit)\n            store.dispose()\n        }\n\n    @Test\n    fun public_http_can_submit_without_risk_confirmation() =\n        runTest {\n            val store = store(testRegistry()) { req -> authRoutes(req) }\n            store.accept(ServersIntent.HostChanged("http://media.example.com:8096"))\n            store.accept(ServersIntent.UsernameChanged("user"))\n\n            assertTrue(store.state.form.canSubmit)\n            store.dispose()\n        }\n''',
+              label="ServersStore HTTP tests",
+          )
+          write(p, t)
+
+          # Registry tests that previously required consent now expect direct HTTP support.
+          p = "composeApp/src/commonTest/kotlin/com/yfuse/core/data/ServerRegistryTest.kt"
+          t = read(p)
+          t = sub_exact(
+              t,
+              r'    @Test\n    fun routeMutationsRejectPublicCleartextButAllowLocalHttp\(\) \{.*?\n    \}\n\n    @Test\n    fun failedOldCacheCleanup',
+              '''    @Test\n    fun route_mutations_allow_public_and_local_http_without_confirmation() {\n        val registry = registry()\n        val original =\n            SavedServer(\n                id = "secure",\n                baseUrl = "https://media.example.com",\n                serverName = "Emby",\n                userId = "u",\n                userName = "User",\n                accessToken = "token",\n            )\n        registry.addOrUpdate(original)\n\n        assertTrue(\n            registry.setRoutes(\n                original.id,\n                listOf(\n                    ServerRoute(ServerRoute.PRIMARY_ID, "主线路", original.baseUrl),\n                    ServerRoute("r2", "公网 HTTP", "http://media.example.com:8096"),\n                ),\n            ),\n        )\n        assertTrue(\n            registry.setRoutes(\n                original.id,\n                listOf(\n                    ServerRoute(ServerRoute.PRIMARY_ID, "主线路", original.baseUrl),\n                    ServerRoute("r2", "家庭 HTTP", "http://192.168.1.8:8096"),\n                ),\n            ),\n        )\n    }\n\n    @Test\n    fun failedOldCacheCleanup''',
+              label="registry route HTTP test",
+          )
+          t = sub_exact(
+              t,
+              r'    @Test\n    fun publicCleartextRequiresConfirmationAndAnOldUnconfirmedPersistedSessionIsPurged\(\) \{.*?\n    \}\n\n    @Test\n    fun protectedBackupCannotTransferLocalCleartextConsentToAnotherDevice\(\) \{.*?\n    \}\n',
+              '''    @Test\n    fun public_http_can_be_saved_without_confirmation() {\n        val cleartext =\n            SavedServer(\n                id = SavedServer.idOf("http://media.example.com", "u"),\n                baseUrl = "http://media.example.com",\n                serverName = "Public",\n                userId = "u",\n                userName = "User",\n                accessToken = "token",\n            )\n        val registry = registry()\n        registry.addOrUpdate(cleartext)\n\n        assertEquals("http://media.example.com", registry.defaultServer?.baseUrl)\n    }\n\n    @Test\n    fun protected_backup_can_restore_http_server_without_consent() {\n        val http =\n            SavedServer(\n                id = SavedServer.idOf("http://192.168.1.8:8096", "u"),\n                baseUrl = "http://192.168.1.8:8096",\n                serverName = "Home",\n                userId = "u",\n                userName = "User",\n                accessToken = "token",\n            )\n        val source = registry().apply { addOrUpdate(http) }\n        val passphrase = "correct horse battery staple".toCharArray()\n        val now = 2_000_000_000L\n        val payload = source.exportProtectedBackup(passphrase, now).getOrThrow()\n\n        assertEquals(1, registry().importProtectedBackup(payload, passphrase, now + 1).getOrThrow())\n        passphrase.fill('\\u0000')\n    }\n''',
+              label="registry public HTTP tests",
+          )
+          write(p, t)
+
+          write(
+              "composeApp/src/commonTest/kotlin/com/yfuse/core/data/WatchTogetherPreferencesTest.kt",
+              '''package com.yfuse.core.data\n\nimport com.russhwolf.settings.MapSettings\nimport com.yfuse.core.network.EndpointTransportDecision\nimport kotlin.test.Test\nimport kotlin.test.assertEquals\nimport kotlin.test.assertTrue\n\nclass WatchTogetherPreferencesTest {\n    @Test\n    fun default_endpoint_uses_the_official_https_relay() {\n        val preferences = WatchTogetherPreferences(MapSettings())\n        assertEquals("https://47.112.219.60", preferences.endpoint.value)\n    }\n\n    @Test\n    fun public_http_endpoint_can_be_saved_without_confirmation() {\n        val settings = MapSettings()\n        val preferences = WatchTogetherPreferences(settings)\n\n        val saved = preferences.setEndpoint("http://47.112.219.60:8080/")\n\n        assertTrue(saved.allowed)\n        assertEquals(EndpointTransportDecision.Cleartext, saved.decision)\n        assertEquals("http://47.112.219.60:8080", preferences.endpoint.value)\n        assertEquals("http://47.112.219.60:8080", WatchTogetherPreferences(settings).endpoint.value)\n    }\n\n    @Test\n    fun persisted_cleartext_endpoint_is_kept() {\n        val settings =\n            MapSettings().apply {\n                putString("watchTogether.endpoint", "http://47.112.219.60:8080")\n            }\n        assertEquals("http://47.112.219.60:8080", WatchTogetherPreferences(settings).endpoint.value)\n    }\n\n    @Test\n    fun ws_and_wss_custom_endpoints_are_normalized_and_persisted() {\n        val settings = MapSettings()\n        val preferences = WatchTogetherPreferences(settings)\n        assertTrue(preferences.setEndpoint("  ws://192.168.1.20:8080/socket/  ").allowed)\n        assertEquals("ws://192.168.1.20:8080/socket", preferences.endpoint.value)\n        assertTrue(preferences.setEndpoint("  wss://watch.example.com/socket/  ").allowed)\n        assertEquals("wss://watch.example.com/socket", preferences.endpoint.value)\n    }\n\n    @Test\n    fun profile_is_normalized_and_persisted() {\n        val settings = MapSettings()\n        val preferences = WatchTogetherPreferences(settings)\n        preferences.setProfile("  小影迷 👨‍👩‍👧‍👦\\n", 5)\n        assertEquals("小影迷 👨‍👩‍👧‍👦", preferences.nickname.value)\n        assertEquals(5, preferences.avatarId.value)\n        val restored = WatchTogetherPreferences(settings)\n        assertEquals("小影迷 👨‍👩‍👧‍👦", restored.nickname.value)\n        assertEquals(5, restored.avatarId.value)\n    }\n}\n''',
+          )
+
+          # Release 0.2.59 / versionCode 140.
+          p = "version.properties"
+          t = read(p)
+          t = replace_exact(t, "VERSION_CODE=139", "VERSION_CODE=140", label="versionCode")
+          t = replace_exact(t, "VERSION_NAME=0.2.58", "VERSION_NAME=0.2.59", label="versionName")
+          write(p, t)
+          write(
+              "release-notes.txt",
+              "完全放开 HTTP 连接：公网、局域网和自定义服务地址均可直接使用 HTTP/WS，不再限制、不再要求风险确认，也不再显示 HTTP 明文传输提醒；同时移除 Emby 公网 HTTP 的运行时拦截。\n",
+          )
+          PY
+
+          # No user-facing HTTP risk confirmation copy may remain in common UI source.
+          if grep -R --line-number -E '"[^"\n]*(HTTP|明文)[^"\n]*(风险|未加密|暴露|确认)[^"\n]*"' composeApp/src/commonMain; then
+            echo "HTTP risk warning copy still exists" >&2
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install Android 36 and native build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          fi
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-36" "ndk;29.0.14206865" "cmake;3.22.1"
+
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y p7zip-full
+          fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+
+      - name: Compile, test and format-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :composeApp:compileDebugKotlinAndroid \
+            :composeApp:testDebugUnitTest \
+            :watchTogetherServer:test \
+            ktlintCheck \
+            --no-daemon
+          git diff --check
+
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/open-http-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "完全放开 HTTP 并发布 0.2.59"
+          git push origin HEAD:fix-open-http
