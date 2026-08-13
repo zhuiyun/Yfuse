@@ -9,15 +9,16 @@ class NavigationRailPolicyTest {
 
     @Test
     fun a_tablet_held_upright_keeps_its_bottom_bar() {
-        // The regression this exists for: 840dp is portrait width for an 11" tablet, so a
-        // width-only test put the rail on both orientations and the bottom bar on neither.
         assertFalse(useNavigationRail(width = 840.dp, height = 1280.dp))
         assertFalse(useNavigationRail(width = 1000.dp, height = 1340.dp))
     }
 
     @Test
-    fun a_short_wide_window_gets_the_rail() {
-        assertTrue(useNavigationRail(width = 1280.dp, height = 800.dp))
+    fun a_landscape_tablet_also_keeps_the_bottom_bar() {
+        // 16:10 is the common Android-tablet landscape shape. Tabs belong on the long bottom
+        // edge rather than being pinned to the short left edge.
+        assertFalse(useNavigationRail(width = 1280.dp, height = 800.dp))
+        assertFalse(useNavigationRail(width = 1440.dp, height = 900.dp))
     }
 
     @Test
@@ -26,23 +27,19 @@ class NavigationRailPolicyTest {
     }
 
     @Test
-    fun an_ordinary_landscape_phone_is_too_narrow_for_a_rail() {
-        // 732dp is a large phone on its side: wide enough to be awkward, not wide enough
-        // that a rail plus content both fit.
+    fun a_landscape_phone_keeps_the_bottom_bar() {
         assertFalse(useNavigationRail(width = 732.dp, height = 412.dp))
+        assertFalse(useNavigationRail(width = 915.dp, height = 412.dp))
     }
 
     @Test
-    fun a_very_wide_short_window_gets_the_rail_even_on_a_phone() {
-        // Short and wide is exactly the shape the rail is for; the bottom bar would be
-        // spending scarce height. This is unchanged behaviour, pinned so the shape test
-        // above cannot be "fixed" into a device test.
-        assertTrue(useNavigationRail(width = 915.dp, height = 412.dp))
+    fun a_desktop_like_extra_wide_window_gets_the_rail() {
+        assertTrue(useNavigationRail(width = 1600.dp, height = 800.dp))
+        assertTrue(useNavigationRail(width = 1920.dp, height = 1080.dp))
     }
 
     @Test
     fun a_square_window_prefers_the_bottom_bar() {
-        // Ties go to the bar: it is the reachable edge, and a square window has the height.
-        assertFalse(useNavigationRail(width = 900.dp, height = 900.dp))
+        assertFalse(useNavigationRail(width = 1200.dp, height = 1200.dp))
     }
 }
