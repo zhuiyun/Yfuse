@@ -1,7 +1,6 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
-import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.DEFAULT_BACKGROUND_DIM
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.SplashAnimation
@@ -15,13 +14,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Persisted appearance settings: light/dark mode and accent colour. */
+/** Persisted appearance, accessibility, and playback preferences. */
 class ThemePreferences(
     private val settings: Settings,
 ) {
     private companion object {
         const val KEY_MODE = "theme.mode"
-        const val KEY_ACCENT = "theme.accent"
         const val KEY_ENGINE = "player.engine"
         const val KEY_DECODER = "player.decoder"
         const val KEY_AUTO_NEXT = "player.autoNext"
@@ -51,9 +49,6 @@ class ThemePreferences(
     // The design is the light "轻雾玻璃" direction; dark is the alternative.
     private val _mode = MutableStateFlow(load(KEY_MODE, ThemeMode.entries, ThemeMode.Light))
     val mode: StateFlow<ThemeMode> = _mode.asStateFlow()
-
-    private val _accent = MutableStateFlow(load(KEY_ACCENT, AccentColor.entries, AccentColor.Blue))
-    val accent: StateFlow<AccentColor> = _accent.asStateFlow()
 
     private val _engine = MutableStateFlow(load(KEY_ENGINE, PlayerEngine.selectable, PlayerEngine.Exo))
 
@@ -188,11 +183,6 @@ class ThemePreferences(
         val clamped = value.coerceIn(0f, 1f)
         _backgroundDim.value = clamped
         settings.putFloat(KEY_BACKGROUND_DIM, clamped)
-    }
-
-    fun setAccent(accent: AccentColor) {
-        _accent.value = accent
-        settings.putString(KEY_ACCENT, accent.name)
     }
 
     fun setReduceTransparency(enabled: Boolean) {
