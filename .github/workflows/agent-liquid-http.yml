@@ -28,6 +28,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/agent_liquid_http_patch.py
+          sed -i 's/[[:space:]]\+$//' composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/*.kt
+          sed -i 's/[[:space:]]\+$//' composeApp/src/commonMain/kotlin/com/yfuse/feature/player/*.kt
           git diff --check
 
       - name: Set up Java
