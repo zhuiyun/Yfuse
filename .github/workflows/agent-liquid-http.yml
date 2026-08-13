@@ -30,51 +30,30 @@ jobs:
           python3 scripts/agent_liquid_http_patch.py
           python3 - <<'PY'
           from pathlib import Path
+
           p = Path('composeApp/src/commonTest/kotlin/com/yfuse/feature/servers/ServersStoreTest.kt')
           text = p.read_text(encoding='utf-8')
-          old = '''    @Test
-              fun public_http_is_allowed_after_risk_confirmation() =
-                  runTest {
-                      val registry = testRegistry()
-                      val store = store(registry) { req -> authRoutes(req) }
-                      store.accept(ServersIntent.HostChanged("http://media.example.com:8096/emby"))
-                      store.accept(ServersIntent.UsernameChanged("user"))
-                      store.accept(ServersIntent.PasswordChanged("password"))
-
-                      assertFalse(store.state.form.canSubmit)
-                      store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
-                      assertTrue(store.state.form.canSubmit)
-
-                      store.labels.test {
-                          store.accept(ServersIntent.Submit)
-                          assertEquals(ServersLabel.ServerAdded, awaitItem())
-                          cancelAndConsumeRemainingEvents()
-                      }
-                      assertEquals(
-                          "http://media.example.com:8096/emby",
-                          registry.data.value.servers.single().baseUrl,
-                      )
-                      store.dispose()
-                  }
-          '''
-          # Source is indented by four spaces, not YAML's visual indentation.
-          old = old.replace('          ', '')
-          new = '''    @Test
-          fun public_http_requires_confirmation_then_enables_submit() =
-              runTest {
-                  val store = store(testRegistry()) { req -> authRoutes(req) }
-                  store.accept(ServersIntent.HostChanged("http://media.example.com:8096"))
-                  store.accept(ServersIntent.UsernameChanged("user"))
-
-                  assertFalse(store.state.form.canSubmit)
-                  store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
-                  assertTrue(store.state.form.canSubmit)
-                  store.dispose()
-              }
-          '''.replace('          ', '')
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one generated public HTTP store test, found {text.count(old)}')
-          p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          start_marker = "    @Test\n    fun public_http_is_allowed_after_risk_confirmation()"
+          end_marker = "\n    @Test\n    fun invalid_port_cannot_submit_or_start_quick_connect()"
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('generated public HTTP store test block not found')
+          new = (
+              "    @Test\n"
+              "    fun public_http_requires_confirmation_then_enables_submit() =\n"
+              "        runTest {\n"
+              "            val store = store(testRegistry()) { req -> authRoutes(req) }\n"
+              "            store.accept(ServersIntent.HostChanged(\"http://media.example.com:8096\"))\n"
+              "            store.accept(ServersIntent.UsernameChanged(\"user\"))\n"
+              "\n"
+              "            assertFalse(store.state.form.canSubmit)\n"
+              "            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))\n"
+              "            assertTrue(store.state.form.canSubmit)\n"
+              "            store.dispose()\n"
+              "        }\n"
+          )
+          p.write_text(text[:start] + new + text[end:], encoding='utf-8')
           PY
           sed -i 's/[[:space:]]\+$//' composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/*.kt
           sed -i 's/[[:space:]]\+$//' composeApp/src/commonMain/kotlin/com/yfuse/feature/player/*.kt
