@@ -65,6 +65,7 @@ class ServerEndpointPolicyTest {
             "http://100.63.255.255:8096",
             "http://100.128.0.1:8096",
             "http://8.8.8.8:8096",
+            "http://108.181.252.159:8096",
             "http://media.example.com:8096",
         ).forEach { endpoint ->
             assertTrue(validateEmbyServerEndpoint(endpoint).requiresCleartextConfirmation, endpoint)
