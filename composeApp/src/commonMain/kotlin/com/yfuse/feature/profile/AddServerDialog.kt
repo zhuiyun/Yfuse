@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -27,8 +26,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -48,7 +45,6 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.network.EndpointTransportDecision
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.feature.servers.ServersIntent
@@ -73,7 +69,7 @@ fun AddServerDialog(
     val accent = LocalAccentColors.current
     val form = state.form
     val editing = state.editingServerId != null
-    val endpointValidation = validateEmbyServerEndpoint(form.url, form.httpRiskAccepted)
+    val endpointValidation = validateEmbyServerEndpoint(form.url)
     val requestLanScan =
         rememberLocalNetworkPermissionRequest(
             onGranted = { onIntent(ServersIntent.Scan) },
@@ -236,22 +232,6 @@ fun AddServerDialog(
             }
 
             Spacer(Modifier.height(4.dp))
-            if (!form.https) {
-                EmbyHttpRiskNotice(
-                    accepted = form.httpRiskAccepted,
-                    publicCleartextRejected =
-                        endpointValidation.decision ==
-                            EndpointTransportDecision.PublicCleartextRejected,
-                    message = endpointValidation.message,
-                    enabled = !form.submitting,
-                    onAcceptedChange = {
-                        onIntent(ServersIntent.HttpRiskAcceptedChanged(it))
-                    },
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-
-            Spacer(Modifier.height(4.dp))
             FieldLabel("账号")
             Column(
                 Modifier
@@ -351,66 +331,6 @@ fun AddServerDialog(
                     (!editing || form.serverName.isNotBlank()),
             loading = form.submitting,
         )
-    }
-}
-
-@Composable
-private fun EmbyHttpRiskNotice(
-    accepted: Boolean,
-    publicCleartextRejected: Boolean,
-    message: String?,
-    enabled: Boolean,
-    onAcceptedChange: (Boolean) -> Unit,
-) {
-    val palette = LocalPalette.current
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .glass(
-                shape = AppShapes.control,
-                fill = palette.error.copy(alpha = 0.08f),
-                border = palette.error.copy(alpha = 0.26f),
-            ).padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            "HTTP 未加密",
-            style = AppTypography.caption.strong,
-            color = palette.error,
-        )
-        Text(
-            message ?: "用户名、密码和访问令牌可能被同一网络中的他人读取。",
-            style = AppTypography.caption.regular,
-            color = palette.sub2,
-        )
-        if (!publicCleartextRejected) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .pressable(
-                        enabled = enabled,
-                        role = Role.Checkbox,
-                        onClickLabel = if (accepted) "取消 HTTP 风险确认" else "确认 HTTP 风险",
-                        onClick = { onAcceptedChange(!accepted) },
-                    ).semantics { toggleableState = ToggleableState(accepted) },
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = if (accepted) AppIcons.Check else AppIcons.Info,
-                    contentDescription = null,
-                    tint = palette.error,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    "我已了解明文传输风险，继续使用 HTTP",
-                    style = AppTypography.caption.strong,
-                    color = if (enabled) palette.text else palette.hint,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
     }
 }
 

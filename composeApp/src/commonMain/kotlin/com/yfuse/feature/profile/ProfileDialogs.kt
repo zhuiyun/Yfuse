@@ -26,8 +26,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,7 +46,6 @@ import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.network.EndpointTransportDecision
 import com.yfuse.core.network.validateServiceEndpoint
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.util.graphemeCount
@@ -667,9 +664,8 @@ internal fun WatchEndpointDialog(
     onDismiss: () -> Unit,
 ) {
     var draft by remember(current) { mutableStateOf(current) }
-    var localCleartextConfirmed by remember(current) { mutableStateOf(false) }
     val normalized = draft.trim().trimEnd('/')
-    val validation = validateServiceEndpoint(normalized, localCleartextConfirmed)
+    val validation = validateServiceEndpoint(normalized)
     val isDefault =
         current.trimEnd('/') ==
             WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
@@ -701,7 +697,6 @@ internal fun WatchEndpointDialog(
                     value = draft,
                     onValueChange = {
                         draft = it.take(300)
-                        localCleartextConfirmed = false
                     },
                     singleLine = true,
                     textStyle = AppTypography.body.medium.copy(color = palette.text),
@@ -722,43 +717,6 @@ internal fun WatchEndpointDialog(
                 color = palette.error,
             )
         }
-        if (validation.decision == EndpointTransportDecision.LocalCleartextConfirmationRequired ||
-            validation.decision == EndpointTransportDecision.LocalCleartextConfirmed
-        ) {
-            Spacer(Modifier.height(8.dp))
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .pressable(
-                        role = Role.Checkbox,
-                        onClickLabel =
-                            if (localCleartextConfirmed) {
-                                "取消局域网明文风险确认"
-                            } else {
-                                "确认局域网明文连接风险"
-                            },
-                        onClick = { localCleartextConfirmed = !localCleartextConfirmed },
-                    ).touchTarget()
-                    .semantics {
-                        toggleableState = ToggleableState(localCleartextConfirmed)
-                    }.padding(horizontal = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = if (localCleartextConfirmed) AppIcons.Check else AppIcons.Info,
-                    contentDescription = null,
-                    tint = palette.error,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    "我了解风险，仅在可信局域网中使用明文连接",
-                    style = AppTypography.caption.strong,
-                    color = palette.text,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
         Row(
             Modifier.fillMaxWidth().padding(top = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -775,7 +733,7 @@ internal fun WatchEndpointDialog(
             }
             OverlayButton(
                 label = "保存",
-                onClick = { onSave(normalized, localCleartextConfirmed) },
+                onClick = { onSave(normalized, false) },
                 modifier = Modifier.weight(1f),
                 tone = OverlayButtonTone.Primary,
                 enabled = validation.allowed,

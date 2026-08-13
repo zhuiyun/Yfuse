@@ -101,7 +101,6 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.ServerRoute
-import com.yfuse.core.network.EndpointTransportDecision
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.profile.AddServerDialog
@@ -1303,7 +1302,6 @@ private fun ServerRoutesDialog(
     val routes = server.effectiveRoutes
     var draftName by remember(server.id) { mutableStateOf("") }
     var draftUrl by remember(server.id) { mutableStateOf("") }
-    var localCleartextConfirmed by remember(server.id) { mutableStateOf(false) }
     var error by remember(server.id) { mutableStateOf<String?>(null) }
     val atCapacity = routes.size >= ServerRoute.MAX_ROUTES
 
@@ -1356,7 +1354,6 @@ private fun ServerRoutesDialog(
                 value = draftUrl,
                 onValueChange = {
                     draftUrl = it.trim()
-                    localCleartextConfirmed = false
                     error = null
                 },
                 label = "地址，例如 http://192.168.1.10:8096",
@@ -1366,29 +1363,13 @@ private fun ServerRoutesDialog(
                 Spacer(Modifier.height(8.dp))
                 Text(error.orEmpty(), style = AppTypography.caption.medium, color = palette.error)
             }
-            val endpoint = validateEmbyServerEndpoint(draftUrl, localCleartextConfirmed)
+            val endpoint = validateEmbyServerEndpoint(draftUrl)
             if (draftUrl.isNotBlank() && endpoint.message != null) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     endpoint.message,
                     style = AppTypography.caption.medium,
                     color = palette.error,
-                )
-            }
-            if (endpoint.decision == EndpointTransportDecision.LocalCleartextConfirmationRequired ||
-                endpoint.decision == EndpointTransportDecision.LocalCleartextConfirmed
-            ) {
-                Spacer(Modifier.height(8.dp))
-                OverlayButton(
-                    label = if (localCleartextConfirmed) "已确认 HTTP 风险" else "确认 HTTP 风险",
-                    onClick = { localCleartextConfirmed = !localCleartextConfirmed },
-                    modifier = Modifier.fillMaxWidth(),
-                    tone =
-                        if (localCleartextConfirmed) {
-                            OverlayButtonTone.Primary
-                        } else {
-                            OverlayButtonTone.Destructive
-                        },
                 )
             }
             Spacer(Modifier.height(10.dp))
@@ -1409,7 +1390,7 @@ private fun ServerRoutesDialog(
                                         name = ServerRoute.sanitizeName(draftName, "备用线路"),
                                         url = url,
                                     ),
-                                localCleartextConfirmed,
+                                false,
                             )
                             draftName = ""
                             draftUrl = ""

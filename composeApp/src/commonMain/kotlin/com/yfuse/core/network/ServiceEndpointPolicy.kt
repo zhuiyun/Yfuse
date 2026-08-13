@@ -4,6 +4,7 @@ import io.ktor.http.Url
 
 enum class EndpointTransportDecision {
     Secure,
+    Cleartext,
     LocalCleartextConfirmationRequired,
     LocalCleartextConfirmed,
     PublicCleartextRejected,
@@ -18,6 +19,7 @@ data class ServiceEndpointValidation(
     val allowed: Boolean
         get() =
             decision == EndpointTransportDecision.Secure ||
+                decision == EndpointTransportDecision.Cleartext ||
                 decision == EndpointTransportDecision.LocalCleartextConfirmed
 
     val requiresCleartextConfirmation: Boolean
@@ -27,10 +29,10 @@ data class ServiceEndpointValidation(
 /**
  * Shared policy for account/watch relays and other official-service overrides.
  *
- * Public endpoints must use HTTPS/WSS. HTTP/WS is reserved for loopback, private-address and
- * local-name development servers and still requires a deliberate risk acknowledgement. This
- * class contains no UI state so every settings flow can present its own confirmation dialog.
+ * HTTP, HTTPS, WS and WSS are accepted on public and local endpoints alike.
+ * This validator only checks that a usable endpoint was supplied.
  */
+@Suppress("UNUSED_PARAMETER")
 fun validateServiceEndpoint(
     value: String,
     localCleartextConfirmed: Boolean = false,
@@ -44,7 +46,7 @@ fun validateServiceEndpoint(
         return ServiceEndpointValidation(
             normalizedEndpoint = null,
             decision = EndpointTransportDecision.Invalid,
-            message = "请输入完整的 HTTPS 或 WSS 地址",
+            message = "请输入完整的 HTTP、HTTPS、WS 或 WSS 地址",
         )
     }
     val url = runCatching { Url(normalized) }.getOrNull()
@@ -62,33 +64,16 @@ fun validateServiceEndpoint(
             message = "服务地址缺少有效主机名",
         )
     }
-    if (explicitScheme == "https" || explicitScheme == "wss") {
-        return ServiceEndpointValidation(
-            normalizedEndpoint = normalized,
-            decision = EndpointTransportDecision.Secure,
-            message = null,
-        )
-    }
-    if (!host.isLocalServiceHost()) {
-        return ServiceEndpointValidation(
-            normalizedEndpoint = normalized,
-            decision = EndpointTransportDecision.PublicCleartextRejected,
-            message = "公网服务必须使用 HTTPS 或 WSS",
-        )
-    }
-    return if (localCleartextConfirmed) {
-        ServiceEndpointValidation(
-            normalizedEndpoint = normalized,
-            decision = EndpointTransportDecision.LocalCleartextConfirmed,
-            message = null,
-        )
-    } else {
-        ServiceEndpointValidation(
-            normalizedEndpoint = normalized,
-            decision = EndpointTransportDecision.LocalCleartextConfirmationRequired,
-            message = "局域网明文连接会暴露房间信息，请确认风险后继续",
-        )
-    }
+    return ServiceEndpointValidation(
+        normalizedEndpoint = normalized,
+        decision =
+            if (explicitScheme == "https" || explicitScheme == "wss") {
+                EndpointTransportDecision.Secure
+            } else {
+                EndpointTransportDecision.Cleartext
+            },
+        message = null,
+    )
 }
 
 internal fun String.isLocalServiceHost(): Boolean {

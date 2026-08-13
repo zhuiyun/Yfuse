@@ -44,8 +44,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -69,7 +67,6 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.semanticPrimaryButtonShadow
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.network.EndpointTransportDecision
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
 
@@ -207,19 +204,6 @@ fun ServersScreen(component: ServersComponent) {
                         )
                     }
 
-                    if (!form.https) {
-                        Spacer(Modifier.height(10.dp))
-                        HttpRiskNotice(
-                            accepted = form.httpRiskAccepted,
-                            publicCleartextRejected =
-                                validateEmbyServerEndpoint(form.url).decision ==
-                                    EndpointTransportDecision.PublicCleartextRejected,
-                            enabled = !form.submitting,
-                            onAcceptedChange = {
-                                store.accept(ServersIntent.HttpRiskAcceptedChanged(it))
-                            },
-                        )
-                    }
                     Spacer(Modifier.height(10.dp))
                     QuickConnectPanel(
                         state = state.quickConnect,
@@ -320,78 +304,6 @@ private fun ManualConnectAction(
                     "连接并登录",
                     style = AppTypography.body.strong,
                     color = if (enabled) accent.onAccent else accent.accent,
-                )
-            }
-        }
-    }
-}
-
-/** HTTP is never silently accepted: the entire 48dp row is an explicit checkbox. */
-@Composable
-private fun HttpRiskNotice(
-    accepted: Boolean,
-    publicCleartextRejected: Boolean,
-    enabled: Boolean,
-    onAcceptedChange: (Boolean) -> Unit,
-) {
-    val palette = LocalPalette.current
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .glass(
-                shape = AppShapes.control,
-                fill = palette.errorContainer.copy(alpha = 0.62f),
-                border = palette.error.copy(alpha = 0.30f),
-            ).padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            "HTTP 连接未加密",
-            style = AppTypography.caption.strong,
-            color = palette.error,
-        )
-        Text(
-            "用户名、密码和访问令牌会以明文传输；请仅在你了解风险时继续。",
-            style = AppTypography.caption.regular,
-            color = palette.sub,
-        )
-        if (!publicCleartextRejected) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .pressable(
-                        enabled = enabled,
-                        role = Role.Checkbox,
-                        onClickLabel = if (accepted) "取消 HTTP 风险确认" else "确认 HTTP 风险",
-                        onClick = { onAcceptedChange(!accepted) },
-                    ).semantics { toggleableState = ToggleableState(accepted) },
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .size(22.dp)
-                        .glass(
-                            shape = AppShapes.thumb,
-                            fill = if (accepted) palette.error else palette.card2,
-                            border = if (accepted) palette.error else palette.border,
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (accepted) {
-                        Icon(
-                            AppIcons.Check,
-                            contentDescription = null,
-                            tint = palette.onError,
-                            modifier = Modifier.size(13.dp),
-                        )
-                    }
-                }
-                Text(
-                    "我了解风险，继续使用 HTTP",
-                    style = AppTypography.caption.strong,
-                    color = if (enabled) palette.text else palette.hint,
                 )
             }
         }
@@ -769,18 +681,6 @@ private fun OnboardingScreen(
                                 password = true,
                                 onValueChange = { onIntent(ServersIntent.PasswordChanged(it)) },
                             )
-                            if (!form.https) {
-                                HttpRiskNotice(
-                                    accepted = form.httpRiskAccepted,
-                                    publicCleartextRejected =
-                                        validateEmbyServerEndpoint(form.url).decision ==
-                                            EndpointTransportDecision.PublicCleartextRejected,
-                                    enabled = !form.submitting,
-                                    onAcceptedChange = {
-                                        onIntent(ServersIntent.HttpRiskAcceptedChanged(it))
-                                    },
-                                )
-                            }
                             if (form.error != null) {
                                 Text(form.error, style = AppTypography.caption.medium, color = palette.error)
                             }
@@ -869,7 +769,7 @@ private fun OnboardingScreen(
                 when (step) {
                     2 ->
                         form.username.isNotBlank() &&
-                            validateEmbyServerEndpoint(form.url, form.httpRiskAccepted).allowed
+                            validateEmbyServerEndpoint(form.url).allowed
                     3 -> form.canSubmit
                     else -> true
                 }

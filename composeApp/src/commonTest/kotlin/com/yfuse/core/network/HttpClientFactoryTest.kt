@@ -5,13 +5,10 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.pluginOrNull
 import io.ktor.client.request.get
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -19,7 +16,6 @@ class HttpClientFactoryTest {
     @Test
     fun danmaku_client_installs_timeout_protection() {
         val client = createDanmakuClient(MockEngine { respond("{}", HttpStatusCode.OK) })
-
         try {
             assertNotNull(client.pluginOrNull(HttpTimeout))
         } finally {
@@ -41,18 +37,16 @@ class HttpClientFactoryTest {
                     appVersion = "9.8.7",
                     timeouts = null,
                 )
-
             try {
                 client.get("https://example.invalid/System/Info/Public")
             } finally {
                 client.close()
             }
-
             assertTrue(assertNotNull(authorization).contains("Version=\"9.8.7\""))
         }
 
     @Test
-    fun emby_client_blocks_public_http_before_the_engine() =
+    fun emby_client_allows_public_and_local_http_and_https() =
         runTest {
             var engineCalls = 0
             val client =
@@ -65,74 +59,14 @@ class HttpClientFactoryTest {
                     appVersion = "1.0.0",
                     timeouts = null,
                 )
-
             try {
-                assertFailsWith<IllegalStateException> {
-                    client.get("http://media.example.com/System/Info/Public")
-                }
-            } finally {
-                client.close()
-            }
-
-            assertEquals(0, engineCalls)
-        }
-
-    @Test
-    fun emby_client_allows_https_and_local_http() =
-        runTest {
-            var engineCalls = 0
-            val client =
-                createEmbyClient(
-                    engine =
-                        MockEngine {
-                            engineCalls += 1
-                            respond("{}", HttpStatusCode.OK)
-                        },
-                    appVersion = "1.0.0",
-                    timeouts = null,
-                )
-
-            try {
-                client.get("https://media.example.com/System/Info/Public")
+                client.get("http://media.example.com/System/Info/Public")
+                client.get("http://47.112.219.60:19001/System/Info/Public")
                 client.get("http://192.168.1.20/System/Info/Public")
+                client.get("https://media.example.com/System/Info/Public")
             } finally {
                 client.close()
             }
-
-            assertEquals(2, engineCalls)
-        }
-
-    @Test
-    fun emby_client_rechecks_redirect_targets_before_sending() =
-        runTest {
-            var engineCalls = 0
-            val client =
-                createEmbyClient(
-                    engine =
-                        MockEngine {
-                            engineCalls += 1
-                            respond(
-                                content = "",
-                                status = HttpStatusCode.Found,
-                                headers =
-                                    headersOf(
-                                        HttpHeaders.Location,
-                                        "http://media.example.com/System/Info/Public",
-                                    ),
-                            )
-                        },
-                    appVersion = "1.0.0",
-                    timeouts = null,
-                )
-
-            try {
-                assertFailsWith<IllegalStateException> {
-                    client.get("http://192.168.1.20/redirect")
-                }
-            } finally {
-                client.close()
-            }
-
-            assertEquals(1, engineCalls)
+            assertEquals(4, engineCalls)
         }
 }

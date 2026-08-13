@@ -363,27 +363,23 @@ class ServersStoreTest {
         }
 
     @Test
-    fun http_requires_explicit_risk_confirmation() =
+    fun http_can_submit_without_risk_confirmation() =
         runTest {
             val store = store(testRegistry()) { authRoutes(it) }
             store.accept(ServersIntent.HostChanged("http://192.168.1.8:8096/emby"))
             store.accept(ServersIntent.UsernameChanged("user"))
 
-            assertFalse(store.state.form.canSubmit)
-            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
             assertTrue(store.state.form.canSubmit)
             store.dispose()
         }
 
     @Test
-    fun public_http_requires_confirmation_then_enables_submit() =
+    fun public_http_can_submit_without_risk_confirmation() =
         runTest {
             val store = store(testRegistry()) { req -> authRoutes(req) }
             store.accept(ServersIntent.HostChanged("http://media.example.com:8096"))
             store.accept(ServersIntent.UsernameChanged("user"))
 
-            assertFalse(store.state.form.canSubmit)
-            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
             assertTrue(store.state.form.canSubmit)
             store.dispose()
         }
