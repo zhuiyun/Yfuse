@@ -41,7 +41,12 @@ text = replace_once(
     " * self-hosted servers because users may expose Emby on arbitrary addresses and ports.\n",
     "server endpoint policy comment",
 )
-text = replace_once(text, 'message = "请输入完整的 HTTPS 地址",', 'message = "请输入完整的 HTTP 或 HTTPS 地址",', "server endpoint invalid copy")
+text = replace_once(
+    text,
+    'message = "请输入完整的 HTTPS 地址",',
+    'message = "请输入完整的 HTTP 或 HTTPS 地址",',
+    "server endpoint invalid copy",
+)
 text = replace_once(
     text,
     "    if (!host.isLocalServiceHost()) {\n"
@@ -62,7 +67,7 @@ text = replace_once(
 )
 write(rel, text)
 
-# 2) Update endpoint tests to reflect explicit-confirmation public HTTP support.
+# 2) Endpoint and store tests now require acknowledgement, not HTTPS, for public Emby HTTP.
 rel = "composeApp/src/commonTest/kotlin/com/yfuse/core/network/ServerEndpointPolicyTest.kt"
 text = read(rel)
 old_test = '''    @Test
@@ -95,7 +100,7 @@ new_test = '''    @Test
         assertEquals(EndpointTransportDecision.LocalCleartextConfirmed, confirmed.decision)
     }
 '''
-text = replace_once(text, old_test, new_test, "public HTTP test")
+text = replace_once(text, old_test, new_test, "public HTTP endpoint test")
 old_test = '''    @Test
     fun cleartextClassifierRejectsPublicBoundariesAndHostSpoofing() {
         listOf(
@@ -123,10 +128,60 @@ new_test = '''    @Test
         }
     }
 '''
-text = replace_once(text, old_test, new_test, "public address boundary test")
+text = replace_once(text, old_test, new_test, "public HTTP address test")
 write(rel, text)
 
-# 3) Add-server dialog: all its interactive glass controls use liquid material and HTTP copy is generic.
+rel = "composeApp/src/commonTest/kotlin/com/yfuse/feature/servers/ServersStoreTest.kt"
+text = read(rel)
+old_test = '''    @Test
+    fun public_http_is_rejected_even_after_risk_confirmation() =
+        runTest {
+            val registry = testRegistry()
+            val store = store(registry) { error("public cleartext must not reach the network") }
+            store.accept(ServersIntent.HostChanged("http://media.example.com:8096/emby"))
+            store.accept(ServersIntent.UsernameChanged("user"))
+            store.accept(ServersIntent.PasswordChanged("password"))
+            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
+
+            assertFalse(store.state.form.canSubmit)
+            store.accept(ServersIntent.Submit)
+            assertEquals("公网 Emby 服务器必须使用 HTTPS", store.state.form.error)
+            assertTrue(
+                registry.data.value.servers
+                    .isEmpty(),
+            )
+            store.dispose()
+        }
+'''
+new_test = '''    @Test
+    fun public_http_is_allowed_after_risk_confirmation() =
+        runTest {
+            val registry = testRegistry()
+            val store = store(registry) { req -> authRoutes(req) }
+            store.accept(ServersIntent.HostChanged("http://media.example.com:8096/emby"))
+            store.accept(ServersIntent.UsernameChanged("user"))
+            store.accept(ServersIntent.PasswordChanged("password"))
+
+            assertFalse(store.state.form.canSubmit)
+            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
+            assertTrue(store.state.form.canSubmit)
+
+            store.labels.test {
+                store.accept(ServersIntent.Submit)
+                assertEquals(ServersLabel.ServerAdded, awaitItem())
+                cancelAndConsumeRemainingEvents()
+            }
+            assertEquals(
+                "http://media.example.com:8096/emby",
+                registry.data.value.servers.single().baseUrl,
+            )
+            store.dispose()
+        }
+'''
+text = replace_once(text, old_test, new_test, "public HTTP store test")
+write(rel, text)
+
+# 3) Add-server dialog: interactive controls use liquid material and the HTTP notice is generic.
 rel = "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AddServerDialog.kt"
 text = read(rel)
 text = replace_once(
@@ -149,7 +204,27 @@ text = replace_once(
 )
 write(rel, text)
 
-# 4) Dialog action buttons default to liquid glass, while callers can explicitly preserve flat buttons.
+# The standalone/onboarding add-server flow must communicate the same HTTP policy.
+rel = "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersScreen.kt"
+text = read(rel)
+text = replace_once(
+    text,
+    'if (publicCleartextRejected) "公网 HTTP 已禁用" else "HTTP 连接未加密"',
+    '"HTTP 连接未加密"',
+    "onboarding HTTP title",
+)
+old_message = '''            if (publicCleartextRejected) {
+                "公网 Emby 服务器必须使用 HTTPS；HTTP 只允许可信局域网地址。"
+            } else {
+                "用户名、密码和访问令牌可能被同一网络中的他人读取；仅限可信局域网。"
+            },
+'''
+new_message = '''            "用户名、密码和访问令牌会以明文传输；请仅在你了解风险时继续。",
+'''
+text = replace_once(text, old_message, new_message, "onboarding HTTP explanation")
+write(rel, text)
+
+# 4) Dialog button primitives default to liquid glass. Detail/player can opt out per dialog.
 rel = "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt"
 text = read(rel)
 text = replace_once(
@@ -185,6 +260,31 @@ text = replace_once(
     "private val LocalOverlayLiquidButtons = staticCompositionLocalOf { true }",
     "overlay liquid material local",
 )
+
+# Close affordance is a button too; keep its old flat material when this dialog opted out.
+old_close = '''                        .touchTarget()
+                        .size(28.dp)
+                        .flatGlass(CircleShape, palette.card2, palette.border)
+                        .padding(8.dp),
+'''
+new_close = '''                        .touchTarget()
+                        .size(28.dp)
+                        .then(
+                            if (LocalOverlayLiquidButtons.current) {
+                                Modifier.liquidGlass(
+                                    shape = CircleShape,
+                                    fill = palette.card2,
+                                    border = palette.border,
+                                    over = palette.background,
+                                    sheen = 0.62f,
+                                )
+                            } else {
+                                Modifier.flatGlass(CircleShape, palette.card2, palette.border)
+                            },
+                        ).padding(8.dp),
+'''
+text = replace_once(text, old_close, new_close, "overlay close liquid material")
+
 ink_block = '''    val ink =
         when (tone) {
             OverlayButtonTone.Primary -> if (enabled) accent.onAccent else accent.accent
@@ -214,7 +314,13 @@ ink_block_new = '''    val ink =
     Box(
 '''
 text = replace_once(text, ink_block, ink_block_new, "OverlayButton liquid surface")
-text = replace_once(text, ").flatGlass(shape, fill, border),", ").then(surface),", "OverlayButton surface application")
+text = replace_once(
+    text,
+    ").flatGlass(shape, fill, border),",
+    ").then(surface),",
+    "OverlayButton surface application",
+)
+
 marker = "fun ConfirmDialog("
 idx = text.find(marker)
 if idx < 0:
@@ -238,9 +344,32 @@ tail = replace_once(
     "ConfirmDialog liquid propagation",
 )
 text = head + tail
+
+# Selectable rows inside ordinary dialogs are also interactive buttons. The local opt-out keeps
+# detail/player pickers exactly as they were.
+old_option_surface = '''            .heightIn(min = MinTouchTarget)
+            .flatGlass(GlassShapes.chip, fill, border)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+'''
+new_option_surface = '''            .heightIn(min = MinTouchTarget)
+            .then(
+                if (LocalOverlayLiquidButtons.current) {
+                    Modifier.liquidGlass(
+                        shape = GlassShapes.chip,
+                        fill = fill,
+                        border = border,
+                        over = palette.background,
+                        sheen = 0.62f,
+                    )
+                } else {
+                    Modifier.flatGlass(GlassShapes.chip, fill, border)
+                },
+            ).padding(horizontal = 14.dp, vertical = 11.dp),
+'''
+text = replace_once(text, old_option_surface, new_option_surface, "overlay option liquid material")
 write(rel, text)
 
-# 5) Settings/link actions use the same liquid button material instead of bare text links.
+# 5) Settings-center link actions become proper liquid-glass buttons too.
 rel = "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/FormControls.kt"
 text = read(rel)
 start = text.find("@Composable\nfun YfLinkButton(")
@@ -293,7 +422,7 @@ fun YfLinkButton(
 text = text[:start] + new_link
 write(rel, text)
 
-# 6) Server cards keep a stable height; server-management dialog actions become liquid.
+# 6) Server cards reserve the same title height; server-management popup controls become liquid.
 rel = "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt"
 text = read(rel)
 start = text.find("private fun ServerCard(")
@@ -313,6 +442,7 @@ segment = replace_once(
 text = text[:start] + segment + text[end:]
 text = text.replace("已确认局域网 HTTP 风险", "已确认 HTTP 风险")
 text = text.replace("确认局域网 HTTP 风险", "确认 HTTP 风险")
+
 start = text.find("private fun ServerActionRow(")
 end = text.find("private fun ServerRoutesDialog", start)
 if start < 0 or end < 0:
@@ -320,6 +450,7 @@ if start < 0 or end < 0:
 segment = text[start:end]
 segment = replace_once(segment, ".glass(\n", ".liquidGlass(\n", "server action row liquid material")
 text = text[:start] + segment + text[end:]
+
 start = text.find("private fun ServerRouteRow(")
 end = text.find("private fun routeStatusLabel", start)
 if start < 0 or end < 0:
@@ -342,9 +473,17 @@ for directory in [
 ]:
     for path in directory.glob("*.kt"):
         original = path.read_text(encoding="utf-8")
-        updated = re.sub(r"GlassDialog\((?!\s*liquidButtons\s*=)", "GlassDialog(liquidButtons = false, ", original)
+        updated = re.sub(
+            r"GlassDialog\((?!\s*liquidButtons\s*=)",
+            "GlassDialog(liquidButtons = false, ",
+            original,
+        )
         if directory.name == "player":
-            updated = re.sub(r"ConfirmDialog\((?!\s*liquidButtons\s*=)", "ConfirmDialog(liquidButtons = false, ", updated)
+            updated = re.sub(
+                r"ConfirmDialog\((?!\s*liquidButtons\s*=)",
+                "ConfirmDialog(liquidButtons = false, ",
+                updated,
+            )
         if updated != original:
             path.write_text(updated, encoding="utf-8")
 
@@ -360,7 +499,7 @@ text = replace_in_tail(
 )
 write(rel, text)
 
-# 8) Release metadata. Updating version.properties publishes only after this branch is merged to master.
+# 8) Release metadata. Changing version.properties publishes after this branch is merged to master.
 write(
     "version.properties",
     "# Release metadata; changing this file triggers the production publish workflow.\n"
@@ -372,7 +511,7 @@ write(
     "允许在明确确认风险后连接公网或局域网 HTTP Emby 服务器；统一设置中心和其他页面弹窗的操作按钮为液态玻璃材质，并让服务器卡片保持一致高度。详情页与播放页既有按钮样式保持不变，同时优化添加服务器的 HTTP 风险提示与交互一致性。\n",
 )
 
-# Guard against accidentally leaving the old Emby-public-HTTP rejection copy in production code.
+# Guard against accidentally leaving old public-HTTP rejection copy in source/tests.
 remaining = []
 for path in (ROOT / "composeApp/src").rglob("*.kt"):
     body = path.read_text(encoding="utf-8")
