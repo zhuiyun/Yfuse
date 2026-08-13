@@ -21,7 +21,8 @@ import com.yfuse.core.designsystem.OverlayHeader
 /** A permanent, accessible explanation of the picture-level gestures and their alternatives. */
 @Composable
 internal fun PlayerGestureHelpOverlay(onDismiss: () -> Unit) {
-    GlassDialog(liquidButtons = false,
+    GlassDialog(
+        liquidButtons = false,
         onDismiss = onDismiss,
         modifier = Modifier.semantics { paneTitle = "播放器手势说明" },
     ) {
