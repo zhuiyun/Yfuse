@@ -387,29 +387,40 @@ fun OverlayButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val liquidButtons = LocalOverlayLiquidButtons.current
     // Same 中 radius it always had; continuous now, like every other control.
     val shape = GlassShapes.chip
+    // Outside the player, primary/destructive actions are real glass with only a restrained
+    // semantic tint. The old fully opaque accent fill produced the glossy blue slab shown in
+    // server setup and other dialogs. Player dialogs explicitly opt out of liquid buttons;
+    // keep that flat branch byte-for-byte equivalent to the legacy colors below.
     val fill =
         when {
+            tone == OverlayButtonTone.Primary && liquidButtons ->
+                accent.accent.copy(alpha = if (palette.isDark) 0.18f else 0.11f)
             tone == OverlayButtonTone.Primary && enabled -> accent.accent
             tone == OverlayButtonTone.Primary -> accent.container
+            tone == OverlayButtonTone.Destructive && liquidButtons ->
+                palette.error.copy(alpha = if (palette.isDark) 0.16f else 0.09f)
             tone == OverlayButtonTone.Destructive -> palette.errorContainer
             else -> palette.card2
         }
     val border =
         when (tone) {
             OverlayButtonTone.Primary -> accent.border.copy(alpha = if (enabled) 1f else 0.38f)
-            OverlayButtonTone.Destructive -> palette.error
+            OverlayButtonTone.Destructive ->
+                if (liquidButtons) palette.error.copy(alpha = 0.72f) else palette.error
             OverlayButtonTone.Plain -> palette.border
         }
     val ink =
-        when (tone) {
-            OverlayButtonTone.Primary -> if (enabled) accent.onAccent else accent.accent
-            OverlayButtonTone.Destructive -> palette.error
-            OverlayButtonTone.Plain -> palette.text
+        when {
+            tone == OverlayButtonTone.Primary && liquidButtons -> accent.accent
+            tone == OverlayButtonTone.Primary -> if (enabled) accent.onAccent else accent.accent
+            tone == OverlayButtonTone.Destructive -> palette.error
+            else -> palette.text
         }
     val surface =
-        if (LocalOverlayLiquidButtons.current) {
+        if (liquidButtons) {
             Modifier.liquidGlass(
                 shape = shape,
                 fill = fill,
