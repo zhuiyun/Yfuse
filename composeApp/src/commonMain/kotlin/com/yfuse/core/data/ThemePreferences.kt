@@ -6,18 +6,19 @@ import com.yfuse.core.designsystem.DEFAULT_BACKGROUND_DIM
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
-import com.yfuse.core.model.ServerLayout
-import com.yfuse.core.model.StartupTab
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.ServerLayout
+import com.yfuse.core.model.StartupTab
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** Persisted appearance settings: light/dark mode and accent colour. */
-class ThemePreferences(private val settings: Settings) {
-
+class ThemePreferences(
+    private val settings: Settings,
+) {
     private companion object {
         const val KEY_MODE = "theme.mode"
         const val KEY_ACCENT = "theme.accent"
@@ -29,6 +30,7 @@ class ThemePreferences(private val settings: Settings) {
         const val KEY_LARGE_TEXT = "accessibility.largeText"
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
+
         /**
          * Bumped with the water-fire rework. The two variants behind One/Two were replaced
          * wholesale — different artwork, different choreography — so a stored "Two" now
@@ -41,6 +43,7 @@ class ThemePreferences(private val settings: Settings) {
         const val KEY_SERVER_LAYOUT = "appearance.serverLayout"
         const val KEY_BACKGROUND_IMAGE = "appearance.backgroundImage"
         const val KEY_BACKGROUND_DIM = "appearance.backgroundDim"
+
         /** A content:// grant is long but not unbounded; refuse anything that is not a URI. */
         const val MAX_BACKGROUND_URI_CHARS = 2_048
     }
@@ -67,9 +70,10 @@ class ThemePreferences(private val settings: Settings) {
     /** Whether an ended item advances to the next queue entry. */
     val autoNext: StateFlow<Boolean> = _autoNext.asStateFlow()
 
-    private val _quality = MutableStateFlow(
-        load(KEY_QUALITY, PlaybackQuality.entries, PlaybackQuality.Auto),
-    )
+    private val _quality =
+        MutableStateFlow(
+            load(KEY_QUALITY, PlaybackQuality.entries, PlaybackQuality.Auto),
+        )
     val quality: StateFlow<PlaybackQuality> = _quality.asStateFlow()
 
     private val _reduceTransparency =
@@ -110,9 +114,10 @@ class ThemePreferences(private val settings: Settings) {
     /** A persisted content URI for the page backdrop, or null for the theme's own ground. */
     val backgroundImage: StateFlow<String?> = _backgroundImage.asStateFlow()
 
-    private val _backgroundDim = MutableStateFlow(
-        settings.getFloat(KEY_BACKGROUND_DIM, DEFAULT_BACKGROUND_DIM).coerceIn(0f, 1f),
-    )
+    private val _backgroundDim =
+        MutableStateFlow(
+            settings.getFloat(KEY_BACKGROUND_DIM, DEFAULT_BACKGROUND_DIM).coerceIn(0f, 1f),
+        )
 
     /**
      * How much of the page's own ground is laid over the picture.
@@ -167,9 +172,10 @@ class ThemePreferences(private val settings: Settings) {
 
     /** [uri] is a persisted content grant; null clears the picture. */
     fun setBackgroundImage(uri: String?) {
-        val normalized = uri
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() && it.length <= MAX_BACKGROUND_URI_CHARS }
+        val normalized =
+            uri
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && it.length <= MAX_BACKGROUND_URI_CHARS }
         _backgroundImage.value = normalized
         if (normalized == null) {
             settings.remove(KEY_BACKGROUND_IMAGE)
@@ -219,7 +225,11 @@ class ThemePreferences(private val settings: Settings) {
         settings.putString(KEY_SPLASH_VARIANT, variant.name)
     }
 
-    private fun <T : Enum<T>> load(key: String, values: List<T>, fallback: T): T {
+    private fun <T : Enum<T>> load(
+        key: String,
+        values: List<T>,
+        fallback: T,
+    ): T {
         val stored = settings.getStringOrNull(key) ?: return fallback
         return values.firstOrNull { it.name == stored } ?: fallback
     }

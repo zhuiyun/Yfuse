@@ -103,16 +103,30 @@ sealed interface HomeIntent {
     data object DismissMessage : HomeIntent
 
     /** Tapping a TMDB pick: play it if the library has it, else show its info. */
-    data class Open(val item: TmdbItem) : HomeIntent
-    data class Favorite(val item: TmdbItem) : HomeIntent
+    data class Open(
+        val item: TmdbItem,
+    ) : HomeIntent
+
+    data class Favorite(
+        val item: TmdbItem,
+    ) : HomeIntent
 
     /** Tapping a 继续观看 card goes straight to the library item. */
-    data class OpenResume(val entry: HomeResumeEntry) : HomeIntent
+    data class OpenResume(
+        val entry: HomeResumeEntry,
+    ) : HomeIntent
 }
 
 sealed interface HomeLabel {
-    data class OpenEmbyItem(val serverId: String, val itemId: String) : HomeLabel
-    data class OpenTmdbItem(val item: TmdbItem, val embyItemId: String?) : HomeLabel
+    data class OpenEmbyItem(
+        val serverId: String,
+        val itemId: String,
+    ) : HomeLabel
+
+    data class OpenTmdbItem(
+        val item: TmdbItem,
+        val embyItemId: String?,
+    ) : HomeLabel
 }
 
 private sealed interface Action {
@@ -120,19 +134,48 @@ private sealed interface Action {
     data object Load : Action
 
     /** The signed-in server, and every change to it while this store is alive. */
-    data class Servers(val default: SavedServer?, val servers: List<SavedServer>) : Action
+    data class Servers(
+        val default: SavedServer?,
+        val servers: List<SavedServer>,
+    ) : Action
 }
 
 private sealed interface Msg {
-    data class Loading(val refresh: Boolean) : Msg
-    data class Cached(val content: TmdbHome) : Msg
-    data class Loaded(val content: TmdbHome) : Msg
-    data class ResumeLoaded(val items: List<HomeResumeEntry>) : Msg
-    data class NextUpLoaded(val items: List<HomeResumeEntry>) : Msg
-    data class Server(val value: SavedServer?) : Msg
-    data class Failed(val message: String) : Msg
-    data class Resolving(val value: Boolean) : Msg
-    data class ActionMessage(val value: String?) : Msg
+    data class Loading(
+        val refresh: Boolean,
+    ) : Msg
+
+    data class Cached(
+        val content: TmdbHome,
+    ) : Msg
+
+    data class Loaded(
+        val content: TmdbHome,
+    ) : Msg
+
+    data class ResumeLoaded(
+        val items: List<HomeResumeEntry>,
+    ) : Msg
+
+    data class NextUpLoaded(
+        val items: List<HomeResumeEntry>,
+    ) : Msg
+
+    data class Server(
+        val value: SavedServer?,
+    ) : Msg
+
+    data class Failed(
+        val message: String,
+    ) : Msg
+
+    data class Resolving(
+        val value: Boolean,
+    ) : Msg
+
+    data class ActionMessage(
+        val value: String?,
+    ) : Msg
 }
 
 private const val RECOMMENDATIONS_UNAVAILABLE_MESSAGE =
@@ -148,9 +191,10 @@ internal class RecommendationCacheWriter(
 ) {
     private val mutex = Mutex()
 
-    suspend fun write(content: TmdbHome) = withContext(dispatcher) {
-        mutex.withLock { persist(content) }
-    }
+    suspend fun write(content: TmdbHome) =
+        withContext(dispatcher) {
+            mutex.withLock { persist(content) }
+        }
 }
 
 private data class HomeServerConnection(
@@ -160,12 +204,13 @@ private data class HomeServerConnection(
     val accessToken: String,
 )
 
-private fun SavedServer.homeConnection(): HomeServerConnection = HomeServerConnection(
-    serverId = id,
-    baseUrl = baseUrl,
-    userId = userId,
-    accessToken = accessToken,
-)
+private fun SavedServer.homeConnection(): HomeServerConnection =
+    HomeServerConnection(
+        serverId = id,
+        baseUrl = baseUrl,
+        userId = userId,
+        accessToken = accessToken,
+    )
 
 class HomeStoreFactory(
     private val storeFactory: StoreFactory,
@@ -179,30 +224,30 @@ class HomeStoreFactory(
         storeFactory.create(
             name = "HomeStore",
             initialState = HomeState(),
-            bootstrapper = coroutineBootstrapper<Action> {
-                dispatch(Action.Load)
-                // 继续观看 belongs to one server, and which server that is changes under
-                // this store's feet: 媒体库's 切换服务器 writes straight to the registry.
-                // Read once at startup, this row outlived the server it came from.
-                registry.data
-                    .map { it.defaultServer to it.servers }
-                    .distinctUntilChanged()
-                    .onEach { (default, servers) -> dispatch(Action.Servers(default, servers)) }
-                    .launchIn(this)
-            },
+            bootstrapper =
+                coroutineBootstrapper<Action> {
+                    dispatch(Action.Load)
+                    // 继续观看 belongs to one server, and which server that is changes under
+                    // this store's feet: 媒体库's 切换服务器 writes straight to the registry.
+                    // Read once at startup, this row outlived the server it came from.
+                    registry.data
+                        .map { it.defaultServer to it.servers }
+                        .distinctUntilChanged()
+                        .onEach { (default, servers) -> dispatch(Action.Servers(default, servers)) }
+                        .launchIn(this)
+                },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
         )
 
-    private inner class ExecutorImpl :
-        CoroutineExecutor<HomeIntent, Action, HomeState, Msg, HomeLabel>() {
-
+    private inner class ExecutorImpl : CoroutineExecutor<HomeIntent, Action, HomeState, Msg, HomeLabel>() {
         private var recommendationGeneration = 0L
         private var recommendationJob: Job? = null
-        private val recommendationCacheWriter = RecommendationCacheWriter(
-            dispatcher = cacheDispatcher,
-            persist = { cache.write(it) },
-        )
+        private val recommendationCacheWriter =
+            RecommendationCacheWriter(
+                dispatcher = cacheDispatcher,
+                persist = { cache.write(it) },
+            )
         private var resumeGeneration = 0L
         private var resumeConnection: List<HomeServerConnection> = emptyList()
         private var resumeJob: Job? = null
@@ -234,9 +279,10 @@ class HomeStoreFactory(
                 HomeIntent.DismissMessage -> dispatch(Msg.ActionMessage(null))
                 is HomeIntent.Open -> open(intent.item)
                 is HomeIntent.Favorite -> favorite(intent.item)
-                is HomeIntent.OpenResume -> publish(
-                    HomeLabel.OpenEmbyItem(intent.entry.server.id, intent.entry.item.id),
-                )
+                is HomeIntent.OpenResume ->
+                    publish(
+                        HomeLabel.OpenEmbyItem(intent.entry.server.id, intent.entry.item.id),
+                    )
             }
         }
 
@@ -245,40 +291,44 @@ class HomeStoreFactory(
             val generation = ++recommendationGeneration
             dispatch(Msg.Loading(refresh))
             val shouldReadCache = state().content.isEmpty
-            recommendationJob = scope.launch {
-                try {
-                    if (shouldReadCache) {
-                        val cached = withContext(cacheDispatcher) { cache.read() }
-                        if (generation != recommendationGeneration) return@launch
-                        cached?.let { dispatch(Msg.Cached(it)) }
-                    }
-
-                    val result = tmdb.home()
-                    if (generation != recommendationGeneration) return@launch
-                    val content = result.getOrNull()
-                    if (content != null) {
-                        recommendationCacheWriter.write(content)
-                        if (generation == recommendationGeneration) {
-                            dispatch(Msg.Loaded(content))
+            recommendationJob =
+                scope.launch {
+                    try {
+                        if (shouldReadCache) {
+                            val cached = withContext(cacheDispatcher) { cache.read() }
+                            if (generation != recommendationGeneration) return@launch
+                            cached?.let { dispatch(Msg.Cached(it)) }
                         }
-                    } else {
-                        val error = result.exceptionOrNull()
-                        AppLog.warning(
-                            category = "feature.home",
-                            event = "recommendations_load_failed",
-                            message = "Home recommendations failed to load",
-                            throwable = error,
-                        )
-                        dispatch(Msg.Failed(RECOMMENDATIONS_UNAVAILABLE_MESSAGE))
+
+                        val result = tmdb.home()
+                        if (generation != recommendationGeneration) return@launch
+                        val content = result.getOrNull()
+                        if (content != null) {
+                            recommendationCacheWriter.write(content)
+                            if (generation == recommendationGeneration) {
+                                dispatch(Msg.Loaded(content))
+                            }
+                        } else {
+                            val error = result.exceptionOrNull()
+                            AppLog.warning(
+                                category = "feature.home",
+                                event = "recommendations_load_failed",
+                                message = "Home recommendations failed to load",
+                                throwable = error,
+                            )
+                            dispatch(Msg.Failed(RECOMMENDATIONS_UNAVAILABLE_MESSAGE))
+                        }
+                    } finally {
+                        if (generation == recommendationGeneration) recommendationJob = null
                     }
-                } finally {
-                    if (generation == recommendationGeneration) recommendationJob = null
                 }
-            }
         }
 
         /** Loads every server independently so one slow or offline endpoint cannot blank the row. */
-        private fun loadResume(servers: List<SavedServer>, force: Boolean = false) {
+        private fun loadResume(
+            servers: List<SavedServer>,
+            force: Boolean = false,
+        ) {
             val availableServers = servers.filter { it.knownUnavailableEndpointReason() == null }
             val connection = availableServers.map(SavedServer::homeConnection)
             if (!force && connection == resumeConnection) return
@@ -290,35 +340,39 @@ class HomeStoreFactory(
                 dispatch(Msg.ResumeLoaded(emptyList()))
                 return
             }
-            resumeJob = scope.launch {
-                try {
-                    val entries = coroutineScope {
-                        availableServers.map { server ->
-                            async {
-                                emby.homeContent(server)
-                                    .onFailure { error ->
-                                        AppLog.warning(
-                                            category = "feature.home",
-                                            event = "resume_load_failed",
-                                            message = "One server's continue-watching row failed to load",
-                                            throwable = error,
-                                            attributes = mapOf("serverId" to server.id),
-                                        )
-                                    }
-                                    .getOrNull()
-                                    ?.resume
-                                    .orEmpty()
-                                    .map { HomeResumeEntry(it, server) }
+            resumeJob =
+                scope.launch {
+                    try {
+                        val entries =
+                            coroutineScope {
+                                availableServers
+                                    .map { server ->
+                                        async {
+                                            emby
+                                                .homeContent(server)
+                                                .onFailure { error ->
+                                                    AppLog.warning(
+                                                        category = "feature.home",
+                                                        event = "resume_load_failed",
+                                                        message = "One server's continue-watching row failed to load",
+                                                        throwable = error,
+                                                        attributes = mapOf("serverId" to server.id),
+                                                    )
+                                                }.getOrNull()
+                                                ?.resume
+                                                .orEmpty()
+                                                .map { HomeResumeEntry(it, server) }
+                                        }
+                                    }.awaitAll()
+                                    .flatten()
                             }
-                        }.awaitAll().flatten()
+                        if (ownsResumeLoad(generation, connection)) {
+                            dispatch(Msg.ResumeLoaded(entries))
+                        }
+                    } finally {
+                        if (generation == resumeGeneration) resumeJob = null
                     }
-                    if (ownsResumeLoad(generation, connection)) {
-                        dispatch(Msg.ResumeLoaded(entries))
-                    }
-                } finally {
-                    if (generation == resumeGeneration) resumeJob = null
                 }
-            }
         }
 
         private fun loadNextUp(servers: List<SavedServer>) {
@@ -328,15 +382,23 @@ class HomeStoreFactory(
                 dispatch(Msg.NextUpLoaded(emptyList()))
                 return
             }
-            nextUpJob = scope.launch {
-                val entries = coroutineScope {
-                    available.map { server -> async {
-                        emby.nextUpEpisodes(server, 8).getOrDefault(emptyList())
-                            .map { HomeResumeEntry(it, server) }
-                    } }.awaitAll().flatten()
+            nextUpJob =
+                scope.launch {
+                    val entries =
+                        coroutineScope {
+                            available
+                                .map { server ->
+                                    async {
+                                        emby
+                                            .nextUpEpisodes(server, 8)
+                                            .getOrDefault(emptyList())
+                                            .map { HomeResumeEntry(it, server) }
+                                    }
+                                }.awaitAll()
+                                .flatten()
+                        }
+                    dispatch(Msg.NextUpLoaded(entries.distinctBy { it.server.id to it.item.id }))
                 }
-                dispatch(Msg.NextUpLoaded(entries.distinctBy { it.server.id to it.item.id }))
-            }
         }
 
         private fun ownsResumeLoad(
@@ -358,23 +420,28 @@ class HomeStoreFactory(
             }
             dispatch(Msg.Resolving(true))
             scope.launch {
-                val exactProviderMatch = emby.findByTmdbId(server, item.id, item.mediaType)
-                    .getOrNull()
-                val titleCandidates = if (exactProviderMatch == null) {
-                    emby.search(server, item.title).getOrDefault(emptyList())
-                } else {
-                    emptyList()
-                }
-                val match = exactProviderMatch ?: titleCandidates.firstOrNull { candidate ->
-                    val titleMatches = candidate.title.equals(item.title, ignoreCase = true)
-                    val yearMatches = item.year?.toIntOrNull()?.let { candidate.year == it } ?: true
-                    val typeMatches = if (item.mediaType == "tv") {
-                        candidate.type == "Series"
+                val exactProviderMatch =
+                    emby
+                        .findByTmdbId(server, item.id, item.mediaType)
+                        .getOrNull()
+                val titleCandidates =
+                    if (exactProviderMatch == null) {
+                        emby.search(server, item.title).getOrDefault(emptyList())
                     } else {
-                        candidate.type == "Movie"
+                        emptyList()
                     }
-                    titleMatches && yearMatches && typeMatches
-                }
+                val match =
+                    exactProviderMatch ?: titleCandidates.firstOrNull { candidate ->
+                        val titleMatches = candidate.title.equals(item.title, ignoreCase = true)
+                        val yearMatches = item.year?.toIntOrNull()?.let { candidate.year == it } ?: true
+                        val typeMatches =
+                            if (item.mediaType == "tv") {
+                                candidate.type == "Series"
+                            } else {
+                                candidate.type == "Movie"
+                            }
+                        titleMatches && yearMatches && typeMatches
+                    }
                 dispatch(Msg.Resolving(false))
                 if (match != null) {
                     publish(HomeLabel.OpenEmbyItem(server.id, match.id))
@@ -386,23 +453,27 @@ class HomeStoreFactory(
 
         private fun favorite(item: TmdbItem) {
             if (state().resolving) return
-            val server = registry.defaultServer ?: run {
-                dispatch(Msg.ActionMessage("请先登录 Emby 服务器"))
-                return
-            }
+            val server =
+                registry.defaultServer ?: run {
+                    dispatch(Msg.ActionMessage("请先登录 Emby 服务器"))
+                    return
+                }
             dispatch(Msg.Resolving(true))
             scope.launch {
                 val exact = emby.findByTmdbId(server, item.id, item.mediaType).getOrNull()
-                val match = exact ?: emby.search(server, item.title)
-                    .getOrDefault(emptyList())
-                    .firstOrNull { candidate ->
-                        candidate.title.equals(item.title, ignoreCase = true) &&
-                            (item.year?.toIntOrNull()?.let { candidate.year == it } ?: true)
-                    }
+                val match =
+                    exact ?: emby
+                        .search(server, item.title)
+                        .getOrDefault(emptyList())
+                        .firstOrNull { candidate ->
+                            candidate.title.equals(item.title, ignoreCase = true) &&
+                                (item.year?.toIntOrNull()?.let { candidate.year == it } ?: true)
+                        }
                 if (match == null) {
                     dispatch(Msg.ActionMessage("媒体库中没有此资源，无法收藏"))
                 } else {
-                    emby.setFavorite(server, match.id, true)
+                    emby
+                        .setFavorite(server, match.id, true)
                         .onSuccess { dispatch(Msg.ActionMessage("已加入收藏")) }
                         .onFailure {
                             AppLog.warning(
@@ -421,47 +492,52 @@ class HomeStoreFactory(
     }
 
     private object ReducerImpl : Reducer<HomeState, Msg> {
-        override fun HomeState.reduce(msg: Msg): HomeState = when (msg) {
-            is Msg.Loading -> copy(
-                loading = true,
-                refreshing = msg.refresh,
-                error = null,
-                recommendationNotice = null,
-            )
-            is Msg.Cached -> copy(
-                content = msg.content,
-                today = currentIsoDate(),
-            )
-            is Msg.Loaded -> copy(
-                loading = false,
-                refreshing = false,
-                content = msg.content,
-                today = currentIsoDate(),
-                error = null,
-                recommendationNotice = null,
-            )
-            is Msg.ResumeLoaded -> copy(resume = msg.items)
-            is Msg.NextUpLoaded -> copy(nextUp = msg.items)
-            // Resume entries carry their own server, so changing the default only changes
-            // recommendation resolution and the server opened from the library tab.
-            is Msg.Server -> copy(server = msg.value)
-            is Msg.Failed -> if (content.isEmpty) {
-                copy(
-                    loading = false,
-                    refreshing = false,
-                    error = msg.message,
-                    recommendationNotice = null,
-                )
-            } else {
-                copy(
-                    loading = false,
-                    refreshing = false,
-                    error = null,
-                    recommendationNotice = "推荐内容刷新失败，正在显示最近缓存",
-                )
+        override fun HomeState.reduce(msg: Msg): HomeState =
+            when (msg) {
+                is Msg.Loading ->
+                    copy(
+                        loading = true,
+                        refreshing = msg.refresh,
+                        error = null,
+                        recommendationNotice = null,
+                    )
+                is Msg.Cached ->
+                    copy(
+                        content = msg.content,
+                        today = currentIsoDate(),
+                    )
+                is Msg.Loaded ->
+                    copy(
+                        loading = false,
+                        refreshing = false,
+                        content = msg.content,
+                        today = currentIsoDate(),
+                        error = null,
+                        recommendationNotice = null,
+                    )
+                is Msg.ResumeLoaded -> copy(resume = msg.items)
+                is Msg.NextUpLoaded -> copy(nextUp = msg.items)
+                // Resume entries carry their own server, so changing the default only changes
+                // recommendation resolution and the server opened from the library tab.
+                is Msg.Server -> copy(server = msg.value)
+                is Msg.Failed ->
+                    if (content.isEmpty) {
+                        copy(
+                            loading = false,
+                            refreshing = false,
+                            error = msg.message,
+                            recommendationNotice = null,
+                        )
+                    } else {
+                        copy(
+                            loading = false,
+                            refreshing = false,
+                            error = null,
+                            recommendationNotice = "推荐内容刷新失败，正在显示最近缓存",
+                        )
+                    }
+                is Msg.Resolving -> copy(resolving = msg.value)
+                is Msg.ActionMessage -> copy(actionMessage = msg.value)
             }
-            is Msg.Resolving -> copy(resolving = msg.value)
-            is Msg.ActionMessage -> copy(actionMessage = msg.value)
-        }
     }
 }

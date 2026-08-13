@@ -1,6 +1,8 @@
 package com.yfuse.core.model
 
-enum class PlaybackSegmentType(val skipLabel: String) {
+enum class PlaybackSegmentType(
+    val skipLabel: String,
+) {
     Intro("跳过片头"),
     Credits("跳过片尾"),
 }
@@ -14,7 +16,10 @@ data class PlaybackSegment(
     val startMs: Long,
     val endMs: Long?,
 ) {
-    fun contains(positionMs: Long, durationMs: Long): Boolean {
+    fun contains(
+        positionMs: Long,
+        durationMs: Long,
+    ): Boolean {
         val end = endMs ?: durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE
         return positionMs in startMs until end
     }

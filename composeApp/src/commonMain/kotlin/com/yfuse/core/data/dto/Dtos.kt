@@ -6,14 +6,14 @@ import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
-import com.yfuse.core.model.SubtitleTrackInfo
-import com.yfuse.core.model.VideoStreamInfo
-import com.yfuse.core.model.TrickplayInfo
-import com.yfuse.core.model.languageDisplayName
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.SourceInfo
+import com.yfuse.core.model.SubtitleTrackInfo
+import com.yfuse.core.model.TrickplayInfo
+import com.yfuse.core.model.VideoStreamInfo
+import com.yfuse.core.model.languageDisplayName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -32,16 +32,27 @@ data class PublicUserDto(
 )
 
 @Serializable
-data class AuthRequestDto(val Username: String, val Pw: String)
+data class AuthRequestDto(
+    val Username: String,
+    val Pw: String,
+)
 
 @Serializable
-data class AuthResultDto(val AccessToken: String, val User: AuthUserDto)
+data class AuthResultDto(
+    val AccessToken: String,
+    val User: AuthUserDto,
+)
 
 @Serializable
-data class AuthUserDto(val Id: String, val Name: String)
+data class AuthUserDto(
+    val Id: String,
+    val Name: String,
+)
 
 @Serializable
-data class ViewsDto(val Items: List<ViewItemDto> = emptyList())
+data class ViewsDto(
+    val Items: List<ViewItemDto> = emptyList(),
+)
 
 /** Aggregate counts returned by `/Items/Counts` for one Emby user. */
 @Serializable
@@ -181,40 +192,44 @@ data class DeviceProfileDto(
     val SubtitleProfiles: List<SubtitleProfileDto> = emptyList(),
 ) {
     companion object {
-        fun yfuseAndroid(): DeviceProfileDto = DeviceProfileDto(
-            DirectPlayProfiles = listOf(
-                DirectPlayProfileDto(
-                    Container = "mkv,mp4,m4v,mov,ts,m2ts,webm,avi,flv,wmv,mpg,mpeg",
-                    VideoCodec = "h264,hevc,h265,vp8,vp9,av1,mpeg2video,mpeg4,vc1",
-                    AudioCodec = "aac,mp3,ac3,eac3,truehd,dts,flac,opus,vorbis,pcm",
-                ),
-            ),
-            TranscodingProfiles = listOf(
-                TranscodingProfileDto(
-                    Container = "ts",
-                    VideoCodec = "h264",
-                    AudioCodec = "aac",
-                    Protocol = "hls",
-                ),
-                TranscodingProfileDto(
-                    Container = "mp4",
-                    VideoCodec = "h264",
-                    AudioCodec = "aac",
-                    Protocol = "http",
-                ),
-            ),
-            SubtitleProfiles = listOf(
-                SubtitleProfileDto("srt", "External"),
-                SubtitleProfileDto("vtt", "External"),
-                SubtitleProfileDto("subrip", "External"),
-                SubtitleProfileDto("ass", "Embed"),
-                SubtitleProfileDto("ssa", "Embed"),
-                SubtitleProfileDto("pgs", "Embed"),
-                SubtitleProfileDto("pgssub", "Embed"),
-                SubtitleProfileDto("dvdsub", "Embed"),
-                SubtitleProfileDto("dvbsub", "Embed"),
-            ),
-        )
+        fun yfuseAndroid(): DeviceProfileDto =
+            DeviceProfileDto(
+                DirectPlayProfiles =
+                    listOf(
+                        DirectPlayProfileDto(
+                            Container = "mkv,mp4,m4v,mov,ts,m2ts,webm,avi,flv,wmv,mpg,mpeg",
+                            VideoCodec = "h264,hevc,h265,vp8,vp9,av1,mpeg2video,mpeg4,vc1",
+                            AudioCodec = "aac,mp3,ac3,eac3,truehd,dts,flac,opus,vorbis,pcm",
+                        ),
+                    ),
+                TranscodingProfiles =
+                    listOf(
+                        TranscodingProfileDto(
+                            Container = "ts",
+                            VideoCodec = "h264",
+                            AudioCodec = "aac",
+                            Protocol = "hls",
+                        ),
+                        TranscodingProfileDto(
+                            Container = "mp4",
+                            VideoCodec = "h264",
+                            AudioCodec = "aac",
+                            Protocol = "http",
+                        ),
+                    ),
+                SubtitleProfiles =
+                    listOf(
+                        SubtitleProfileDto("srt", "External"),
+                        SubtitleProfileDto("vtt", "External"),
+                        SubtitleProfileDto("subrip", "External"),
+                        SubtitleProfileDto("ass", "Embed"),
+                        SubtitleProfileDto("ssa", "Embed"),
+                        SubtitleProfileDto("pgs", "Embed"),
+                        SubtitleProfileDto("pgssub", "Embed"),
+                        SubtitleProfileDto("dvdsub", "Embed"),
+                        SubtitleProfileDto("dvbsub", "Embed"),
+                    ),
+            )
     }
 }
 
@@ -321,7 +336,9 @@ data class ItemsResponseDto(
 )
 
 @Serializable
-data class PlaylistCreatedDto(val Id: String? = null)
+data class PlaylistCreatedDto(
+    val Id: String? = null,
+)
 
 /** Minimal Emby playback-session payload shared by start/progress/stop calls. */
 @Serializable
@@ -342,14 +359,16 @@ fun BaseItemDto.toMediaItem(): MediaItem {
     val inheritedBackdrop = ParentBackdropImageTags?.firstOrNull()
 
     val title = if (isEpisode) (SeriesName ?: Name ?: "") else (Name ?: "")
-    val subtitle = when {
-        isEpisode -> buildString {
-            if (ParentIndexNumber != null && IndexNumber != null) append("S${ParentIndexNumber}E$IndexNumber ")
-            append(Name ?: "")
-        }.trim().ifBlank { null }
-        ProductionYear != null -> ProductionYear.toString()
-        else -> null
-    }
+    val subtitle =
+        when {
+            isEpisode ->
+                buildString {
+                    if (ParentIndexNumber != null && IndexNumber != null) append("S${ParentIndexNumber}E$IndexNumber ")
+                    append(Name ?: "")
+                }.trim().ifBlank { null }
+            ProductionYear != null -> ProductionYear.toString()
+            else -> null
+        }
 
     return MediaItem(
         id = Id,
@@ -401,17 +420,19 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         posterTag = posterTag,
         // An episode carries no artwork of its own; the show's is the artwork for it, and
         // an empty strip under every episode would be worse than a repeated one.
-        backdropTags = BackdropImageTags?.takeIf { it.isNotEmpty() }
-            ?: ParentBackdropImageTags.orEmpty(),
+        backdropTags =
+            BackdropImageTags?.takeIf { it.isNotEmpty() }
+                ?: ParentBackdropImageTags.orEmpty(),
         dateCreated = DateCreated?.take(10)?.takeIf { it.length == 10 },
         backdropItemId = backdropId,
         backdropTag = backdropTag,
         resumePositionTicks = UserData?.PlaybackPositionTicks,
         people = People?.map { it.toPerson() } ?: emptyList(),
         source = MediaSources?.firstOrNull()?.toSourceInfo(),
-        versions = MediaSources.orEmpty().mapIndexed { index, dto ->
-            dto.toMediaVersion(fallbackId = Id, ordinal = index)
-        },
+        versions =
+            MediaSources.orEmpty().mapIndexed { index, dto ->
+                dto.toMediaVersion(fallbackId = Id, ordinal = index)
+            },
         isFavorite = UserData?.IsFavorite == true,
         played = UserData?.Played == true,
         providerIds = ProviderIds.orEmpty(),
@@ -427,13 +448,17 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
  * profile. Emby puts the tag in `Codec` on some libraries and in `Profile` on others, so
  * both are tried; anything that is not a Dolby tag yields null rather than a guess.
  */
-internal fun dolbyProfileFromCodecTag(codec: String?, profile: String?): Int? =
+internal fun dolbyProfileFromCodecTag(
+    codec: String?,
+    profile: String?,
+): Int? =
     listOfNotNull(codec, profile)
         .firstNotNullOfOrNull { value ->
             val lower = value.lowercase()
-            val marker = listOf("dvhe.", "dvh1.", "dvav.", "dva1.")
-                .firstOrNull { lower.startsWith(it) || lower.contains(it) }
-                ?: return@firstNotNullOfOrNull null
+            val marker =
+                listOf("dvhe.", "dvh1.", "dvav.", "dva1.")
+                    .firstOrNull { lower.startsWith(it) || lower.contains(it) }
+                    ?: return@firstNotNullOfOrNull null
             lower.substringAfter(marker).take(2).toIntOrNull()
         }
 
@@ -462,10 +487,14 @@ fun MediaSourceDto.toSourceInfo(): SourceInfo? {
         bitrateBps = effectiveBitrate,
         videoRange = video?.VideoRange?.takeIf { it.isNotBlank() },
         videoBitDepth = video?.BitDepth?.takeIf { it > 0 },
-        maxAudioChannels = audio.mapNotNull { it.Channels?.takeIf { channels -> channels > 0 } }
-            .maxOrNull(),
-        maxAudioBitrateBps = audio.mapNotNull { it.BitRate?.takeIf { bitrate -> bitrate > 0 } }
-            .maxOrNull(),
+        maxAudioChannels =
+            audio
+                .mapNotNull { it.Channels?.takeIf { channels -> channels > 0 } }
+                .maxOrNull(),
+        maxAudioBitrateBps =
+            audio
+                .mapNotNull { it.BitRate?.takeIf { bitrate -> bitrate > 0 } }
+                .maxOrNull(),
         losslessAudio = version.audioTracks.any { it.isLossless },
     )
 }
@@ -485,16 +514,20 @@ private fun formatBytes(bytes: Long): String {
  * [fallbackId] stands in when the server omits `MediaSource.Id`, which it does for items
  * with a single source — the item id is the right thing to name in that case anyway.
  */
-fun MediaSourceDto.toMediaVersion(fallbackId: String, ordinal: Int): MediaVersion {
+fun MediaSourceDto.toMediaVersion(
+    fallbackId: String,
+    ordinal: Int,
+): MediaVersion {
     val video = MediaStreams?.firstOrNull { it.Type == "Video" }
     val container = Container?.takeIf { it.isNotBlank() }
     return MediaVersion(
         id = Id?.takeIf { it.isNotBlank() } ?: fallbackId,
         // Emby names a source only when the library has more than one; falling back to the
         // container beats "版本 2" because it is what actually distinguishes the files.
-        name = Name?.takeIf { it.isNotBlank() }
-            ?: container?.uppercase()
-            ?: "版本 ${ordinal + 1}",
+        name =
+            Name?.takeIf { it.isNotBlank() }
+                ?: container?.uppercase()
+                ?: "版本 ${ordinal + 1}",
         container = container,
         sizeBytes = Size,
         bitrateBps = Bitrate?.takeIf { it > 0 } ?: video?.BitRate?.takeIf { it > 0 },
@@ -502,63 +535,72 @@ fun MediaSourceDto.toMediaVersion(fallbackId: String, ordinal: Int): MediaVersio
         videoHeight = video?.Height,
         videoRange = video?.VideoRange?.takeIf { !it.equals("SDR", ignoreCase = true) },
         path = Path?.takeIf { it.isNotBlank() },
-        video = video?.let { stream ->
-            VideoStreamInfo(
-                displayTitle = stream.DisplayTitle?.takeIf { it.isNotBlank() },
-                language = languageDisplayName(stream.Language),
-                codec = stream.Codec?.takeIf { it.isNotBlank() }?.uppercase(),
-                width = stream.Width,
-                height = stream.Height,
-                // Emby reports both; the average is the one that matches what plays back.
-                frameRate = stream.AverageFrameRate ?: stream.RealFrameRate,
-                bitrateBps = stream.BitRate,
-                // Unlike the badge on the version row, the table states SDR rather than
-                // omitting it — a blank cell there would read as "unknown", not "standard".
-                videoRange = stream.VideoRange?.takeIf { it.isNotBlank() },
-                interlaced = stream.IsInterlaced,
-                colorPrimaries = stream.ColorPrimaries?.takeIf { it.isNotBlank() },
-                colorSpace = stream.ColorSpace?.takeIf { it.isNotBlank() },
-                profile = stream.Profile?.takeIf { it.isNotBlank() },
-                level = stream.Level,
-                aspectRatio = stream.AspectRatio?.takeIf { it.isNotBlank() },
-                bitDepth = stream.BitDepth,
-                dolbyProfile = stream.DvProfile
-                    ?: dolbyProfileFromCodecTag(stream.Codec, stream.Profile),
-                dolbyBaseLayerCompatibility = stream.DvBlSignalCompatibilityId,
-            )
-        },
-        audioTracks = MediaStreams.orEmpty()
-            .filter { it.Type == "Audio" }
-            .map { stream ->
-                AudioTrackInfo(
-                    codec = stream.Codec?.takeIf { it.isNotBlank() },
-                    channels = stream.ChannelLayout?.takeIf { it.isNotBlank() }
-                        ?: stream.Channels?.let { "$it 声道" },
-                    language = languageDisplayName(stream.Language)
-                        ?: stream.Title?.takeIf { it.isNotBlank() },
+        video =
+            video?.let { stream ->
+                VideoStreamInfo(
                     displayTitle = stream.DisplayTitle?.takeIf { it.isNotBlank() },
-                    displayLanguage = stream.DisplayLanguage?.takeIf { it.isNotBlank() },
-                    profile = stream.Profile?.takeIf { it.isNotBlank() },
+                    language = languageDisplayName(stream.Language),
+                    codec = stream.Codec?.takeIf { it.isNotBlank() }?.uppercase(),
+                    width = stream.Width,
+                    height = stream.Height,
+                    // Emby reports both; the average is the one that matches what plays back.
+                    frameRate = stream.AverageFrameRate ?: stream.RealFrameRate,
                     bitrateBps = stream.BitRate,
-                    channelCount = stream.Channels,
-                    sampleRateHz = stream.SampleRate,
-                    external = stream.IsExternal,
-                    default = stream.IsDefault,
+                    // Unlike the badge on the version row, the table states SDR rather than
+                    // omitting it — a blank cell there would read as "unknown", not "standard".
+                    videoRange = stream.VideoRange?.takeIf { it.isNotBlank() },
+                    interlaced = stream.IsInterlaced,
+                    colorPrimaries = stream.ColorPrimaries?.takeIf { it.isNotBlank() },
+                    colorSpace = stream.ColorSpace?.takeIf { it.isNotBlank() },
+                    profile = stream.Profile?.takeIf { it.isNotBlank() },
+                    level = stream.Level,
+                    aspectRatio = stream.AspectRatio?.takeIf { it.isNotBlank() },
+                    bitDepth = stream.BitDepth,
+                    dolbyProfile =
+                        stream.DvProfile
+                            ?: dolbyProfileFromCodecTag(stream.Codec, stream.Profile),
+                    dolbyBaseLayerCompatibility = stream.DvBlSignalCompatibilityId,
                 )
             },
-        subtitleTracks = MediaStreams.orEmpty()
-            .filter { it.Type == "Subtitle" }
-            .map { stream ->
-                SubtitleTrackInfo(
-                    index = stream.Index,
-                    codec = stream.Codec?.takeIf { it.isNotBlank() },
-                    language = languageDisplayName(stream.Language)
-                        ?: stream.Title?.takeIf { it.isNotBlank() },
-                    forced = stream.IsForced == true,
-                    external = stream.IsExternal == true,
-                    default = stream.IsDefault == true,
-                )
-            },
+        audioTracks =
+            MediaStreams
+                .orEmpty()
+                .filter { it.Type == "Audio" }
+                .map { stream ->
+                    AudioTrackInfo(
+                        codec = stream.Codec?.takeIf { it.isNotBlank() },
+                        channels =
+                            stream.ChannelLayout?.takeIf { it.isNotBlank() }
+                                ?: stream.Channels?.let { "$it 声道" },
+                        language =
+                            languageDisplayName(stream.Language)
+                                ?: stream.Title?.takeIf { it.isNotBlank() },
+                        displayTitle = stream.DisplayTitle?.takeIf { it.isNotBlank() },
+                        displayLanguage = stream.DisplayLanguage?.takeIf { it.isNotBlank() },
+                        profile = stream.Profile?.takeIf { it.isNotBlank() },
+                        bitrateBps = stream.BitRate,
+                        channelCount = stream.Channels,
+                        sampleRateHz = stream.SampleRate,
+                        external = stream.IsExternal,
+                        default = stream.IsDefault,
+                    )
+                },
+        subtitleTracks =
+            MediaStreams
+                .orEmpty()
+                .filter { it.Type == "Subtitle" }
+                .map { stream ->
+                    SubtitleTrackInfo(
+                        index = stream.Index,
+                        codec = stream.Codec?.takeIf { it.isNotBlank() },
+                        language =
+                            languageDisplayName(stream.Language)
+                                ?: stream.Title?.takeIf { it.isNotBlank() },
+                        forced = stream.IsForced == true,
+                        external = stream.IsExternal == true,
+                        default = stream.IsDefault == true,
+                    )
+                },
         supportsDirectPlay = SupportsDirectPlay,
         supportsDirectStream = SupportsDirectStream,
         supportsTranscoding = SupportsTranscoding,
@@ -570,76 +612,83 @@ fun MediaSourceDto.toMediaVersion(fallbackId: String, ordinal: Int): MediaVersio
 
 fun PersonDto.toPerson() = Person(Id, Name ?: "", Role?.ifBlank { null }, PrimaryImageTag)
 
-fun BaseItemDto.toSeason() = Season(
-    id = Id,
-    name = Name ?: "第 ${IndexNumber ?: 1} 季",
-    indexNumber = IndexNumber,
-    posterTag = ImageTags?.get("Primary"),
-)
+fun BaseItemDto.toSeason() =
+    Season(
+        id = Id,
+        name = Name ?: "第 ${IndexNumber ?: 1} 季",
+        indexNumber = IndexNumber,
+        posterTag = ImageTags?.get("Primary"),
+    )
 
-fun BaseItemDto.toEpisode() = Episode(
-    id = Id,
-    name = Name ?: "",
-    indexNumber = IndexNumber,
-    seasonNumber = ParentIndexNumber,
-    seasonId = SeasonId,
-    overview = Overview,
-    runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
-    primaryTag = ImageTags?.get("Primary"),
-    playedPercentage = UserData?.PlayedPercentage,
-    played = UserData?.Played == true,
-    resumePositionTicks = UserData?.PlaybackPositionTicks,
-    // Emby sends a full timestamp; the date is the part that means anything here.
-    premiereDate = PremiereDate?.take(10)?.takeIf { it.length == 10 },
-    playbackSegments = playbackSegments(),
-    providerIds = ProviderIds.orEmpty(),
-    versions = MediaSources.orEmpty().mapIndexed { index, source ->
-        source.toMediaVersion(fallbackId = Id, ordinal = index)
-    },
-    trickplay = bestTrickplay(),
-)
+fun BaseItemDto.toEpisode() =
+    Episode(
+        id = Id,
+        name = Name ?: "",
+        indexNumber = IndexNumber,
+        seasonNumber = ParentIndexNumber,
+        seasonId = SeasonId,
+        overview = Overview,
+        runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
+        primaryTag = ImageTags?.get("Primary"),
+        playedPercentage = UserData?.PlayedPercentage,
+        played = UserData?.Played == true,
+        resumePositionTicks = UserData?.PlaybackPositionTicks,
+        // Emby sends a full timestamp; the date is the part that means anything here.
+        premiereDate = PremiereDate?.take(10)?.takeIf { it.length == 10 },
+        playbackSegments = playbackSegments(),
+        providerIds = ProviderIds.orEmpty(),
+        versions =
+            MediaSources.orEmpty().mapIndexed { index, source ->
+                source.toMediaVersion(fallbackId = Id, ordinal = index)
+            },
+        trickplay = bestTrickplay(),
+    )
 
-fun BaseItemDto.bestTrickplay(): TrickplayInfo? = Trickplay
-    .orEmpty()
-    .values
-    .filterNotNull()
-    .flatMap { it.values }
-    .filter { it.Width > 0 && it.Height > 0 && it.TileWidth > 0 && it.TileHeight > 0 && it.Interval > 0L }
-    .minWithOrNull(compareBy<TrickplayInfoDto> { kotlin.math.abs(it.Width - 320) }.thenBy { it.Width })
-    ?.let {
-        TrickplayInfo(
-            width = it.Width,
-            height = it.Height,
-            tileColumns = it.TileWidth,
-            tileRows = it.TileHeight,
-            intervalMs = it.Interval,
-            thumbnailCount = it.ThumbnailCount,
-        )
-    }
+fun BaseItemDto.bestTrickplay(): TrickplayInfo? =
+    Trickplay
+        .orEmpty()
+        .values
+        .filterNotNull()
+        .flatMap { it.values }
+        .filter { it.Width > 0 && it.Height > 0 && it.TileWidth > 0 && it.TileHeight > 0 && it.Interval > 0L }
+        .minWithOrNull(compareBy<TrickplayInfoDto> { kotlin.math.abs(it.Width - 320) }.thenBy { it.Width })
+        ?.let {
+            TrickplayInfo(
+                width = it.Width,
+                height = it.Height,
+                tileColumns = it.TileWidth,
+                tileRows = it.TileHeight,
+                intervalMs = it.Interval,
+                thumbnailCount = it.ThumbnailCount,
+            )
+        }
 
 /** Pairs Emby's IntroStart/IntroEnd markers and treats CreditsStart as open-ended. */
 fun BaseItemDto.playbackSegments(): List<PlaybackSegment> {
     val markers = Chapters.orEmpty().sortedBy { it.StartPositionTicks }
     val introStart = markers.firstOrNull { it.MarkerType.equals("IntroStart", true) }
-    val introEnd = markers.firstOrNull {
-        it.MarkerType.equals("IntroEnd", true) &&
-            (introStart == null || it.StartPositionTicks > introStart.StartPositionTicks)
-    }
-    val intro = if (introStart != null && introEnd != null) {
-        PlaybackSegment(
-            type = PlaybackSegmentType.Intro,
-            startMs = introStart.StartPositionTicks / 10_000L,
-            endMs = introEnd.StartPositionTicks / 10_000L,
-        )
-    } else {
-        null
-    }
-    val credits = markers.firstOrNull { it.MarkerType.equals("CreditsStart", true) }?.let {
-        PlaybackSegment(
-            type = PlaybackSegmentType.Credits,
-            startMs = it.StartPositionTicks / 10_000L,
-            endMs = null,
-        )
-    }
+    val introEnd =
+        markers.firstOrNull {
+            it.MarkerType.equals("IntroEnd", true) &&
+                (introStart == null || it.StartPositionTicks > introStart.StartPositionTicks)
+        }
+    val intro =
+        if (introStart != null && introEnd != null) {
+            PlaybackSegment(
+                type = PlaybackSegmentType.Intro,
+                startMs = introStart.StartPositionTicks / 10_000L,
+                endMs = introEnd.StartPositionTicks / 10_000L,
+            )
+        } else {
+            null
+        }
+    val credits =
+        markers.firstOrNull { it.MarkerType.equals("CreditsStart", true) }?.let {
+            PlaybackSegment(
+                type = PlaybackSegmentType.Credits,
+                startMs = it.StartPositionTicks / 10_000L,
+                endMs = null,
+            )
+        }
     return listOfNotNull(intro, credits)
 }

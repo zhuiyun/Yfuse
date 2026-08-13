@@ -3,20 +3,23 @@ package com.yfuse.core.data
 import com.russhwolf.settings.MapSettings
 import com.russhwolf.settings.Settings
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServersData
 import com.yfuse.core.security.ServerMigrationCrypto
 import com.yfuse.core.security.TestSecureStore
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServerRegistryTest {
-
-    private fun server(id: String, token: String = "tok-$id") =
-        SavedServer(id, "http://$id", "name-$id", "u", "user", token)
+    private fun server(
+        id: String,
+        token: String = "tok-$id",
+    ) = SavedServer(id, "https://$id", "name-$id", "u", "user", token)
 
     private fun registry(
         settings: Settings = MapSettings(),
@@ -90,7 +93,10 @@ class ServerRegistryTest {
 
         val loaded = registry(settings, secrets)
 
-        assertTrue(loaded.data.value.servers.isEmpty())
+        assertTrue(
+            loaded.data.value.servers
+                .isEmpty(),
+        )
         assertFalse("must-not-remain" in settings.getStringOrNull("servers.data").orEmpty())
     }
 
@@ -101,11 +107,19 @@ class ServerRegistryTest {
         registry(settings, secrets).addOrUpdate(server("a"))
         secrets.clear()
 
-        assertTrue(registry(settings, secrets).data.value.servers.isEmpty())
+        assertTrue(
+            registry(settings, secrets)
+                .data.value.servers
+                .isEmpty(),
+        )
 
         registry(settings, secrets).addOrUpdate(server("b"))
         secrets.corruptedKeys += secrets.storedKeys().single()
-        assertTrue(registry(settings, secrets).data.value.servers.isEmpty())
+        assertTrue(
+            registry(settings, secrets)
+                .data.value.servers
+                .isEmpty(),
+        )
     }
 
     @Test
@@ -157,17 +171,54 @@ class ServerRegistryTest {
     }
 
     @Test
+    fun routeMutationsRejectPublicCleartextButAllowLocalHttp() {
+        val registry = registry()
+        val original =
+            SavedServer(
+                id = "secure",
+                baseUrl = "https://media.example.com",
+                serverName = "Emby",
+                userId = "u",
+                userName = "User",
+                accessToken = "token",
+            )
+        registry.addOrUpdate(original)
+
+        assertFalse(
+            registry.setRoutes(
+                original.id,
+                listOf(
+                    ServerRoute(ServerRoute.PRIMARY_ID, "主线路", original.baseUrl),
+                    ServerRoute("r2", "公网明文", "http://media.example.com:8096"),
+                ),
+            ),
+        )
+        assertTrue(
+            registry.setRoutes(
+                original.id,
+                listOf(
+                    ServerRoute(ServerRoute.PRIMARY_ID, "主线路", original.baseUrl),
+                    ServerRoute("r2", "家庭内网", "http://192.168.1.8:8096"),
+                ),
+                localCleartextConfirmed = true,
+            ),
+        )
+        assertTrue(registry.serverById(original.id)?.localCleartextConfirmed == true)
+    }
+
+    @Test
     fun failedOldCacheCleanupDoesNotFailCommittedReplacement() {
         val original = server("old")
         val replacement = server("new")
         val cacheKey = "library.cache.${original.id}"
         val backing = MapSettings().apply { putString(cacheKey, "cached-home") }
-        val settings = object : Settings by backing {
-            override fun remove(key: String) {
-                if (key == cacheKey) error("cache storage unavailable")
-                backing.remove(key)
+        val settings =
+            object : Settings by backing {
+                override fun remove(key: String) {
+                    if (key == cacheKey) error("cache storage unavailable")
+                    backing.remove(key)
+                }
             }
-        }
         val registry = registry(settings).apply { addOrUpdate(original) }
 
         assertTrue(registry.replace(original.id, replacement))
@@ -178,22 +229,24 @@ class ServerRegistryTest {
     @Test
     fun protectedBackupRoundTripsCredentialsAndRejectsWrongPasswordExpiryAndV1() {
         val source = registry()
-        val first = SavedServer(
-            SavedServer.idOf("https://one.example", "u1"),
-            "https://one.example",
-            "客厅影院",
-            "u1",
-            "Alice",
-            "secret-one",
-        )
-        val second = SavedServer(
-            SavedServer.idOf("http://two.local:8096", "u2"),
-            "http://two.local:8096",
-            "Two",
-            "u2",
-            "Bob",
-            "secret-two",
-        )
+        val first =
+            SavedServer(
+                SavedServer.idOf("https://one.example", "u1"),
+                "https://one.example",
+                "客厅影院",
+                "u1",
+                "Alice",
+                "secret-one",
+            )
+        val second =
+            SavedServer(
+                SavedServer.idOf("https://two.example", "u2"),
+                "https://two.example",
+                "Two",
+                "u2",
+                "Bob",
+                "secret-two",
+            )
         source.addOrUpdate(first)
         source.addOrUpdate(second)
         source.setDefault(second.id)
@@ -212,22 +265,109 @@ class ServerRegistryTest {
         assertEquals("secret-one", target.serverById(first.id)?.accessToken)
         assertEquals("客厅影院", target.serverById(first.id)?.serverName)
         assertTrue(
-            registry().importProtectedBackup(
-                payload,
-                "incorrect password value".toCharArray(),
-                createdAt + 1,
-            ).isFailure,
+            registry()
+                .importProtectedBackup(
+                    payload,
+                    "incorrect password value".toCharArray(),
+                    createdAt + 1,
+                ).isFailure,
         )
         assertTrue(
-            registry().importProtectedBackup(
-                payload,
-                password,
-                createdAt + ServerMigrationCrypto.DEFAULT_TTL_SECONDS + 1,
-            ).isFailure,
+            registry()
+                .importProtectedBackup(
+                    payload,
+                    password,
+                    createdAt + ServerMigrationCrypto.DEFAULT_TTL_SECONDS + 1,
+                ).isFailure,
         )
         val v1 =
             """{"v":1,"s":[{"b":"https://old.example","u":"u","a":"User","t":"tok"}]}"""
         assertTrue(registry().importProtectedBackup(v1, password, createdAt + 1).isFailure)
         password.fill('\u0000')
+    }
+
+    @Test
+    fun localCleartextConfirmationPersistsLocallyButIsNotCloudSerializable() {
+        val settings = MapSettings()
+        val secrets = TestSecureStore()
+        val local =
+            SavedServer(
+                id = SavedServer.idOf("http://192.168.1.8:8096", "u"),
+                baseUrl = "http://192.168.1.8:8096",
+                serverName = "Home",
+                userId = "u",
+                userName = "User",
+                accessToken = "token",
+                localCleartextConfirmed = true,
+            )
+
+        registry(settings, secrets).addOrUpdate(local)
+
+        assertTrue(registry(settings, secrets).defaultServer?.localCleartextConfirmed == true)
+        assertTrue("\"lc\":true" in settings.getStringOrNull("servers.data").orEmpty())
+        val cloudJson =
+            Json.encodeToString(
+                ServersData.serializer(),
+                ServersData(listOf(local), local.id),
+            )
+        assertFalse("localCleartextConfirmed" in cloudJson)
+    }
+
+    @Test
+    fun publicCleartextCannotBeAddedAndAnOldPersistedSessionIsPurged() {
+        val settings = MapSettings()
+        val secrets = TestSecureStore()
+        val secure =
+            SavedServer(
+                id = "public",
+                baseUrl = "https://media.example.com",
+                serverName = "Public",
+                userId = "u",
+                userName = "User",
+                accessToken = "token",
+            )
+        registry(settings, secrets).addOrUpdate(secure)
+        val persisted = requireNotNull(settings.getStringOrNull("servers.data"))
+        settings.putString(
+            "servers.data",
+            persisted.replace("https://media.example.com", "http://media.example.com"),
+        )
+
+        val reloaded = registry(settings, secrets)
+
+        assertTrue(
+            reloaded.data.value.servers
+                .isEmpty(),
+        )
+        assertTrue(secrets.storedKeys().isEmpty())
+        assertFailsWith<IllegalArgumentException> {
+            registry().addOrUpdate(
+                secure.copy(
+                    baseUrl = "http://media.example.com",
+                    localCleartextConfirmed = true,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun protectedBackupCannotTransferLocalCleartextConsentToAnotherDevice() {
+        val local =
+            SavedServer(
+                id = SavedServer.idOf("http://192.168.1.8:8096", "u"),
+                baseUrl = "http://192.168.1.8:8096",
+                serverName = "Home",
+                userId = "u",
+                userName = "User",
+                accessToken = "token",
+                localCleartextConfirmed = true,
+            )
+        val source = registry().apply { addOrUpdate(local) }
+        val passphrase = "correct horse battery staple".toCharArray()
+        val now = 2_000_000_000L
+        val payload = source.exportProtectedBackup(passphrase, now).getOrThrow()
+
+        assertTrue(registry().importProtectedBackup(payload, passphrase, now + 1).isFailure)
+        passphrase.fill('\u0000')
     }
 }

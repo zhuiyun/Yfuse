@@ -37,26 +37,52 @@ data class LibraryState(
 )
 
 sealed interface LibraryIntent {
-    data class SelectServer(val id: String) : LibraryIntent
+    data class SelectServer(
+        val id: String,
+    ) : LibraryIntent
+
     data class ToggleFavorite(
         val itemId: String,
         val title: String,
         val favorite: Boolean,
     ) : LibraryIntent
+
     data object Retry : LibraryIntent
 }
 
 private sealed interface Action {
-    data class Data(val servers: List<SavedServer>, val default: SavedServer?) : Action
+    data class Data(
+        val servers: List<SavedServer>,
+        val default: SavedServer?,
+    ) : Action
 }
 
 private sealed interface Msg {
-    data class Data(val servers: List<SavedServer>, val current: SavedServer?) : Msg
+    data class Data(
+        val servers: List<SavedServer>,
+        val current: SavedServer?,
+    ) : Msg
+
     data object Loading : Msg
-    data class Cached(val content: HomeContent, val updatedAtEpochMs: Long?) : Msg
-    data class Loaded(val content: HomeContent, val updatedAtEpochMs: Long) : Msg
-    data class FavoriteChanged(val itemId: String, val favorite: Boolean) : Msg
-    data class Failed(val message: String) : Msg
+
+    data class Cached(
+        val content: HomeContent,
+        val updatedAtEpochMs: Long?,
+    ) : Msg
+
+    data class Loaded(
+        val content: HomeContent,
+        val updatedAtEpochMs: Long,
+    ) : Msg
+
+    data class FavoriteChanged(
+        val itemId: String,
+        val favorite: Boolean,
+    ) : Msg
+
+    data class Failed(
+        val message: String,
+    ) : Msg
 }
 
 /** Connection fields that change which authenticated library request is being served. */
@@ -67,12 +93,13 @@ private data class LibraryConnection(
     val accessToken: String,
 )
 
-private fun SavedServer.libraryConnection(): LibraryConnection = LibraryConnection(
-    serverId = id,
-    baseUrl = baseUrl,
-    userId = userId,
-    accessToken = accessToken,
-)
+private fun SavedServer.libraryConnection(): LibraryConnection =
+    LibraryConnection(
+        serverId = id,
+        baseUrl = baseUrl,
+        userId = userId,
+        accessToken = accessToken,
+    )
 
 class LibraryStoreFactory(
     private val storeFactory: StoreFactory,
@@ -85,18 +112,17 @@ class LibraryStoreFactory(
         storeFactory.create(
             name = "LibraryStore",
             initialState = LibraryState(),
-            bootstrapper = coroutineBootstrapper<Action> {
-                registry.data
-                    .onEach { dispatch(Action.Data(it.servers, it.defaultServer)) }
-                    .launchIn(this)
-            },
+            bootstrapper =
+                coroutineBootstrapper<Action> {
+                    registry.data
+                        .onEach { dispatch(Action.Data(it.servers, it.defaultServer)) }
+                        .launchIn(this)
+                },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
         )
 
-    private inner class ExecutorImpl :
-        CoroutineExecutor<LibraryIntent, Action, LibraryState, Msg, Nothing>() {
-
+    private inner class ExecutorImpl : CoroutineExecutor<LibraryIntent, Action, LibraryState, Msg, Nothing>() {
         private var loadedConnection: LibraryConnection? = null
         private var loadGeneration = 0L
         private var loadJob: Job? = null
@@ -130,10 +156,11 @@ class LibraryStoreFactory(
             when (intent) {
                 is LibraryIntent.SelectServer -> registry.setDefault(intent.id)
                 is LibraryIntent.ToggleFavorite -> toggleFavorite(intent)
-                LibraryIntent.Retry -> state().currentServer?.let {
-                    loadedConnection = it.libraryConnection()
-                    load(it)
-                }
+                LibraryIntent.Retry ->
+                    state().currentServer?.let {
+                        loadedConnection = it.libraryConnection()
+                        load(it)
+                    }
             }
         }
 
@@ -155,33 +182,37 @@ class LibraryStoreFactory(
             val generation = ++loadGeneration
             val connection = server.libraryConnection()
             dispatch(Msg.Loading)
-            loadJob = scope.launch {
-                try {
-                    repo.homeContent(server)
-                        .onSuccess { content ->
-                            if (!ownsLoad(generation, connection)) return@onSuccess
-                            val updatedAtEpochMs = nowEpochMs().coerceAtLeast(0L)
-                            cache.write(server.id, content, updatedAtEpochMs)
-                            dispatch(Msg.Loaded(content, updatedAtEpochMs))
-                        }
-                        .onFailure { error ->
-                            if (!ownsLoad(generation, connection)) return@onFailure
-                            AppLog.warning(
-                                category = "feature.library",
-                                event = "load_failed",
-                                message = "Media library home failed to load",
-                                throwable = error,
-                                attributes = mapOf("serverId" to server.id),
-                            )
-                            dispatch(Msg.Failed(error.toUserMessage("加载失败")))
-                        }
-                } finally {
-                    if (generation == loadGeneration) loadJob = null
+            loadJob =
+                scope.launch {
+                    try {
+                        repo
+                            .homeContent(server)
+                            .onSuccess { content ->
+                                if (!ownsLoad(generation, connection)) return@onSuccess
+                                val updatedAtEpochMs = nowEpochMs().coerceAtLeast(0L)
+                                cache.write(server.id, content, updatedAtEpochMs)
+                                dispatch(Msg.Loaded(content, updatedAtEpochMs))
+                            }.onFailure { error ->
+                                if (!ownsLoad(generation, connection)) return@onFailure
+                                AppLog.warning(
+                                    category = "feature.library",
+                                    event = "load_failed",
+                                    message = "Media library home failed to load",
+                                    throwable = error,
+                                    attributes = mapOf("serverId" to server.id),
+                                )
+                                dispatch(Msg.Failed(error.toUserMessage("加载失败")))
+                            }
+                    } finally {
+                        if (generation == loadGeneration) loadJob = null
+                    }
                 }
-            }
         }
 
-        private fun ownsLoad(generation: Long, connection: LibraryConnection): Boolean =
+        private fun ownsLoad(
+            generation: Long,
+            connection: LibraryConnection,
+        ): Boolean =
             generation == loadGeneration &&
                 loadedConnection == connection &&
                 state().currentServer?.libraryConnection() == connection
@@ -194,68 +225,80 @@ class LibraryStoreFactory(
     }
 
     private object ReducerImpl : Reducer<LibraryState, Msg> {
-        override fun LibraryState.reduce(msg: Msg): LibraryState = when (msg) {
-            is Msg.Data -> {
-                val serverChanged = msg.current?.id != currentServer?.id
-                val resetTransientState = msg.current == null || serverChanged
-                copy(
-                    servers = msg.servers,
-                    currentServer = msg.current,
-                    loading = if (resetTransientState) false else loading,
-                    content = if (resetTransientState) HomeContent() else content,
-                    contentSource = if (resetTransientState) {
-                        LibraryContentSource.None
-                    } else {
-                        contentSource
-                    },
-                    updatedAtEpochMs = if (resetTransientState) null else updatedAtEpochMs,
-                    error = if (resetTransientState) null else error,
-                )
-            }
-            Msg.Loading -> copy(loading = true, error = null)
-            is Msg.Cached -> copy(
-                content = msg.content,
-                contentSource = LibraryContentSource.Cached,
-                updatedAtEpochMs = msg.updatedAtEpochMs,
-                error = null,
-            )
-            is Msg.Loaded -> copy(
-                loading = false,
-                content = msg.content,
-                contentSource = LibraryContentSource.Live,
-                updatedAtEpochMs = msg.updatedAtEpochMs,
-                error = null,
-            )
-            is Msg.FavoriteChanged -> copy(
-                content = content.copy(
-                    featured = content.featured.map {
-                        if (it.id == msg.itemId) it.copy(isFavorite = msg.favorite) else it
-                    },
-                    resume = content.resume.map {
-                        if (it.id == msg.itemId) it.copy(isFavorite = msg.favorite) else it
-                    },
-                    rows = content.rows.map { row ->
-                        row.copy(
-                            items = row.items.map {
-                                if (it.id == msg.itemId) {
-                                    it.copy(isFavorite = msg.favorite)
-                                } else {
-                                    it
-                                }
+        override fun LibraryState.reduce(msg: Msg): LibraryState =
+            when (msg) {
+                is Msg.Data -> {
+                    val serverChanged = msg.current?.id != currentServer?.id
+                    val resetTransientState = msg.current == null || serverChanged
+                    copy(
+                        servers = msg.servers,
+                        currentServer = msg.current,
+                        loading = if (resetTransientState) false else loading,
+                        content = if (resetTransientState) HomeContent() else content,
+                        contentSource =
+                            if (resetTransientState) {
+                                LibraryContentSource.None
+                            } else {
+                                contentSource
                             },
-                        )
-                    },
-                ),
-            )
-            is Msg.Failed -> copy(
-                loading = false,
-                contentSource = if (content.isEmpty) {
-                    LibraryContentSource.None
-                } else {
-                    LibraryContentSource.Cached
-                },
-                error = msg.message,
-            )
-        }
+                        updatedAtEpochMs = if (resetTransientState) null else updatedAtEpochMs,
+                        error = if (resetTransientState) null else error,
+                    )
+                }
+                Msg.Loading -> copy(loading = true, error = null)
+                is Msg.Cached ->
+                    copy(
+                        content = msg.content,
+                        contentSource = LibraryContentSource.Cached,
+                        updatedAtEpochMs = msg.updatedAtEpochMs,
+                        error = null,
+                    )
+                is Msg.Loaded ->
+                    copy(
+                        loading = false,
+                        content = msg.content,
+                        contentSource = LibraryContentSource.Live,
+                        updatedAtEpochMs = msg.updatedAtEpochMs,
+                        error = null,
+                    )
+                is Msg.FavoriteChanged ->
+                    copy(
+                        content =
+                            content.copy(
+                                featured =
+                                    content.featured.map {
+                                        if (it.id == msg.itemId) it.copy(isFavorite = msg.favorite) else it
+                                    },
+                                resume =
+                                    content.resume.map {
+                                        if (it.id == msg.itemId) it.copy(isFavorite = msg.favorite) else it
+                                    },
+                                rows =
+                                    content.rows.map { row ->
+                                        row.copy(
+                                            items =
+                                                row.items.map {
+                                                    if (it.id == msg.itemId) {
+                                                        it.copy(isFavorite = msg.favorite)
+                                                    } else {
+                                                        it
+                                                    }
+                                                },
+                                        )
+                                    },
+                            ),
+                    )
+                is Msg.Failed ->
+                    copy(
+                        loading = false,
+                        contentSource =
+                            if (content.isEmpty) {
+                                LibraryContentSource.None
+                            } else {
+                                LibraryContentSource.Cached
+                            },
+                        error = msg.message,
+                    )
+            }
     }
 }

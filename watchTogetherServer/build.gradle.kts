@@ -9,6 +9,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":watchTogetherProtocol"))
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.websockets)

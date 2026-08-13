@@ -21,6 +21,17 @@ data class StreamUrls(
 
 /** Builds Emby playback URLs. */
 object EmbyStream {
+    /** External subtitle stream. Tokens are created at the last responsible moment. */
+    fun subtitle(
+        baseUrl: String,
+        itemId: String,
+        mediaSourceId: String,
+        streamIndex: Int,
+        token: String,
+        format: String = "srt",
+    ): String =
+        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/$mediaSourceId/Subtitles/$streamIndex/Stream.$format" +
+            "?api_key=${token.queryValue()}"
 
     fun trickplayTilePattern(
         baseUrl: String,
@@ -28,13 +39,16 @@ object EmbyStream {
         mediaSourceId: String,
         width: Int,
         token: String,
-    ): String = "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/Trickplay/$width/{index}.jpg" +
-        "?MediaSourceId=${mediaSourceId.queryValue()}&api_key=${token.queryValue()}"
+    ): String =
+        "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/Trickplay/$width/{index}.jpg" +
+            "?MediaSourceId=${mediaSourceId.queryValue()}&api_key=${token.queryValue()}"
 
     /**
-     * Resolves a relative URL returned by PlaybackInfo and completes its authentication.
-     * Servers differ on whether they include the token and session in DirectStreamUrl;
-     * adding only missing parameters keeps both Emby and Jellyfin responses usable.
+     * Resolves a URL returned by PlaybackInfo and completes its authentication.
+     * Public cleartext absolute URLs are rejected before credentials are attached; a relative
+     * URL remains on the already-approved server, while local HTTP inherits that server's
+     * explicit confirmation. Servers differ on whether they include the token and session in
+     * DirectStreamUrl; adding only missing parameters keeps both Emby and Jellyfin usable.
      */
     fun negotiatedUrl(
         baseUrl: String,
@@ -42,12 +56,20 @@ object EmbyStream {
         token: String,
         playSessionId: String,
         addApiKey: Boolean = true,
-    ): String {
-        var value = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
-            rawUrl
-        } else {
-            "${normalizeBaseUrl(baseUrl)}/${rawUrl.trimStart('/')}"
-        }
+        localCleartextConfirmed: Boolean = false,
+    ): String? {
+        val trimmedUrl = rawUrl.trim()
+        val absoluteWebUrl =
+            trimmedUrl
+                .substringBefore("://", missingDelimiterValue = "")
+                .lowercase() in setOf("http", "https")
+        var value =
+            if (absoluteWebUrl) {
+                val validation = validateEmbyServerEndpoint(trimmedUrl, localCleartextConfirmed)
+                trimmedUrl.takeIf { validation.allowed } ?: return null
+            } else {
+                "${normalizeBaseUrl(baseUrl)}/${trimmedUrl.trimStart('/')}"
+            }
         if (addApiKey && !value.hasQueryParameter("api_key") && !value.hasQueryParameter("X-Emby-Token")) {
             value = value.withQueryParameter("api_key", token.queryValue())
         }
@@ -81,24 +103,26 @@ object EmbyStream {
         val session = newPlaySessionId()
         return StreamUrls(
             direct = directPlay(baseUrl, itemId, token, mediaSourceId, session),
-            transcode = transcode(
-                baseUrl = baseUrl,
-                itemId = itemId,
-                token = token,
-                maxWidth = maxWidth,
-                videoBitrate = videoBitrate,
-                mediaSourceId = mediaSourceId,
-                playSessionId = session,
-            ),
-            progressiveTranscode = progressiveTranscode(
-                baseUrl = baseUrl,
-                itemId = itemId,
-                token = token,
-                maxWidth = maxWidth,
-                videoBitrate = videoBitrate,
-                mediaSourceId = mediaSourceId,
-                playSessionId = session,
-            ),
+            transcode =
+                transcode(
+                    baseUrl = baseUrl,
+                    itemId = itemId,
+                    token = token,
+                    maxWidth = maxWidth,
+                    videoBitrate = videoBitrate,
+                    mediaSourceId = mediaSourceId,
+                    playSessionId = session,
+                ),
+            progressiveTranscode =
+                progressiveTranscode(
+                    baseUrl = baseUrl,
+                    itemId = itemId,
+                    token = token,
+                    maxWidth = maxWidth,
+                    videoBitrate = videoBitrate,
+                    mediaSourceId = mediaSourceId,
+                    playSessionId = session,
+                ),
             playSessionId = session,
         )
     }
@@ -112,13 +136,14 @@ object EmbyStream {
      * `Playing/Stopped` has no way to name the ffmpeg job it is supposed to end — which is
      * how orphaned encodings pile up until the server starts refusing new ones with a 4xx.
      */
-    fun newPlaySessionId(): String = buildString {
-        // The video-streaming contract calls this an alpha-numeric value. Some older or
-        // proxied Emby installations validate that literally and reject punctuation with
-        // HTTP 400, so keep the useful client prefix without the old hyphen.
-        append("yfuse")
-        repeat(24) { append("0123456789abcdef"[Random.nextInt(16)]) }
-    }
+    fun newPlaySessionId(): String =
+        buildString {
+            // The video-streaming contract calls this an alpha-numeric value. Some older or
+            // proxied Emby installations validate that literally and reject punctuation with
+            // HTTP 400, so keep the useful client prefix without the old hyphen.
+            append("yfuse")
+            repeat(24) { append("0123456789abcdef"[Random.nextInt(16)]) }
+        }
 
     /**
      * Direct-play URL for a video item (serves the original file, no transcode).
@@ -149,13 +174,17 @@ object EmbyStream {
      * follows the width rather than the source's own, because H.264 needs more bits than
      * the HEVC it is usually replacing and the source figure would starve it.
      */
-    fun transcodeTarget(sourceWidth: Int?, sourceBitrateBps: Int?): Pair<Int, Int> {
+    fun transcodeTarget(
+        sourceWidth: Int?,
+        sourceBitrateBps: Int?,
+    ): Pair<Int, Int> {
         val width = (sourceWidth ?: 0).coerceIn(1920, 3840)
-        val bitrate = when {
-            width > 2560 -> 24_000_000
-            width > 1920 -> 16_000_000
-            else -> 8_000_000
-        }
+        val bitrate =
+            when {
+                width > 2560 -> 24_000_000
+                width > 1920 -> 16_000_000
+                else -> 8_000_000
+            }
         // A source that is genuinely thinner than the ladder does not need padding out.
         val capped = sourceBitrateBps?.takeIf { it in 1..bitrate } ?: bitrate
         return width to capped
@@ -246,7 +275,10 @@ object EmbyStream {
      * Left off entirely when it would only repeat the item id, which is what Emby assumes
      * anyway — keeping the common single-source URL byte-for-byte what it has always been.
      */
-    private fun mediaSourceParam(mediaSourceId: String?, itemId: String): String =
+    private fun mediaSourceParam(
+        mediaSourceId: String?,
+        itemId: String,
+    ): String =
         if (mediaSourceId == null || mediaSourceId == itemId) {
             ""
         } else {
@@ -258,10 +290,15 @@ object EmbyStream {
     private fun String.hasQueryParameter(name: String): Boolean =
         Regex("(?:[?&])${Regex.escape(name)}=", RegexOption.IGNORE_CASE).containsMatchIn(this)
 
-    private fun String.withQueryParameter(name: String, encodedValue: String): String =
-        "$this${if ('?' in this) '&' else '?'}$name=$encodedValue"
+    private fun String.withQueryParameter(
+        name: String,
+        encodedValue: String,
+    ): String = "$this${if ('?' in this) '&' else '?'}$name=$encodedValue"
 
-    private fun String.withOrReplaceQueryParameter(name: String, encodedValue: String): String {
+    private fun String.withOrReplaceQueryParameter(
+        name: String,
+        encodedValue: String,
+    ): String {
         val parameter = Regex("([?&])${Regex.escape(name)}=[^&]*", RegexOption.IGNORE_CASE)
         return if (parameter.containsMatchIn(this)) {
             replace(parameter, "$1$name=$encodedValue")
@@ -271,7 +308,10 @@ object EmbyStream {
     }
 
     /** Rewrites the generated HLS cap without rebuilding the authenticated URL. */
-    fun withQuality(url: String, quality: PlaybackQuality): String {
+    fun withQuality(
+        url: String,
+        quality: PlaybackQuality,
+    ): String {
         if (url.isBlank()) return url
         val maxWidth = quality.maxWidth ?: return url
         val bitrate = quality.videoBitrate ?: return url

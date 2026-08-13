@@ -119,7 +119,7 @@ private class RaceFixture : AutoCloseable {
         passwordHasher = Pbkdf2PasswordHasher(iterations = 1_000),
         usernameFailureLimiter = UsernameFailureLimiter(),
         syncUserRateLimiter = AccountRateLimiter(),
-        registrationPolicy = AccountRegistrationPolicy(),
+        registrationPolicy = AccountRegistrationPolicy(enabled = true),
     )
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
 

@@ -11,7 +11,10 @@ class TestSecureStore : SecureStore {
         return values[key]?.copyOf()
     }
 
-    override fun put(key: String, value: ByteArray) {
+    override fun put(
+        key: String,
+        value: ByteArray,
+    ) {
         if (failWrites) throw SecureStoreException("test write failure")
         values[key] = value.copyOf()
     }

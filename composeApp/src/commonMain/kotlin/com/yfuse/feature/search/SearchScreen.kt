@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -53,30 +52,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.app.TabBarInset
-import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.data.CrossServerMediaGroup
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
-import com.yfuse.core.designsystem.Poster
-import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.OfficialNavDisplay
+import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.skeletonFill
-import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
@@ -95,11 +95,12 @@ fun SearchScreen(component: SearchComponent) {
     ) { entry ->
         val instance = entry.instance
         when (instance) {
-            is SearchComponent.Child.Home -> SearchHomeScreen(
-                component = instance.component,
-                focusRequest = focusRequest,
-                consumeFocusRequest = component::consumeFocusRequest,
-            )
+            is SearchComponent.Child.Home ->
+                SearchHomeScreen(
+                    component = instance.component,
+                    focusRequest = focusRequest,
+                    consumeFocusRequest = component::consumeFocusRequest,
+                )
             is SearchComponent.Child.Detail -> DetailScreen(instance.component)
             is SearchComponent.Child.Player -> PlayerScreen(instance.component)
         }
@@ -211,7 +212,7 @@ private fun SearchHomeScreen(
                 item {
                     Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
                         ResultsHeading(
-                            count = state.visibleCount,
+                            count = state.visibleResultCount,
                             types = state.availableTypes,
                             selected = state.type,
                             onSelectType = { store.accept(SearchIntent.SetType(it)) },
@@ -227,31 +228,42 @@ private fun SearchHomeScreen(
                             Spacer(Modifier.height(14.dp))
                         }
                         when {
-                            state.error != null -> ErrorState(
-                                message = state.error!!,
-                                onRetry = { store.accept(SearchIntent.Retry) },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            state.error != null ->
+                                ErrorState(
+                                    message = state.error!!,
+                                    onRetry = { store.accept(SearchIntent.Retry) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
 
                             // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
                             state.visibleGroups.all { it.items.isEmpty() } && !state.loading ->
                                 EmptyResults(filtered = state.type != SearchType.All)
 
-                            else -> Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                                state.visibleGroups.forEach { group ->
-                                    ServerGroup(
-                                        group = group,
-                                        baseUrl = component.serverBaseUrl(group.serverId),
-                                        accessToken = component.serverAccessToken(group.serverId),
-                                        onOpenItem = {
-                                            component.onOpenItem(group.serverId, it)
-                                        },
-                                        onLoadMore = {
-                                            store.accept(SearchIntent.LoadMore(group.serverId))
-                                        },
+                            else ->
+                                if (state.aggregated.isNotEmpty()) {
+                                    AggregatedResults(
+                                        groups = state.visibleAggregated,
+                                        baseUrl = component::serverBaseUrl,
+                                        accessToken = component::serverAccessToken,
+                                        onOpenItem = component.onOpenItem,
                                     )
+                                } else {
+                                    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                                        state.visibleGroups.forEach { group ->
+                                            ServerGroup(
+                                                group = group,
+                                                baseUrl = component.serverBaseUrl(group.serverId),
+                                                accessToken = component.serverAccessToken(group.serverId),
+                                                onOpenItem = {
+                                                    component.onOpenItem(group.serverId, it)
+                                                },
+                                                onLoadMore = {
+                                                    store.accept(SearchIntent.LoadMore(group.serverId))
+                                                },
+                                            )
+                                        }
+                                    }
                                 }
-                            }
                         }
                     }
                 }
@@ -269,6 +281,35 @@ private fun SearchHomeScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+/** One logical card per title; its badge reveals how many concrete server copies back it. */
+@Composable
+private fun AggregatedResults(
+    groups: List<CrossServerMediaGroup>,
+    baseUrl: (String) -> String,
+    accessToken: (String) -> String,
+    onOpenItem: (String, String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        groups.forEach { group ->
+            val recommended = group.recommended
+            ResultRow(
+                baseUrl = baseUrl(recommended.serverId),
+                accessToken = accessToken(recommended.serverId),
+                serverId = recommended.serverId,
+                item = recommended.item,
+                sourceSummary =
+                    if (group.copies.size > 1) {
+                        "${group.copies.size} 个片源 · 推荐 ${recommended.serverName}"
+                    } else {
+                        null
+                    },
+                onClick = { onOpenItem(recommended.serverId, recommended.item.id) },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -312,10 +353,11 @@ private fun SearchField(
                 cursorBrush = SolidColor(accent.accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester)
-                    .semantics { contentDescription = "搜索电影、剧集、演员" },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .semantics { contentDescription = "搜索电影、剧集、演员" },
             )
         }
         if (query.isNotEmpty()) {
@@ -325,10 +367,11 @@ private fun SearchField(
                 tint = palette.sub2,
                 // 13dp was the smallest control in the app, and it sits at the end of a
                 // text field the user is actively typing in.
-                modifier = Modifier
-                    .pressable(onClick = onClear)
-                    .touchTarget()
-                    .size(13.dp),
+                modifier =
+                    Modifier
+                        .pressable(onClick = onClear)
+                        .touchTarget()
+                        .size(13.dp),
             )
         }
     }
@@ -372,23 +415,27 @@ private fun ResultsHeading(
 }
 
 @Composable
-private fun TypeChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun TypeChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     Text(
         label,
         style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
         color = if (selected) accent.accent else palette.body,
-        modifier = Modifier
-            .pressable(role = Role.RadioButton, onClick = onClick)
-            .semantics { this.selected = selected }
-            .touchTarget()
-            .glass(
-                shape = GlassShapes.chip,
-                fill = if (selected) accent.container else palette.card2,
-                border = if (selected) accent.border else palette.border,
-            )
-            .padding(horizontal = 11.dp, vertical = 5.dp),
+        modifier =
+            Modifier
+                .pressable(role = Role.RadioButton, onClick = onClick)
+                .semantics { this.selected = selected }
+                .touchTarget()
+                .glass(
+                    shape = GlassShapes.chip,
+                    fill = if (selected) accent.container else palette.card2,
+                    border = if (selected) accent.border else palette.border,
+                ).padding(horizontal = 11.dp, vertical = 5.dp),
     )
 }
 
@@ -406,9 +453,10 @@ private fun PeopleRow(
             "演员",
             style = AppTypography.body.strong,
             color = palette.text,
-            modifier = Modifier
-                .padding(horizontal = Dimens.pageHorizontal)
-                .padding(bottom = 10.dp),
+            modifier =
+                Modifier
+                    .padding(horizontal = Dimens.pageHorizontal)
+                    .padding(bottom = 10.dp),
         )
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
@@ -429,15 +477,16 @@ private fun PeopleRow(
                             .background(skeletonFill()),
                     ) {
                         FallbackImage(
-                            urls = listOf(
-                                EmbyImages.primary(
-                                    baseUrl(person.serverId),
-                                    person.personId,
-                                    person.imageTag,
-                                    maxHeight = 200,
-                                    accessToken = accessToken(person.serverId),
+                            urls =
+                                listOf(
+                                    EmbyImages.primary(
+                                        baseUrl(person.serverId),
+                                        person.personId,
+                                        person.imageTag,
+                                        maxHeight = 200,
+                                        accessToken = accessToken(person.serverId),
+                                    ),
                                 ),
-                            ),
                             contentDescription = person.name,
                             // 56dp of face has nothing to resolve into.
                             progressive = false,
@@ -461,7 +510,10 @@ private fun PeopleRow(
 
 /** What the results are, once they stopped being a title search. */
 @Composable
-private fun PersonBanner(person: PersonHit, onClear: () -> Unit) {
+private fun PersonBanner(
+    person: PersonHit,
+    onClear: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     Row(
@@ -525,7 +577,9 @@ private fun ServerGroup(
                     } else {
                         "${group.items.size} 部"
                     }
-                } else "连接失败",
+                } else {
+                    "连接失败"
+                },
                 style = AppTypography.caption.strong,
                 color = palette.sub2,
             )
@@ -549,7 +603,7 @@ private fun ServerGroup(
                         serverId = group.serverId,
                         item = item,
                         onClick = { onOpenItem(item.id) },
-                        modifier = Modifier.width(270.dp).then(motionAwareItem()),
+                        modifier = Modifier.width(SearchResultCardWidth).then(motionAwareItem()),
                     )
                 }
             }
@@ -574,8 +628,7 @@ private fun ServerGroup(
                         enabled = !group.loadingMore,
                         onClickLabel = if (group.loadMoreError == null) "加载更多结果" else "重试加载更多",
                         onClick = onLoadMore,
-                    )
-                    .touchTarget()
+                    ).touchTarget()
                     .glass(GlassShapes.chip, palette.card2, palette.border)
                     .padding(horizontal = 14.dp, vertical = 9.dp),
                 horizontalArrangement = Arrangement.Center,
@@ -679,13 +732,13 @@ private fun SearchCoverageNotice(
                         "前往「我的」检查登录",
                         style = AppTypography.caption.strong,
                         color = accent.accent,
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .pressable(
-                                onClickLabel = "前往服务器设置重新登录",
-                                onClick = onOpenServerSettings,
-                            )
-                            .touchTarget(),
+                        modifier =
+                            Modifier
+                                .align(Alignment.End)
+                                .pressable(
+                                    onClickLabel = "前往服务器设置重新登录",
+                                    onClick = onOpenServerSettings,
+                                ).touchTarget(),
                     )
                 }
             }
@@ -736,13 +789,20 @@ private fun SearchSkeleton() {
                     .padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
-                SkeletonBlock(Modifier.width(60.dp).height(90.dp), shape = AppShapes.thumb)
+                SkeletonBlock(
+                    Modifier.width(SearchPosterWidth).height(SearchPosterHeight),
+                    shape = AppShapes.thumb,
+                )
                 Column(
-                    Modifier.weight(1f).padding(top = 6.dp),
+                    Modifier.weight(1f).padding(top = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     SkeletonBlock(Modifier.fillMaxWidth().height(13.dp), shape = AppShapes.micro)
                     SkeletonBlock(Modifier.width(80.dp).height(10.dp), shape = AppShapes.micro)
+                    // The synopsis the real row carries; without it the placeholder is a
+                    // different shape from what replaces it and the list jumps.
+                    SkeletonBlock(Modifier.fillMaxWidth().height(10.dp), shape = AppShapes.micro)
+                    SkeletonBlock(Modifier.fillMaxWidth(0.7f).height(10.dp), shape = AppShapes.micro)
                 }
             }
         }
@@ -750,7 +810,17 @@ private fun SearchSkeleton() {
 }
 
 /**
- * Result row — exact 56×80 poster, 11px gap, 8px inset and compact two-line identity.
+ * Result row — poster, identity, and as much of the synopsis as the row can hold.
+ *
+ * The poster is [SearchPosterWidth]×[SearchPosterHeight]. It was 60×90, which is a
+ * thumbnail: at that size a poster is a coloured rectangle, and a poster is how most
+ * people recognise a title they have already seen. The synopsis is the other half —
+ * search across several servers returns near-identical names (a remake, a series and its
+ * film, two cuts of one title), and the two lines that say what the thing actually is
+ * were only available by opening each one in turn.
+ *
+ * Both lines are optional and the row stays the poster's height either way, so a library
+ * whose items carry no synopsis is not a page of ragged rows.
  */
 @Composable
 private fun ResultRow(
@@ -758,6 +828,7 @@ private fun ResultRow(
     accessToken: String,
     serverId: String,
     item: MediaItem,
+    sourceSummary: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -776,17 +847,67 @@ private fun ResultRow(
             // accounts is two groups holding the same item ids. A shared-element key
             // repeated within one screen leaves one of its copies undrawn, so the group
             // it belongs to is part of the key.
-            modifier = Modifier.width(60.dp).height(90.dp),
+            modifier = Modifier.width(SearchPosterWidth).height(SearchPosterHeight),
             sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
         )
-        Column(Modifier.weight(1f).align(Alignment.CenterVertically)) {
-            Text(
-                item.title,
-                style = AppTypography.body.strong,
-                color = palette.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Column(
+            Modifier
+                .weight(1f)
+                .heightIn(min = SearchPosterHeight)
+                .padding(vertical = 2.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    item.title,
+                    style = AppTypography.body.strong,
+                    color = palette.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                // Beside the title rather than centred down the right edge: on a row this
+                // tall a vertically centred chip floats away from the thing it labels.
+                Text(
+                    if (item.type == "Series") "剧集" else "影片",
+                    style = AppTypography.caption.strong,
+                    color = accent.accent,
+                    maxLines = 1,
+                    modifier =
+                        Modifier
+                            .clip(AppShapes.thumb)
+                            .background(accent.container)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+            sourceSummary?.let { summary ->
+                Spacer(Modifier.height(5.dp))
+                Row(
+                    Modifier
+                        .clip(GlassShapes.chip)
+                        .background(accent.container)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        AppIcons.Cloud,
+                        contentDescription = null,
+                        tint = accent.accent,
+                        modifier = Modifier.size(11.dp),
+                    )
+                    Text(
+                        summary,
+                        style = AppTypography.caption.strong,
+                        color = accent.accent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             if (item.subtitle != null) {
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -797,19 +918,30 @@ private fun ResultRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            item.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    overview,
+                    style = AppTypography.caption.regular.copy(lineHeight = 17.sp),
+                    color = palette.hint,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        Text(
-            if (item.type == "Series") "剧集" else "影片",
-            style = AppTypography.caption.strong,
-            color = accent.accent,
-            modifier = Modifier
-                .align(Alignment.CenterVertically)
-                .clip(AppShapes.thumb)
-                .background(accent.container)
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-        )
     }
 }
+
+/** Search-result poster. A 2:3 crop, large enough to be recognised rather than counted. */
+private val SearchPosterWidth = 76.dp
+private val SearchPosterHeight = 114.dp
+
+/**
+ * A card in a server's result reel. Widened with the poster and the synopsis: at the old
+ * 270dp the two lines of copy were about ten characters each, which is a column, not a
+ * sentence. The next card still peeks past the edge, which is what says the row scrolls.
+ */
+private val SearchResultCardWidth = 300.dp
 
 /**
  * 搜索记录 chips, plus the suggestions shown before there is any history.
@@ -863,8 +995,7 @@ private fun RecentSearches(
                             onLongClick = { if (canEdit) onForget(term) },
                             onLongClickLabel = if (canEdit) "删除搜索记录" else null,
                             onClick = { if (editing) onForget(term) else onSelect(term) },
-                        )
-                        .touchTarget()
+                        ).touchTarget()
                         .glass(GlassShapes.chip, palette.card2)
                         .padding(horizontal = 13.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -892,21 +1023,25 @@ private fun RecentSearches(
 }
 
 @Composable
-private fun HistoryAction(label: String, accent: Boolean, onClick: () -> Unit) {
+private fun HistoryAction(
+    label: String,
+    accent: Boolean,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accentColors = LocalAccentColors.current
     Text(
         label,
         style = AppTypography.caption.strong,
         color = if (accent) accentColors.accent else palette.sub2,
-        modifier = Modifier
-            .pressable(onClick = onClick)
-            .touchTarget()
-            .glass(
-                shape = GlassShapes.chip,
-                fill = if (accent) accentColors.container else palette.card2,
-                border = if (accent) accentColors.border else palette.border,
-            )
-            .padding(horizontal = 11.dp, vertical = 6.dp),
+        modifier =
+            Modifier
+                .pressable(onClick = onClick)
+                .touchTarget()
+                .glass(
+                    shape = GlassShapes.chip,
+                    fill = if (accent) accentColors.container else palette.card2,
+                    border = if (accent) accentColors.border else palette.border,
+                ).padding(horizontal = 11.dp, vertical = 6.dp),
     )
 }

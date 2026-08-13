@@ -20,18 +20,18 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DanmakuTest {
-
     @Test
     fun thinning_keeps_the_whole_timeline_instead_of_only_the_opening() {
         // 12 comments spread over two hours, thinned to a budget of 4.
-        val comments = List(12) { index ->
-            DanmakuComment(
-                timeMs = index * 600_000L,
-                text = "comment-$index",
-                kind = DanmakuKind.Scroll,
-                color = 0xFFFFFF,
-            )
-        }
+        val comments =
+            List(12) { index ->
+                DanmakuComment(
+                    timeMs = index * 600_000L,
+                    text = "comment-$index",
+                    kind = DanmakuKind.Scroll,
+                    color = 0xFFFFFF,
+                )
+            }
 
         val thinned = comments.thinToBudget(4)
 
@@ -44,74 +44,109 @@ class DanmakuTest {
 
     @Test
     fun thinning_leaves_a_list_within_budget_untouched() {
-        val comments = List(3) { index ->
-            DanmakuComment(
-                timeMs = index * 1_000L,
-                text = "c$index",
-                kind = DanmakuKind.Scroll,
-                color = 0xFFFFFF,
-            )
-        }
+        val comments =
+            List(3) { index ->
+                DanmakuComment(
+                    timeMs = index * 1_000L,
+                    text = "c$index",
+                    kind = DanmakuKind.Scroll,
+                    color = 0xFFFFFF,
+                )
+            }
 
         assertEquals(comments, comments.thinToBudget(5_000))
     }
 
     @Test
-    fun bounded_response_reader_accepts_the_exact_limit() = runTest {
-        val text = "12345678"
+    fun bounded_response_reader_accepts_the_exact_limit() =
+        runTest {
+            val text = "12345678"
 
-        val result = ByteReadChannel(text).readBoundedDanmakuText(maximumBytes = 8)
+            val result = ByteReadChannel(text).readBoundedDanmakuText(maximumBytes = 8)
 
-        assertEquals(text, result)
-    }
-
-    @Test
-    fun bounded_response_reader_rejects_the_first_excess_byte() = runTest {
-        assertFailsWith<DanmakuResponseTooLargeException> {
-            ByteReadChannel("123456789").readBoundedDanmakuText(maximumBytes = 8)
+            assertEquals(text, result)
         }
-    }
 
     @Test
-    fun response_limit_is_applied_after_gzip_decompression() = runTest {
-        // 30 compressed bytes expand to 1,000 ASCII bytes. A 64-byte cap therefore only
-        // fails when ContentEncoding has run before readBoundedDanmakuText.
-        val compressed = byteArrayOf(
-            31, -117, 8, 0, 0, 0, 0, 0, 0, 10, 75, 76, 28, 5, -93, 96, 20, 36,
-            14, 115, 0, 0, 3, -38, 56, -102, -24, 3, 0, 0,
-        )
-        val client = createDanmakuClient(
-            MockEngine {
-                respond(
-                    content = ByteReadChannel(compressed),
-                    status = HttpStatusCode.OK,
-                    headers = headersOf(HttpHeaders.ContentEncoding, "gzip"),
-                )
-            },
-        )
-
-        try {
-            val response = client.get("https://danmaku.example.test/comments")
+    fun bounded_response_reader_rejects_the_first_excess_byte() =
+        runTest {
             assertFailsWith<DanmakuResponseTooLargeException> {
-                response.bodyAsChannel().readBoundedDanmakuText(maximumBytes = 64)
+                ByteReadChannel("123456789").readBoundedDanmakuText(maximumBytes = 8)
             }
-        } finally {
-            client.close()
         }
-    }
+
+    @Test
+    fun response_limit_is_applied_after_gzip_decompression() =
+        runTest {
+            // 30 compressed bytes expand to 1,000 ASCII bytes. A 64-byte cap therefore only
+            // fails when ContentEncoding has run before readBoundedDanmakuText.
+            val compressed =
+                byteArrayOf(
+                    31,
+                    -117,
+                    8,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    10,
+                    75,
+                    76,
+                    28,
+                    5,
+                    -93,
+                    96,
+                    20,
+                    36,
+                    14,
+                    115,
+                    0,
+                    0,
+                    3,
+                    -38,
+                    56,
+                    -102,
+                    -24,
+                    3,
+                    0,
+                    0,
+                )
+            val client =
+                createDanmakuClient(
+                    MockEngine {
+                        respond(
+                            content = ByteReadChannel(compressed),
+                            status = HttpStatusCode.OK,
+                            headers = headersOf(HttpHeaders.ContentEncoding, "gzip"),
+                        )
+                    },
+                )
+
+            try {
+                val response = client.get("https://danmaku.example.test/comments")
+                assertFailsWith<DanmakuResponseTooLargeException> {
+                    response.bodyAsChannel().readBoundedDanmakuText(maximumBytes = 64)
+                }
+            } finally {
+                client.close()
+            }
+        }
 
     @Test
     fun preferences_survive_recreation() {
         val settings = MapSettings()
-        val first = DanmakuPreferences(settings).apply {
-            addSource("夏天", "https://example.com/{title}/{id}")
-            addSource("alpha2", "https://danmaku.example.com")
-            setEnabled(false)
-            setDisplayArea(DanmakuDisplayArea.ThreeQuarters)
-            setFontSize(DanmakuFontSize.Large)
-            setSpeed(DanmakuSpeed.Fast)
-            setOpacity(DanmakuOpacity.High)
-        }
+        val first =
+            DanmakuPreferences(settings).apply {
+                addSource("夏天", "https://example.com/{title}/{id}")
+                addSource("alpha2", "https://danmaku.example.com")
+                setEnabled(false)
+                setDisplayArea(DanmakuDisplayArea.ThreeQuarters)
+                setFontSize(DanmakuFontSize.Large)
+                setSpeed(DanmakuSpeed.Fast)
+                setOpacity(DanmakuOpacity.High)
+            }
         val second = first.sources.value[1]
         first.selectSource(second.id)
 
@@ -150,9 +185,10 @@ class DanmakuTest {
         val encoded = json.encodeToString(DanmakuSyncSnapshot.serializer(), original.snapshot())
         val decoded = json.decodeFromString(DanmakuSyncSnapshot.serializer(), encoded)
         val targetSettings = MapSettings()
-        val target = DanmakuPreferences(targetSettings).apply {
-            rememberSearch("目标设备历史")
-        }
+        val target =
+            DanmakuPreferences(targetSettings).apply {
+                rememberSearch("目标设备历史")
+            }
 
         target.applySnapshot(decoded).getOrThrow()
 
@@ -171,18 +207,20 @@ class DanmakuTest {
         requireNotNull(preferences.addSource("原有", "https://good.example.com"))
         preferences.setEnabled(false)
         val before = preferences.snapshot()
-        val invalid = before.copy(
-            sources = listOf(DanmakuSource("bad", "坏地址", "file:///tmp/comments.xml")),
-            enabled = true,
-        )
+        val invalid =
+            before.copy(
+                sources = listOf(DanmakuSource("bad", "坏地址", "file:///tmp/comments.xml")),
+                enabled = true,
+            )
 
         assertTrue(preferences.validateSnapshot(invalid).isFailure)
         assertEquals(before, preferences.snapshot())
         assertEquals(before, DanmakuPreferences(settings).snapshot())
         assertTrue(
-            preferences.applySnapshot(
-                before.copy(version = DanmakuSyncSnapshot.CURRENT_VERSION + 1),
-            ).isFailure,
+            preferences
+                .applySnapshot(
+                    before.copy(version = DanmakuSyncSnapshot.CURRENT_VERSION + 1),
+                ).isFailure,
         )
         assertTrue(preferences.applySnapshot(invalid).isFailure)
         assertEquals(before, preferences.snapshot())
@@ -191,9 +229,10 @@ class DanmakuTest {
     @Test
     fun oversized_snapshot_is_rejected() {
         val preferences = DanmakuPreferences(MapSettings())
-        val tooManySources = List(MAX_DANMAKU_SYNC_SOURCES + 1) { index ->
-            DanmakuSource("source-$index", "来源 $index", "https://$index.example.com")
-        }
+        val tooManySources =
+            List(MAX_DANMAKU_SYNC_SOURCES + 1) { index ->
+                DanmakuSource("source-$index", "来源 $index", "https://$index.example.com")
+            }
 
         assertTrue(
             preferences.applySnapshot(DanmakuSyncSnapshot(sources = tooManySources)).isFailure,
@@ -207,29 +246,40 @@ class DanmakuTest {
         val preferences = DanmakuPreferences(settings)
         val kept = DanmakuSource("source-kept", "保留", "https://kept.example.com")
         val deleted = DanmakuSource("source-deleted", "删除", "https://deleted.example.com")
-        val snapshot = DanmakuSyncSnapshot(
-            sources = listOf(kept),
-            activeSourceId = deleted.id,
-            bindings = linkedMapOf(
-                "movie:kept" to DanmakuBinding(kept.id, "episode-kept", "保留匹配"),
-                "movie:deleted" to DanmakuBinding(deleted.id, "episode-deleted", "失效匹配"),
-            ),
-        )
+        val snapshot =
+            DanmakuSyncSnapshot(
+                sources = listOf(kept),
+                activeSourceId = deleted.id,
+                bindings =
+                    linkedMapOf(
+                        "movie:kept" to DanmakuBinding(kept.id, "episode-kept", "保留匹配"),
+                        "movie:deleted" to DanmakuBinding(deleted.id, "episode-deleted", "失效匹配"),
+                    ),
+            )
 
         preferences.applySnapshot(snapshot).getOrThrow()
 
         assertEquals(kept.id, preferences.activeSourceId.value)
-        assertEquals(listOf("movie:kept"), preferences.bindings.value.keys.toList())
+        assertEquals(
+            listOf("movie:kept"),
+            preferences.bindings.value.keys
+                .toList(),
+        )
         val restored = DanmakuPreferences(settings)
         assertEquals(kept.id, restored.activeSourceId.value)
-        assertEquals(listOf("movie:kept"), restored.bindings.value.keys.toList())
+        assertEquals(
+            listOf("movie:kept"),
+            restored.bindings.value.keys
+                .toList(),
+        )
     }
 
     @Test
     fun applying_empty_snapshot_clears_sources_without_reviving_legacy_link() {
-        val settings = MapSettings().apply {
-            putString("danmaku.urlTemplate", "https://legacy.example.com/{id}")
-        }
+        val settings =
+            MapSettings().apply {
+                putString("danmaku.urlTemplate", "https://legacy.example.com/{id}")
+            }
         val preferences = DanmakuPreferences(settings)
         assertEquals(1, preferences.sources.value.size)
 
@@ -243,42 +293,56 @@ class DanmakuTest {
 
     @Test
     fun snapshot_import_limits_display_text_and_normalizes_blocked_words() {
-        val source = DanmakuSource(
-            id = "source-a",
-            name = "名".repeat(MAX_DANMAKU_SYNC_SOURCE_NAME_CHARS + 5),
-            url = "https://a.example.com",
-        )
+        val source =
+            DanmakuSource(
+                id = "source-a",
+                name = "名".repeat(MAX_DANMAKU_SYNC_SOURCE_NAME_CHARS + 5),
+                url = "https://a.example.com",
+            )
         val preferences = DanmakuPreferences(MapSettings())
 
-        preferences.applySnapshot(
-            DanmakuSyncSnapshot(
-                sources = listOf(source),
-                bindings = mapOf(
-                    "movie:a" to DanmakuBinding(
-                        source.id,
-                        "episode-a",
-                        "标".repeat(MAX_DANMAKU_SYNC_BINDING_LABEL_CHARS + 5),
-                    ),
+        preferences
+            .applySnapshot(
+                DanmakuSyncSnapshot(
+                    sources = listOf(source),
+                    bindings =
+                        mapOf(
+                            "movie:a" to
+                                DanmakuBinding(
+                                    source.id,
+                                    "episode-a",
+                                    "标".repeat(MAX_DANMAKU_SYNC_BINDING_LABEL_CHARS + 5),
+                                ),
+                        ),
+                    blockedWords =
+                        listOf(
+                            " 剧透 ",
+                            "剧透",
+                            "词".repeat(MAX_DANMAKU_SYNC_BLOCKED_WORD_CHARS + 5),
+                            "   ",
+                        ),
                 ),
-                blockedWords = listOf(
-                    " 剧透 ",
-                    "剧透",
-                    "词".repeat(MAX_DANMAKU_SYNC_BLOCKED_WORD_CHARS + 5),
-                    "   ",
-                ),
-            ),
-        ).getOrThrow()
+            ).getOrThrow()
 
         assertEquals(
             MAX_DANMAKU_SYNC_SOURCE_NAME_CHARS,
-            preferences.sources.value.single().name.length,
+            preferences.sources.value
+                .single()
+                .name.length,
         )
         assertEquals(
             MAX_DANMAKU_SYNC_BINDING_LABEL_CHARS,
-            preferences.bindings.value.getValue("movie:a").label.length,
+            preferences.bindings.value
+                .getValue("movie:a")
+                .label.length,
         )
         assertEquals(2, preferences.blockedWords.value.size)
-        assertEquals(MAX_DANMAKU_SYNC_BLOCKED_WORD_CHARS, preferences.blockedWords.value.last().length)
+        assertEquals(
+            MAX_DANMAKU_SYNC_BLOCKED_WORD_CHARS,
+            preferences.blockedWords.value
+                .last()
+                .length,
+        )
     }
 
     @Test
@@ -289,11 +353,25 @@ class DanmakuTest {
         val migrated = DanmakuPreferences(settings)
 
         assertEquals(1, migrated.sources.value.size)
-        assertEquals("https://example.com/{id}", migrated.sources.value.first().url)
-        assertEquals(migrated.sources.value.first().id, migrated.activeSourceId.value)
+        assertEquals(
+            "https://example.com/{id}",
+            migrated.sources.value
+                .first()
+                .url,
+        )
+        assertEquals(
+            migrated.sources.value
+                .first()
+                .id,
+            migrated.activeSourceId.value,
+        )
         // The list is now authoritative: deleting the last source has to stick, rather
         // than falling back to the key it was seeded from.
-        migrated.removeSource(migrated.sources.value.first().id)
+        migrated.removeSource(
+            migrated.sources.value
+                .first()
+                .id,
+        )
         assertTrue(DanmakuPreferences(settings).sources.value.isEmpty())
     }
 
@@ -318,7 +396,11 @@ class DanmakuTest {
 
         prefs.removeSource(dropped.id)
 
-        assertEquals(listOf("item-1"), prefs.bindings.value.keys.toList())
+        assertEquals(
+            listOf("item-1"),
+            prefs.bindings.value.keys
+                .toList(),
+        )
         assertEquals(kept.id, prefs.activeSourceId.value)
     }
 
@@ -350,16 +432,17 @@ class DanmakuTest {
 
     @Test
     fun resolves_and_encodes_media_placeholders() {
-        val url = DanmakuRepository.resolveUrl(
-            "https://example.com/{serverId}/{id}?title={title}&season={season}&episode={episode}",
-            DanmakuMedia(
-                id = "a/b",
-                title = "测试 标题",
-                episode = 7,
-                season = 2,
-                serverId = "server 1",
-            ),
-        )
+        val url =
+            DanmakuRepository.resolveUrl(
+                "https://example.com/{serverId}/{id}?title={title}&season={season}&episode={episode}",
+                DanmakuMedia(
+                    id = "a/b",
+                    title = "测试 标题",
+                    episode = 7,
+                    season = 2,
+                    serverId = "server 1",
+                ),
+            )
 
         assertEquals(
             "https://example.com/server%201/a%2Fb?title=%E6%B5%8B%E8%AF%95%20%E6%A0%87%E9%A2%98&season=2&episode=7",
@@ -369,15 +452,16 @@ class DanmakuTest {
 
     @Test
     fun parses_bilibili_xml() {
-        val comments = DanmakuParser.parse(
-            """
-            <i>
-              <d p="1.5,1,25,16711680,0,0,0,0">滚动 &amp; 测试</d>
-              <d p="2.0,5,25,16777215,0,0,0,0">顶部</d>
-              <d p="3.0,4,25,255,0,0,0,0">底部</d>
-            </i>
-            """.trimIndent(),
-        )
+        val comments =
+            DanmakuParser.parse(
+                """
+                <i>
+                  <d p="1.5,1,25,16711680,0,0,0,0">滚动 &amp; 测试</d>
+                  <d p="2.0,5,25,16777215,0,0,0,0">顶部</d>
+                  <d p="3.0,4,25,255,0,0,0,0">底部</d>
+                </i>
+                """.trimIndent(),
+            )
 
         assertEquals(3, comments.size)
         assertEquals(1_500L, comments[0].timeMs)
@@ -389,19 +473,20 @@ class DanmakuTest {
 
     @Test
     fun parses_dplayer_and_common_json() {
-        val comments = DanmakuParser.parse(
-            """
-            {
-              "data": [
-                [1.25, 0, 16777215, "alice", "滚动"],
-                [2.5, 1, 65280, "bob", "顶部"]
-              ],
-              "comments": [
-                {"progress": 3750, "content": "对象格式", "mode": 4, "color": "#0000ff"}
-              ]
-            }
-            """.trimIndent(),
-        )
+        val comments =
+            DanmakuParser.parse(
+                """
+                {
+                  "data": [
+                    [1.25, 0, 16777215, "alice", "滚动"],
+                    [2.5, 1, 65280, "bob", "顶部"]
+                  ],
+                  "comments": [
+                    {"progress": 3750, "content": "对象格式", "mode": 4, "color": "#0000ff"}
+                  ]
+                }
+                """.trimIndent(),
+            )
 
         assertEquals(3, comments.size)
         assertEquals(listOf(1_250L, 2_500L, 3_750L), comments.map { it.timeMs })
@@ -413,18 +498,19 @@ class DanmakuTest {
 
     @Test
     fun parses_dandanplay_comments() {
-        val comments = DanmakuParser.parse(
-            """
-            {
-              "count": 3,
-              "comments": [
-                {"cid": 1, "p": "12.5,1,16711680,1234567", "m": "滚动"},
-                {"cid": 2, "p": "13,5,16777215,1234567", "m": "顶部"},
-                {"cid": 3, "p": "14,4,255,1234567", "m": "底部"}
-              ]
-            }
-            """.trimIndent(),
-        )
+        val comments =
+            DanmakuParser.parse(
+                """
+                {
+                  "count": 3,
+                  "comments": [
+                    {"cid": 1, "p": "12.5,1,16711680,1234567", "m": "滚动"},
+                    {"cid": 2, "p": "13,5,16777215,1234567", "m": "顶部"},
+                    {"cid": 3, "p": "14,4,255,1234567", "m": "底部"}
+                  ]
+                }
+                """.trimIndent(),
+            )
 
         assertEquals(3, comments.size)
         assertEquals(12_500L, comments[0].timeMs)
@@ -438,16 +524,17 @@ class DanmakuTest {
 
     @Test
     fun parses_a_search_response() {
-        val results = DanmakuApi.parseSearch(
-            """
-            {"animes":[
-              {"animeId":1,"animeTitle":"九门(2021)【电影】","typeDescription":"电影",
-               "episodeCount":1,"startDate":"2021-05-01T00:00:00"},
-              {"animeId":2,"animeTitle":"九门(2026)【电视剧】","typeDescription":"电视剧",
-               "episodeCount":8,"year":2026}
-            ]}
-            """.trimIndent(),
-        )
+        val results =
+            DanmakuApi.parseSearch(
+                """
+                {"animes":[
+                  {"animeId":1,"animeTitle":"九门(2021)【电影】","typeDescription":"电影",
+                   "episodeCount":1,"startDate":"2021-05-01T00:00:00"},
+                  {"animeId":2,"animeTitle":"九门(2026)【电视剧】","typeDescription":"电视剧",
+                   "episodeCount":8,"year":2026}
+                ]}
+                """.trimIndent(),
+            )
 
         assertEquals(2, results.size)
         assertEquals("1", results[0].animeId)
@@ -457,15 +544,16 @@ class DanmakuTest {
 
     @Test
     fun parses_an_episode_list_nested_under_bangumi() {
-        val episodes = DanmakuApi.parseEpisodes(
-            """
-            {"bangumi":{"episodes":[
-              {"episodeId":1001,"episodeTitle":"第1集 九门 01","episodeNumber":"1"},
-              {"episodeId":1004,"episodeTitle":"第4集 九门 04","episodeNumber":"4"}
-            ]}}
-            """.trimIndent(),
-            "九门(2026)【电视剧】",
-        )
+        val episodes =
+            DanmakuApi.parseEpisodes(
+                """
+                {"bangumi":{"episodes":[
+                  {"episodeId":1001,"episodeTitle":"第1集 九门 01","episodeNumber":"1"},
+                  {"episodeId":1004,"episodeTitle":"第4集 九门 04","episodeNumber":"4"}
+                ]}}
+                """.trimIndent(),
+                "九门(2026)【电视剧】",
+            )
 
         assertEquals(2, episodes.size)
         assertEquals("1004", episodes[1].episodeId)
@@ -474,12 +562,13 @@ class DanmakuTest {
 
     @Test
     fun an_automatic_match_takes_the_episode_being_played() {
-        val body = """
+        val body =
+            """
             {"animes":[{"animeId":2,"animeTitle":"九门(2026)","episodes":[
               {"episodeId":1001,"episodeTitle":"第1集","episodeNumber":"1"},
               {"episodeId":1004,"episodeTitle":"第4集","episodeNumber":"4"}
             ]}]}
-        """.trimIndent()
+            """.trimIndent()
 
         assertEquals("1004", DanmakuApi.parseMatch(body, episodeNumber = 4)?.episodeId)
         // No number to go on — the server's own ordering is the only answer left.
@@ -505,14 +594,15 @@ class DanmakuTest {
 
     @Test
     fun repeated_lines_collapse_into_one_with_a_count() {
-        val comments = DanmakuFilter.merge(
-            listOf(
-                DanmakuComment(1_000L, "笑死"),
-                DanmakuComment(2_000L, "笑死"),
-                DanmakuComment(3_000L, "别的话"),
-                DanmakuComment(4_000L, "笑死"),
-            ),
-        )
+        val comments =
+            DanmakuFilter.merge(
+                listOf(
+                    DanmakuComment(1_000L, "笑死"),
+                    DanmakuComment(2_000L, "笑死"),
+                    DanmakuComment(3_000L, "别的话"),
+                    DanmakuComment(4_000L, "笑死"),
+                ),
+            )
 
         assertEquals(2, comments.size)
         // The earliest survives: a comment reacts to something that just happened, so the
@@ -526,13 +616,14 @@ class DanmakuTest {
 
     @Test
     fun the_same_line_far_apart_stays_two_comments() {
-        val comments = DanmakuFilter.merge(
-            listOf(
-                DanmakuComment(0L, "片头曲好听"),
-                DanmakuComment(21_000L, "片头曲好听"),
-            ),
-            windowMs = 20_000L,
-        )
+        val comments =
+            DanmakuFilter.merge(
+                listOf(
+                    DanmakuComment(0L, "片头曲好听"),
+                    DanmakuComment(21_000L, "片头曲好听"),
+                ),
+                windowMs = 20_000L,
+            )
 
         assertEquals(2, comments.size)
         assertTrue(comments.all { it.repeats == 1 })
@@ -540,35 +631,39 @@ class DanmakuTest {
 
     @Test
     fun blocked_words_match_anywhere_in_the_line_and_ignore_case() {
-        val comments = DanmakuFilter.apply(
-            comments = listOf(
-                DanmakuComment(0L, "前面有剧透注意"),
-                DanmakuComment(1_000L, "SPOILER ahead"),
-                DanmakuComment(2_000L, "画面真好"),
-            ),
-            merge = false,
-            blockedWords = listOf("剧透", "spoiler"),
-        )
+        val comments =
+            DanmakuFilter.apply(
+                comments =
+                    listOf(
+                        DanmakuComment(0L, "前面有剧透注意"),
+                        DanmakuComment(1_000L, "SPOILER ahead"),
+                        DanmakuComment(2_000L, "画面真好"),
+                    ),
+                merge = false,
+                blockedWords = listOf("剧透", "spoiler"),
+            )
 
         assertEquals(listOf("画面真好"), comments.map { it.text })
     }
 
     @Test
     fun an_episode_match_is_keyed_on_the_show_so_it_survives_changing_servers() {
-        val onServerA = danmakuBindingKey(
-            itemId = "aaa",
-            title = "九门 第4集",
-            seriesName = "九门",
-            seasonNumber = 1,
-            episodeNumber = 4,
-        )
-        val onServerB = danmakuBindingKey(
-            itemId = "bbb",
-            title = "Jiu Men E04",
-            seriesName = " 九门 ",
-            seasonNumber = 1,
-            episodeNumber = 4,
-        )
+        val onServerA =
+            danmakuBindingKey(
+                itemId = "aaa",
+                title = "九门 第4集",
+                seriesName = "九门",
+                seasonNumber = 1,
+                episodeNumber = 4,
+            )
+        val onServerB =
+            danmakuBindingKey(
+                itemId = "bbb",
+                title = "Jiu Men E04",
+                seriesName = " 九门 ",
+                seasonNumber = 1,
+                episodeNumber = 4,
+            )
 
         assertEquals(onServerA, onServerB)
     }

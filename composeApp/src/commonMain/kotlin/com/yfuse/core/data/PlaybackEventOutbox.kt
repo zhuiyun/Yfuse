@@ -5,12 +5,12 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import io.ktor.client.plugins.ResponseException
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -77,17 +77,19 @@ internal fun Throwable.playbackDeliveryFailure(): PlaybackDeliveryFailure {
     var current: Throwable? = this
     while (current != null) {
         when (current) {
-            is EmbyErrorException -> when (current.error) {
-                EmbyError.Unauthorized, is EmbyError.AccessDenied ->
-                    return PlaybackDeliveryFailure.Authentication
-                else -> Unit
-            }
+            is EmbyErrorException ->
+                when (current.error) {
+                    EmbyError.Unauthorized, is EmbyError.AccessDenied ->
+                        return PlaybackDeliveryFailure.Authentication
+                    else -> Unit
+                }
 
-            is ResponseException -> if (current.response.status.value == 401 ||
-                current.response.status.value == 403
-            ) {
-                return PlaybackDeliveryFailure.Authentication
-            }
+            is ResponseException ->
+                if (current.response.status.value == 401 ||
+                    current.response.status.value == 403
+                ) {
+                    return PlaybackDeliveryFailure.Authentication
+                }
         }
         current = current.cause
     }
@@ -116,8 +118,13 @@ class PlaybackEventOutbox(
     private val maxEvents: Int = DEFAULT_MAX_PLAYBACK_OUTBOX_EVENTS,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ) {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     private val stateLock = Any()
+
     /** One slow server must never hold another server's delivery lane. */
     private val serverFlushMutexes = mutableMapOf<String, Mutex>()
     private var persisted = load()
@@ -143,9 +150,10 @@ class PlaybackEventOutbox(
             val sameSession: (PlaybackOutboxEvent) -> Boolean = {
                 it.serverId == serverId && it.itemId == itemId && it.sessionId == sessionId
             }
-            val stopped = current.firstOrNull {
-                sameSession(it) && it.kind == PlaybackOutboxEventKind.Stopped
-            }
+            val stopped =
+                current.firstOrNull {
+                    sameSession(it) && it.kind == PlaybackOutboxEventKind.Stopped
+                }
 
             // A delayed callback from the old reporter must not resurrect a session which is
             // already durably terminal.
@@ -154,41 +162,43 @@ class PlaybackEventOutbox(
             }
 
             val existing = current.firstOrNull { sameSession(it) && it.kind == kind }
-            val event = if (existing != null) {
-                if (kind == PlaybackOutboxEventKind.Started) {
-                    // The first start position is the lifecycle boundary; a duplicate is stale.
-                    existing
+            val event =
+                if (existing != null) {
+                    if (kind == PlaybackOutboxEventKind.Started) {
+                        // The first start position is the lifecycle boundary; a duplicate is stale.
+                        existing
+                    } else {
+                        existing.copy(
+                            positionTicks = positionTicks.coerceAtLeast(0L),
+                            isPaused = isPaused,
+                            playMethod = playMethod,
+                            createdAtEpochMs = nowEpochMs(),
+                        )
+                    }
                 } else {
-                    existing.copy(
+                    PlaybackOutboxEvent(
+                        order = persisted.nextOrder,
+                        kind = kind,
+                        serverId = serverId,
+                        itemId = itemId,
+                        sessionId = sessionId,
                         positionTicks = positionTicks.coerceAtLeast(0L),
                         isPaused = isPaused,
                         playMethod = playMethod,
                         createdAtEpochMs = nowEpochMs(),
                     )
                 }
-            } else {
-                PlaybackOutboxEvent(
-                    order = persisted.nextOrder,
-                    kind = kind,
-                    serverId = serverId,
-                    itemId = itemId,
-                    sessionId = sessionId,
-                    positionTicks = positionTicks.coerceAtLeast(0L),
-                    isPaused = isPaused,
-                    playMethod = playMethod,
-                    createdAtEpochMs = nowEpochMs(),
-                )
-            }
 
             if (existing != null) current[current.indexOf(existing)] = event else current += event
             if (kind == PlaybackOutboxEventKind.Stopped) {
                 current.removeAll { sameSession(it) && it.kind == PlaybackOutboxEventKind.Progress }
             }
             val bounded = bound(current)
-            persisted = PersistedPlaybackOutbox(
-                nextOrder = if (existing == null) persisted.nextOrder + 1L else persisted.nextOrder,
-                events = bounded,
-            )
+            persisted =
+                PersistedPlaybackOutbox(
+                    nextOrder = if (existing == null) persisted.nextOrder + 1L else persisted.nextOrder,
+                    events = bounded,
+                )
             persistLocked()
             event.takeIf { candidate -> bounded.any { it.order == candidate.order } }
         }
@@ -197,17 +207,18 @@ class PlaybackEventOutbox(
     /** A successful re-login or explicit new play is allowed to retry that server immediately. */
     fun resumeAfterAuthentication(serverId: String) {
         synchronized(stateLock) {
-            val resumed = persisted.events.map { event ->
-                if (event.serverId == serverId && event.authenticationRequired) {
-                    event.copy(
-                        authenticationRequired = false,
-                        attemptCount = 0,
-                        nextAttemptAtEpochMs = 0L,
-                    )
-                } else {
-                    event
+            val resumed =
+                persisted.events.map { event ->
+                    if (event.serverId == serverId && event.authenticationRequired) {
+                        event.copy(
+                            authenticationRequired = false,
+                            attemptCount = 0,
+                            nextAttemptAtEpochMs = 0L,
+                        )
+                    } else {
+                        event
+                    }
                 }
-            }
             if (resumed == persisted.events) return
             persisted = persisted.copy(events = resumed)
             persistLocked()
@@ -215,86 +226,100 @@ class PlaybackEventOutbox(
     }
 
     /** Server identities with pending work; callers still resolve each id independently. */
-    fun pendingServerIds(): Set<String> = synchronized(stateLock) {
-        persisted.events.mapTo(linkedSetOf(), PlaybackOutboxEvent::serverId)
-    }
+    fun pendingServerIds(): Set<String> =
+        synchronized(stateLock) {
+            persisted.events.mapTo(linkedSetOf(), PlaybackOutboxEvent::serverId)
+        }
 
     suspend fun flush(
         serverId: String,
         deliver: suspend (PlaybackOutboxEvent) -> Result<Unit>,
     ): PlaybackOutboxFlushResult {
-        val serverMutex = synchronized(stateLock) {
-            serverFlushMutexes.getOrPut(serverId) { Mutex() }
-        }
+        val serverMutex =
+            synchronized(stateLock) {
+                serverFlushMutexes.getOrPut(serverId) { Mutex() }
+            }
         return serverMutex.withLock {
             var deliveredCount = 0
             repeat(MAX_FLUSH_BATCH) {
-                val head = synchronized(stateLock) {
-                    persisted.events.filter { it.serverId == serverId }.minByOrNull { it.order }
-                } ?: return@withLock resultFor(serverId, deliveredCount)
+                val head =
+                    synchronized(stateLock) {
+                        persisted.events.filter { it.serverId == serverId }.minByOrNull { it.order }
+                    } ?: return@withLock resultFor(serverId, deliveredCount)
 
                 val now = nowEpochMs()
                 if (head.authenticationRequired || head.nextAttemptAtEpochMs > now) {
                     return@withLock resultFor(serverId, deliveredCount)
                 }
 
-                val outcome = try {
-                    deliver(head)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Throwable) {
-                    Result.failure(error)
-                }
+                val outcome =
+                    try {
+                        deliver(head)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        Result.failure(error)
+                    }
                 outcome.exceptionOrNull()?.let { if (it is CancellationException) throw it }
-                outcome.onSuccess {
-                    synchronized(stateLock) {
-                        // A progress/stop snapshot may have advanced while this request was in
-                        // flight. Acknowledge only the exact payload that reached the server.
-                        val current = persisted.events.firstOrNull { it.order == head.order }
-                        if (current == head) {
-                            persisted = persisted.copy(
-                                events = persisted.events.filterNot { it.order == head.order },
-                            )
+                outcome
+                    .onSuccess {
+                        synchronized(stateLock) {
+                            // A progress/stop snapshot may have advanced while this request was in
+                            // flight. Acknowledge only the exact payload that reached the server.
+                            val current = persisted.events.firstOrNull { it.order == head.order }
+                            if (current == head) {
+                                persisted =
+                                    persisted.copy(
+                                        events = persisted.events.filterNot { it.order == head.order },
+                                    )
+                                persistLocked()
+                            }
+                        }
+                        deliveredCount++
+                    }.onFailure { error ->
+                        synchronized(stateLock) {
+                            val current =
+                                persisted.events.firstOrNull { it.order == head.order }
+                                    ?: return@synchronized
+                            val failure = error.playbackDeliveryFailure()
+                            val attempts =
+                                if (current.attemptCount == Int.MAX_VALUE) {
+                                    Int.MAX_VALUE
+                                } else {
+                                    current.attemptCount + 1
+                                }
+                            val updated =
+                                current.copy(
+                                    attemptCount = attempts,
+                                    authenticationRequired =
+                                        failure == PlaybackDeliveryFailure.Authentication,
+                                    nextAttemptAtEpochMs =
+                                        if (failure == PlaybackDeliveryFailure.Authentication) {
+                                            Long.MAX_VALUE
+                                        } else {
+                                            safeAdd(now, playbackOutboxBackoffMs(attempts))
+                                        },
+                                )
+                            persisted =
+                                persisted.copy(
+                                    events =
+                                        persisted.events.map {
+                                            if (it.order == head.order) updated else it
+                                        },
+                                )
                             persistLocked()
                         }
+                        return@withLock resultFor(serverId, deliveredCount)
                     }
-                    deliveredCount++
-                }.onFailure { error ->
-                    synchronized(stateLock) {
-                        val current = persisted.events.firstOrNull { it.order == head.order }
-                            ?: return@synchronized
-                        val failure = error.playbackDeliveryFailure()
-                        val attempts = if (current.attemptCount == Int.MAX_VALUE) {
-                            Int.MAX_VALUE
-                        } else {
-                            current.attemptCount + 1
-                        }
-                        val updated = current.copy(
-                            attemptCount = attempts,
-                            authenticationRequired =
-                                failure == PlaybackDeliveryFailure.Authentication,
-                            nextAttemptAtEpochMs =
-                                if (failure == PlaybackDeliveryFailure.Authentication) {
-                                    Long.MAX_VALUE
-                                } else {
-                                    safeAdd(now, playbackOutboxBackoffMs(attempts))
-                                },
-                        )
-                        persisted = persisted.copy(
-                            events = persisted.events.map {
-                                if (it.order == head.order) updated else it
-                            },
-                        )
-                        persistLocked()
-                    }
-                    return@withLock resultFor(serverId, deliveredCount)
-                }
             }
             resultFor(serverId, deliveredCount)
         }
     }
 
-    private fun resultFor(serverId: String, deliveredCount: Int): PlaybackOutboxFlushResult =
+    private fun resultFor(
+        serverId: String,
+        deliveredCount: Int,
+    ): PlaybackOutboxFlushResult =
         synchronized(stateLock) {
             val serverEvents = persisted.events.filter { it.serverId == serverId }
             val head = serverEvents.minByOrNull(PlaybackOutboxEvent::order)
@@ -302,9 +327,10 @@ class PlaybackEventOutbox(
                 deliveredCount = deliveredCount,
                 pendingCount = serverEvents.size,
                 authenticationRequired = head?.authenticationRequired == true,
-                nextAttemptAtEpochMs = head
-                    ?.takeUnless { it.authenticationRequired }
-                    ?.nextAttemptAtEpochMs,
+                nextAttemptAtEpochMs =
+                    head
+                        ?.takeUnless { it.authenticationRequired }
+                        ?.nextAttemptAtEpochMs,
             )
         }
 
@@ -312,18 +338,23 @@ class PlaybackEventOutbox(
         val result = source.sortedBy(PlaybackOutboxEvent::order).toMutableList()
         var terminalEvicted = false
         while (result.size > maxEvents) {
-            val removableIndex = result.indexOfFirst {
-                it.kind == PlaybackOutboxEventKind.Progress
-            }.takeIf { it >= 0 } ?: result.indexOfFirst { candidate ->
-                candidate.kind == PlaybackOutboxEventKind.Started && result.any {
-                    it.serverId == candidate.serverId &&
-                        it.itemId == candidate.itemId &&
-                        it.sessionId == candidate.sessionId &&
-                        it.kind == PlaybackOutboxEventKind.Stopped
-                }
-            }.takeIf { it >= 0 } ?: result.indexOfFirst {
-                it.kind == PlaybackOutboxEventKind.Started
-            }.takeIf { it >= 0 } ?: 0.also { terminalEvicted = true }
+            val removableIndex =
+                result
+                    .indexOfFirst {
+                        it.kind == PlaybackOutboxEventKind.Progress
+                    }.takeIf { it >= 0 } ?: result
+                    .indexOfFirst { candidate ->
+                        candidate.kind == PlaybackOutboxEventKind.Started &&
+                            result.any {
+                                it.serverId == candidate.serverId &&
+                                    it.itemId == candidate.itemId &&
+                                    it.sessionId == candidate.sessionId &&
+                                    it.kind == PlaybackOutboxEventKind.Stopped
+                            }
+                    }.takeIf { it >= 0 } ?: result
+                    .indexOfFirst {
+                        it.kind == PlaybackOutboxEventKind.Started
+                    }.takeIf { it >= 0 } ?: 0.also { terminalEvicted = true }
             result.removeAt(removableIndex)
         }
         if (terminalEvicted) {
@@ -367,5 +398,7 @@ class PlaybackEventOutbox(
     }
 }
 
-private fun safeAdd(value: Long, increment: Long): Long =
-    if (increment > Long.MAX_VALUE - value) Long.MAX_VALUE else value + increment
+private fun safeAdd(
+    value: Long,
+    increment: Long,
+): Long = if (increment > Long.MAX_VALUE - value) Long.MAX_VALUE else value + increment

@@ -11,8 +11,9 @@ data class EngineTrack(
     val codec: String? = null,
 ) {
     val requiresStyledRenderer: Boolean
-        get() = codec?.substringAfterLast('/')?.lowercase() in
-            setOf("ass", "ssa", "pgs", "pgssub", "dvdsub", "dvbsub")
+        get() =
+            codec?.substringAfterLast('/')?.lowercase() in
+                setOf("ass", "ssa", "pgs", "pgssub", "dvdsub", "dvbsub")
 
     companion object {
         /** Passed to [VideoEngine.selectSubtitleTrack] to turn subtitles off. */
@@ -40,7 +41,9 @@ data class PlaybackDiagnostics(
     val networkBitsPerSecond: Long = 0L,
 )
 
-enum class VideoScaleMode(val label: String) {
+enum class VideoScaleMode(
+    val label: String,
+) {
     Fit("适应"),
     Fill("裁剪填满"),
     Stretch("拉伸填满"),
@@ -124,9 +127,13 @@ interface VideoEngine {
     val playbackRequested: Boolean get() = state.value.playing
 
     fun play()
+
     fun pause()
+
     fun seekTo(positionMs: Long)
+
     fun setSpeed(speed: Float)
+
     fun selectAudioTrack(id: String)
 
     /** [EngineTrack.OFF] disables subtitles. */

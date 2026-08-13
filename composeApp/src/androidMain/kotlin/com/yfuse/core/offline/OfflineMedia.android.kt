@@ -28,18 +28,13 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.redactDiagnosticText
 import com.yfuse.core.network.EmbyStream
-import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLDecoder
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,6 +48,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import org.koin.core.context.GlobalContext
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLDecoder
+import java.util.concurrent.TimeUnit
 
 internal lateinit var offlineApplicationContext: Context
 
@@ -63,74 +65,87 @@ private const val OFFLINE_NOTIFICATION_CHANNEL_ID = "yfuse_downloads"
 private const val OFFLINE_SERVICE_NOTIFICATION_ID = 2410
 private const val OFFLINE_WORK_NOTIFICATION_ID = 2411
 
-private class OfflineHttpException(val statusCode: Int) :
-    IOException("HTTP $statusCode")
+private class OfflineHttpException(
+    val statusCode: Int,
+) : IOException("HTTP $statusCode")
 
-private class OfflineStorageException(message: String, cause: Throwable? = null) :
-    IOException(message, cause)
+private class OfflineStorageException(
+    message: String,
+    cause: Throwable? = null,
+) : IOException(message, cause)
 
-private inline fun <T> offlineStorageWrite(block: () -> T): T = try {
-    block()
-} catch (error: IOException) {
-    throw OfflineStorageException("无法写入离线文件，请检查存储空间", error)
-}
-
-private fun offlineFailureKind(error: Throwable): DownloadFailureKind = when (error) {
-    is OfflineHttpException -> when (error.statusCode) {
-        HttpURLConnection.HTTP_UNAUTHORIZED,
-        HttpURLConnection.HTTP_FORBIDDEN -> DownloadFailureKind.Authentication
-        in 500..599, HttpURLConnection.HTTP_CLIENT_TIMEOUT, 429 -> DownloadFailureKind.Server
-        else -> DownloadFailureKind.Source
+private inline fun <T> offlineStorageWrite(block: () -> T): T =
+    try {
+        block()
+    } catch (error: IOException) {
+        throw OfflineStorageException("无法写入离线文件，请检查存储空间", error)
     }
-    is OfflineStorageException -> DownloadFailureKind.Storage
-    is IOException -> DownloadFailureKind.Network
-    is IllegalStateException -> DownloadFailureKind.Source
-    else -> DownloadFailureKind.Unknown
-}
+
+private fun offlineFailureKind(error: Throwable): DownloadFailureKind =
+    when (error) {
+        is OfflineHttpException ->
+            when (error.statusCode) {
+                HttpURLConnection.HTTP_UNAUTHORIZED,
+                HttpURLConnection.HTTP_FORBIDDEN,
+                -> DownloadFailureKind.Authentication
+                in 500..599, HttpURLConnection.HTTP_CLIENT_TIMEOUT, 429 -> DownloadFailureKind.Server
+                else -> DownloadFailureKind.Source
+            }
+        is OfflineStorageException -> DownloadFailureKind.Storage
+        is IOException -> DownloadFailureKind.Network
+        is IllegalStateException -> DownloadFailureKind.Source
+        else -> DownloadFailureKind.Unknown
+    }
 
 private fun offlineFailureMessage(
     kind: DownloadFailureKind,
     retry: OfflineRetryPlan?,
     error: Throwable,
-): String = when (kind) {
-    DownloadFailureKind.Authentication -> "登录已失效，请重新登录服务器后重试"
-    DownloadFailureKind.Network -> if (retry != null) {
-        "网络中断，已保留进度，将自动重试（第 ${retry.retryCount}/$MAX_OFFLINE_RETRY_COUNT 次）"
-    } else {
-        "网络持续不可用，已停止自动重试，可点按手动重试"
+): String =
+    when (kind) {
+        DownloadFailureKind.Authentication -> "登录已失效，请重新登录服务器后重试"
+        DownloadFailureKind.Network ->
+            if (retry != null) {
+                "网络中断，已保留进度，将自动重试（第 ${retry.retryCount}/$MAX_OFFLINE_RETRY_COUNT 次）"
+            } else {
+                "网络持续不可用，已停止自动重试，可点按手动重试"
+            }
+        DownloadFailureKind.Server ->
+            if (retry != null) {
+                "服务器暂时不可用，已保留进度，将自动重试（第 ${retry.retryCount}/$MAX_OFFLINE_RETRY_COUNT 次）"
+            } else {
+                "服务器持续不可用，已停止自动重试，可点按手动重试"
+            }
+        DownloadFailureKind.Storage ->
+            redactDiagnosticText(
+                error.message ?: "存储空间不足，请清理空间后重试",
+            )
+        DownloadFailureKind.Source ->
+            when (error) {
+                is OfflineHttpException -> "下载源不可用（HTTP ${error.statusCode}），请检查服务器或媒体源"
+                else -> redactDiagnosticText(error.message ?: "下载源不可用，请重新选择媒体源")
+            }
+        DownloadFailureKind.Unknown -> redactDiagnosticText(error.message ?: "下载失败，可点按重试")
     }
-    DownloadFailureKind.Server -> if (retry != null) {
-        "服务器暂时不可用，已保留进度，将自动重试（第 ${retry.retryCount}/$MAX_OFFLINE_RETRY_COUNT 次）"
-    } else {
-        "服务器持续不可用，已停止自动重试，可点按手动重试"
-    }
-    DownloadFailureKind.Storage -> redactDiagnosticText(
-        error.message ?: "存储空间不足，请清理空间后重试",
-    )
-    DownloadFailureKind.Source -> when (error) {
-        is OfflineHttpException -> "下载源不可用（HTTP ${error.statusCode}），请检查服务器或媒体源"
-        else -> redactDiagnosticText(error.message ?: "下载源不可用，请重新选择媒体源")
-    }
-    DownloadFailureKind.Unknown -> redactDiagnosticText(error.message ?: "下载失败，可点按重试")
-}
 
 internal fun offlineWakeRequest(
     wifiOnly: Boolean,
     initialDelayMs: Long = 0L,
-): OneTimeWorkRequest = OneTimeWorkRequest.Builder(OfflineDownloadWorker::class.java)
-    .setConstraints(
-        Constraints.Builder()
-            .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
-            .build(),
-    )
-    .setInitialDelay(initialDelayMs.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
-    .setBackoffCriteria(
-        BackoffPolicy.EXPONENTIAL,
-        WorkRequest.MIN_BACKOFF_MILLIS,
-        TimeUnit.MILLISECONDS,
-    )
-    .addTag(OFFLINE_WAKE_WORK_NAME)
-    .build()
+): OneTimeWorkRequest =
+    OneTimeWorkRequest
+        .Builder(OfflineDownloadWorker::class.java)
+        .setConstraints(
+            Constraints
+                .Builder()
+                .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
+                .build(),
+        ).setInitialDelay(initialDelayMs.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
+        .setBackoffCriteria(
+            BackoffPolicy.EXPONENTIAL,
+            WorkRequest.MIN_BACKOFF_MILLIS,
+            TimeUnit.MILLISECONDS,
+        ).addTag(OFFLINE_WAKE_WORK_NAME)
+        .build()
 
 internal fun hasSufficientOfflineStorage(
     usableSpace: Long,
@@ -165,7 +180,10 @@ internal fun sameOfflineMediaSource(
 private val offlineContentRangePattern =
     Regex("""(?i)^bytes\s+(\d+)-(\d+)/(?:\d+|\*)$""")
 
-internal fun offlineContentRangeStartsAt(value: String?, expectedOffset: Long): Boolean {
+internal fun offlineContentRangeStartsAt(
+    value: String?,
+    expectedOffset: Long,
+): Boolean {
     if (expectedOffset < 0L) return false
     val match = value?.trim()?.let(offlineContentRangePattern::matchEntire) ?: return false
     val start = match.groupValues[1].toLongOrNull() ?: return false
@@ -179,11 +197,12 @@ internal fun canAppendOfflineRange(
     contentRange: String?,
     expectedValidator: String?,
     responseValidator: String?,
-): Boolean = existingBytes > 0L &&
-    statusCode == HttpURLConnection.HTTP_PARTIAL &&
-    offlineContentRangeStartsAt(contentRange, existingBytes) &&
-    !expectedValidator.isNullOrBlank() &&
-    expectedValidator == responseValidator
+): Boolean =
+    existingBytes > 0L &&
+        statusCode == HttpURLConnection.HTTP_PARTIAL &&
+        offlineContentRangeStartsAt(contentRange, existingBytes) &&
+        !expectedValidator.isNullOrBlank() &&
+        expectedValidator == responseValidator
 
 internal data class OfflineEnqueuePlan(
     val item: OfflineMedia,
@@ -195,35 +214,52 @@ internal fun planOfflineEnqueue(
     request: OfflineDownloadRequest,
     nowMs: Long,
 ): OfflineEnqueuePlan {
-    val sourceChanged = old != null && !sameOfflineMediaSource(
-        itemId = request.itemId,
-        first = old.mediaSourceId,
-        second = request.mediaSourceId,
-    )
-    val nextRevision = old?.downloadRevision?.let {
-        if (it == Long.MAX_VALUE) 0L else it + 1L
-    } ?: 1L
+    val sourceChanged =
+        old != null &&
+            !sameOfflineDownloadVariant(
+                itemId = request.itemId,
+                oldSourceId = old.mediaSourceId,
+                newSourceId = request.mediaSourceId,
+                oldQuality = old.quality,
+                newQuality = request.quality,
+                oldSubtitleIndex = old.subtitleStreamIndex,
+                newSubtitleIndex = request.subtitleStreamIndex,
+            )
+    val nextRevision =
+        old?.downloadRevision?.let {
+            if (it == Long.MAX_VALUE) 0L else it + 1L
+        } ?: 1L
     return OfflineEnqueuePlan(
-        item = OfflineMedia(
-            id = "${request.serverId}#${request.itemId}",
-            serverId = request.serverId,
-            itemId = request.itemId,
-            title = request.title,
-            mediaSourceId = request.mediaSourceId,
-            legacySourceUrl = null,
-            posterUrl = null,
-            localPath = old?.localPath.takeUnless { sourceChanged },
-            downloadedBytes = old?.downloadedBytes?.takeUnless { sourceChanged } ?: 0L,
-            totalBytes = old?.totalBytes?.takeUnless { sourceChanged } ?: 0L,
-            downloadRevision = nextRevision,
-            resumeValidator = old?.resumeValidator.takeUnless { sourceChanged },
-            status = if (!sourceChanged && old?.playable == true) {
-                DownloadStatus.Completed
-            } else {
-                DownloadStatus.Queued
-            },
-            updatedAtEpochMs = nowMs,
-        ),
+        item =
+            OfflineMedia(
+                id = "${request.serverId}#${request.itemId}",
+                serverId = request.serverId,
+                itemId = request.itemId,
+                title = request.title,
+                mediaSourceId = request.mediaSourceId,
+                quality = request.quality,
+                subtitleStreamIndex = request.subtitleStreamIndex,
+                subtitleCodec = request.subtitleCodec,
+                subtitleLanguage = request.subtitleLanguage,
+                legacySourceUrl = null,
+                posterUrl = null,
+                localPath = old?.localPath.takeUnless { sourceChanged },
+                subtitlePath = old?.subtitlePath.takeUnless { sourceChanged },
+                downloadedBytes = old?.downloadedBytes?.takeUnless { sourceChanged } ?: 0L,
+                totalBytes =
+                    old?.totalBytes?.takeUnless { sourceChanged }
+                        ?: request.estimatedBytes?.coerceAtLeast(0L)
+                        ?: 0L,
+                downloadRevision = nextRevision,
+                resumeValidator = old?.resumeValidator.takeUnless { sourceChanged },
+                status =
+                    if (!sourceChanged && old?.playable == true) {
+                        DownloadStatus.Completed
+                    } else {
+                        DownloadStatus.Queued
+                    },
+                updatedAtEpochMs = nowMs,
+            ),
         sourceChanged = sourceChanged,
     )
 }
@@ -231,40 +267,76 @@ internal fun planOfflineEnqueue(
 actual fun createOfflineMediaManager(
     settings: Settings,
     registry: ServerRegistry,
-): OfflineMediaManager =
-    AndroidOfflineMediaManager(offlineApplicationContext, settings, registry)
+): OfflineMediaManager = AndroidOfflineMediaManager(offlineApplicationContext, settings, registry)
 
-internal fun sanitizeLegacyOfflineItem(item: OfflineMedia): OfflineMedia = item.copy(
-    mediaSourceId = item.mediaSourceId ?: item.legacySourceUrl.queryParameter("MediaSourceId"),
-    legacySourceUrl = null,
-    // The download UI never consumes this field. Dropping it also removes legacy api_key
-    // query parameters from the persisted index.
-    posterUrl = null,
-    error = item.error?.let(::redactDiagnosticText),
-)
+internal fun sanitizeLegacyOfflineItem(item: OfflineMedia): OfflineMedia =
+    item.copy(
+        mediaSourceId = item.mediaSourceId ?: item.legacySourceUrl.queryParameter("MediaSourceId"),
+        legacySourceUrl = null,
+        // The download UI never consumes this field. Dropping it also removes legacy api_key
+        // query parameters from the persisted index.
+        posterUrl = null,
+        error = item.error?.let(::redactDiagnosticText),
+    )
 
-internal fun resolveOfflineSourceUrl(item: OfflineMedia, registry: ServerRegistry): String {
-    val server = registry.serverById(item.serverId)
-        ?: error("服务器已移除，无法继续下载")
-    return EmbyStream.directPlay(
+internal fun resolveOfflineSourceUrl(
+    item: OfflineMedia,
+    registry: ServerRegistry,
+): String {
+    val server =
+        registry.serverById(item.serverId)
+            ?: error("服务器已移除，无法继续下载")
+    return if (item.quality == OfflineDownloadQuality.Original) {
+        EmbyStream.directPlay(
+            baseUrl = server.baseUrl,
+            itemId = item.itemId,
+            token = server.accessToken,
+            mediaSourceId = item.mediaSourceId,
+        )
+    } else {
+        EmbyStream.progressiveTranscode(
+            baseUrl = server.baseUrl,
+            itemId = item.itemId,
+            token = server.accessToken,
+            maxWidth = requireNotNull(item.quality.maxWidth),
+            videoBitrate = requireNotNull(item.quality.videoBitrateBps),
+            mediaSourceId = item.mediaSourceId,
+        )
+    }
+}
+
+internal fun resolveOfflineSubtitleUrl(
+    item: OfflineMedia,
+    registry: ServerRegistry,
+): String? {
+    val index = item.subtitleStreamIndex ?: return null
+    val server =
+        registry.serverById(item.serverId)
+            ?: error("服务器已移除，无法继续下载字幕")
+    return EmbyStream.subtitle(
         baseUrl = server.baseUrl,
         itemId = item.itemId,
+        mediaSourceId = item.mediaSourceId ?: item.itemId,
+        streamIndex = index,
         token = server.accessToken,
-        mediaSourceId = item.mediaSourceId,
+        // SRT is broadly readable and asks Emby to convert embedded text subtitles.
+        format = "srt",
     )
 }
 
 private fun String?.queryParameter(name: String): String? {
-    val query = this?.substringAfter('?', missingDelimiterValue = "")
-        ?.substringBefore('#')
-        .orEmpty()
-    return query.split('&')
+    val query =
+        this
+            ?.substringAfter('?', missingDelimiterValue = "")
+            ?.substringBefore('#')
+            .orEmpty()
+    return query
+        .split('&')
         .asSequence()
         .mapNotNull { part ->
             val key = part.substringBefore('=', missingDelimiterValue = part)
             if (key.equals(name, ignoreCase = true)) part.substringAfter('=', "") else null
-        }
-        .firstOrNull()
+        }.firstOrNull()
         ?.takeIf { it.isNotBlank() }
         ?.let { encoded ->
             runCatching { URLDecoder.decode(encoded, Charsets.UTF_8.name()) }.getOrNull()
@@ -272,9 +344,10 @@ private fun String?.queryParameter(name: String): String? {
 }
 
 private fun HttpURLConnection.offlineResumeValidator(): String? {
-    val strongEtag = getHeaderField("ETag")
-        ?.trim()
-        ?.takeIf { it.isNotBlank() && !it.startsWith("W/", ignoreCase = true) }
+    val strongEtag =
+        getHeaderField("ETag")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && !it.startsWith("W/", ignoreCase = true) }
     if (strongEtag != null) return "etag:$strongEtag"
     return getHeaderField("Last-Modified")
         ?.trim()
@@ -291,57 +364,65 @@ internal class AndroidOfflineMediaManager(
     private val settings: Settings,
     private val registry: ServerRegistry,
 ) : OfflineMediaManager {
-
     private companion object {
         const val INDEX_KEY = "offline.media.index.v1"
         const val WIFI_KEY = "offline.media.wifiOnly"
         const val SPACE_CHECK_INTERVAL_BYTES = 8L * 1024L * 1024L
     }
 
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     private val serializer = ListSerializer(OfflineMedia.serializer())
     private val directory = File(context.filesDir, "offline-media").apply { mkdirs() }
     private val indexLock = Any()
-    private val _items = MutableStateFlow(loadIndex())
-    override val items: StateFlow<List<OfflineMedia>> = _items.asStateFlow()
     private val _wifiOnly = MutableStateFlow(settings.getBoolean(WIFI_KEY, true))
     override val wifiOnly: StateFlow<Boolean> = _wifiOnly.asStateFlow()
+    private val _policy = MutableStateFlow(loadOfflineDownloadPolicy(settings))
+    override val policy: StateFlow<OfflineDownloadPolicy> = _policy.asStateFlow()
+    private val _items = MutableStateFlow(loadIndex())
+    override val items: StateFlow<List<OfflineMedia>> = _items.asStateFlow()
     private val runLock = Mutex()
 
     init {
-        val recovered = _items.value.map { stored ->
-            // v1 persisted authenticated source/poster URLs. Extract the non-secret source
-            // selection once, then erase both URLs before the index is written again.
-            val item = sanitizeLegacyOfflineItem(stored)
-            when (item.status) {
-                DownloadStatus.Downloading -> item.copy(status = DownloadStatus.Queued)
-                DownloadStatus.Completed ->
-                    if (item.localPath?.let(::File)?.exists() == true) {
-                        item
-                    } else {
-                        item.copy(
-                            status = DownloadStatus.Failed,
-                            localPath = null,
-                            error = "离线文件不存在",
-                        )
-                    }
-                else -> item
+        val recovered =
+            _items.value.map { stored ->
+                // v1 persisted authenticated source/poster URLs. Extract the non-secret source
+                // selection once, then erase both URLs before the index is written again.
+                val item = sanitizeLegacyOfflineItem(stored)
+                when (item.status) {
+                    DownloadStatus.Downloading -> item.copy(status = DownloadStatus.Queued)
+                    DownloadStatus.Completed ->
+                        if (item.localPath?.let(::File)?.exists() == true) {
+                            item
+                        } else {
+                            item.copy(
+                                status = DownloadStatus.Failed,
+                                localPath = null,
+                                error = "离线文件不存在",
+                            )
+                        }
+                    else -> item
+                }
             }
-        }
         commit(recovered)
         val resetCount = _items.value.count { it.status == DownloadStatus.Queued }
-        val missingCount = _items.value.count {
-            it.status == DownloadStatus.Failed && it.error == "离线文件不存在"
-        }
+        val missingCount =
+            _items.value.count {
+                it.status == DownloadStatus.Failed && it.error == "离线文件不存在"
+            }
         if (resetCount > 0 || missingCount > 0) {
             AppLog.warning(
                 category = "offline",
                 event = "index_recovered",
                 message = "Offline download index required recovery",
-                attributes = mapOf(
-                    "requeuedCount" to resetCount.toString(),
-                    "missingFileCount" to missingCount.toString(),
-                ),
+                attributes =
+                    mapOf(
+                        "requeuedCount" to resetCount.toString(),
+                        "missingFileCount" to missingCount.toString(),
+                    ),
             )
         }
         rebuildWakeSchedule(ExistingWorkPolicy.KEEP)
@@ -363,6 +444,7 @@ internal class AndroidOfflineMediaManager(
             // Commit the new revision first so the active loop sees that it was superseded
             // before its old file handles are removed.
             old?.localPath?.let(::File)?.delete()
+            old?.subtitlePath?.let(::File)?.delete()
             old?.let(::completedFile)?.delete()
             old?.let(::partFile)?.delete()
         }
@@ -370,11 +452,12 @@ internal class AndroidOfflineMediaManager(
             category = "offline",
             event = "download_enqueued",
             message = "Offline download enqueued",
-            attributes = mapOf(
-                "itemId" to request.itemId,
-                "alreadyPlayable" to next.playable.toString(),
-                "sourceChanged" to sourceChanged.toString(),
-            ),
+            attributes =
+                mapOf(
+                    "itemId" to request.itemId,
+                    "alreadyPlayable" to next.playable.toString(),
+                    "sourceChanged" to sourceChanged.toString(),
+                ),
         )
         if (!next.playable) kick()
     }
@@ -382,7 +465,8 @@ internal class AndroidOfflineMediaManager(
     override fun pause(id: String) {
         update(id) {
             if (
-                it.status in setOf(
+                it.status in
+                setOf(
                     DownloadStatus.Queued,
                     DownloadStatus.WaitingForWifi,
                     DownloadStatus.Downloading,
@@ -410,7 +494,8 @@ internal class AndroidOfflineMediaManager(
             commitLocked(
                 _items.value.map { item ->
                     if (
-                        item.status in setOf(
+                        item.status in
+                        setOf(
                             DownloadStatus.Queued,
                             DownloadStatus.WaitingForWifi,
                             DownloadStatus.Downloading,
@@ -482,13 +567,15 @@ internal class AndroidOfflineMediaManager(
     }
 
     override fun remove(id: String) {
-        val removed = synchronized(indexLock) {
-            val item = _items.value.firstOrNull { it.id == id }
-            commitLocked(_items.value.filterNot { it.id == id })
-            item
-        }
+        val removed =
+            synchronized(indexLock) {
+                val item = _items.value.firstOrNull { it.id == id }
+                commitLocked(_items.value.filterNot { it.id == id })
+                item
+            }
         removed?.let { item ->
             item.localPath?.let(::File)?.delete()
+            item.subtitlePath?.let(::File)?.delete()
             partFile(item).delete()
         }
         rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
@@ -498,21 +585,24 @@ internal class AndroidOfflineMediaManager(
     override fun setWifiOnly(value: Boolean) {
         _wifiOnly.value = value
         settings.putBoolean(WIFI_KEY, value)
+        persistPolicy(_policy.value.copy(wifiOnly = value))
         val shouldInterrupt = value && !onUnmeteredNetwork()
         synchronized(indexLock) {
             commitLocked(
                 _items.value.map { item ->
                     when {
-                        !value && item.status == DownloadStatus.WaitingForWifi -> item.copy(
-                            status = DownloadStatus.Queued,
-                            updatedAtEpochMs = now(),
-                        )
-                        shouldInterrupt && item.status == DownloadStatus.Downloading -> item.copy(
-                            status = DownloadStatus.WaitingForWifi,
-                            error = null,
-                            downloadRevision = item.downloadRevision.nextOfflineRevision(),
-                            updatedAtEpochMs = now(),
-                        )
+                        !value && item.status == DownloadStatus.WaitingForWifi ->
+                            item.copy(
+                                status = DownloadStatus.Queued,
+                                updatedAtEpochMs = now(),
+                            )
+                        shouldInterrupt && item.status == DownloadStatus.Downloading ->
+                            item.copy(
+                                status = DownloadStatus.WaitingForWifi,
+                                error = null,
+                                downloadRevision = item.downloadRevision.nextOfflineRevision(),
+                                updatedAtEpochMs = now(),
+                            )
                         else -> item
                     }
                 },
@@ -521,297 +611,336 @@ internal class AndroidOfflineMediaManager(
         if (!value) kick() else rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
     }
 
-    internal suspend fun runPendingDownloads() = runLock.withLock {
-        while (true) {
-            val nowMs = now()
-            val next = _items.value.firstOrNull {
-                val pending = it.status == DownloadStatus.Queued ||
-                    it.status == DownloadStatus.WaitingForWifi
-                pending && it.nextRetryAt <= nowMs
-            } ?: break
-            if (_wifiOnly.value && !onUnmeteredNetwork()) {
-                AppLog.info(
-                    category = "offline",
-                    event = "waiting_for_wifi",
-                    message = "Offline download is waiting for Wi-Fi",
-                )
-                update(next.id) {
-                    it.copy(
-                        status = DownloadStatus.WaitingForWifi,
-                        error = null,
-                        updatedAtEpochMs = now(),
-                    )
-                }
-                break
-            }
-            download(next)
-        }
+    override fun setMaxConcurrentDownloads(value: Int) {
+        persistPolicy(_policy.value.copy(maxConcurrentDownloads = value).normalized())
+        kick()
     }
 
-    private suspend fun download(snapshot: OfflineMedia) = withContext(Dispatchers.IO) {
-        val part = partFile(snapshot)
-        part.parentFile?.mkdirs()
-        var existing = part.takeIf { it.exists() }?.length() ?: 0L
-        var expectedValidator = snapshot.resumeValidator?.takeIf { existing > 0L }
-        if (existing > 0L && expectedValidator == null) {
-            // Legacy partial files have no proof that the remote object is unchanged.
-            part.delete()
-            existing = 0L
-        }
-        var claimed = false
-        update(snapshot.id) {
-            if (
-                it.downloadRevision != snapshot.downloadRevision ||
-                it.status !in setOf(DownloadStatus.Queued, DownloadStatus.WaitingForWifi)
-            ) {
-                it
-            } else {
-                claimed = true
-                it.copy(
-                    status = DownloadStatus.Downloading,
-                    downloadedBytes = existing,
-                    resumeValidator = expectedValidator,
-                    error = null,
-                    nextRetryAt = 0L,
-                    lastFailureKind = null,
-                    updatedAtEpochMs = now(),
-                )
-            }
-        }
-        if (!claimed) return@withContext
+    override fun setAutoDeleteWatched(value: Boolean) {
+        persistPolicy(_policy.value.copy(autoDeleteWatched = value))
+    }
 
-        var connection: HttpURLConnection? = null
-        try {
-            AppLog.info(
-                category = "offline",
-                event = "download_started",
-                message = "Offline media download started",
-                attributes = mapOf(
-                    "itemId" to snapshot.itemId,
-                    "resumeBytes" to existing.toString(),
-                ),
-            )
-            val sourceUrl = resolveOfflineSourceUrl(snapshot, registry)
-            var append: Boolean
-            var responseValidator: String?
+    override fun onPlaybackCompleted(
+        serverId: String,
+        itemId: String,
+    ) {
+        if (!_policy.value.autoDeleteWatched) return
+        _items.value
+            .firstOrNull { it.serverId == serverId && it.itemId == itemId }
+            ?.let { remove(it.id) }
+    }
+
+    internal suspend fun runPendingDownloads() =
+        runLock.withLock {
             while (true) {
-                if (!isCurrentDownload(snapshot)) return@withContext
-                connection = (URL(sourceUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 20_000
-                    readTimeout = 30_000
-                    instanceFollowRedirects = true
-                    if (existing > 0L) {
-                        setRequestProperty("Range", "bytes=$existing-")
-                        expectedValidator?.let {
-                            setRequestProperty("If-Range", it.resumeValidatorHeaderValue())
-                        }
-                    }
-                }
-                val code = connection.responseCode
-                responseValidator = connection.offlineResumeValidator()
-                val rangeCanAppend = canAppendOfflineRange(
-                    existingBytes = existing,
-                    statusCode = code,
-                    contentRange = connection.getHeaderField("Content-Range"),
-                    expectedValidator = expectedValidator,
-                    responseValidator = responseValidator,
-                )
-                val invalidResume = existing > 0L && (
-                    code == 416 ||
-                        (code == HttpURLConnection.HTTP_PARTIAL && !rangeCanAppend)
+                val nowMs = now()
+                val next =
+                    selectPendingOfflineDownloads(
+                        items = _items.value,
+                        nowMs = nowMs,
+                        maxConcurrentDownloads = _policy.value.maxConcurrentDownloads,
                     )
-                if (invalidResume) {
-                    AppLog.warning(
+                if (next.isEmpty()) break
+                if (_wifiOnly.value && !onUnmeteredNetwork()) {
+                    AppLog.info(
                         category = "offline",
-                        event = "resume_rejected",
-                        message = "Offline range response did not match the saved partial file",
-                        attributes = mapOf(
-                            "itemId" to snapshot.itemId,
-                            "status" to code.toString(),
-                        ),
+                        event = "waiting_for_wifi",
+                        message = "Offline download is waiting for Wi-Fi",
                     )
-                    connection.disconnect()
-                    connection = null
-                    part.delete()
-                    existing = 0L
-                    expectedValidator = null
-                    update(snapshot.id) {
-                        if (it.downloadRevision == snapshot.downloadRevision) {
+                    next.forEach { pending ->
+                        update(pending.id) {
                             it.copy(
-                                downloadedBytes = 0L,
-                                totalBytes = 0L,
-                                resumeValidator = null,
+                                status = DownloadStatus.WaitingForWifi,
+                                error = null,
                                 updatedAtEpochMs = now(),
                             )
-                        } else {
-                            it
                         }
                     }
-                    continue
+                    break
                 }
-                if (code !in 200..299) throw OfflineHttpException(code)
-                if (code == HttpURLConnection.HTTP_PARTIAL && existing == 0L) {
-                    error("服务器返回了无请求的分段响应")
-                }
-                append = rangeCanAppend
-                if (!append && existing > 0L) {
-                    // If-Range correctly returns 200 when the object changed.
-                    existing = 0L
-                    part.delete()
-                }
-                break
-            }
-            val remaining = connection.contentLengthLong.coerceAtLeast(0L)
-            val total = if (remaining > 0L && existing <= Long.MAX_VALUE - remaining) {
-                existing + remaining
-            } else {
-                0L
-            }
-            update(snapshot.id) {
-                if (it.downloadRevision == snapshot.downloadRevision) {
-                    it.copy(
-                        downloadedBytes = existing,
-                        totalBytes = total,
-                        resumeValidator = responseValidator,
-                        updatedAtEpochMs = now(),
-                    )
-                } else {
-                    it
+                coroutineScope {
+                    next.map { pending -> async { download(pending) } }.awaitAll()
                 }
             }
-            if (!isCurrentDownload(snapshot)) return@withContext
-            // Unknown-length responses still need one complete check interval available
-            // before the first byte is written; otherwise they could consume the reserve
-            // before the periodic check gets its first chance to stop the stream.
-            ensureStorageAvailable(
-                requiredBytes = if (remaining > 0L) remaining else SPACE_CHECK_INTERVAL_BYTES,
-            )
-            connection.inputStream.use { input ->
-                val output = offlineStorageWrite { FileOutputStream(part, append) }
-                try {
-                    val buffer = ByteArray(128 * 1024)
-                    var downloaded = existing
-                    var lastPersisted = downloaded
-                    var lastSpaceCheck = downloaded
-                    while (true) {
-                        if (!isCurrentDownload(snapshot)) return@withContext
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        // The request can be replaced while input.read() is blocked.
-                        if (!isCurrentDownload(snapshot)) return@withContext
-                        if (downloaded - lastSpaceCheck >= SPACE_CHECK_INTERVAL_BYTES) {
-                            val reportedRemaining = if (total > 0L) total - downloaded else 0L
-                            val nextWindow = if (reportedRemaining > 0L) {
-                                minOf(reportedRemaining, SPACE_CHECK_INTERVAL_BYTES)
-                            } else {
-                                SPACE_CHECK_INTERVAL_BYTES
-                            }
-                            ensureStorageAvailable(requiredBytes = nextWindow)
-                            lastSpaceCheck = downloaded
-                        }
-                        offlineStorageWrite { output.write(buffer, 0, read) }
-                        downloaded += read
-                        if (downloaded - lastPersisted >= 512 * 1024) {
-                            lastPersisted = downloaded
-                            update(snapshot.id) {
-                                if (it.downloadRevision == snapshot.downloadRevision) {
-                                    it.copy(
-                                        downloadedBytes = downloaded,
-                                        totalBytes = total,
-                                        status = DownloadStatus.Downloading,
-                                        updatedAtEpochMs = now(),
-                                    )
-                                } else {
-                                    it
-                                }
-                            }
-                        }
-                    }
-                    offlineStorageWrite { output.fd.sync() }
-                } finally {
-                    offlineStorageWrite { output.close() }
-                }
+        }
+
+    private suspend fun download(snapshot: OfflineMedia) =
+        withContext(Dispatchers.IO) {
+            val part = partFile(snapshot)
+            part.parentFile?.mkdirs()
+            var existing = part.takeIf { it.exists() }?.length() ?: 0L
+            var expectedValidator = snapshot.resumeValidator?.takeIf { existing > 0L }
+            if (existing > 0L && expectedValidator == null) {
+                // Legacy partial files have no proof that the remote object is unchanged.
+                part.delete()
+                existing = 0L
             }
-            if (total > 0L) {
-                if (part.length() != total) throw IOException("下载连接提前结束，内容不完整")
-            }
-            val target = finalizeDownload(snapshot, part) ?: return@withContext
-            AppLog.info(
-                category = "offline",
-                event = "download_completed",
-                message = "Offline media download completed",
-                attributes = mapOf(
-                    "itemId" to snapshot.itemId,
-                    "bytes" to target.length().toString(),
-                ),
-            )
-        } catch (cancelled: CancellationException) {
+            var claimed = false
             update(snapshot.id) {
                 if (
-                    it.downloadRevision == snapshot.downloadRevision &&
-                    it.status == DownloadStatus.Downloading
+                    it.downloadRevision != snapshot.downloadRevision ||
+                    it.status !in setOf(DownloadStatus.Queued, DownloadStatus.WaitingForWifi)
                 ) {
+                    it
+                } else {
+                    claimed = true
                     it.copy(
-                        status = if (_wifiOnly.value && !onUnmeteredNetwork()) {
-                            DownloadStatus.WaitingForWifi
-                        } else {
-                            DownloadStatus.Queued
-                        },
-                        downloadedBytes = part.takeIf(File::exists)?.length() ?: 0L,
+                        status = DownloadStatus.Downloading,
+                        downloadedBytes = existing,
+                        resumeValidator = expectedValidator,
                         error = null,
                         nextRetryAt = 0L,
                         lastFailureKind = null,
                         updatedAtEpochMs = now(),
                     )
-                } else {
-                    it
                 }
             }
-            throw cancelled
-        } catch (error: Throwable) {
-            val current = _items.value.firstOrNull { it.id == snapshot.id }
-            if (current == null || current.downloadRevision != snapshot.downloadRevision) {
-                return@withContext
-            }
-            val currentStatus = current.status
-            if (currentStatus != DownloadStatus.Paused) {
-                AppLog.error(
+            if (!claimed) return@withContext
+
+            var connection: HttpURLConnection? = null
+            try {
+                AppLog.info(
                     category = "offline",
-                    event = "download_failed",
-                    message = "Offline media download failed",
-                    throwable = error,
-                    attributes = mapOf("itemId" to snapshot.itemId),
+                    event = "download_started",
+                    message = "Offline media download started",
+                    attributes =
+                        mapOf(
+                            "itemId" to snapshot.itemId,
+                            "resumeBytes" to existing.toString(),
+                        ),
                 )
-            }
-            val failureKind = offlineFailureKind(error)
-            val retry = planOfflineRetry(failureKind, current.retryCount, now())
-            val failureMessage = offlineFailureMessage(
-                kind = failureKind,
-                retry = retry,
-                error = error,
-            )
-            update(snapshot.id) {
-                if (
-                    it.downloadRevision != snapshot.downloadRevision ||
-                    it.status == DownloadStatus.Paused
-                ) {
-                    it
-                } else {
-                    it.copy(
-                        status = if (retry == null) DownloadStatus.Failed else DownloadStatus.Queued,
-                        downloadedBytes = part.takeIf(File::exists)?.length() ?: 0L,
-                        error = failureMessage,
-                        retryCount = retry?.retryCount ?: it.retryCount,
-                        nextRetryAt = retry?.nextRetryAt ?: 0L,
-                        lastFailureKind = failureKind,
-                        updatedAtEpochMs = now(),
+                val sourceUrl = resolveOfflineSourceUrl(snapshot, registry)
+                var append: Boolean
+                var responseValidator: String?
+                while (true) {
+                    if (!isCurrentDownload(snapshot)) return@withContext
+                    connection =
+                        (URL(sourceUrl).openConnection() as HttpURLConnection).apply {
+                            connectTimeout = 20_000
+                            readTimeout = 30_000
+                            instanceFollowRedirects = true
+                            if (existing > 0L) {
+                                setRequestProperty("Range", "bytes=$existing-")
+                                expectedValidator?.let {
+                                    setRequestProperty("If-Range", it.resumeValidatorHeaderValue())
+                                }
+                            }
+                        }
+                    val code = connection.responseCode
+                    responseValidator = connection.offlineResumeValidator()
+                    val rangeCanAppend =
+                        canAppendOfflineRange(
+                            existingBytes = existing,
+                            statusCode = code,
+                            contentRange = connection.getHeaderField("Content-Range"),
+                            expectedValidator = expectedValidator,
+                            responseValidator = responseValidator,
+                        )
+                    val invalidResume =
+                        existing > 0L &&
+                            (
+                                code == 416 ||
+                                    (code == HttpURLConnection.HTTP_PARTIAL && !rangeCanAppend)
+                            )
+                    if (invalidResume) {
+                        AppLog.warning(
+                            category = "offline",
+                            event = "resume_rejected",
+                            message = "Offline range response did not match the saved partial file",
+                            attributes =
+                                mapOf(
+                                    "itemId" to snapshot.itemId,
+                                    "status" to code.toString(),
+                                ),
+                        )
+                        connection.disconnect()
+                        connection = null
+                        part.delete()
+                        existing = 0L
+                        expectedValidator = null
+                        update(snapshot.id) {
+                            if (it.downloadRevision == snapshot.downloadRevision) {
+                                it.copy(
+                                    downloadedBytes = 0L,
+                                    totalBytes = 0L,
+                                    resumeValidator = null,
+                                    updatedAtEpochMs = now(),
+                                )
+                            } else {
+                                it
+                            }
+                        }
+                        continue
+                    }
+                    if (code !in 200..299) throw OfflineHttpException(code)
+                    if (code == HttpURLConnection.HTTP_PARTIAL && existing == 0L) {
+                        error("服务器返回了无请求的分段响应")
+                    }
+                    append = rangeCanAppend
+                    if (!append && existing > 0L) {
+                        // If-Range correctly returns 200 when the object changed.
+                        existing = 0L
+                        part.delete()
+                    }
+                    break
+                }
+                val remaining = connection.contentLengthLong.coerceAtLeast(0L)
+                val total =
+                    if (remaining > 0L && existing <= Long.MAX_VALUE - remaining) {
+                        existing + remaining
+                    } else {
+                        0L
+                    }
+                update(snapshot.id) {
+                    if (it.downloadRevision == snapshot.downloadRevision) {
+                        it.copy(
+                            downloadedBytes = existing,
+                            totalBytes = total,
+                            resumeValidator = responseValidator,
+                            updatedAtEpochMs = now(),
+                        )
+                    } else {
+                        it
+                    }
+                }
+                if (!isCurrentDownload(snapshot)) return@withContext
+                // Unknown-length responses still need one complete check interval available
+                // before the first byte is written; otherwise they could consume the reserve
+                // before the periodic check gets its first chance to stop the stream.
+                ensureStorageAvailable(
+                    requiredBytes = if (remaining > 0L) remaining else SPACE_CHECK_INTERVAL_BYTES,
+                )
+                connection.inputStream.use { input ->
+                    val output = offlineStorageWrite { FileOutputStream(part, append) }
+                    try {
+                        val buffer = ByteArray(128 * 1024)
+                        var downloaded = existing
+                        var lastPersisted = downloaded
+                        var lastSpaceCheck = downloaded
+                        while (true) {
+                            if (!isCurrentDownload(snapshot)) return@withContext
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            // The request can be replaced while input.read() is blocked.
+                            if (!isCurrentDownload(snapshot)) return@withContext
+                            if (downloaded - lastSpaceCheck >= SPACE_CHECK_INTERVAL_BYTES) {
+                                val reportedRemaining = if (total > 0L) total - downloaded else 0L
+                                val nextWindow =
+                                    if (reportedRemaining > 0L) {
+                                        minOf(reportedRemaining, SPACE_CHECK_INTERVAL_BYTES)
+                                    } else {
+                                        SPACE_CHECK_INTERVAL_BYTES
+                                    }
+                                ensureStorageAvailable(requiredBytes = nextWindow)
+                                lastSpaceCheck = downloaded
+                            }
+                            offlineStorageWrite { output.write(buffer, 0, read) }
+                            downloaded += read
+                            if (downloaded - lastPersisted >= 512 * 1024) {
+                                lastPersisted = downloaded
+                                update(snapshot.id) {
+                                    if (it.downloadRevision == snapshot.downloadRevision) {
+                                        it.copy(
+                                            downloadedBytes = downloaded,
+                                            totalBytes = total,
+                                            status = DownloadStatus.Downloading,
+                                            updatedAtEpochMs = now(),
+                                        )
+                                    } else {
+                                        it
+                                    }
+                                }
+                            }
+                        }
+                        offlineStorageWrite { output.fd.sync() }
+                    } finally {
+                        offlineStorageWrite { output.close() }
+                    }
+                }
+                if (total > 0L) {
+                    if (part.length() != total) throw IOException("下载连接提前结束，内容不完整")
+                }
+                val target = finalizeDownload(snapshot, part) ?: return@withContext
+                downloadSubtitle(snapshot)
+                AppLog.info(
+                    category = "offline",
+                    event = "download_completed",
+                    message = "Offline media download completed",
+                    attributes =
+                        mapOf(
+                            "itemId" to snapshot.itemId,
+                            "bytes" to target.length().toString(),
+                        ),
+                )
+            } catch (cancelled: CancellationException) {
+                update(snapshot.id) {
+                    if (
+                        it.downloadRevision == snapshot.downloadRevision &&
+                        it.status == DownloadStatus.Downloading
+                    ) {
+                        it.copy(
+                            status =
+                                if (_wifiOnly.value && !onUnmeteredNetwork()) {
+                                    DownloadStatus.WaitingForWifi
+                                } else {
+                                    DownloadStatus.Queued
+                                },
+                            downloadedBytes = part.takeIf(File::exists)?.length() ?: 0L,
+                            error = null,
+                            nextRetryAt = 0L,
+                            lastFailureKind = null,
+                            updatedAtEpochMs = now(),
+                        )
+                    } else {
+                        it
+                    }
+                }
+                throw cancelled
+            } catch (error: Throwable) {
+                val current = _items.value.firstOrNull { it.id == snapshot.id }
+                if (current == null || current.downloadRevision != snapshot.downloadRevision) {
+                    return@withContext
+                }
+                val currentStatus = current.status
+                if (currentStatus != DownloadStatus.Paused) {
+                    AppLog.error(
+                        category = "offline",
+                        event = "download_failed",
+                        message = "Offline media download failed",
+                        throwable = error,
+                        attributes = mapOf("itemId" to snapshot.itemId),
                     )
                 }
+                val failureKind = offlineFailureKind(error)
+                val retry = planOfflineRetry(failureKind, current.retryCount, now())
+                val failureMessage =
+                    offlineFailureMessage(
+                        kind = failureKind,
+                        retry = retry,
+                        error = error,
+                    )
+                update(snapshot.id) {
+                    if (
+                        it.downloadRevision != snapshot.downloadRevision ||
+                        it.status == DownloadStatus.Paused
+                    ) {
+                        it
+                    } else {
+                        it.copy(
+                            status = if (retry == null) DownloadStatus.Failed else DownloadStatus.Queued,
+                            downloadedBytes = part.takeIf(File::exists)?.length() ?: 0L,
+                            error = failureMessage,
+                            retryCount = retry?.retryCount ?: it.retryCount,
+                            nextRetryAt = retry?.nextRetryAt ?: 0L,
+                            lastFailureKind = failureKind,
+                            updatedAtEpochMs = now(),
+                        )
+                    }
+                }
+            } finally {
+                connection?.disconnect()
             }
-        } finally {
-            connection?.disconnect()
         }
-    }
 
     private fun kick() {
         rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
@@ -821,9 +950,10 @@ internal class AndroidOfflineMediaManager(
         policy: ExistingWorkPolicy,
         cancelWhenEmpty: Boolean = true,
     ) {
-        val pending = _items.value.filter {
-            it.status == DownloadStatus.Queued || it.status == DownloadStatus.WaitingForWifi
-        }
+        val pending =
+            _items.value.filter {
+                it.status == DownloadStatus.Queued || it.status == DownloadStatus.WaitingForWifi
+            }
         val workManager = WorkManager.getInstance(context)
         if (pending.isEmpty()) {
             if (cancelWhenEmpty) workManager.cancelUniqueWork(OFFLINE_WAKE_WORK_NAME)
@@ -846,21 +976,27 @@ internal class AndroidOfflineMediaManager(
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     }
 
-    private fun isCurrentDownload(snapshot: OfflineMedia): Boolean = synchronized(indexLock) {
-        _items.value.firstOrNull { it.id == snapshot.id }?.let {
-            it.downloadRevision == snapshot.downloadRevision &&
-                it.status == DownloadStatus.Downloading
-        } == true
-    }
-
-    private fun finalizeDownload(snapshot: OfflineMedia, part: File): File? =
+    private fun isCurrentDownload(snapshot: OfflineMedia): Boolean =
         synchronized(indexLock) {
-            val current = _items.value.firstOrNull { it.id == snapshot.id }
-                ?.takeIf {
-                    it.downloadRevision == snapshot.downloadRevision &&
-                        it.status == DownloadStatus.Downloading
-                }
-                ?: return@synchronized null
+            _items.value.firstOrNull { it.id == snapshot.id }?.let {
+                it.downloadRevision == snapshot.downloadRevision &&
+                    it.status == DownloadStatus.Downloading
+            } == true
+        }
+
+    private fun finalizeDownload(
+        snapshot: OfflineMedia,
+        part: File,
+    ): File? =
+        synchronized(indexLock) {
+            val current =
+                _items.value
+                    .firstOrNull { it.id == snapshot.id }
+                    ?.takeIf {
+                        it.downloadRevision == snapshot.downloadRevision &&
+                            it.status == DownloadStatus.Downloading
+                    }
+                    ?: return@synchronized null
             val target = completedFile(current)
             if (target.exists()) target.delete()
             if (!part.renameTo(target)) throw OfflineStorageException("无法保存离线文件")
@@ -887,7 +1023,49 @@ internal class AndroidOfflineMediaManager(
             target
         }
 
-    private fun update(id: String, transform: (OfflineMedia) -> OfflineMedia) {
+    private suspend fun downloadSubtitle(snapshot: OfflineMedia) =
+        withContext(Dispatchers.IO) {
+            val sourceUrl = resolveOfflineSubtitleUrl(snapshot, registry) ?: return@withContext
+            val target = subtitleFile(snapshot)
+            var connection: HttpURLConnection? = null
+            try {
+                connection =
+                    (URL(sourceUrl).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 20_000
+                        readTimeout = 30_000
+                        instanceFollowRedirects = true
+                    }
+                if (connection.responseCode !in 200..299) {
+                    throw OfflineHttpException(connection.responseCode)
+                }
+                connection.inputStream.use { input ->
+                    offlineStorageWrite { target.outputStream().use(input::copyTo) }
+                }
+                update(snapshot.id) { current ->
+                    if (current.downloadRevision == snapshot.downloadRevision) {
+                        current.copy(subtitlePath = target.absolutePath, updatedAtEpochMs = now())
+                    } else {
+                        current
+                    }
+                }
+            } catch (error: Throwable) {
+                target.delete()
+                AppLog.warning(
+                    category = "offline",
+                    event = "subtitle_download_failed",
+                    message = "Video completed but the selected subtitle could not be saved",
+                    throwable = error,
+                    attributes = mapOf("itemId" to snapshot.itemId),
+                )
+            } finally {
+                connection?.disconnect()
+            }
+        }
+
+    private fun update(
+        id: String,
+        transform: (OfflineMedia) -> OfflineMedia,
+    ) {
         synchronized(indexLock) {
             commitLocked(_items.value.map { if (it.id == id) transform(it) else it })
         }
@@ -916,11 +1094,17 @@ internal class AndroidOfflineMediaManager(
         }.getOrDefault(emptyList())
     }
 
-    private fun partFile(item: OfflineMedia) =
-        File(directory, safeFileName(item.id) + ".part")
+    private fun partFile(item: OfflineMedia) = File(directory, safeFileName(item.id) + ".part")
 
-    private fun completedFile(item: OfflineMedia) =
-        File(directory, safeFileName(item.id) + ".media")
+    private fun completedFile(item: OfflineMedia) = File(directory, safeFileName(item.id) + ".media")
+
+    private fun subtitleFile(item: OfflineMedia) = File(directory, safeFileName(item.id) + ".srt")
+
+    private fun persistPolicy(value: OfflineDownloadPolicy) {
+        val normalized = persistOfflineDownloadPolicy(settings, value)
+        _policy.value = normalized
+        _wifiOnly.value = normalized.wifiOnly
+    }
 
     private fun ensureStorageAvailable(requiredBytes: Long) {
         val usable = directory.usableSpace
@@ -956,18 +1140,21 @@ private fun offlineDownloadNotification(
     downloaded: Long,
     total: Long,
 ): Notification {
-    val contentIntent = PendingIntent.getActivity(
-        context,
-        0,
-        Intent(context, MainActivity::class.java),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
-    val progress = if (total > 0L) {
-        ((downloaded.toDouble() / total.toDouble()) * 100.0).toInt().coerceIn(0, 100)
-    } else {
-        0
-    }
-    return Notification.Builder(context, OFFLINE_NOTIFICATION_CHANNEL_ID)
+    val contentIntent =
+        PendingIntent.getActivity(
+            context,
+            0,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    val progress =
+        if (total > 0L) {
+            ((downloaded.toDouble() / total.toDouble()) * 100.0).toInt().coerceIn(0, 100)
+        } else {
+            0
+        }
+    return Notification
+        .Builder(context, OFFLINE_NOTIFICATION_CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_download)
         .setContentTitle(title)
         .setContentText(if (total > 0L) "$progress%" else "正在连接服务器")
@@ -996,42 +1183,44 @@ class OfflineDownloadWorker(
     appContext: Context,
     parameters: WorkerParameters,
 ) : CoroutineWorker(appContext, parameters) {
-
     override suspend fun doWork(): Result {
-        val manager = runCatching {
-            GlobalContext.get().get<OfflineMediaManager>() as AndroidOfflineMediaManager
-        }.getOrElse { error ->
-            AppLog.error(
-                category = "offline",
-                event = "worker_dependency_failed",
-                message = "Offline worker could not resolve the shared download manager",
-                throwable = error,
-            )
-            return if (runAttemptCount < 3) Result.retry() else Result.failure()
-        }
+        val manager =
+            runCatching {
+                GlobalContext.get().get<OfflineMediaManager>() as AndroidOfflineMediaManager
+            }.getOrElse { error ->
+                AppLog.error(
+                    category = "offline",
+                    event = "worker_dependency_failed",
+                    message = "Offline worker could not resolve the shared download manager",
+                    throwable = error,
+                )
+                return if (runAttemptCount < 3) Result.retry() else Result.failure()
+            }
         return try {
             setForeground(offlineForegroundInfo(applicationContext))
             coroutineScope {
-                val updates = launch {
-                    manager.items.collectLatest { items ->
-                        val active = items.firstOrNull {
-                            it.status == DownloadStatus.Downloading
-                        }
-                        if (active != null) {
-                            applicationContext
-                                .getSystemService(NotificationManager::class.java)
-                                .notify(
-                                    OFFLINE_WORK_NOTIFICATION_ID,
-                                    offlineDownloadNotification(
-                                        context = applicationContext,
-                                        title = active.title,
-                                        downloaded = active.downloadedBytes,
-                                        total = active.totalBytes,
-                                    ),
-                                )
+                val updates =
+                    launch {
+                        manager.items.collectLatest { items ->
+                            val active =
+                                items.firstOrNull {
+                                    it.status == DownloadStatus.Downloading
+                                }
+                            if (active != null) {
+                                applicationContext
+                                    .getSystemService(NotificationManager::class.java)
+                                    .notify(
+                                        OFFLINE_WORK_NOTIFICATION_ID,
+                                        offlineDownloadNotification(
+                                            context = applicationContext,
+                                            title = active.title,
+                                            downloaded = active.downloadedBytes,
+                                            total = active.totalBytes,
+                                        ),
+                                    )
+                            }
                         }
                     }
-                }
                 try {
                     manager.runPendingDownloads()
                 } finally {
@@ -1068,7 +1257,6 @@ class OfflineDownloadWorker(
 }
 
 class OfflineDownloadService : Service() {
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var work: Job? = null
 
@@ -1081,35 +1269,41 @@ class OfflineDownloadService : Service() {
         )
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         if (work?.isActive == true) return START_NOT_STICKY
         val manager = GlobalContext.get().get<OfflineMediaManager>() as AndroidOfflineMediaManager
-        work = scope.launch {
-            val updates = launch {
-                manager.items.collectLatest { items ->
-                    val active = items.firstOrNull { it.status == DownloadStatus.Downloading }
-                    if (active != null) {
-                        getSystemService(NotificationManager::class.java).notify(
-                            OFFLINE_SERVICE_NOTIFICATION_ID,
-                            offlineDownloadNotification(
-                                context = this@OfflineDownloadService,
-                                title = active.title,
-                                downloaded = active.downloadedBytes,
-                                total = active.totalBytes,
-                            ),
-                        )
+        work =
+            scope.launch {
+                val updates =
+                    launch {
+                        manager.items.collectLatest { items ->
+                            val active = items.firstOrNull { it.status == DownloadStatus.Downloading }
+                            if (active != null) {
+                                getSystemService(NotificationManager::class.java).notify(
+                                    OFFLINE_SERVICE_NOTIFICATION_ID,
+                                    offlineDownloadNotification(
+                                        context = this@OfflineDownloadService,
+                                        title = active.title,
+                                        downloaded = active.downloadedBytes,
+                                        total = active.totalBytes,
+                                    ),
+                                )
+                            }
+                        }
                     }
+                try {
+                    manager.runPendingDownloads()
+                } finally {
+                    updates.cancel()
+                    manager.rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(startId)
                 }
             }
-            try {
-                manager.runPendingDownloads()
-            } finally {
-                updates.cancel()
-                manager.rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf(startId)
-            }
-        }
         return START_NOT_STICKY
     }
 
@@ -1119,5 +1313,4 @@ class OfflineDownloadService : Service() {
         scope.cancel()
         super.onDestroy()
     }
-
 }

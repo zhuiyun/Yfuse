@@ -18,16 +18,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
@@ -51,9 +50,13 @@ sealed interface InviteResolution {
     ) : InviteResolution
 
     /** No server has it. The room is real, this viewer just can't play along. */
-    data class Missing(val title: String?) : InviteResolution
+    data class Missing(
+        val title: String?,
+    ) : InviteResolution
 
-    data class Failed(val message: String) : InviteResolution
+    data class Failed(
+        val message: String,
+    ) : InviteResolution
 }
 
 @Composable
@@ -81,19 +84,20 @@ fun WatchInviteSheet(
         )
 
         when (resolution) {
-            InviteResolution.Resolving -> Row(
-                Modifier.fillMaxWidth().padding(vertical = 18.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator(
-                    Modifier.size(18.dp),
-                    color = accent.accent,
-                    strokeWidth = 2.dp,
-                )
-                Spacer(Modifier.width(10.dp))
-                Text("正在你的服务器上查找…", style = AppTypography.body.medium, color = palette.sub)
-            }
+            InviteResolution.Resolving ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        Modifier.size(18.dp),
+                        color = accent.accent,
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text("正在你的服务器上查找…", style = AppTypography.body.medium, color = palette.sub)
+                }
 
             is InviteResolution.Found -> {
                 Row(
@@ -103,8 +107,7 @@ fun WatchInviteSheet(
                             shape = GlassShapes.chip,
                             fill = accent.container,
                             border = accent.border,
-                        )
-                        .padding(12.dp),
+                        ).padding(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -234,8 +237,9 @@ fun WatchInviteShareSheet(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "邀请一起看",
-            subtitle = title?.let { "《$it》· 对方用自己的服务器播放" }
-                ?: "对方用自己的服务器播放",
+            subtitle =
+                title?.let { "《$it》· 对方用自己的服务器播放" }
+                    ?: "对方用自己的服务器播放",
             onClose = onDismiss,
         )
         when {
@@ -293,8 +297,7 @@ fun WatchInviteShareSheet(
                             shape = GlassShapes.chip,
                             fill = accent.container,
                             border = accent.border,
-                        )
-                        .padding(vertical = 16.dp),
+                        ).padding(vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {

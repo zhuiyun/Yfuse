@@ -15,12 +15,15 @@ actual fun rememberShareHandler(): ShareHandler {
     return remember(context) { AndroidShareHandler(context) }
 }
 
-private class AndroidShareHandler(private val context: Context) : ShareHandler {
+private class AndroidShareHandler(
+    private val context: Context,
+) : ShareHandler {
     override fun shareText(text: String) {
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, text)
-        }
+        val send =
+            Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
         // A chooser rather than a direct start: an invite has no single natural target, and
         // FLAG_ACTIVITY_NEW_TASK is required because this may be invoked from a Compose
         // context whose activity isn't guaranteed to be the task root.

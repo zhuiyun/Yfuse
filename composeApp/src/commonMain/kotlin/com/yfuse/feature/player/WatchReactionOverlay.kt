@@ -16,16 +16,15 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.sync.WatchReactionBurst
 import kotlinx.coroutines.delay
 
@@ -105,13 +104,11 @@ private fun BoxScope.ReactionBubble(
                 translationX = drift.dp.toPx() * progress
                 // Holds full strength for the first third, then thins out.
                 alpha = ((1f - progress) * 1.5f).coerceIn(0f, 1f)
-            }
-            .glass(
+            }.glass(
                 shape = GlassShapes.chip,
                 fill = PlayerTokens.nextUpFill,
                 border = PlayerTokens.hairline,
-            )
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            ).padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

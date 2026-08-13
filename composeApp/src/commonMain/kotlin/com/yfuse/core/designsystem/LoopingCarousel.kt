@@ -15,8 +15,7 @@ import androidx.compose.ui.semantics.stateDescription
  */
 internal const val LoopingCarouselPageCount: Int = Int.MAX_VALUE
 
-internal fun loopingCarouselPageCount(itemCount: Int): Int =
-    if (itemCount > 1) LoopingCarouselPageCount else 1
+internal fun loopingCarouselPageCount(itemCount: Int): Int = if (itemCount > 1) LoopingCarouselPageCount else 1
 
 internal fun loopingCarouselStartPage(itemCount: Int): Int {
     if (itemCount <= 1) return 0
@@ -24,31 +23,40 @@ internal fun loopingCarouselStartPage(itemCount: Int): Int {
     return middle - middle % itemCount
 }
 
-internal fun loopingCarouselItemIndex(page: Int, itemCount: Int): Int =
-    if (itemCount <= 0) 0 else page.mod(itemCount)
+internal fun loopingCarouselItemIndex(
+    page: Int,
+    itemCount: Int,
+): Int = if (itemCount <= 0) 0 else page.mod(itemCount)
 
 /**
  * Replaces the pager's billion-page range with the real logical collection for TalkBack.
  * Scroll actions still come from [androidx.compose.foundation.pager.HorizontalPager]; only
  * the exposed range and spoken state are corrected here.
  */
-fun Modifier.loopingCarouselSemantics(currentPage: Int, itemCount: Int): Modifier {
+fun Modifier.loopingCarouselSemantics(
+    currentPage: Int,
+    itemCount: Int,
+): Modifier {
     if (itemCount <= 0) return this
     val logicalIndex = loopingCarouselItemIndex(currentPage, itemCount)
     return semantics {
         collectionInfo = CollectionInfo(rowCount = 1, columnCount = itemCount)
         stateDescription = loopingCarouselStateDescription(currentPage, itemCount)
         if (itemCount > 1) {
-            horizontalScrollAxisRange = ScrollAxisRange(
-                value = { logicalIndex.toFloat() },
-                maxValue = { (itemCount - 1).toFloat() },
-                reverseScrolling = false,
-            )
+            horizontalScrollAxisRange =
+                ScrollAxisRange(
+                    value = { logicalIndex.toFloat() },
+                    maxValue = { (itemCount - 1).toFloat() },
+                    reverseScrolling = false,
+                )
         }
     }
 }
 
-internal fun loopingCarouselStateDescription(currentPage: Int, itemCount: Int): String {
+internal fun loopingCarouselStateDescription(
+    currentPage: Int,
+    itemCount: Int,
+): String {
     val logicalIndex = loopingCarouselItemIndex(currentPage, itemCount)
     return "第 ${logicalIndex + 1} 项，共 $itemCount 项"
 }

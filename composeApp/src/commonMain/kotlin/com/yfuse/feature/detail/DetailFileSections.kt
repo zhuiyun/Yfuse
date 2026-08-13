@@ -17,19 +17,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -44,9 +44,9 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.SourceInfo
@@ -69,32 +69,44 @@ import com.yfuse.core.model.compareSourceInfoBestFirst
  * or stream metadata, but a bloated 1080p encode must not outrank a smaller genuine 4K file.
  * Display order only: which version is selected stays the server's own choice.
  */
-internal fun List<MediaVersion>.bestVersionsFirst(): List<MediaVersion> = sortedWith { left, right ->
-    compareMediaVersionsBestFirst(left, right).nonZero()
-        ?: left.name.lowercase().compareTo(right.name.lowercase()).nonZero()
-        ?: left.id.compareTo(right.id)
-}
+internal fun List<MediaVersion>.bestVersionsFirst(): List<MediaVersion> =
+    sortedWith { left, right ->
+        compareMediaVersionsBestFirst(left, right).nonZero()
+            ?: left.name
+                .lowercase()
+                .compareTo(right.name.lowercase())
+                .nonZero()
+            ?: left.id.compareTo(right.id)
+    }
 
 /**
  * Rank every server using raw media facts rather than parsing its preformatted quality label.
  * Unreachable/empty entries stay at the bottom; exact quality ties use the server identity so
  * the row cannot jump around when cross-server responses arrive in a different order.
  */
-internal fun List<ServerSource>.bestSourcesFirst(): List<ServerSource> = sortedWith { left, right ->
-    val leftAvailable = left.reachable && left.source != null && left.itemId != null
-    val rightAvailable = right.reachable && right.source != null && right.itemId != null
-    compareDescending(leftAvailable, rightAvailable).nonZero()
-        ?: compareSourceInfoBestFirst(left.source, right.source).nonZero()
-        ?: left.serverName.lowercase().compareTo(right.serverName.lowercase()).nonZero()
-        ?: left.serverId.compareTo(right.serverId)
-}
+internal fun List<ServerSource>.bestSourcesFirst(): List<ServerSource> =
+    sortedWith { left, right ->
+        val leftAvailable = left.reachable && left.source != null && left.itemId != null
+        val rightAvailable = right.reachable && right.source != null && right.itemId != null
+        compareDescending(leftAvailable, rightAvailable).nonZero()
+            ?: compareSourceInfoBestFirst(left.source, right.source).nonZero()
+            ?: left.serverName
+                .lowercase()
+                .compareTo(right.serverName.lowercase())
+                .nonZero()
+            ?: left.serverId.compareTo(right.serverId)
+    }
 
-private fun <T : Comparable<T>> compareDescending(left: T?, right: T?): Int = when {
-    left == right -> 0
-    left == null -> 1
-    right == null -> -1
-    else -> right.compareTo(left)
-}
+private fun <T : Comparable<T>> compareDescending(
+    left: T?,
+    right: T?,
+): Int =
+    when {
+        left == right -> 0
+        left == null -> 1
+        right == null -> -1
+        else -> right.compareTo(left)
+    }
 
 private fun Int.nonZero(): Int? = takeIf { it != 0 }
 
@@ -140,28 +152,33 @@ internal fun List<ServerSource>.describing(
     }
 }
 
-private fun MediaVersion.restating(base: SourceInfo): SourceInfo = base.copy(
-    quality = qualityLabel,
-    size = sizeLabel,
-    bitrate = bitrateLabel,
-    audioTrackCount = audioTracks.size,
-    subtitleTrackCount = subtitleTracks.size,
-    sizeBytes = sizeBytes,
-    rangeLabel = videoRange ?: "SDR",
-    dolbyVision = isDolbyVision,
-    dolbyAtmos = hasDolbyAtmos,
-    frameRate = video?.frameRateLabel ?: base.frameRate,
-    videoWidth = video?.width,
-    videoHeight = videoHeight ?: video?.height,
-    bitrateBps = bitrateBps,
-    videoRange = videoRange,
-    videoBitDepth = video?.bitDepth,
-    maxAudioChannels = audioTracks.mapNotNull { it.channelCount?.takeIf { count -> count > 0 } }
-        .maxOrNull(),
-    maxAudioBitrateBps = audioTracks.mapNotNull { it.bitrateBps?.takeIf { rate -> rate > 0 } }
-        .maxOrNull(),
-    losslessAudio = audioTracks.any { it.isLossless },
-)
+private fun MediaVersion.restating(base: SourceInfo): SourceInfo =
+    base.copy(
+        quality = qualityLabel,
+        size = sizeLabel,
+        bitrate = bitrateLabel,
+        audioTrackCount = audioTracks.size,
+        subtitleTrackCount = subtitleTracks.size,
+        sizeBytes = sizeBytes,
+        rangeLabel = videoRange ?: "SDR",
+        dolbyVision = isDolbyVision,
+        dolbyAtmos = hasDolbyAtmos,
+        frameRate = video?.frameRateLabel ?: base.frameRate,
+        videoWidth = video?.width,
+        videoHeight = videoHeight ?: video?.height,
+        bitrateBps = bitrateBps,
+        videoRange = videoRange,
+        videoBitDepth = video?.bitDepth,
+        maxAudioChannels =
+            audioTracks
+                .mapNotNull { it.channelCount?.takeIf { count -> count > 0 } }
+                .maxOrNull(),
+        maxAudioBitrateBps =
+            audioTracks
+                .mapNotNull { it.bitrateBps?.takeIf { rate -> rate > 0 } }
+                .maxOrNull(),
+        losslessAudio = audioTracks.any { it.isLossless },
+    )
 
 /**
  * 媒体信息 — everything the server knows about the file that is actually playing.
@@ -183,64 +200,68 @@ internal fun MediaInfoSection(
         // Two cards fill the width, as in the reference; a third and beyond (a release with
         // several audio tracks) scroll in from the right rather than shrinking the pair.
         BoxWithConstraints {
-        val cardWidth = (maxWidth - Dimens.pageHorizontal * 2 - 10.dp) / 2
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-        ) {
-            version.video?.let { video ->
-                item(key = "video") {
+            val cardWidth = (maxWidth - Dimens.pageHorizontal * 2 - 10.dp) / 2
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+            ) {
+                version.video?.let { video ->
+                    item(key = "video") {
+                        SpecCard(
+                            icon = AppIcons.Play,
+                            title = "视频",
+                            width = cardWidth,
+                            rows =
+                                listOfNotNull(
+                                    video.displayTitle?.let { "显示标题" to it },
+                                    video.language?.let { "语言" to it },
+                                    video.codec?.let { "编码" to it },
+                                    video.resolutionLabel?.let { "分辨率" to it },
+                                    video.frameRateLabel?.let { "帧率" to it },
+                                    video.bitrateBps
+                                        ?.takeIf { it > 0 }
+                                        ?.let { "比特率" to "${it / 1_000_000} Mbps" },
+                                    video.videoRange?.let { "动态范围" to it },
+                                    video.interlaced?.let { "隔行扫描" to if (it) "是" else "否" },
+                                    video.colorPrimaries?.let { "色彩原色" to it },
+                                    video.colorSpace?.let { "色彩空间" to it },
+                                    video.profile?.let { "配置" to it },
+                                    video.level?.takeIf { it > 0 }?.let { "等级" to it.toInt().toString() },
+                                    video.aspectRatio?.let { "长宽比" to it },
+                                    video.bitDepth?.takeIf { it > 0 }?.let { "位深" to it.toString() },
+                                ),
+                        )
+                    }
+                }
+                itemsIndexed(version.audioTracks) { index, audio ->
                     SpecCard(
-                        icon = AppIcons.Play,
-                        title = "视频",
+                        icon = AppIcons.Volume,
+                        title = if (version.audioTracks.size > 1) "音频 ${index + 1}" else "音频",
                         width = cardWidth,
-                        rows = listOfNotNull(
-                            video.displayTitle?.let { "显示标题" to it },
-                            video.language?.let { "语言" to it },
-                            video.codec?.let { "编码" to it },
-                            video.resolutionLabel?.let { "分辨率" to it },
-                            video.frameRateLabel?.let { "帧率" to it },
-                            video.bitrateBps?.takeIf { it > 0 }
-                                ?.let { "比特率" to "${it / 1_000_000} Mbps" },
-                            video.videoRange?.let { "动态范围" to it },
-                            video.interlaced?.let { "隔行扫描" to if (it) "是" else "否" },
-                            video.colorPrimaries?.let { "色彩原色" to it },
-                            video.colorSpace?.let { "色彩空间" to it },
-                            video.profile?.let { "配置" to it },
-                            video.level?.takeIf { it > 0 }?.let { "等级" to it.toInt().toString() },
-                            video.aspectRatio?.let { "长宽比" to it },
-                            video.bitDepth?.takeIf { it > 0 }?.let { "位深" to it.toString() },
-                        ),
+                        rows =
+                            listOfNotNull(
+                                audio.displayTitle?.let { "标题" to it },
+                                audio.language?.let { "语言" to it },
+                                audio.codec?.uppercase()?.let { "编码" to it },
+                                audio.profile?.let { "配置" to it },
+                                audio.bitrateLabel?.let { "比特率" to it },
+                                audio.channels?.let { "布局" to it },
+                                audio.channelCount?.takeIf { it > 0 }?.let { "声道" to it.toString() },
+                                audio.sampleRateLabel?.let { "采样率" to it },
+                                audio.external?.let { "外部" to if (it) "是" else "否" },
+                                audio.default?.let { "默认" to if (it) "是" else "否" },
+                                audio.displayLanguage?.let { "显示语言" to it },
+                            ),
                     )
                 }
             }
-            itemsIndexed(version.audioTracks) { index, audio ->
-                SpecCard(
-                    icon = AppIcons.Volume,
-                    title = if (version.audioTracks.size > 1) "音频 ${index + 1}" else "音频",
-                    width = cardWidth,
-                    rows = listOfNotNull(
-                        audio.displayTitle?.let { "标题" to it },
-                        audio.language?.let { "语言" to it },
-                        audio.codec?.uppercase()?.let { "编码" to it },
-                        audio.profile?.let { "配置" to it },
-                        audio.bitrateLabel?.let { "比特率" to it },
-                        audio.channels?.let { "布局" to it },
-                        audio.channelCount?.takeIf { it > 0 }?.let { "声道" to it.toString() },
-                        audio.sampleRateLabel?.let { "采样率" to it },
-                        audio.external?.let { "外部" to if (it) "是" else "否" },
-                        audio.default?.let { "默认" to if (it) "是" else "否" },
-                        audio.displayLanguage?.let { "显示语言" to it },
-                    ),
-                )
-            }
         }
-        }
-        val footer = listOfNotNull(
-            version.container?.uppercase(),
-            version.sizeLabel,
-            dateCreated,
-        )
+        val footer =
+            listOfNotNull(
+                version.container?.uppercase(),
+                version.sizeLabel,
+                dateCreated,
+            )
         if (version.path != null || footer.isNotEmpty()) {
             Column(
                 Modifier
@@ -249,14 +270,14 @@ internal fun MediaInfoSection(
                     .fillMaxWidth()
                     .solidGlass(
                         shape = GlassShapes.card,
-                        fill = if (palette.isDark) {
-                            Color.White.copy(alpha = 0.05f)
-                        } else {
-                            Color.White.copy(alpha = 0.55f)
-                        },
+                        fill =
+                            if (palette.isDark) {
+                                Color.White.copy(alpha = 0.05f)
+                            } else {
+                                Color.White.copy(alpha = 0.55f)
+                            },
                         border = palette.border,
-                    )
-                    .padding(horizontal = 12.dp, vertical = 11.dp),
+                    ).padding(horizontal = 12.dp, vertical = 11.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 version.path?.let { path ->
@@ -285,24 +306,25 @@ private fun SpecCard(
     val palette = LocalPalette.current
     // A white palette border disappears against this card's pale surface. Keep the
     // glass card body, but give it one calm, solid outline in both themes.
-    val edge = if (palette.isDark) {
-        Color.White.copy(alpha = 0.16f)
-    } else {
-        Color(0xFF141A26).copy(alpha = 0.12f)
-    }
+    val edge =
+        if (palette.isDark) {
+            Color.White.copy(alpha = 0.16f)
+        } else {
+            Color(0xFF141A26).copy(alpha = 0.12f)
+        }
     Column(
         Modifier
             .width(width)
             .solidGlass(
                 shape = GlassShapes.card,
-                fill = if (palette.isDark) {
-                    Color.White.copy(alpha = 0.06f)
-                } else {
-                    Color.White.copy(alpha = 0.72f)
-                },
+                fill =
+                    if (palette.isDark) {
+                        Color.White.copy(alpha = 0.06f)
+                    } else {
+                        Color.White.copy(alpha = 0.72f)
+                    },
                 border = edge,
-            )
-            .padding(horizontal = 13.dp, vertical = 12.dp),
+            ).padding(horizontal = 13.dp, vertical = 12.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -406,15 +428,16 @@ internal fun TrackSection(
             Column {
                 SectionHeader("音轨", Modifier.padding(horizontal = Dimens.pageHorizontal))
                 TrackChipRow(
-                    options = buildList {
-                        add(TrackChoice(null, "默认"))
-                        // A track the server tagged with no language is unreachable —
-                        // language is the only handle the player has on it — so it is not
-                        // offered rather than offered and silently ignored.
-                        version.audioTracks.forEach { track ->
-                            track.language?.let { add(TrackChoice(it, track.label)) }
-                        }
-                    },
+                    options =
+                        buildList {
+                            add(TrackChoice(null, "默认"))
+                            // A track the server tagged with no language is unreachable —
+                            // language is the only handle the player has on it — so it is not
+                            // offered rather than offered and silently ignored.
+                            version.audioTracks.forEach { track ->
+                                track.language?.let { add(TrackChoice(it, track.label)) }
+                            }
+                        },
                     selected = audioLanguage,
                     accent = accent,
                     onSelect = onSelectAudio,
@@ -425,13 +448,14 @@ internal fun TrackSection(
             Column {
                 SectionHeader("字幕", Modifier.padding(horizontal = Dimens.pageHorizontal))
                 TrackChipRow(
-                    options = buildList {
-                        add(TrackChoice(null, "默认"))
-                        add(TrackChoice(PlaybackTrackRequest.SUBTITLES_OFF, "关闭"))
-                        version.subtitleTracks.forEach { track ->
-                            track.language?.let { add(TrackChoice(it, track.label)) }
-                        }
-                    },
+                    options =
+                        buildList {
+                            add(TrackChoice(null, "默认"))
+                            add(TrackChoice(PlaybackTrackRequest.SUBTITLES_OFF, "关闭"))
+                            version.subtitleTracks.forEach { track ->
+                                track.language?.let { add(TrackChoice(it, track.label)) }
+                            }
+                        },
                     selected = subtitleLanguage,
                     accent = accent,
                     onSelect = onSelectSubtitle,
@@ -442,7 +466,10 @@ internal fun TrackSection(
 }
 
 /** One selectable track, as the value that travels and the words on the chip. */
-private data class TrackChoice(val value: String?, val label: String)
+private data class TrackChoice(
+    val value: String?,
+    val label: String,
+)
 
 @Composable
 private fun TrackChipRow(
@@ -466,28 +493,28 @@ private fun TrackChipRow(
                 style = if (active) AppTypography.body.strong else AppTypography.body.medium,
                 color = if (active) accent else palette.body,
                 maxLines = 1,
-                modifier = Modifier
-                    // Match 外部链接: the same lifted liquid-glass body in both themes.
-                    // Selection changes only the text and one solid-colour edge.
-                    .pressable(
-                        role = Role.RadioButton,
-                        onClickLabel = "选择${option.label}",
-                        onClick = { onSelect(option.value) },
-                    )
-                    .semantics { this.selected = active }
-                    .touchTarget()
-                    .shadow(GlassLift.control, GlassShapes.chip)
-                    .liquidGlass(
-                        shape = GlassShapes.chip,
-                        fill = if (palette.isDark) {
-                            Color.White.copy(alpha = 0.075f)
-                        } else {
-                            Color.White.copy(alpha = 0.72f)
-                        },
-                        border = if (active) accent.copy(alpha = 0.32f) else palette.border,
-                        sheen = 0.7f,
-                    )
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                modifier =
+                    Modifier
+                        // Match 外部链接: the same lifted liquid-glass body in both themes.
+                        // Selection changes only the text and one solid-colour edge.
+                        .pressable(
+                            role = Role.RadioButton,
+                            onClickLabel = "选择${option.label}",
+                            onClick = { onSelect(option.value) },
+                        ).semantics { this.selected = active }
+                        .touchTarget()
+                        .shadow(GlassLift.control, GlassShapes.chip)
+                        .liquidGlass(
+                            shape = GlassShapes.chip,
+                            fill =
+                                if (palette.isDark) {
+                                    Color.White.copy(alpha = 0.075f)
+                                } else {
+                                    Color.White.copy(alpha = 0.72f)
+                                },
+                            border = if (active) accent.copy(alpha = 0.32f) else palette.border,
+                            sheen = 0.7f,
+                        ).padding(horizontal = 12.dp, vertical = 7.dp),
             )
         }
     }
@@ -501,11 +528,12 @@ private fun VersionCard(
     onSelect: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val edge = when {
-        selected -> accent
-        palette.isDark -> Color.White.copy(alpha = 0.16f)
-        else -> Color(0xFF141A26).copy(alpha = 0.10f)
-    }
+    val edge =
+        when {
+            selected -> accent
+            palette.isDark -> Color.White.copy(alpha = 0.16f)
+            else -> Color(0xFF141A26).copy(alpha = 0.10f)
+        }
     Column(
         Modifier
             .width(150.dp)
@@ -513,18 +541,17 @@ private fun VersionCard(
                 role = Role.RadioButton,
                 onClickLabel = "选择${version.name}版本",
                 onClick = onSelect,
-            )
-            .semantics { this.selected = selected }
+            ).semantics { this.selected = selected }
             .solidGlass(
                 shape = GlassShapes.card,
-                fill = if (palette.isDark) {
-                    Color.White.copy(alpha = 0.06f)
-                } else {
-                    Color.White.copy(alpha = 0.82f)
-                },
+                fill =
+                    if (palette.isDark) {
+                        Color.White.copy(alpha = 0.06f)
+                    } else {
+                        Color.White.copy(alpha = 0.82f)
+                    },
                 border = null,
-            )
-            .border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
+            ).border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -575,9 +602,10 @@ internal fun SourceSection(
     val palette = LocalPalette.current
     // Order is the caller's: it ranks on what each server holds, before the selected entry is
     // restated in terms of the chosen version. Filtering preserves it.
-    val availableSources = remember(sources) {
-        sources.filter { it.reachable && it.source != null && it.itemId != null }
-    }
+    val availableSources =
+        remember(sources) {
+            sources.filter { it.reachable && it.source != null && it.itemId != null }
+        }
     Column(modifier) {
         SectionHeader(
             title = "资源",
@@ -608,11 +636,13 @@ internal fun SourceSection(
         // given the same title on two servers, which one is the better one. It is the first
         // entry by construction — the caller ranked them — and saying so beats making the
         // reader infer it from the order.
-        val bestServerId = remember(availableSources) {
-            availableSources.firstOrNull()
-                ?.takeIf { availableSources.size > 1 && it.source?.hasQualityEvidence() == true }
-                ?.serverId
-        }
+        val bestServerId =
+            remember(availableSources) {
+                availableSources
+                    .firstOrNull()
+                    ?.takeIf { availableSources.size > 1 && it.source?.hasQualityEvidence() == true }
+                    ?.serverId
+            }
         BoxWithConstraints {
             val cardWidth = (maxWidth - Dimens.pageHorizontal * 2 - 10.dp) / 2
             LazyRow(
@@ -626,8 +656,9 @@ internal fun SourceSection(
                 ) { _, entry ->
                     SourceCard(
                         entry = entry,
-                        selected = entry.serverId == selectedServerId &&
-                            entry.itemId == selectedItemId,
+                        selected =
+                            entry.serverId == selectedServerId &&
+                                entry.itemId == selectedItemId,
                         accent = accent,
                         best = entry.serverId == bestServerId,
                         width = cardWidth,
@@ -653,11 +684,12 @@ private fun SourceCard(
     // 1.5dp on the selected ring, so switching sources moves the edge as well as the
     // colour. The body keeps its glass-card sheen; the edge itself is always one solid
     // colour and is drawn separately so it can become heavier for the selected source.
-    val edge = when {
-        selected -> accent
-        palette.isDark -> Color.White.copy(alpha = 0.16f)
-        else -> Color(0xFF141A26).copy(alpha = 0.10f)
-    }
+    val edge =
+        when {
+            selected -> accent
+            palette.isDark -> Color.White.copy(alpha = 0.16f)
+            else -> Color(0xFF141A26).copy(alpha = 0.10f)
+        }
     Column(
         Modifier
             .width(width)
@@ -665,18 +697,17 @@ private fun SourceCard(
                 role = Role.RadioButton,
                 onClickLabel = "选择${entry.serverName}资源",
                 onClick = onSelect,
-            )
-            .semantics { this.selected = selected }
+            ).semantics { this.selected = selected }
             .solidGlass(
                 shape = GlassShapes.card,
-                fill = if (palette.isDark) {
-                    Color.White.copy(alpha = 0.06f)
-                } else {
-                    Color.White.copy(alpha = 0.82f)
-                },
+                fill =
+                    if (palette.isDark) {
+                        Color.White.copy(alpha = 0.06f)
+                    } else {
+                        Color.White.copy(alpha = 0.82f)
+                    },
                 border = null,
-            )
-            .border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
+            ).border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
             .padding(horizontal = 11.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
@@ -711,10 +742,11 @@ private fun SourceCard(
                     "Best",
                     style = AppTypography.caption.strong,
                     color = Color(0xFF9A6B12),
-                    modifier = Modifier
-                        .clip(GlassShapes.chip)
-                        .background(Color(0xFFF5C86A).copy(alpha = 0.30f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    modifier =
+                        Modifier
+                            .clip(GlassShapes.chip)
+                            .background(Color(0xFFF5C86A).copy(alpha = 0.30f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }
@@ -737,16 +769,16 @@ private fun SourceCard(
                     style = AppTypography.caption.strong,
                     color = if (selected) accent else palette.sub,
                     maxLines = 1,
-                    modifier = Modifier
-                        .clip(GlassShapes.chip)
-                        .background(
-                            if (selected) {
-                                accent.copy(alpha = 0.12f)
-                            } else {
-                                Color(0xFF141A26).copy(alpha = 0.05f)
-                            },
-                        )
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    modifier =
+                        Modifier
+                            .clip(GlassShapes.chip)
+                            .background(
+                                if (selected) {
+                                    accent.copy(alpha = 0.12f)
+                                } else {
+                                    Color(0xFF141A26).copy(alpha = 0.05f)
+                                },
+                            ).padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }
@@ -773,7 +805,10 @@ private fun SourceCard(
 
 /** `♪ 2` — a stream count small enough to sit three-to-a-row on a half-width card. */
 @Composable
-private fun CountChip(icon: androidx.compose.ui.graphics.vector.ImageVector, count: Int) {
+private fun CountChip(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    count: Int,
+) {
     val palette = LocalPalette.current
     Row(
         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -790,10 +825,15 @@ private fun CountChip(icon: androidx.compose.ui.graphics.vector.ImageVector, cou
  * index would drift every time the list changed.
  */
 internal fun serverTint(serverId: String): Color {
-    val palette = listOf(
-        Color(0xFF4C7DF0), Color(0xFF41A98A), Color(0xFFD1705C),
-        Color(0xFF8B6FD1), Color(0xFFD19A3F), Color(0xFF3FA3C4),
-    )
+    val palette =
+        listOf(
+            Color(0xFF4C7DF0),
+            Color(0xFF41A98A),
+            Color(0xFFD1705C),
+            Color(0xFF8B6FD1),
+            Color(0xFFD19A3F),
+            Color(0xFF3FA3C4),
+        )
     val index = (serverId.hashCode().toLong() and 0xFFFFFFFFL) % palette.size
     return palette[index.toInt()]
 }

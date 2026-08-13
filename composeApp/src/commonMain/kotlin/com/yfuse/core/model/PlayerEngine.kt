@@ -1,7 +1,10 @@
 package com.yfuse.core.model
 
 /** Selectable playback backends. */
-enum class PlayerEngine(val label: String, val available: Boolean) {
+enum class PlayerEngine(
+    val label: String,
+    val available: Boolean,
+) {
     /** Media3/ExoPlayer — the default. */
     Exo("ExoPlayer", true),
 

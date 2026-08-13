@@ -45,10 +45,16 @@ internal object PreparedPlaybackRegistry {
     fun claim(key: PlaybackPreloadKey): PreparedPlayerStore? = stores.remove(key)
 
     /** True only while the detail page still owns this exact Store. */
-    fun owns(key: PlaybackPreloadKey, store: PreparedPlayerStore): Boolean = stores[key] === store
+    fun owns(
+        key: PlaybackPreloadKey,
+        store: PreparedPlayerStore,
+    ): Boolean = stores[key] === store
 
     /** Removes an entry only when [store] is still the registered owner. */
-    fun removeIfOwned(key: PlaybackPreloadKey, store: PreparedPlayerStore): Boolean {
+    fun removeIfOwned(
+        key: PlaybackPreloadKey,
+        store: PreparedPlayerStore,
+    ): Boolean {
         if (stores[key] !== store) return false
         stores.remove(key)
         return true

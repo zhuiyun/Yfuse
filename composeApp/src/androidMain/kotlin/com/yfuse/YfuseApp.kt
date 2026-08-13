@@ -9,26 +9,28 @@ import coil3.intercept.Interceptor
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import com.russhwolf.settings.SharedPreferencesSettings
-import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.account.AccountRepository
-import com.yfuse.core.logging.DiagnosticLogStore
+import com.yfuse.core.cast.initializeCastApplicationContext
+import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.SafeLogcatOutputGate
 import com.yfuse.core.network.imageCacheKeyForUrl
+import com.yfuse.core.offline.offlineApplicationContext
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
-import com.yfuse.core.offline.offlineApplicationContext
-import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.di.appModule
 import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
+import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.update.AppUpdateManager
 import okio.Path.Companion.toOkioPath
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
 
-class YfuseApp : Application(), SingletonImageLoader.Factory {
-
+class YfuseApp :
+    Application(),
+    SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         imageCacheContext = this
@@ -44,31 +46,36 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
         SafeLogcatOutputGate.initialize(diagnosticPreferences)
         DiagnosticLogStore.initialize(this)
         AppLog.info("app", "initializing", "Initializing application dependencies")
-        val koinApplication = startKoin {
-            modules(
-                appModule(
-                    settings = settings,
-                    appVersion = BuildConfig.VERSION_NAME,
-                    diagnosticPreferences = diagnosticPreferences,
-                ),
-                module {
-                    // Application-scoped so an update download survives the activity that
-                    // started it, and so UpdateDownloadService can reach the same instance.
-                    single { AppUpdateManager(this@YfuseApp, settings) }
-                    // Detail pages prepare playback before the tap. The Android implementation
-                    // warms direct-play bytes into the same Media3 cache used by ExoPlayer.
-                    single<PlaybackSourcePreloader> {
-                        AndroidPlaybackSourcePreloader(
-                            context = this@YfuseApp,
-                            playbackPreferences = get(),
-                            userAgentPreferences = get(),
-                            themePreferences = get(),
-                        )
-                    }
-                },
-            )
-        }
+        val koinApplication =
+            startKoin {
+                modules(
+                    appModule(
+                        settings = settings,
+                        appVersion = BuildConfig.VERSION_NAME,
+                        diagnosticPreferences = diagnosticPreferences,
+                    ),
+                    module {
+                        // Application-scoped so an update download survives the activity that
+                        // started it, and so UpdateDownloadService can reach the same instance.
+                        single { AppUpdateManager(this@YfuseApp, settings) }
+                        // Detail pages prepare playback before the tap. The Android implementation
+                        // warms direct-play bytes into the same Media3 cache used by ExoPlayer.
+                        single<PlaybackSourcePreloader> {
+                            AndroidPlaybackSourcePreloader(
+                                context = this@YfuseApp,
+                                playbackPreferences = get(),
+                                userAgentPreferences = get(),
+                                themePreferences = get(),
+                            )
+                        }
+                    },
+                )
+            }
         koinApplication.koin.get<AccountRepository>().start()
+        // Restores reporting work even when the previous process died after persisting an event.
+        // Each server lane also keeps its foreground fast-path while WorkManager waits for a
+        // connected network and survives this process being stopped again.
+        koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
         // Built eagerly: it restores an interrupted download and starts watching the
         // foreground, both of which have to happen before the first screen appears.
         koinApplication.koin.get<AppUpdateManager>()
@@ -77,7 +84,8 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
     // Keep decoded images hot in memory and original responses on disk. This is
     // shared by every poster/backdrop and can be cleared from Profile.
     override fun newImageLoader(context: PlatformContext): ImageLoader =
-        ImageLoader.Builder(context)
+        ImageLoader
+            .Builder(context)
             .components {
                 add(
                     Interceptor { chain ->
@@ -88,9 +96,11 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
                             // Keep the authenticated URL as Coil's automatic in-memory identity,
                             // so different sessions cannot share one decoded entry. Only the disk
                             // identity is sanitized; request.data still reaches Ktor unchanged.
-                            val safeRequest = request.newBuilder()
-                                .diskCacheKey(safeCacheKey)
-                                .build()
+                            val safeRequest =
+                                request
+                                    .newBuilder()
+                                    .diskCacheKey(safeCacheKey)
+                                    .build()
                             chain.withRequest(safeRequest).proceed()
                         } else {
                             chain.proceed()
@@ -119,14 +129,14 @@ class YfuseApp : Application(), SingletonImageLoader.Factory {
                         },
                     ),
                 )
-            }
-            .memoryCache {
-                MemoryCache.Builder()
+            }.memoryCache {
+                MemoryCache
+                    .Builder()
                     .maxSizePercent(context, percent = 0.20)
                     .build()
-            }
-            .diskCache {
-                DiskCache.Builder()
+            }.diskCache {
+                DiskCache
+                    .Builder()
                     .directory(cacheDir.resolve("image_cache").toOkioPath())
                     .maxSizeBytes(256L * 1024L * 1024L)
                     .build()

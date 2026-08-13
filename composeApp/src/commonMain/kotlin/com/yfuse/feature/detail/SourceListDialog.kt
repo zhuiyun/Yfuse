@@ -56,16 +56,19 @@ internal fun SourceListDialog(
     val palette = LocalPalette.current
     // Order is the caller's, which ranks on what each server holds before the selected entry
     // is restated in terms of the chosen version. Filtering preserves it.
-    val available = remember(sources) {
-        sources.filter { it.reachable && it.source != null && it.itemId != null }
-    }
+    val available =
+        remember(sources) {
+            sources.filter { it.reachable && it.source != null && it.itemId != null }
+        }
     // The best copy, called out once. It is the first row by construction, but saying so
     // beats making the reader infer it from the ordering.
-    val bestServerId = remember(available) {
-        available.firstOrNull()
-            ?.takeIf { available.size > 1 && it.source?.hasQualityEvidence() == true }
-            ?.serverId
-    }
+    val bestServerId =
+        remember(available) {
+            available
+                .firstOrNull()
+                ?.takeIf { available.size > 1 && it.source?.hasQualityEvidence() == true }
+                ?.serverId
+        }
 
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
@@ -107,30 +110,30 @@ private fun SourceRow(
 ) {
     val palette = LocalPalette.current
     val source = entry.source
-    val edge = when {
-        selected -> accent
-        palette.isDark -> Color.White.copy(alpha = 0.16f)
-        else -> Color(0xFF141A26).copy(alpha = 0.12f)
-    }
+    val edge =
+        when {
+            selected -> accent
+            palette.isDark -> Color.White.copy(alpha = 0.16f)
+            else -> Color(0xFF141A26).copy(alpha = 0.12f)
+        }
     Column(
         Modifier
             .fillMaxWidth()
             .pressable(onClick = onSelect)
             .solidGlass(
                 shape = GlassShapes.card,
-                fill = if (palette.isDark) {
-                    Color.White.copy(alpha = 0.06f)
-                } else {
-                    Color.White.copy(alpha = 0.82f)
-                },
+                fill =
+                    if (palette.isDark) {
+                        Color.White.copy(alpha = 0.06f)
+                    } else {
+                        Color.White.copy(alpha = 0.82f)
+                    },
                 border = null,
-            )
-            .border(
+            ).border(
                 if (selected) 1.5.dp else Dimens.hairline,
                 edge,
                 GlassShapes.card,
-            )
-            .padding(horizontal = 12.dp, vertical = 11.dp),
+            ).padding(horizontal = 12.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         Row(
@@ -161,10 +164,11 @@ private fun SourceRow(
                     "Best",
                     style = AppTypography.caption.strong,
                     color = Color(0xFF9A6B12),
-                    modifier = Modifier
-                        .clip(GlassShapes.chip)
-                        .background(Color(0xFFF5C86A).copy(alpha = 0.30f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    modifier =
+                        Modifier
+                            .clip(GlassShapes.chip)
+                            .background(Color(0xFFF5C86A).copy(alpha = 0.30f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
             Spacer(Modifier.weight(1f))
@@ -202,21 +206,24 @@ private fun FactChip(label: String) {
         style = AppTypography.caption.strong,
         color = palette.sub,
         maxLines = 1,
-        modifier = Modifier
-            .clip(GlassShapes.chip)
-            .background(
-                if (palette.isDark) {
-                    Color.White.copy(alpha = 0.08f)
-                } else {
-                    Color(0xFF141A26).copy(alpha = 0.05f)
-                },
-            )
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+        modifier =
+            Modifier
+                .clip(GlassShapes.chip)
+                .background(
+                    if (palette.isDark) {
+                        Color.White.copy(alpha = 0.08f)
+                    } else {
+                        Color(0xFF141A26).copy(alpha = 0.05f)
+                    },
+                ).padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }
 
 @Composable
-private fun CountFact(icon: androidx.compose.ui.graphics.vector.ImageVector, count: Int) {
+private fun CountFact(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    count: Int,
+) {
     val palette = LocalPalette.current
     Row(
         horizontalArrangement = Arrangement.spacedBy(3.dp),

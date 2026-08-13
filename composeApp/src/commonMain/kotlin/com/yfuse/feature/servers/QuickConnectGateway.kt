@@ -10,15 +10,27 @@ data class QuickConnectSession(
 )
 
 sealed interface QuickConnectStartResult {
-    data class AwaitingApproval(val session: QuickConnectSession) : QuickConnectStartResult
-    data class Unsupported(val reason: String = QuickConnectUnsupportedMessage) : QuickConnectStartResult
+    data class AwaitingApproval(
+        val session: QuickConnectSession,
+    ) : QuickConnectStartResult
+
+    data class Unsupported(
+        val reason: String = QuickConnectUnsupportedMessage,
+    ) : QuickConnectStartResult
 }
 
 sealed interface QuickConnectPollResult {
     data object Pending : QuickConnectPollResult
-    data class Authenticated(val server: AuthedServer) : QuickConnectPollResult
+
+    data class Authenticated(
+        val server: AuthedServer,
+    ) : QuickConnectPollResult
+
     data object Expired : QuickConnectPollResult
-    data class Rejected(val reason: String) : QuickConnectPollResult
+
+    data class Rejected(
+        val reason: String,
+    ) : QuickConnectPollResult
 }
 
 /**
@@ -30,19 +42,31 @@ sealed interface QuickConnectPollResult {
  */
 interface QuickConnectGateway {
     suspend fun start(baseUrl: String): Result<QuickConnectStartResult>
-    suspend fun poll(baseUrl: String, sessionId: String): Result<QuickConnectPollResult>
-    suspend fun cancel(baseUrl: String, sessionId: String): Result<Unit>
+
+    suspend fun poll(
+        baseUrl: String,
+        sessionId: String,
+    ): Result<QuickConnectPollResult>
+
+    suspend fun cancel(
+        baseUrl: String,
+        sessionId: String,
+    ): Result<Unit>
 }
 
 object UnsupportedQuickConnectGateway : QuickConnectGateway {
     override suspend fun start(baseUrl: String): Result<QuickConnectStartResult> =
         Result.success(QuickConnectStartResult.Unsupported())
 
-    override suspend fun poll(baseUrl: String, sessionId: String): Result<QuickConnectPollResult> =
-        Result.success(QuickConnectPollResult.Rejected(QuickConnectUnsupportedMessage))
+    override suspend fun poll(
+        baseUrl: String,
+        sessionId: String,
+    ): Result<QuickConnectPollResult> = Result.success(QuickConnectPollResult.Rejected(QuickConnectUnsupportedMessage))
 
-    override suspend fun cancel(baseUrl: String, sessionId: String): Result<Unit> =
-        Result.success(Unit)
+    override suspend fun cancel(
+        baseUrl: String,
+        sessionId: String,
+    ): Result<Unit> = Result.success(Unit)
 }
 
 const val QuickConnectUnsupportedMessage =

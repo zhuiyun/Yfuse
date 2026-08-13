@@ -24,24 +24,34 @@ object ActivePlayback {
     private var openAction: (() -> Unit)? = null
     private var closeAction: (() -> Unit)? = null
 
-    fun bind(toggle: () -> Unit, open: () -> Unit, close: () -> Unit) {
+    fun bind(
+        toggle: () -> Unit,
+        open: () -> Unit,
+        close: () -> Unit,
+    ) {
         toggleAction = toggle
         openAction = open
         closeAction = close
     }
 
-    fun update(title: String, playback: PlaybackState) {
-        _state.value = MiniPlaybackState(
-            active = true,
-            title = title,
-            playing = playback.playing,
-            positionMs = playback.positionMs,
-            durationMs = playback.durationMs,
-        )
+    fun update(
+        title: String,
+        playback: PlaybackState,
+    ) {
+        _state.value =
+            MiniPlaybackState(
+                active = true,
+                title = title,
+                playing = playback.playing,
+                positionMs = playback.positionMs,
+                durationMs = playback.durationMs,
+            )
     }
 
     fun toggle() = toggleAction?.invoke()
+
     fun open() = openAction?.invoke()
+
     fun close() {
         val action = closeAction
         // Hide the long mini controller before finishing the player task. This

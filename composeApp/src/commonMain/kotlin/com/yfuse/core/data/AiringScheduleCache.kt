@@ -19,14 +19,20 @@ import kotlinx.serialization.json.Json
  * one request when the library holds none of the shows, which is the common case. So the
  * expensive, stable half is stored and the cheap, volatile half is always fresh.
  */
-class AiringScheduleCache(private val settings: Settings) {
+class AiringScheduleCache(
+    private val settings: Settings,
+) {
     private companion object {
         const val KEY_EPISODES = "calendar.schedule.episodes"
         const val KEY_FETCHED_ON = "calendar.schedule.fetchedOn"
         const val KEY_WINDOW = "calendar.schedule.window"
     }
 
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = false
+        }
     private val serializer = ListSerializer(AiringEpisode.serializer())
 
     /**
@@ -34,7 +40,10 @@ class AiringScheduleCache(private val settings: Settings) {
      * covers a different window. Same-day is the whole validity rule — a schedule does not
      * become wrong during a day, and by the next one there are new episodes to place.
      */
-    fun read(today: String, window: String): List<AiringEpisode>? {
+    fun read(
+        today: String,
+        window: String,
+    ): List<AiringEpisode>? {
         if (settings.getStringOrNull(KEY_FETCHED_ON) != today) return null
         if (settings.getStringOrNull(KEY_WINDOW) != window) return null
         val raw = settings.getStringOrNull(KEY_EPISODES) ?: return null
@@ -47,12 +56,15 @@ class AiringScheduleCache(private val settings: Settings) {
                     message = "Cached broadcast schedule could not be read and was discarded",
                     throwable = it,
                 )
-            }
-            .getOrNull()
+            }.getOrNull()
             ?.takeIf { it.isNotEmpty() }
     }
 
-    fun write(today: String, window: String, episodes: List<AiringEpisode>) {
+    fun write(
+        today: String,
+        window: String,
+        episodes: List<AiringEpisode>,
+    ) {
         if (episodes.isEmpty()) {
             clear()
             return

@@ -32,7 +32,10 @@ import com.yfuse.core.designsystem.sc
  * request, and the dialog below it opens automatically at most once a day per version.
  */
 @Composable
-fun AppUpdateOverlay(manager: AppUpdateManager, root: RootComponent) {
+fun AppUpdateOverlay(
+    manager: AppUpdateManager,
+    root: RootComponent,
+) {
     val activeTab by root.activeTab.subscribeAsState()
     LaunchedEffect(Unit) { manager.checkOnLaunch() }
     LaunchedEffect(activeTab) {
@@ -42,14 +45,15 @@ fun AppUpdateOverlay(manager: AppUpdateManager, root: RootComponent) {
     val visible by manager.promptVisible.collectAsState()
     if (!visible) return
     val state by manager.state.collectAsState()
-    val manifest = when (val value = state) {
-        is UpdateState.Available -> value.manifest
-        is UpdateState.Downloading -> value.manifest
-        is UpdateState.Paused -> value.manifest
-        is UpdateState.Ready -> value.manifest
-        is UpdateState.Error -> value.manifest
-        else -> null
-    } ?: return
+    val manifest =
+        when (val value = state) {
+            is UpdateState.Available -> value.manifest
+            is UpdateState.Downloading -> value.manifest
+            is UpdateState.Paused -> value.manifest
+            is UpdateState.Ready -> value.manifest
+            is UpdateState.Error -> value.manifest
+            else -> null
+        } ?: return
 
     val palette = LocalPalette.current
     val downloading = state as? UpdateState.Downloading
@@ -57,11 +61,12 @@ fun AppUpdateOverlay(manager: AppUpdateManager, root: RootComponent) {
     GlassDialog(onDismiss = manager::dismissPrompt) {
         OverlayHeader(
             title = "发现新版本 ${manifest.versionName}",
-            subtitle = if (downloading != null) {
-                "可以关闭本窗口，下载会在后台继续"
-            } else {
-                "当前版本可直接在应用内升级"
-            },
+            subtitle =
+                if (downloading != null) {
+                    "可以关闭本窗口，下载会在后台继续"
+                } else {
+                    "当前版本可直接在应用内升级"
+                },
             onClose = manager::dismissPrompt,
         )
         if (manifest.notes.isNotBlank()) {
@@ -120,12 +125,13 @@ fun AppUpdateOverlay(manager: AppUpdateManager, root: RootComponent) {
                 modifier = Modifier.weight(1f),
             )
             OverlayButton(
-                label = when {
-                    downloading != null -> "暂停"
-                    paused != null -> "继续下载"
-                    state is UpdateState.Ready -> "立即安装"
-                    else -> "下载并安装"
-                },
+                label =
+                    when {
+                        downloading != null -> "暂停"
+                        paused != null -> "继续下载"
+                        state is UpdateState.Ready -> "立即安装"
+                        else -> "下载并安装"
+                    },
                 onClick = {
                     when (val value = state) {
                         is UpdateState.Downloading -> manager.pauseDownload()

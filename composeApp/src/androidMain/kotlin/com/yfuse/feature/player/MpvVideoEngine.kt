@@ -7,28 +7,28 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
-import com.yfuse.core.model.PlaybackMethod
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "YfusePlayer"
 
 /** mpv pushes `time-pos` per frame; only forward moves of at least this much. */
 private const val POSITION_STEP_MS = 200L
 
-internal fun mpvDynamicRange(gamma: String): String = when (gamma.trim().lowercase()) {
-    "pq" -> "HDR10 / PQ"
-    "hlg" -> "HLG"
-    "linear", "gamma1.8", "gamma2.0", "gamma2.2", "gamma2.4", "bt.1886", "srgb" -> "SDR"
-    else -> gamma.uppercase()
-}
+internal fun mpvDynamicRange(gamma: String): String =
+    when (gamma.trim().lowercase()) {
+        "pq" -> "HDR10 / PQ"
+        "hlg" -> "HLG"
+        "linear", "gamma1.8", "gamma2.0", "gamma2.2", "gamma2.4", "bt.1886", "srgb" -> "SDR"
+        else -> gamma.uppercase()
+    }
 
 /**
  * Distinguishes mpv's expected END_FILE for `loadfile replace`/`stop` from a failed stream.
@@ -113,36 +113,40 @@ class MpvVideoEngine(
     private val scope: CoroutineScope,
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
-
     private val items = items.map { it.withPlaybackQuality(quality) }
 
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
      *  rest of the season. */
-    private val transcodedIndices = items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
-        index.takeIf { item.startsWithServerTranscode(quality) }
-    }
+    private val transcodedIndices =
+        items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
+            index.takeIf { item.startsWithServerTranscode(quality) }
+        }
     private val progressiveIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private var fallbackJob: Job? = null
     private val endFileTracker = MpvEndFileTracker()
 
-    private val _state = MutableStateFlow(
-        PlaybackState(
-            currentIndex = startIndex,
-            itemCount = items.size.coerceAtLeast(1),
-            transcoding = startIndex in transcodedIndices,
-            videoHeight = items.getOrNull(startIndex)
-                ?.sourceVideoHeight(startIndex in transcodedIndices)
-                ?: 0,
-            diagnostics = initialPlaybackDiagnostics(
-                engine = "libmpv",
-                decoder = decoderMode.label,
-                item = items.getOrNull(startIndex),
-                quality = quality,
+    private val _state =
+        MutableStateFlow(
+            PlaybackState(
+                currentIndex = startIndex,
+                itemCount = items.size.coerceAtLeast(1),
+                transcoding = startIndex in transcodedIndices,
+                videoHeight =
+                    items
+                        .getOrNull(startIndex)
+                        ?.sourceVideoHeight(startIndex in transcodedIndices)
+                        ?: 0,
+                diagnostics =
+                    initialPlaybackDiagnostics(
+                        engine = "libmpv",
+                        decoder = decoderMode.label,
+                        item = items.getOrNull(startIndex),
+                        quality = quality,
+                    ),
             ),
-        ),
-    )
+        )
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
     @Volatile
@@ -166,238 +170,286 @@ class MpvVideoEngine(
     private var lastPositionMs = -POSITION_STEP_MS
     private var wasBuffering = true
 
-    private val logObserver = object : MPVLib.LogObserver {
-        override fun logMessage(prefix: String, level: Int, text: String) {
-            if (level > MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN) return
-            val details = text.trim().take(600)
-            if (details.isEmpty()) return
-            nativePlaybackLogFailure(details)?.let(::markTerminalFailure)
-            val attributes = mapOf(
-                "prefix" to prefix,
-                "level" to level.toString(),
-                "details" to details,
-            )
-            if (level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_ERROR) {
-                AppLog.error(
-                    category = "player.mpv.native",
-                    event = "native_error",
-                    message = "libmpv reported an error",
-                    attributes = attributes,
-                )
-            } else {
-                AppLog.warning(
-                    category = "player.mpv.native",
-                    event = "native_warning",
-                    message = "libmpv reported a warning",
-                    attributes = attributes,
-                )
-            }
-        }
-    }
-
-    private val observer = object : MPVLib.EventObserver {
-        override fun eventProperty(property: String) = Unit
-
-        override fun eventProperty(property: String, value: Long) {
-            when (property) {
-                "track-list/count" -> readTracks()
-                "video-params/h" -> _state.update { it.copy(videoHeight = value.toInt()) }
-                "video-params/w" -> _state.update {
-                    it.copy(diagnostics = it.diagnostics.copy(videoWidth = value.toInt()))
-                }
-                "audio-params/channel-count" -> _state.update {
-                    val codec = it.diagnostics.audioFormat.substringBefore(" · ").takeIf(String::isNotBlank)
-                    val channels = when (value.toInt()) {
-                        1 -> "单声道"
-                        2 -> "2.0"
-                        6 -> "5.1"
-                        8 -> "7.1"
-                        else -> "${value.toInt()} 声道"
-                    }
-                    it.copy(
-                        diagnostics = it.diagnostics.copy(
-                            audioFormat = listOfNotNull(codec, channels).joinToString(" · "),
-                        ),
+    private val logObserver =
+        object : MPVLib.LogObserver {
+            override fun logMessage(
+                prefix: String,
+                level: Int,
+                text: String,
+            ) {
+                if (level > MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN) return
+                val details = text.trim().take(600)
+                if (details.isEmpty()) return
+                nativePlaybackLogFailure(details)?.let(::markTerminalFailure)
+                val attributes =
+                    mapOf(
+                        "prefix" to prefix,
+                        "level" to level.toString(),
+                        "details" to details,
                     )
-                }
-                "decoder-frame-drop-count" -> _state.update {
-                    it.copy(
-                        diagnostics = it.diagnostics.copy(
-                            droppedFrames = value.toInt().coerceAtLeast(0),
-                        ),
+                if (level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_ERROR) {
+                    AppLog.error(
+                        category = "player.mpv.native",
+                        event = "native_error",
+                        message = "libmpv reported an error",
+                        attributes = attributes,
+                    )
+                } else {
+                    AppLog.warning(
+                        category = "player.mpv.native",
+                        event = "native_warning",
+                        message = "libmpv reported a warning",
+                        attributes = attributes,
                     )
                 }
             }
         }
 
-        override fun eventProperty(property: String, value: Double) {
-            when (property) {
-                "time-pos" -> {
-                    val ms = (value * 1000).toLong().coerceAtLeast(0L)
-                    if (kotlin.math.abs(ms - lastPositionMs) < POSITION_STEP_MS) return
-                    lastPositionMs = ms
-                    _state.update {
-                        it.copy(
-                            positionMs = ms,
-                            bufferedPositionMs = bufferedEndPositionMs(
+    private val observer =
+        object : MPVLib.EventObserver {
+            override fun eventProperty(property: String) = Unit
+
+            override fun eventProperty(
+                property: String,
+                value: Long,
+            ) {
+                when (property) {
+                    "track-list/count" -> readTracks()
+                    "video-params/h" -> _state.update { it.copy(videoHeight = value.toInt()) }
+                    "video-params/w" ->
+                        _state.update {
+                            it.copy(diagnostics = it.diagnostics.copy(videoWidth = value.toInt()))
+                        }
+                    "audio-params/channel-count" ->
+                        _state.update {
+                            val codec =
+                                it.diagnostics.audioFormat
+                                    .substringBefore(" · ")
+                                    .takeIf(String::isNotBlank)
+                            val channels =
+                                when (value.toInt()) {
+                                    1 -> "单声道"
+                                    2 -> "2.0"
+                                    6 -> "5.1"
+                                    8 -> "7.1"
+                                    else -> "${value.toInt()} 声道"
+                                }
+                            it.copy(
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        audioFormat = listOfNotNull(codec, channels).joinToString(" · "),
+                                    ),
+                            )
+                        }
+                    "decoder-frame-drop-count" ->
+                        _state.update {
+                            it.copy(
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        droppedFrames = value.toInt().coerceAtLeast(0),
+                                    ),
+                            )
+                        }
+                }
+            }
+
+            override fun eventProperty(
+                property: String,
+                value: Double,
+            ) {
+                when (property) {
+                    "time-pos" -> {
+                        val ms = (value * 1000).toLong().coerceAtLeast(0L)
+                        if (kotlin.math.abs(ms - lastPositionMs) < POSITION_STEP_MS) return
+                        lastPositionMs = ms
+                        _state.update {
+                            it.copy(
                                 positionMs = ms,
-                                durationMs = it.durationMs,
-                                bufferedDurationMs = it.diagnostics.bufferedDurationMs,
-                            ),
-                        )
-                    }
-                }
-
-                "duration" -> _state.update { it.copy(durationMs = (value * 1000).toLong()) }
-                "speed" -> _state.update { it.copy(speed = value.toFloat()) }
-                "estimated-vf-fps" -> _state.update {
-                    it.copy(diagnostics = it.diagnostics.copy(frameRate = value.toFloat()))
-                }
-                "video-bitrate" -> _state.update {
-                    it.copy(
-                        diagnostics = it.diagnostics.copy(
-                            bitrateBitsPerSecond = value.toLong().coerceAtLeast(0L),
-                        ),
-                    )
-                }
-                "cache-speed" -> _state.update {
-                    it.copy(
-                        diagnostics = it.diagnostics.copy(
-                            networkBitsPerSecond = (value * 8.0).toLong().coerceAtLeast(0L),
-                        ),
-                    )
-                }
-                "demuxer-cache-duration" -> _state.update {
-                    val bufferedDurationMs = (value * 1000.0).toLong().coerceAtLeast(0L)
-                    it.copy(
-                        bufferedPositionMs = bufferedEndPositionMs(
-                            positionMs = it.positionMs,
-                            durationMs = it.durationMs,
-                            bufferedDurationMs = bufferedDurationMs,
-                        ),
-                        diagnostics = it.diagnostics.copy(
-                            bufferedDurationMs = bufferedDurationMs,
-                        ),
-                    )
-                }
-            }
-        }
-
-        override fun eventProperty(property: String, value: Boolean) {
-            when (property) {
-                "pause" -> {
-                    playRequested = !value
-                    _state.update { it.copy(playing = !value) }
-                }
-                "paused-for-cache" -> {
-                    val bufferEvent = value && !wasBuffering
-                    wasBuffering = value
-                    _state.update {
-                        it.copy(
-                            buffering = value,
-                            diagnostics = it.diagnostics.copy(
-                                bufferEvents =
-                                    it.diagnostics.bufferEvents + if (bufferEvent) 1 else 0,
-                            ),
-                        )
-                    }
-                }
-                // keep-open=always parks mpv on the last frame instead of
-                // advancing, so the queue is stepped by hand.
-                "eof-reached" -> when {
-                    !value -> _state.update { it.copy(ended = false) }
-                    autoNext && _state.value.hasNext -> playNextIfAny()
-                    else -> _state.update { it.copy(playing = false, buffering = false, ended = true) }
-                }
-            }
-        }
-
-        override fun eventProperty(property: String, value: String) {
-            // aid/sid are read as strings because either can be "no".
-            when (property) {
-                "aid", "sid" -> readTracks()
-                "video-codec" -> _state.update {
-                    it.copy(diagnostics = it.diagnostics.copy(videoCodec = value))
-                }
-                "video-params/gamma" -> _state.update {
-                    it.copy(diagnostics = it.diagnostics.copy(dynamicRange = mpvDynamicRange(value)))
-                }
-                "audio-codec-name" -> _state.update {
-                    val channels = it.diagnostics.audioFormat.substringAfter(" · ", "")
-                        .takeIf(String::isNotBlank)
-                    it.copy(
-                        diagnostics = it.diagnostics.copy(
-                            audioFormat = listOfNotNull(value.uppercase(), channels).joinToString(" · "),
-                        ),
-                    )
-                }
-            }
-        }
-
-        override fun event(eventId: Int) {
-            when (eventId) {
-                MPVLib.MpvEvent.MPV_EVENT_START_FILE ->
-                    _state.update {
-                        it.copy(
-                            buffering = true,
-                            bufferedPositionMs = it.positionMs,
-                            error = null,
-                            ended = false,
-                            diagnostics = it.diagnostics.copy(bufferedDurationMs = 0L),
-                        )
-                    }
-
-                MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
-                    val seekMs = pendingSeekMs
-                    pendingSeekMs = -1L
-                    if (seekMs > 0L) {
-                        withMpv {
-                            it.command(
-                                arrayOf(
-                                    "seek",
-                                    (seekMs / 1000.0).toString(),
-                                    "absolute",
-                                ),
+                                bufferedPositionMs =
+                                    bufferedEndPositionMs(
+                                        positionMs = ms,
+                                        durationMs = it.durationMs,
+                                        bufferedDurationMs = it.diagnostics.bufferedDurationMs,
+                                    ),
                             )
                         }
                     }
-                    _state.update {
-                        it.copy(
-                            buffering = false,
-                            fallbacksExhausted = false,
-                            automaticFallbackBlocked = false,
+
+                    "duration" -> _state.update { it.copy(durationMs = (value * 1000).toLong()) }
+                    "speed" -> _state.update { it.copy(speed = value.toFloat()) }
+                    "estimated-vf-fps" ->
+                        _state.update {
+                            it.copy(diagnostics = it.diagnostics.copy(frameRate = value.toFloat()))
+                        }
+                    "video-bitrate" ->
+                        _state.update {
+                            it.copy(
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        bitrateBitsPerSecond = value.toLong().coerceAtLeast(0L),
+                                    ),
+                            )
+                        }
+                    "cache-speed" ->
+                        _state.update {
+                            it.copy(
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        networkBitsPerSecond = (value * 8.0).toLong().coerceAtLeast(0L),
+                                    ),
+                            )
+                        }
+                    "demuxer-cache-duration" ->
+                        _state.update {
+                            val bufferedDurationMs = (value * 1000.0).toLong().coerceAtLeast(0L)
+                            it.copy(
+                                bufferedPositionMs =
+                                    bufferedEndPositionMs(
+                                        positionMs = it.positionMs,
+                                        durationMs = it.durationMs,
+                                        bufferedDurationMs = bufferedDurationMs,
+                                    ),
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        bufferedDurationMs = bufferedDurationMs,
+                                    ),
+                            )
+                        }
+                }
+            }
+
+            override fun eventProperty(
+                property: String,
+                value: Boolean,
+            ) {
+                when (property) {
+                    "pause" -> {
+                        playRequested = !value
+                        _state.update { it.copy(playing = !value) }
+                    }
+                    "paused-for-cache" -> {
+                        val bufferEvent = value && !wasBuffering
+                        wasBuffering = value
+                        _state.update {
+                            it.copy(
+                                buffering = value,
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        bufferEvents =
+                                            it.diagnostics.bufferEvents + if (bufferEvent) 1 else 0,
+                                    ),
+                            )
+                        }
+                    }
+                    // keep-open=always parks mpv on the last frame instead of
+                    // advancing, so the queue is stepped by hand.
+                    "eof-reached" ->
+                        when {
+                            !value -> _state.update { it.copy(ended = false) }
+                            autoNext && _state.value.hasNext -> playNextIfAny()
+                            else -> _state.update { it.copy(playing = false, buffering = false, ended = true) }
+                        }
+                }
+            }
+
+            override fun eventProperty(
+                property: String,
+                value: String,
+            ) {
+                // aid/sid are read as strings because either can be "no".
+                when (property) {
+                    "aid", "sid" -> readTracks()
+                    "video-codec" ->
+                        _state.update {
+                            it.copy(diagnostics = it.diagnostics.copy(videoCodec = value))
+                        }
+                    "video-params/gamma" ->
+                        _state.update {
+                            it.copy(diagnostics = it.diagnostics.copy(dynamicRange = mpvDynamicRange(value)))
+                        }
+                    "audio-codec-name" ->
+                        _state.update {
+                            val channels =
+                                it.diagnostics.audioFormat
+                                    .substringAfter(" · ", "")
+                                    .takeIf(String::isNotBlank)
+                            it.copy(
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        audioFormat = listOfNotNull(value.uppercase(), channels).joinToString(" · "),
+                                    ),
+                            )
+                        }
+                }
+            }
+
+            override fun event(eventId: Int) {
+                when (eventId) {
+                    MPVLib.MpvEvent.MPV_EVENT_START_FILE ->
+                        _state.update {
+                            it.copy(
+                                buffering = true,
+                                bufferedPositionMs = it.positionMs,
+                                error = null,
+                                ended = false,
+                                diagnostics = it.diagnostics.copy(bufferedDurationMs = 0L),
+                            )
+                        }
+
+                    MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
+                        val seekMs = pendingSeekMs
+                        pendingSeekMs = -1L
+                        if (seekMs > 0L) {
+                            withMpv {
+                                it.command(
+                                    arrayOf(
+                                        "seek",
+                                        (seekMs / 1000.0).toString(),
+                                        "absolute",
+                                    ),
+                                )
+                            }
+                        }
+                        _state.update {
+                            it.copy(
+                                buffering = false,
+                                fallbacksExhausted = false,
+                                automaticFallbackBlocked = false,
+                            )
+                        }
+                        readTracks()
+                        readVideoSize()
+                        logAudioOutput()
+                        AppLog.info(
+                            category = "player.mpv",
+                            event = "file_loaded",
+                            message = "mpv loaded the selected media",
+                            attributes =
+                                mapOf(
+                                    "itemIndex" to _state.value.currentIndex.toString(),
+                                    "resumePositionMs" to seekMs.coerceAtLeast(0L).toString(),
+                                ),
                         )
                     }
-                    readTracks()
-                    readVideoSize()
-                    logAudioOutput()
-                    AppLog.info(
-                        category = "player.mpv",
-                        event = "file_loaded",
-                        message = "mpv loaded the selected media",
-                        attributes = mapOf(
-                            "itemIndex" to _state.value.currentIndex.toString(),
-                            "resumePositionMs" to seekMs.coerceAtLeast(0L).toString(),
-                        ),
-                    )
-                }
 
-                MPVLib.MpvEvent.MPV_EVENT_VIDEO_RECONFIG -> readVideoSize()
-                MPVLib.MpvEvent.MPV_EVENT_AUDIO_RECONFIG -> logAudioOutput()
-                MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> AppLog.info(
-                    category = "player.mpv",
-                    event = "playback_started",
-                    message = "mpv restarted media playback",
-                    attributes = mapOf(
-                        "itemIndex" to _state.value.currentIndex.toString(),
-                    ),
-                )
-                MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
-                    if (!endFileTracker.consumeExpectedEnd()) handleEndFile()
+                    MPVLib.MpvEvent.MPV_EVENT_VIDEO_RECONFIG -> readVideoSize()
+                    MPVLib.MpvEvent.MPV_EVENT_AUDIO_RECONFIG -> logAudioOutput()
+                    MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART ->
+                        AppLog.info(
+                            category = "player.mpv",
+                            event = "playback_started",
+                            message = "mpv restarted media playback",
+                            attributes =
+                                mapOf(
+                                    "itemIndex" to _state.value.currentIndex.toString(),
+                                ),
+                        )
+                    MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
+                        if (!endFileTracker.consumeExpectedEnd()) handleEndFile()
+                    }
                 }
             }
         }
-    }
 
     /**
      * Creates mpv on the first surface and re-attaches to the existing instance
@@ -412,20 +464,19 @@ class MpvVideoEngine(
                 existing.attachSurface(surface)
                 existing.setPropertyString("force-window", "yes")
                 existing.setPropertyString("vo", "gpu")
+            }.onFailure {
+                safeLogcat(Log.ERROR, TAG, "mpv re-attach failed", it)
+                AppLog.error(
+                    category = "player.mpv",
+                    event = "surface_reattach_failed",
+                    message = "mpv surface re-attach failed",
+                    throwable = it,
+                )
+                markTerminalFailure(
+                    fallbackMessage = "mpv 无法重新连接视频画面，正在尝试其他播放器",
+                    details = it.message,
+                )
             }
-                .onFailure {
-                    safeLogcat(Log.ERROR, TAG, "mpv re-attach failed", it)
-                    AppLog.error(
-                        category = "player.mpv",
-                        event = "surface_reattach_failed",
-                        message = "mpv surface re-attach failed",
-                        throwable = it,
-                    )
-                    markTerminalFailure(
-                        fallbackMessage = "mpv 无法重新连接视频画面，正在尝试其他播放器",
-                        details = it.message,
-                    )
-                }
             return
         }
 
@@ -516,10 +567,11 @@ class MpvVideoEngine(
                 category = "player.mpv",
                 event = "load_requested",
                 message = "mpv loadfile command was issued",
-                attributes = mapOf(
-                    "itemIndex" to _state.value.currentIndex.toString(),
-                    "decoderMode" to decoderMode.name,
-                ),
+                attributes =
+                    mapOf(
+                        "itemIndex" to _state.value.currentIndex.toString(),
+                        "decoderMode" to decoderMode.name,
+                    ),
             )
         }.onFailure {
             mpv = null
@@ -557,7 +609,10 @@ class MpvVideoEngine(
     }
 
     /** Keep mpv's Android render target in sync with SurfaceView size changes. */
-    fun resize(width: Int, height: Int) {
+    fun resize(
+        width: Int,
+        height: Int,
+    ) {
         if (width <= 0 || height <= 0) return
         withMpv { it.setPropertyString("android-surface-size", "${width}x$height") }
     }
@@ -642,13 +697,14 @@ class MpvVideoEngine(
                 automaticFallbackBlocked = false,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
-                diagnostics = initialPlaybackDiagnostics(
-                    engine = "libmpv",
-                    decoder = it.diagnostics.decoder,
-                    item = nextItem,
-                    quality = quality,
-                    transcoding = transcoding,
-                ),
+                diagnostics =
+                    initialPlaybackDiagnostics(
+                        engine = "libmpv",
+                        decoder = it.diagnostics.decoder,
+                        item = nextItem,
+                        quality = quality,
+                        transcoding = transcoding,
+                    ),
             )
         }
         loadFileOrFail(playbackUrl(items[index], index))
@@ -705,12 +761,16 @@ class MpvVideoEngine(
             ?: items.firstOrNull()?.let { playbackUrl(it, 0) }.orEmpty()
 
     /** Whichever step of the fallback chain [index] has been pushed to so far. */
-    private fun playbackUrl(item: PlayerMediaItem, index: Int): String = when {
-        index in progressiveIndices && item.fallbackTranscodeUrl.isNotEmpty() ->
-            item.fallbackTranscodeUrl
-        index in transcodedIndices && item.transcodeUrl.isNotEmpty() -> item.transcodeUrl
-        else -> item.url
-    }
+    private fun playbackUrl(
+        item: PlayerMediaItem,
+        index: Int,
+    ): String =
+        when {
+            index in progressiveIndices && item.fallbackTranscodeUrl.isNotEmpty() ->
+                item.fallbackTranscodeUrl
+            index in transcodedIndices && item.transcodeUrl.isNotEmpty() -> item.transcodeUrl
+            else -> item.url
+        }
 
     /**
      * Steps the current entry down the chain: original file, then the server's HLS
@@ -720,15 +780,16 @@ class MpvVideoEngine(
     override fun switchToTranscode(reason: String?): Boolean {
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return false
-        val next = when {
-            index in progressiveIndices -> return false
-            index in progressiveTransitionIndices -> return true
-            index in transcodedIndices ->
-                if (item.fallbackTranscodeUrl.isEmpty()) return false else Step.Progressive
-            item.transcodeUrl.isEmpty() ->
-                if (item.fallbackTranscodeUrl.isEmpty()) return false else Step.Progressive
-            else -> Step.Transcode
-        }
+        val next =
+            when {
+                index in progressiveIndices -> return false
+                index in progressiveTransitionIndices -> return true
+                index in transcodedIndices ->
+                    if (item.fallbackTranscodeUrl.isEmpty()) return false else Step.Progressive
+                item.transcodeUrl.isEmpty() ->
+                    if (item.fallbackTranscodeUrl.isEmpty()) return false else Step.Progressive
+                else -> Step.Transcode
+            }
         when (next) {
             Step.Transcode -> transcodedIndices += index
             Step.Progressive -> {
@@ -755,16 +816,18 @@ class MpvVideoEngine(
                 transcoding = true,
                 fallbacksExhausted = false,
                 automaticFallbackBlocked = false,
-                diagnostics = it.diagnostics.copy(
-                    playMethod = "服务器转码",
-                    dynamicRange = "",
-                    audioFormat = "",
-                    fallbackReason = reason ?: when (next) {
-                        Step.Transcode -> "直放失败，已切换服务器转码"
-                        Step.Progressive -> "HLS 转码不可用，已改用 MP4 转码"
-                    },
-                    bufferedDurationMs = 0L,
-                ),
+                diagnostics =
+                    it.diagnostics.copy(
+                        playMethod = "服务器转码",
+                        dynamicRange = "",
+                        audioFormat = "",
+                        fallbackReason =
+                            reason ?: when (next) {
+                                Step.Transcode -> "直放失败，已切换服务器转码"
+                                Step.Progressive -> "HLS 转码不可用，已改用 MP4 转码"
+                            },
+                        bufferedDurationMs = 0L,
+                    ),
             )
         }
         if (next == Step.Transcode) {
@@ -776,24 +839,26 @@ class MpvVideoEngine(
         // progressive request with the same PlaySessionId is allowed to start.
         stopFileForReplacement()
         fallbackJob?.cancel()
-        fallbackJob = scope.launch {
-            val cleaned = item.playSessionId.isBlank() ||
-                withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
-            if (released || _state.value.currentIndex != index) return@launch
-            progressiveTransitionIndices -= index
-            if (!cleaned) {
-                _state.update {
-                    it.copy(
-                        error = "无法清理旧的服务器转码，正在尝试其他播放器",
-                        buffering = false,
-                        fallbacksExhausted = true,
-                    )
+        fallbackJob =
+            scope.launch {
+                val cleaned =
+                    item.playSessionId.isBlank() ||
+                        withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
+                if (released || _state.value.currentIndex != index) return@launch
+                progressiveTransitionIndices -= index
+                if (!cleaned) {
+                    _state.update {
+                        it.copy(
+                            error = "无法清理旧的服务器转码，正在尝试其他播放器",
+                            buffering = false,
+                            fallbacksExhausted = true,
+                        )
+                    }
+                    return@launch
                 }
-                return@launch
+                progressiveIndices += index
+                loadFileOrFail(currentUrl())
             }
-            progressiveIndices += index
-            loadFileOrFail(currentUrl())
-        }
         return true
     }
 
@@ -806,9 +871,10 @@ class MpvVideoEngine(
 
     private fun handleEndFile() {
         if (_state.value.automaticFallbackBlocked) return
-        val reachedEof = runCatching {
-            _state.value.ended || mpv?.getPropertyBoolean("eof-reached") == true
-        }.getOrDefault(false)
+        val reachedEof =
+            runCatching {
+                _state.value.ended || mpv?.getPropertyBoolean("eof-reached") == true
+            }.getOrDefault(false)
         if (reachedEof) return
 
         safeLogcat(Log.ERROR, TAG, "mpv ended playback before reaching EOF")
@@ -824,10 +890,16 @@ class MpvVideoEngine(
         markTerminalFailure("mpv 无法播放此媒体，服务器也没有可用的转码流")
     }
 
-    private fun selectTrack(property: String, id: String) {
+    private fun selectTrack(
+        property: String,
+        id: String,
+    ) {
         withMpv { instance ->
-            if (id == EngineTrack.OFF) instance.setPropertyString(property, "no")
-            else id.toIntOrNull()?.let { instance.setPropertyInt(property, it) }
+            if (id == EngineTrack.OFF) {
+                instance.setPropertyString(property, "no")
+            } else {
+                id.toIntOrNull()?.let { instance.setPropertyInt(property, it) }
+            }
         }
     }
 
@@ -851,13 +923,14 @@ class MpvVideoEngine(
                 val title = instance.getPropertyString("track-list/$i/title")
                 val codec = instance.getPropertyString("track-list/$i/codec")
                 val bucket = if (type == "audio") audio else subtitles
-                bucket += EngineTrack(
-                    id = id.toString(),
-                    label = title ?: language ?: "${if (type == "audio") "音轨" else "字幕"} ${bucket.size + 1}",
-                    language = language,
-                    selected = instance.getPropertyBoolean("track-list/$i/selected") ?: false,
-                    codec = codec,
-                )
+                bucket +=
+                    EngineTrack(
+                        id = id.toString(),
+                        label = title ?: language ?: "${if (type == "audio") "音轨" else "字幕"} ${bucket.size + 1}",
+                        language = language,
+                        selected = instance.getPropertyBoolean("track-list/$i/selected") ?: false,
+                        codec = codec,
+                    )
             }
 
             _state.update { it.copy(audioTracks = audio, subtitleTracks = subtitles) }
@@ -887,11 +960,12 @@ class MpvVideoEngine(
                 category = "player.mpv",
                 event = "audio_output_configured",
                 message = "mpv audio output was configured",
-                attributes = mapOf(
-                    "output" to (instance.getPropertyString("current-ao") ?: "unknown"),
-                    "codec" to (instance.getPropertyString("audio-codec-name") ?: "unknown"),
-                    "track" to (instance.getPropertyString("aid") ?: "unknown"),
-                ),
+                attributes =
+                    mapOf(
+                        "output" to (instance.getPropertyString("current-ao") ?: "unknown"),
+                        "codec" to (instance.getPropertyString("audio-codec-name") ?: "unknown"),
+                        "track" to (instance.getPropertyString("aid") ?: "unknown"),
+                    ),
             )
         }.onFailure {
             AppLog.warning(
@@ -903,7 +977,10 @@ class MpvVideoEngine(
         }
     }
 
-    private fun MPVLib.requireOption(name: String, value: String) {
+    private fun MPVLib.requireOption(
+        name: String,
+        value: String,
+    ) {
         val result = setOptionString(name, value)
         check(result >= 0) { "mpv rejected option $name (error $result)" }
     }
@@ -914,7 +991,10 @@ class MpvVideoEngine(
      * For anything whose availability depends on the libmpv build rather than on this
      * code being right — a rejection is logged and playback carries on without it.
      */
-    private fun MPVLib.optionalOption(name: String, value: String) {
+    private fun MPVLib.optionalOption(
+        name: String,
+        value: String,
+    ) {
         val result = setOptionString(name, value)
         if (result < 0) {
             AppLog.info(

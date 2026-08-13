@@ -124,21 +124,24 @@ fun PageHint(
 
 /** The accent-tinted chip both page states use to offer their one action. */
 @Composable
-private fun AccentChipButton(label: String, onClick: () -> Unit) {
+private fun AccentChipButton(
+    label: String,
+    onClick: () -> Unit,
+) {
     val accent = LocalAccentColors.current
     Text(
         label,
         style = AppTypography.body.strong,
         color = accent.accent,
-        modifier = Modifier
-            .pressable(onClick = onClick)
-            .touchTarget()
-            .solidGlass(
-                shape = GlassShapes.chip,
-                fill = accent.container,
-                border = accent.border,
-            )
-            .padding(horizontal = 18.dp, vertical = 9.dp),
+        modifier =
+            Modifier
+                .pressable(onClick = onClick)
+                .touchTarget()
+                .solidGlass(
+                    shape = GlassShapes.chip,
+                    fill = accent.container,
+                    border = accent.border,
+                ).padding(horizontal = 18.dp, vertical = 9.dp),
     )
 }
 
@@ -149,8 +152,7 @@ private fun AccentChipButton(label: String, onClick: () -> Unit) {
  * these two values are the ones 媒体库's rail skeleton already used.
  */
 @Composable
-fun skeletonFill(): Color =
-    if (LocalPalette.current.isDark) Color.White.copy(alpha = 0.08f) else Color(0x2996A0B4)
+fun skeletonFill(): Color = if (LocalPalette.current.isDark) Color.White.copy(alpha = 0.08f) else Color(0x2996A0B4)
 
 /** A full breath of the skeleton pulse, in milliseconds. */
 private const val SKELETON_PULSE_MS = 1_600f
@@ -229,7 +231,10 @@ fun SkeletonPulseProvider(content: @Composable () -> Unit) {
 
 /** One rounded placeholder block. Sized by the caller so it matches what it replaces. */
 @Composable
-fun SkeletonBlock(modifier: Modifier, shape: Shape = AppShapes.micro) {
+fun SkeletonBlock(
+    modifier: Modifier,
+    shape: Shape = AppShapes.micro,
+) {
     val clock = LocalSkeletonPulseClock.current
     DisposableEffect(clock) {
         clock?.registerConsumer()
@@ -242,8 +247,7 @@ fun SkeletonBlock(modifier: Modifier, shape: Shape = AppShapes.micro) {
                 // Snapshot reads in this layer callback invalidate only the layer, not the
                 // provider or the content tree on every animation frame.
                 alpha = clock?.alpha?.floatValue ?: 1f
-            }
-            .background(skeletonFill()),
+            }.background(skeletonFill()),
     )
 }
 
@@ -255,7 +259,10 @@ fun SkeletonBlock(modifier: Modifier, shape: Shape = AppShapes.micro) {
  * still so nothing jumps when the real posters land.
  */
 @Composable
-fun SkeletonPosterTile(modifier: Modifier = Modifier, posterHeight: Dp = 150.dp) {
+fun SkeletonPosterTile(
+    modifier: Modifier = Modifier,
+    posterHeight: Dp = 150.dp,
+) {
     Column(modifier) {
         SkeletonBlock(
             Modifier.fillMaxWidth().height(posterHeight),

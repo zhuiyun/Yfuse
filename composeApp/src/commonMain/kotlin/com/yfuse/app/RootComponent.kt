@@ -11,9 +11,9 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.designsystem.TabReselection
+import com.yfuse.core.model.StartupTab
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
-import com.yfuse.core.model.StartupTab
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.home.HomeTabComponent
@@ -44,7 +44,6 @@ class RootComponent(
     syncManager: ServerSyncManager,
     val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
-
     enum class Tab { Home, Browse, Servers, Search, Profile }
 
     // Where a cold start lands. [StartupTab.Automatic] keeps the rule this used to hard-code:
@@ -52,9 +51,14 @@ class RootComponent(
     // 首页's TMDB recommendations are the right first screen only until there is a library to
     // show — at which point they double as the prompt to go and add one. The other values are
     // the user overriding that guess; see [StartupTab].
-    private val _activeTab = MutableValue(
-        startupTab(themePreferences.startupTab.value, registry.data.value.servers.isNotEmpty()),
-    )
+    private val _activeTab =
+        MutableValue(
+            startupTab(
+                themePreferences.startupTab.value,
+                registry.data.value.servers
+                    .isNotEmpty(),
+            ),
+        )
     val activeTab: Value<Tab> = _activeTab
 
     private val scope = componentScope(lifecycle)
@@ -67,59 +71,64 @@ class RootComponent(
     }
 
     /** 首页: TMDB recommendations. */
-    val home = HomeTabComponent(
-        componentContext = childContext(key = "home"),
-        storeFactory = storeFactory,
-        tmdb = tmdb,
-        repo = repo,
-        registry = registry,
-        calendarRepository = dependencies.calendarRepository,
-        dependencies = dependencies,
-        onOpenSearch = ::openSearch,
-        onOpenLibrary = { selectTab(Tab.Browse) },
-        onOpenProfile = { selectTab(Tab.Profile) },
-    )
+    val home =
+        HomeTabComponent(
+            componentContext = childContext(key = "home"),
+            storeFactory = storeFactory,
+            tmdb = tmdb,
+            repo = repo,
+            registry = registry,
+            calendarRepository = dependencies.calendarRepository,
+            dependencies = dependencies,
+            onOpenSearch = ::openSearch,
+            onOpenLibrary = { selectTab(Tab.Browse) },
+            onOpenProfile = { selectTab(Tab.Profile) },
+        )
 
     /** 库: the server's own content. */
-    val browse = LibraryComponent(
-        componentContext = childContext(key = "browse"),
-        storeFactory = storeFactory,
-        repo = repo,
-        registry = registry,
-        dependencies = dependencies,
-    )
+    val browse =
+        LibraryComponent(
+            componentContext = childContext(key = "browse"),
+            storeFactory = storeFactory,
+            repo = repo,
+            registry = registry,
+            dependencies = dependencies,
+        )
 
     /** 服务器: the saved servers as a grid. */
-    val servers = ServersTabComponent(
-        componentContext = childContext(key = "servers"),
-        storeFactory = storeFactory,
-        repo = repo,
-        registry = registry,
-        dependencies = dependencies,
-        themePreferences = themePreferences,
-        // Choosing a server is never the goal in itself — it is choosing what 库 will show.
-        onOpenLibrary = { selectTab(Tab.Browse) },
-    )
+    val servers =
+        ServersTabComponent(
+            componentContext = childContext(key = "servers"),
+            storeFactory = storeFactory,
+            repo = repo,
+            registry = registry,
+            dependencies = dependencies,
+            themePreferences = themePreferences,
+            // Choosing a server is never the goal in itself — it is choosing what 库 will show.
+            onOpenLibrary = { selectTab(Tab.Browse) },
+        )
 
-    val search = SearchComponent(
-        componentContext = childContext(key = "search"),
-        storeFactory = storeFactory,
-        repo = repo,
-        registry = registry,
-        history = searchHistory,
-        dependencies = dependencies,
-        onOpenServerSettings = { selectTab(Tab.Profile) },
-    )
+    val search =
+        SearchComponent(
+            componentContext = childContext(key = "search"),
+            storeFactory = storeFactory,
+            repo = repo,
+            registry = registry,
+            history = searchHistory,
+            dependencies = dependencies,
+            onOpenServerSettings = { selectTab(Tab.Profile) },
+        )
 
-    val profile = ProfileTabComponent(
-        componentContext = childContext(key = "profile"),
-        storeFactory = storeFactory,
-        registry = registry,
-        themePreferences = themePreferences,
-        onEnterWatchRoom = ::enterWatchRoom,
-        onOpenServers = { selectTab(Tab.Servers) },
-        dependencies = dependencies,
-    )
+    val profile =
+        ProfileTabComponent(
+            componentContext = childContext(key = "profile"),
+            storeFactory = storeFactory,
+            registry = registry,
+            themePreferences = themePreferences,
+            onEnterWatchRoom = ::enterWatchRoom,
+            onOpenServers = { selectTab(Tab.Servers) },
+            dependencies = dependencies,
+        )
 
     fun selectTab(tab: Tab) {
         if (_activeTab.value != tab) {
@@ -151,12 +160,16 @@ class RootComponent(
      * account entries live in a hero that scrolls away, leaving no way back to them but a
      * long drag.
      */
-    fun reselectTab(tab: Tab, atRoot: Boolean) {
+    fun reselectTab(
+        tab: Tab,
+        atRoot: Boolean,
+    ) {
         if (atRoot) {
-            _tabReselected.value = TabReselection(
-                tabIdentity = tab.name,
-                occurrence = ++tabReselectionOccurrence,
-            )
+            _tabReselected.value =
+                TabReselection(
+                    tabIdentity = tab.name,
+                    occurrence = ++tabReselectionOccurrence,
+                )
             return
         }
         _tabReselected.value = null
@@ -194,7 +207,10 @@ class RootComponent(
     }
 
     /** Lands on the item an accepted invite resolved to, in the tab that owns media detail. */
-    fun openWatchTarget(serverId: String?, itemId: String) {
+    fun openWatchTarget(
+        serverId: String?,
+        itemId: String,
+    ) {
         _pendingInvite.value = null
         selectTab(Tab.Browse)
         // Straight into the player: the user accepted an invite or joined a room, which is
@@ -256,7 +272,10 @@ class RootComponent(
 }
 
 /** The tab a cold start opens on. Extracted so the rule is testable without a component. */
-internal fun startupTab(preference: StartupTab, hasServers: Boolean): RootComponent.Tab =
+internal fun startupTab(
+    preference: StartupTab,
+    hasServers: Boolean,
+): RootComponent.Tab =
     when (preference) {
         StartupTab.Home -> RootComponent.Tab.Home
         StartupTab.Library -> RootComponent.Tab.Browse

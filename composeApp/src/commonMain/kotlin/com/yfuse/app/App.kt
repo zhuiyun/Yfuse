@@ -43,10 +43,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -55,6 +51,10 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
+import com.yfuse.core.data.PlaybackRecoveryEligibility
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
@@ -69,6 +70,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
@@ -81,11 +83,10 @@ import com.yfuse.core.designsystem.LocalTabReselected
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.Motion
-import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.OfficialNavDisplay
-import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
@@ -98,6 +99,7 @@ import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.useNavigationRail
+import com.yfuse.core.network.EmbyStream
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
 import com.yfuse.feature.library.LibraryComponent
@@ -105,8 +107,6 @@ import com.yfuse.feature.library.LibraryScreen
 import com.yfuse.feature.player.ActivePlayback
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
-import com.yfuse.core.data.PlaybackRecoveryEligibility
-import com.yfuse.core.network.EmbyStream
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.profile.ProfileTabScreen
 import com.yfuse.feature.search.SearchComponent
@@ -116,7 +116,11 @@ import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
 
-private data class TabItem(val tab: Tab, val label: String, val icon: ImageVector)
+private data class TabItem(
+    val tab: Tab,
+    val label: String,
+    val icon: ImageVector,
+)
 
 /**
  * The four destinations in the bar.
@@ -127,14 +131,18 @@ private data class TabItem(val tab: Tab, val label: String, val icon: ImageVecto
  * fifth equal cell it also cost the other four a fifth of the bar, and made the row a set of
  * five narrow targets rather than four comfortable ones.
  */
-private val tabs = listOf(
-    TabItem(Tab.Home, "首页", AppIcons.TabHome),
-    TabItem(Tab.Browse, "库", AppIcons.TabLibrary),
-    TabItem(Tab.Servers, "服务器", AppIcons.TabServers),
-    TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
-)
+private val tabs =
+    listOf(
+        TabItem(Tab.Home, "首页", AppIcons.TabHome),
+        TabItem(Tab.Browse, "库", AppIcons.TabLibrary),
+        TabItem(Tab.Servers, "服务器", AppIcons.TabServers),
+        TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
+    )
 
-/** Space scrollable content leaves for the floating bar — `padding-bottom:100px`. */
+/**
+ * Legacy fixed clearance for screens not yet migrated to [floatingNavigationContentInset].
+ * Root library/profile pages use the dynamic helper so the system navigation inset is exact.
+ */
 val TabBarInset = Dimens.contentBottom
 
 @Composable
@@ -152,11 +160,12 @@ fun App(root: RootComponent) {
     YfuseTheme(
         dark = dark,
         accent = accent,
-        accessibility = AccessibilityOptions(
-            reduceTransparency = reduceTransparency,
-            largeText = largeText,
-            reduceMotion = reduceMotion,
-        ),
+        accessibility =
+            AccessibilityOptions(
+                reduceTransparency = reduceTransparency,
+                largeText = largeText,
+                reduceMotion = reduceMotion,
+            ),
         // 减弱透明度 is an accessibility contract: it exists to make every surface opaque and
         // legible, so a decorative material choice must not be able to reinstate the effect
         // it turns off.
@@ -171,11 +180,19 @@ fun App(root: RootComponent) {
         val playbackRecovery = root.dependencies.playbackRecovery
         val serverRegistry = root.dependencies.serverRegistry
         val reportingCoordinator = root.dependencies.playbackReportingCoordinator
-        val startupRecovery = remember(playbackRecovery, serverRegistry) {
-            playbackRecovery.takeStartupEvaluation(serverRegistry.data.value.servers)
-        }
-        var recoveryPrompt by remember(startupRecovery) {
-            mutableStateOf(startupRecovery?.takeIf { it.shouldPrompt })
+        val startupRecovery =
+            remember(playbackRecovery, serverRegistry) {
+                playbackRecovery.takeStartupEvaluation(serverRegistry.data.value.servers)
+            }
+        // 播放 → 启动时询问继续播放. Read once, at the moment the shell decides whether to open
+        // with a dialog: turning the setting off later in the session must not make a prompt
+        // the user is currently answering disappear from under them.
+        val resumePromptEnabled =
+            remember {
+                root.dependencies.playbackPreferences.resumePrompt.value
+            }
+        var recoveryPrompt by remember(startupRecovery, resumePromptEnabled) {
+            mutableStateOf(startupRecovery?.takeIf { resumePromptEnabled && it.shouldPrompt })
         }
         var recoveryLaunch by remember {
             mutableStateOf<Pair<PlayerMediaItem, Long>?>(null)
@@ -251,24 +268,26 @@ fun App(root: RootComponent) {
         // the tap that fails has nothing to show for it. It is a long string in a one-line
         // bar and will ellipsize; the first few characters are the part that matters, and
         // 「我的」→ 一起看 has it in full.
-        val watchRoomNote = when {
-            !watchState.connected -> null
-            watchState.syncWarning != null -> watchState.syncWarning
-            watchState.reconnecting -> "一起看 · 重连中"
-            watchState.isHost -> "一起看 · 房主 · ${watchState.participantCount} 人"
-            else -> "一起看 · ${watchState.participantCount} 人"
-        }
+        val watchRoomNote =
+            when {
+                !watchState.connected -> null
+                watchState.syncWarning != null -> watchState.syncWarning
+                watchState.reconnecting -> "一起看 · 重连中"
+                watchState.isHost -> "一起看 · 房主 · ${watchState.participantCount} 人"
+                else -> "一起看 · ${watchState.participantCount} 人"
+            }
 
         // The bar belongs to the four roots; any pushed page (detail, grid, add
         // server, player) owns the whole screen.
-        val atRoot = when (active) {
-            Tab.Home -> homeStack.active.instance is HomeTabComponent.Child.Home
-            Tab.Browse -> browseStack.active.instance is LibraryComponent.Child.Home
-            // 服务器 is a single screen: it has no stack that could be anywhere but its root.
-            Tab.Servers -> true
-            Tab.Search -> searchStack.active.instance is SearchComponent.Child.Home
-            Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
-        }
+        val atRoot =
+            when (active) {
+                Tab.Home -> homeStack.active.instance is HomeTabComponent.Child.Home
+                Tab.Browse -> browseStack.active.instance is LibraryComponent.Child.Home
+                // 服务器 is a single screen: it has no stack that could be anywhere but its root.
+                Tab.Servers -> true
+                Tab.Search -> searchStack.active.instance is SearchComponent.Child.Home
+                Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
+            }
         // The bar belongs to the roots and nothing else: it used to also ride along on the
         // library's grid, and to slide away under scroll, which left "is the bar there?"
         // depending on where the user happened to have scrolled to.
@@ -307,240 +326,248 @@ fun App(root: RootComponent) {
                     dim = backgroundDim,
                 ) {
                     BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val expandedNavigation = useNavigationRail(maxWidth, maxHeight)
-                    val onSelectTab: (Tab) -> Unit = { tab ->
-                        if (tab == active) {
-                            root.reselectTab(tab, atRoot)
-                        } else {
-                            root.selectTab(tab)
+                        val expandedNavigation = useNavigationRail(maxWidth, maxHeight)
+                        val onSelectTab: (Tab) -> Unit = { tab ->
+                            if (tab == active) {
+                                root.reselectTab(tab, atRoot)
+                            } else {
+                                root.selectTab(tab)
+                            }
                         }
-                    }
-                    // Reading gets the screen; navigating gets it back. Not saveable on
-                    // purpose: a collapsed bar is a transient consequence of where the finger
-                    // just went, and restoring one after process death would leave the user
-                    // looking at an app with no visible navigation and no idea why.
-                    var navCollapsed by remember { mutableStateOf(false) }
-                    // Arriving anywhere new is a fresh page, and a fresh page shows its bar.
-                    LaunchedEffect(active) { navCollapsed = false }
-                    val navScroll = rememberNavCollapseConnection(
-                        collapsed = navCollapsed,
-                        onCollapsedChange = { navCollapsed = it },
-                    )
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .padding(start = if (expandedNavigation) 104.dp else 0.dp)
-                            // One connection for the whole shell rather than a hook every
-                            // screen has to remember to install: nested scroll reaches this
-                            // node from any scrollable inside any tab, including ones added
-                            // later.
-                            .then(if (expandedNavigation) Modifier else Modifier.nestedScroll(navScroll))
-                            .backdropSource(backdrop),
-                    ) {
-                        // Top-level tabs are a real Navigation 3 back stack, while each tab's
-                        // nested host continues to own its child routes. Back navigation remains
-                        // functional, but its predictive and committed animations are disabled.
-                        OfficialNavDisplay(
-                            backStack = topLevelBackStack(active),
-                            onBack = { root.selectTab(Tab.Home) },
-                            contentKey = { "tab:${it.name}" },
-                            modifier = Modifier.fillMaxSize(),
-                        ) { tab ->
-                            CompositionLocalProvider(LocalTabIdentity provides tab.name) {
-                                tabStates.SaveableStateProvider(tab.name) {
-                                    when (tab) {
-                                        Tab.Home -> HomeTabScreen(root.home)
-                                        Tab.Browse -> LibraryScreen(root.browse)
-                                        Tab.Servers -> ServersTabScreen(root.servers)
-                                        Tab.Search -> SearchScreen(root.search)
-                                        Tab.Profile -> ProfileTabScreen(root.profile)
+                        // Reading gets the screen; navigating gets it back. Not saveable on
+                        // purpose: a collapsed bar is a transient consequence of where the finger
+                        // just went, and restoring one after process death would leave the user
+                        // looking at an app with no visible navigation and no idea why.
+                        var navCollapsed by remember { mutableStateOf(false) }
+                        // Arriving anywhere new is a fresh page, and a fresh page shows its bar.
+                        LaunchedEffect(active) { navCollapsed = false }
+                        val navScroll =
+                            rememberNavCollapseConnection(
+                                collapsed = navCollapsed,
+                                onCollapsedChange = { navCollapsed = it },
+                            )
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .padding(start = if (expandedNavigation) 104.dp else 0.dp)
+                                // One connection for the whole shell rather than a hook every
+                                // screen has to remember to install: nested scroll reaches this
+                                // node from any scrollable inside any tab, including ones added
+                                // later.
+                                .then(if (expandedNavigation) Modifier else Modifier.nestedScroll(navScroll))
+                                .backdropSource(backdrop),
+                        ) {
+                            // Top-level tabs are a real Navigation 3 back stack, while each tab's
+                            // nested host continues to own its child routes. Back navigation remains
+                            // functional, but its predictive and committed animations are disabled.
+                            OfficialNavDisplay(
+                                backStack = topLevelBackStack(active),
+                                onBack = { root.selectTab(Tab.Home) },
+                                contentKey = { "tab:${it.name}" },
+                                modifier = Modifier.fillMaxSize(),
+                            ) { tab ->
+                                CompositionLocalProvider(LocalTabIdentity provides tab.name) {
+                                    tabStates.SaveableStateProvider(tab.name) {
+                                        when (tab) {
+                                            Tab.Home -> HomeTabScreen(root.home)
+                                            Tab.Browse -> LibraryScreen(root.browse)
+                                            Tab.Servers -> ServersTabScreen(root.servers)
+                                            Tab.Search -> SearchScreen(root.search)
+                                            Tab.Profile -> ProfileTabScreen(root.profile)
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    if (showBottomBar && !overlays.any) {
-                        if (expandedNavigation) {
-                            GlassNavigationRail(
-                                active = active,
-                                onSelect = onSelectTab,
-                                backdrop = backdrop,
-                                modifier = Modifier.align(Alignment.CenterStart),
-                            )
-                        } else {
-                            BottomNavigationDock(
-                                active = active,
-                                collapsed = navCollapsed,
-                                onSelect = onSelectTab,
-                                onExpand = { navCollapsed = false },
-                                onSearch = { onSelectTab(Tab.Search) },
-                                backdrop = backdrop,
-                                modifier = Modifier
+                        if (showBottomBar && !overlays.any) {
+                            if (expandedNavigation) {
+                                GlassNavigationRail(
+                                    active = active,
+                                    onSelect = onSelectTab,
+                                    backdrop = backdrop,
+                                    modifier = Modifier.align(Alignment.CenterStart),
+                                )
+                            } else {
+                                BottomNavigationDock(
+                                    active = active,
+                                    collapsed = navCollapsed,
+                                    onSelect = onSelectTab,
+                                    onExpand = { navCollapsed = false },
+                                    onSearch = { onSelectTab(Tab.Search) },
+                                    backdrop = backdrop,
+                                    modifier =
+                                        Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .navigationBarsPadding(),
+                                )
+                            }
+                            // One slot above the tab bar, and the two things that can occupy it
+                            // never coexist: while a player is alive the mini player carries the
+                            // room note itself, and the room bar is for exactly the case where it
+                            // isn't — the player closed, the room still up.
+                            val bottomStackSlot =
+                                Modifier
                                     .align(Alignment.BottomCenter)
-                                    .navigationBarsPadding(),
-                            )
-                        }
-                        // One slot above the tab bar, and the two things that can occupy it
-                        // never coexist: while a player is alive the mini player carries the
-                        // room note itself, and the room bar is for exactly the case where it
-                        // isn't — the player closed, the room still up.
-                        val bottomStackSlot = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                            .padding(start = if (expandedNavigation) 104.dp else 0.dp)
-                            .widthIn(max = 520.dp)
-                            .padding(horizontal = Dimens.tabBarInset)
-                            .padding(
-                                bottom = if (expandedNavigation) {
-                                    Dimens.tabBarInset
-                                } else {
-                                    Dimens.tabBarHeight + 22.dp
-                                },
-                            )
-                        // Video backgrounding is represented by Android PiP. The old long,
-                        // music-like mini controller duplicated transport controls and only
-                        // appeared at tab roots, so it is intentionally not rendered here.
-                        if (!miniPlayback.active && watchRoomNote != null && !roomBarHidden) {
-                            WatchRoomBar(
-                                note = watchRoomNote,
-                                attention = watchState.reconnecting ||
-                                    watchState.syncWarning != null,
-                                onEnter = root::enterWatchRoom,
-                                onView = { roomInfoOpen = true },
-                                onClose = { hiddenRoomCode = watchState.roomCode },
-                                backdrop = backdrop,
-                                modifier = bottomStackSlot,
-                            )
-                        }
-                    }
-
-                    if (roomInfoOpen) {
-                        WatchRoomInfoDialog(
-                            state = watchState,
-                            resolver = inviteResolver,
-                            onEnter = root::enterWatchRoom,
-                            onDismiss = { roomInfoOpen = false },
-                        )
-                    }
-
-                    pendingInvite?.let { invite ->
-                        WatchInviteSheet(
-                            roomCode = invite.roomCode,
-                            resolution = inviteResolution,
-                            unfamiliarEndpoint = invite.endpoint
-                                ?.takeIf { it.trimEnd('/') != watchEndpoint.trimEnd('/') },
-                            onJoin = {
-                                // Join, and let the room say what it is playing.
-                                //
-                                // This used to resolve `invite.mediaKey` and navigate to that.
-                                // A link is written when the room is created, which for a show
-                                // is before the host has started an episode — so its key names
-                                // the *show*, and resolving it landed the guest on the series,
-                                // which auto-plays whatever episode *they* were up to. Two
-                                // people, two different episodes, every time.
-                                //
-                                // The room's own timeline names the episode, and the shell
-                                // already follows it (see the effect above), so joining is the
-                                // whole of the work. The invite's key keeps its other job:
-                                // naming the title in the sheet before any of this happens.
-                                watchTogether.joinRoomFromInvite(
-                                    endpoint = invite.endpoint ?: watchEndpoint,
-                                    roomCode = invite.roomCode,
-                                    mediaKey = invite.mediaKey.orEmpty(),
-                                )
-                                root.dismissInvite()
-                            },
-                            onSearchByName = root::openSearchForInvite,
-                            onDismiss = root::dismissInvite,
-                        )
-                    }
-
-                    recoveryPrompt
-                        ?.takeIf { pendingInvite == null && !roomInfoOpen }
-                        ?.let { evaluation ->
-                            val snapshot = evaluation.snapshot
-                            val server = evaluation.server
-                            val needsLogin = evaluation.eligibility ==
-                                PlaybackRecoveryEligibility.AuthenticationRequired
-                            GlassDialog(
-                                onDismiss = {
-                                    playbackRecovery.clear()
-                                    recoveryPrompt = null
-                                },
-                            ) {
-                                val palette = LocalPalette.current
-                                OverlayHeader(
-                                    title = "继续上次播放？",
-                                    subtitle = "检测到上次进程结束前保存的播放位置",
-                                )
-                                Text(
-                                    snapshot.title.ifBlank { "未命名视频" },
-                                    style = AppTypography.body.strong,
-                                    color = palette.text,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    "上次看到 ${formatRecoveryPosition(snapshot.positionMs)}" +
-                                        server?.serverName?.let { " · $it" }.orEmpty(),
-                                    style = AppTypography.body.regular,
-                                    color = palette.body,
-                                )
-                                if (needsLogin) {
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(
-                                        "此服务器的登录凭据已失效，请重新登录后再继续。",
-                                        style = AppTypography.caption.regular,
-                                        color = palette.error,
+                                    .navigationBarsPadding()
+                                    .padding(start = if (expandedNavigation) 104.dp else 0.dp)
+                                    .widthIn(max = 520.dp)
+                                    .padding(horizontal = Dimens.tabBarInset)
+                                    .padding(
+                                        bottom =
+                                            if (expandedNavigation) {
+                                                Dimens.tabBarInset
+                                            } else {
+                                                Dimens.tabBarHeight + 22.dp
+                                            },
                                     )
-                                }
-                                OverlayButtonRow(
-                                    dismissLabel = "忽略并清除",
-                                    confirmLabel = if (needsLogin) "前往我的" else "继续",
-                                    onDismiss = {
-                                        playbackRecovery.clear()
-                                        recoveryPrompt = null
-                                    },
-                                    onConfirm = resumeRecovery@{
-                                        if (needsLogin) {
-                                            // Keep the checkpoint: after re-login it remains available
-                                            // from 我的 and on a later cold start.
-                                            root.selectTab(Tab.Profile)
-                                            recoveryPrompt = null
-                                            return@resumeRecovery
-                                        }
-                                        val selectedServer = server ?: return@resumeRecovery
-                                        val urls = EmbyStream.streamUrls(
-                                            baseUrl = selectedServer.baseUrl,
-                                            itemId = snapshot.itemId,
-                                            token = selectedServer.accessToken,
-                                        )
-                                        recoveryLaunch = PlayerMediaItem(
-                                            id = snapshot.itemId,
-                                            url = urls.direct,
-                                            transcodeUrl = urls.transcode,
-                                            fallbackTranscodeUrl = urls.progressiveTranscode,
-                                            title = snapshot.title,
-                                            serverId = snapshot.serverId,
-                                            playSessionId = urls.playSessionId,
-                                        ) to snapshot.positionMs
-                                        recoveryPrompt = null
-                                    },
-                                    confirmEnabled = server != null,
+                            // Video backgrounding is represented by Android PiP. The old long,
+                            // music-like mini controller duplicated transport controls and only
+                            // appeared at tab roots, so it is intentionally not rendered here.
+                            if (!miniPlayback.active && watchRoomNote != null && !roomBarHidden) {
+                                WatchRoomBar(
+                                    note = watchRoomNote,
+                                    attention =
+                                        watchState.reconnecting ||
+                                            watchState.syncWarning != null,
+                                    onEnter = root::enterWatchRoom,
+                                    onView = { roomInfoOpen = true },
+                                    onClose = { hiddenRoomCode = watchState.roomCode },
+                                    backdrop = backdrop,
+                                    modifier = bottomStackSlot,
                                 )
                             }
                         }
 
-                    recoveryLaunch?.let { (item, positionMs) ->
-                        PlayerLauncher(
-                            items = listOf(item),
-                            startIndex = 0,
-                            startPositionMs = positionMs,
-                            onLaunched = { recoveryLaunch = null },
-                        )
-                    }
+                        if (roomInfoOpen) {
+                            WatchRoomInfoDialog(
+                                state = watchState,
+                                resolver = inviteResolver,
+                                onEnter = root::enterWatchRoom,
+                                onDismiss = { roomInfoOpen = false },
+                            )
+                        }
+
+                        pendingInvite?.let { invite ->
+                            WatchInviteSheet(
+                                roomCode = invite.roomCode,
+                                resolution = inviteResolution,
+                                unfamiliarEndpoint =
+                                    invite.endpoint
+                                        ?.takeIf { it.trimEnd('/') != watchEndpoint.trimEnd('/') },
+                                onJoin = {
+                                    // Join, and let the room say what it is playing.
+                                    //
+                                    // This used to resolve `invite.mediaKey` and navigate to that.
+                                    // A link is written when the room is created, which for a show
+                                    // is before the host has started an episode — so its key names
+                                    // the *show*, and resolving it landed the guest on the series,
+                                    // which auto-plays whatever episode *they* were up to. Two
+                                    // people, two different episodes, every time.
+                                    //
+                                    // The room's own timeline names the episode, and the shell
+                                    // already follows it (see the effect above), so joining is the
+                                    // whole of the work. The invite's key keeps its other job:
+                                    // naming the title in the sheet before any of this happens.
+                                    watchTogether.joinRoomFromInvite(
+                                        endpoint = invite.endpoint ?: watchEndpoint,
+                                        roomCode = invite.roomCode,
+                                        mediaKey = invite.mediaKey.orEmpty(),
+                                    )
+                                    root.dismissInvite()
+                                },
+                                onSearchByName = root::openSearchForInvite,
+                                onDismiss = root::dismissInvite,
+                            )
+                        }
+
+                        recoveryPrompt
+                            ?.takeIf { pendingInvite == null && !roomInfoOpen }
+                            ?.let { evaluation ->
+                                val snapshot = evaluation.snapshot
+                                val server = evaluation.server
+                                val needsLogin =
+                                    evaluation.eligibility ==
+                                        PlaybackRecoveryEligibility.AuthenticationRequired
+                                GlassDialog(
+                                    onDismiss = {
+                                        playbackRecovery.clear()
+                                        recoveryPrompt = null
+                                    },
+                                ) {
+                                    val palette = LocalPalette.current
+                                    OverlayHeader(
+                                        title = "继续上次播放？",
+                                        subtitle = "检测到上次进程结束前保存的播放位置",
+                                    )
+                                    Text(
+                                        snapshot.title.ifBlank { "未命名视频" },
+                                        style = AppTypography.body.strong,
+                                        color = palette.text,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        "上次看到 ${formatRecoveryPosition(snapshot.positionMs)}" +
+                                            server?.serverName?.let { " · $it" }.orEmpty(),
+                                        style = AppTypography.body.regular,
+                                        color = palette.body,
+                                    )
+                                    if (needsLogin) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(
+                                            "此服务器的登录凭据已失效，请重新登录后再继续。",
+                                            style = AppTypography.caption.regular,
+                                            color = palette.error,
+                                        )
+                                    }
+                                    OverlayButtonRow(
+                                        dismissLabel = "忽略并清除",
+                                        confirmLabel = if (needsLogin) "前往我的" else "继续",
+                                        onDismiss = {
+                                            playbackRecovery.clear()
+                                            recoveryPrompt = null
+                                        },
+                                        onConfirm = resumeRecovery@{
+                                            if (needsLogin) {
+                                                // Keep the checkpoint: after re-login it remains available
+                                                // from 我的 and on a later cold start.
+                                                root.selectTab(Tab.Profile)
+                                                recoveryPrompt = null
+                                                return@resumeRecovery
+                                            }
+                                            val selectedServer = server ?: return@resumeRecovery
+                                            val urls =
+                                                EmbyStream.streamUrls(
+                                                    baseUrl = selectedServer.baseUrl,
+                                                    itemId = snapshot.itemId,
+                                                    token = selectedServer.accessToken,
+                                                )
+                                            recoveryLaunch = PlayerMediaItem(
+                                                id = snapshot.itemId,
+                                                url = urls.direct,
+                                                transcodeUrl = urls.transcode,
+                                                fallbackTranscodeUrl = urls.progressiveTranscode,
+                                                title = snapshot.title,
+                                                serverId = snapshot.serverId,
+                                                playSessionId = urls.playSessionId,
+                                            ) to snapshot.positionMs
+                                            recoveryPrompt = null
+                                        },
+                                        confirmEnabled = server != null,
+                                    )
+                                }
+                            }
+
+                        recoveryLaunch?.let { (item, positionMs) ->
+                            PlayerLauncher(
+                                items = listOf(item),
+                                startIndex = 0,
+                                startPositionMs = positionMs,
+                                onLaunched = { recoveryLaunch = null },
+                            )
+                        }
                     }
                 }
             }
@@ -601,8 +628,7 @@ private fun WatchRoomBar(
                 GlassShapes.card,
                 MiniPlayerTokens.fill,
                 MiniPlayerTokens.border,
-            )
-            .padding(start = 14.dp, end = 8.dp),
+            ).padding(start = 14.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -633,24 +659,26 @@ private fun WatchRoomBar(
             style = AppTypography.caption.strong,
             color = accent.accent,
             maxLines = 1,
-            modifier = Modifier
-                .pressable(onClick = onView)
-                .touchTarget()
-                .clip(GlassShapes.chip)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+            modifier =
+                Modifier
+                    .pressable(onClick = onView)
+                    .touchTarget()
+                    .clip(GlassShapes.chip)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
         )
         Icon(
             AppIcons.Close,
             contentDescription = "隐藏一起看提示",
             tint = Color.White.copy(alpha = 0.72f),
-            modifier = Modifier
-                .pressable(onClick = onClose)
-                // 12dp glyph in 6dp of padding came to a 24dp target sitting right beside
-                // 查看 — the two smallest controls in the app, adjacent, in a 44dp bar.
-                .touchTarget()
-                .clip(CircleShape)
-                .padding(6.dp)
-                .size(12.dp),
+            modifier =
+                Modifier
+                    .pressable(onClick = onClose)
+                    // 12dp glyph in 6dp of padding came to a 24dp target sitting right beside
+                    // 查看 — the two smallest controls in the app, adjacent, in a 44dp bar.
+                    .touchTarget()
+                    .clip(CircleShape)
+                    .padding(6.dp)
+                    .size(12.dp),
         )
     }
 }
@@ -681,7 +709,10 @@ private fun rememberNavCollapseConnection(
         object : NestedScrollConnection {
             private var travel = 0f
 
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
                 val delta = available.y
                 if (delta == 0f) return Offset.Zero
                 if (delta > 0f != travel > 0f) travel = 0f
@@ -768,7 +799,11 @@ private fun BottomNavigationDock(
 
 /** The bar contracted to one key — the current tab's glyph, and a way back to the rest. */
 @Composable
-private fun CollapsedNavButton(active: Tab, backdrop: BackdropState, onClick: () -> Unit) {
+private fun CollapsedNavButton(
+    active: Tab,
+    backdrop: BackdropState,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val item = tabs.firstOrNull { it.tab == active } ?: tabs.first()
@@ -804,7 +839,11 @@ private fun CollapsedNavButton(active: Tab, backdrop: BackdropState, onClick: ()
  * else. It stays put when the bar collapses.
  */
 @Composable
-private fun SearchButton(selected: Boolean, backdrop: BackdropState, onClick: () -> Unit) {
+private fun SearchButton(
+    selected: Boolean,
+    backdrop: BackdropState,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -822,8 +861,7 @@ private fun SearchButton(selected: Boolean, backdrop: BackdropState, onClick: ()
                 role = Role.Tab,
                 onClickLabel = "搜索",
                 onClick = onClick,
-            )
-            .semantics(mergeDescendants = true) { this.selected = selected }
+            ).semantics(mergeDescendants = true) { this.selected = selected }
             .shadow(Shadows.tabBar, CircleShape)
             .backdropBlur(backdrop, CircleShape)
             .overlayGlass(
@@ -913,10 +951,11 @@ private fun GlassTabBar(
                 val pillHeight = size.height * 0.88f
                 drawRoundRect(
                     color = selectionFill,
-                    topLeft = Offset(
-                        x = cell * indicator + (cell - pillWidth) / 2f,
-                        y = (size.height - pillHeight) / 2f,
-                    ),
+                    topLeft =
+                        Offset(
+                            x = cell * indicator + (cell - pillWidth) / 2f,
+                            y = (size.height - pillHeight) / 2f,
+                        ),
                     size = Size(pillWidth, pillHeight),
                     cornerRadius = CornerRadius(pillHeight / 2f),
                 )
@@ -931,7 +970,11 @@ private fun GlassTabBar(
 
 /** Pure-icon tab. Each button takes a full fifth of the bar, not just the glyph. */
 @Composable
-private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> Unit) {
+private fun RowScope.TabButton(
+    item: TabItem,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -945,24 +988,25 @@ private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> 
     )
 
     Column(
-        modifier = Modifier
-            .weight(1f)
-            .fillMaxHeight()
-            .heightIn(min = MinTouchTarget)
-            .clip(CircleShape)
-            // This was `clickable(indication = null)` with nothing put back, so the one
-            // control every session touches most had no press feedback at all.
-            .pressable(
-                pressedScale = 0.96f,
-                haptic = HapticSignal.Select,
-                // Without this every tab was announced as an unlabelled clickable region.
-                role = Role.Tab,
-                onClick = onClick,
-            )
-            // The icon already carries [item.label] as its description; merging the cell
-            // means the tab is read once, as one control, with its state attached rather
-            // than as an icon and a caption that happen to sit together.
-            .semantics(mergeDescendants = true) { this.selected = selected },
+        modifier =
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .heightIn(min = MinTouchTarget)
+                .clip(CircleShape)
+                // This was `clickable(indication = null)` with nothing put back, so the one
+                // control every session touches most had no press feedback at all.
+                .pressable(
+                    pressedScale = 0.96f,
+                    haptic = HapticSignal.Select,
+                    // Without this every tab was announced as an unlabelled clickable region.
+                    role = Role.Tab,
+                    onClick = onClick,
+                )
+                // The icon already carries [item.label] as its description; merging the cell
+                // means the tab is read once, as one control, with its state attached rather
+                // than as an icon and a caption that happen to sit together.
+                .semantics(mergeDescendants = true) { this.selected = selected },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -1003,7 +1047,11 @@ private fun GlassNavigationRail(
 }
 
 @Composable
-private fun RailTabButton(item: TabItem, selected: Boolean, onClick: () -> Unit) {
+private fun RailTabButton(
+    item: TabItem,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -1023,8 +1071,7 @@ private fun RailTabButton(item: TabItem, selected: Boolean, onClick: () -> Unit)
                 haptic = HapticSignal.Select,
                 role = Role.Tab,
                 onClick = onClick,
-            )
-            .semantics(mergeDescendants = true) { this.selected = selected },
+            ).semantics(mergeDescendants = true) { this.selected = selected },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -1050,25 +1097,28 @@ private fun LiquidGlassTabIcon(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val boxSize = if (compact) 36.dp else 40.dp
-    val iconSize = when {
-        compact && selected -> 29.dp
-        compact -> 27.dp
-        selected -> 31.dp
-        else -> 29.dp
-    }
+    val iconSize =
+        when {
+            compact && selected -> 29.dp
+            compact -> 27.dp
+            selected -> 31.dp
+            else -> 29.dp
+        }
     // Keep the glass chroma quiet: one hue per state, with only luminance changing along
     // the stroke. The previous white/accent/text mix produced a muddy rainbow edge.
     val body = tint
-    val highlight = if (palette.isDark) {
-        body.copy(alpha = if (selected) 1f else 0.92f)
-    } else {
-        lerp(body, Color.White, if (selected) 0.30f else 0.20f)
-    }
-    val depth = if (palette.isDark) {
-        lerp(body, Color.Black, 0.18f)
-    } else {
-        lerp(body, Color.Black, 0.12f)
-    }
+    val highlight =
+        if (palette.isDark) {
+            body.copy(alpha = if (selected) 1f else 0.92f)
+        } else {
+            lerp(body, Color.White, if (selected) 0.30f else 0.20f)
+        }
+    val depth =
+        if (palette.isDark) {
+            lerp(body, Color.Black, 0.18f)
+        } else {
+            lerp(body, Color.Black, 0.12f)
+        }
 
     Box(
         Modifier.size(boxSize),
@@ -1080,31 +1130,34 @@ private fun LiquidGlassTabIcon(
             item.icon,
             contentDescription = null,
             tint = depth.copy(alpha = if (palette.isDark) 0.20f else 0.14f),
-            modifier = Modifier
-                .offset(y = 0.5.dp)
-                .size(iconSize),
+            modifier =
+                Modifier
+                    .offset(y = 0.5.dp)
+                    .size(iconSize),
         )
         Icon(
             item.icon,
             contentDescription = item.label,
             tint = Color.White,
-            modifier = Modifier
-                .size(iconSize)
-                // SrcIn needs an offscreen layer; otherwise the mask can tint siblings in
-                // the tab cell on some Android renderers.
-                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-                .drawWithCache {
-                    val glassInk = Brush.verticalGradient(
-                        0f to highlight,
-                        0.30f to body,
-                        0.82f to body,
-                        1f to depth,
-                    )
-                    onDrawWithContent {
-                        drawContent()
-                        drawRect(glassInk, blendMode = BlendMode.SrcIn)
-                    }
-                },
+            modifier =
+                Modifier
+                    .size(iconSize)
+                    // SrcIn needs an offscreen layer; otherwise the mask can tint siblings in
+                    // the tab cell on some Android renderers.
+                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                    .drawWithCache {
+                        val glassInk =
+                            Brush.verticalGradient(
+                                0f to highlight,
+                                0.30f to body,
+                                0.82f to body,
+                                1f to depth,
+                            )
+                        onDrawWithContent {
+                            drawContent()
+                            drawRect(glassInk, blendMode = BlendMode.SrcIn)
+                        }
+                    },
         )
     }
 }

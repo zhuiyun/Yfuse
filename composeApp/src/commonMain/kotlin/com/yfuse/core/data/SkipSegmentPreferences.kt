@@ -62,11 +62,14 @@ data class SkipTimes(
  * labelled 自动跳过 says nothing about what happens when it is off — the pill was still
  * there, unmentioned.
  */
-enum class SkipMode(val label: String) {
+enum class SkipMode(
+    val label: String,
+) {
     /** Offer 跳过片头 and wait to be asked. The default: moving the playhead unbidden is a
      *  surprising thing for a player to do, and the pill costs one tap. */
     Button("跳过按钮"),
     Auto("自动跳过"),
+
     /** Times stay stored; nothing is offered and nothing moves. */
     Off("关闭"),
 }
@@ -85,9 +88,12 @@ enum class SkipMode(val label: String) {
  * The intro is stored as absolute positions and the credits as a distance from the end,
  * because that is what stays constant for each — see [SkipTimes.creditsLeadSeconds].
  */
-class SkipSegmentPreferences(private val settings: Settings) {
+class SkipSegmentPreferences(
+    private val settings: Settings,
+) {
     private companion object {
         const val KEY_SERIES = "player.skip.bySeries"
+
         /** The old two-state switch. Read once, to seed [KEY_MODE]. */
         const val KEY_AUTO_SKIP = "player.skip.auto"
         const val KEY_MODE = "player.skip.mode"
@@ -96,7 +102,11 @@ class SkipSegmentPreferences(private val settings: Settings) {
         const val MAX_SECONDS = 10 * 60 * 60L
     }
 
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     private val seriesSerializer = MapSerializer(String.serializer(), SkipTimes.serializer())
 
     private val _bySeries = MutableStateFlow(load())
@@ -118,30 +128,35 @@ class SkipSegmentPreferences(private val settings: Settings) {
      * being offered. Nobody's behaviour changes on upgrade.
      */
     private fun loadMode(): SkipMode {
-        settings.getStringOrNull(KEY_MODE)
+        settings
+            .getStringOrNull(KEY_MODE)
             ?.let { stored -> SkipMode.entries.firstOrNull { it.name == stored } }
             ?.let { return it }
         return if (settings.getBoolean(KEY_AUTO_SKIP, false)) SkipMode.Auto else SkipMode.Button
     }
 
-    fun timesFor(seriesId: String?): SkipTimes? =
-        seriesId?.takeIf { it.isNotBlank() }?.let { _bySeries.value[it] }
+    fun timesFor(seriesId: String?): SkipTimes? = seriesId?.takeIf { it.isNotBlank() }?.let { _bySeries.value[it] }
 
-    fun set(seriesId: String, times: SkipTimes) {
+    fun set(
+        seriesId: String,
+        times: SkipTimes,
+    ) {
         if (seriesId.isBlank()) return
-        val clamped = times.copy(
-            introStartSeconds = times.introStartSeconds.coerceIn(0L, MAX_SECONDS),
-            introEndSeconds = times.introEndSeconds.coerceIn(0L, MAX_SECONDS),
-            creditsLeadSeconds = times.creditsLeadSeconds.coerceIn(0L, MAX_SECONDS),
-            seriesName = times.seriesName.trim().take(80),
-        )
+        val clamped =
+            times.copy(
+                introStartSeconds = times.introStartSeconds.coerceIn(0L, MAX_SECONDS),
+                introEndSeconds = times.introEndSeconds.coerceIn(0L, MAX_SECONDS),
+                creditsLeadSeconds = times.creditsLeadSeconds.coerceIn(0L, MAX_SECONDS),
+                seriesName = times.seriesName.trim().take(80),
+            )
         // An entry that configures nothing is indistinguishable from having no entry, and
         // keeping it would leave a permanently empty row in 我的.
-        _bySeries.value = if (clamped.configured) {
-            _bySeries.value + (seriesId to clamped)
-        } else {
-            _bySeries.value - seriesId
-        }
+        _bySeries.value =
+            if (clamped.configured) {
+                _bySeries.value + (seriesId to clamped)
+            } else {
+                _bySeries.value - seriesId
+            }
         persist()
     }
 
@@ -172,7 +187,10 @@ class SkipSegmentPreferences(private val settings: Settings) {
         return serverSegments.filterNot { it.type in overridden } + custom
     }
 
-    private fun customSegments(times: SkipTimes?, durationMs: Long): List<PlaybackSegment> {
+    private fun customSegments(
+        times: SkipTimes?,
+        durationMs: Long,
+    ): List<PlaybackSegment> {
         if (times == null) return emptyList()
         return buildList {
             // An end at or before the start describes no interval at all; a half-entered

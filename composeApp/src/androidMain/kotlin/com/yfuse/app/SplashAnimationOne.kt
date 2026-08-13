@@ -13,11 +13,14 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
  * and the rule finishes last, on the final frame.
  */
 internal object SplashOne : SplashChoreography {
-
     override val durationMs = 1_200f
     override val fadeStartMs = durationMs - FadeMs
 
-    override fun DrawScope.drawMark(nowMs: Float, mark: ImageBitmap) {
+    override fun DrawScope.drawMark(
+        nowMs: Float,
+        mark: ImageBitmap?,
+    ) {
+        mark ?: return
         withSheen(span(nowMs, SheenStartMs, SheenMs)) {
             drawStreak(easeOutExpo(span(nowMs, StreakStartMs, StreakMs)))
             drawUnfoldingMark(

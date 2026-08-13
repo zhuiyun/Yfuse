@@ -8,7 +8,9 @@ package com.yfuse.core.model
  * The list exists for the case the grid is bad at: a dozen servers whose names are long and
  * similar, where a full-width row can spell the name out and still have room for the address.
  */
-enum class ServerLayout(val label: String) {
+enum class ServerLayout(
+    val label: String,
+) {
     Grid("网格"),
     List("列表"),
 }

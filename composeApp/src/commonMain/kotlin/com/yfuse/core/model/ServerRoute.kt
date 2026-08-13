@@ -30,12 +30,16 @@ data class ServerRoute(
         const val MAX_NAME_CHARS: Int = 20
         const val MAX_URL_CHARS: Int = 2_048
 
-        fun sanitizeName(value: String, fallback: String = PRIMARY_NAME): String = value
-            .replace('\r', ' ')
-            .replace('\n', ' ')
-            .trim()
-            .take(MAX_NAME_CHARS)
-            .ifBlank { fallback }
+        fun sanitizeName(
+            value: String,
+            fallback: String = PRIMARY_NAME,
+        ): String =
+            value
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .trim()
+                .take(MAX_NAME_CHARS)
+                .ifBlank { fallback }
 
         /** Trailing-slash-free, scheme-checked. Returns null when the address is unusable. */
         fun sanitizeUrl(value: String): String? {
@@ -66,22 +70,26 @@ fun List<ServerRoute>.normalizedRoutes(): List<ServerRoute> {
     val seenIds = mutableSetOf<String>()
     val seenUrls = mutableSetOf<String>()
     val ordered = sortedBy { if (it.id == ServerRoute.PRIMARY_ID) 0 else 1 }
-    return ordered.mapNotNull { route ->
-        val url = ServerRoute.sanitizeUrl(route.url) ?: return@mapNotNull null
-        if (!seenUrls.add(url)) return@mapNotNull null
-        val id = route.id.takeIf { it.isNotBlank() && seenIds.add(it) }
-            ?: ServerRoute.nextId(seenIds).also { seenIds += it }
-        ServerRoute(
-            id = id,
-            name = ServerRoute.sanitizeName(
-                route.name,
-                fallback = if (id == ServerRoute.PRIMARY_ID) {
-                    ServerRoute.PRIMARY_NAME
-                } else {
-                    "备用线路"
-                },
-            ),
-            url = url,
-        )
-    }.take(ServerRoute.MAX_ROUTES)
+    return ordered
+        .mapNotNull { route ->
+            val url = ServerRoute.sanitizeUrl(route.url) ?: return@mapNotNull null
+            if (!seenUrls.add(url)) return@mapNotNull null
+            val id =
+                route.id.takeIf { it.isNotBlank() && seenIds.add(it) }
+                    ?: ServerRoute.nextId(seenIds).also { seenIds += it }
+            ServerRoute(
+                id = id,
+                name =
+                    ServerRoute.sanitizeName(
+                        route.name,
+                        fallback =
+                            if (id == ServerRoute.PRIMARY_ID) {
+                                ServerRoute.PRIMARY_NAME
+                            } else {
+                                "备用线路"
+                            },
+                    ),
+                url = url,
+            )
+        }.take(ServerRoute.MAX_ROUTES)
 }

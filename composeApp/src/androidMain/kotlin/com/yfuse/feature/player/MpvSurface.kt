@@ -20,24 +20,26 @@ fun MpvSurface(
         factory = { ctx ->
             SurfaceView(ctx).apply {
                 keepScreenOn = true
-                holder.addCallback(object : SurfaceHolder.Callback {
-                    override fun surfaceCreated(holder: SurfaceHolder) {
-                        engine.attach(holder.surface)
-                    }
+                holder.addCallback(
+                    object : SurfaceHolder.Callback {
+                        override fun surfaceCreated(holder: SurfaceHolder) {
+                            engine.attach(holder.surface)
+                        }
 
-                    override fun surfaceChanged(
-                        holder: SurfaceHolder,
-                        format: Int,
-                        width: Int,
-                        height: Int,
-                    ) {
-                        engine.resize(width, height)
-                    }
+                        override fun surfaceChanged(
+                            holder: SurfaceHolder,
+                            format: Int,
+                            width: Int,
+                            height: Int,
+                        ) {
+                            engine.resize(width, height)
+                        }
 
-                    override fun surfaceDestroyed(holder: SurfaceHolder) {
-                        engine.detach()
-                    }
-                })
+                        override fun surfaceDestroyed(holder: SurfaceHolder) {
+                            engine.detach()
+                        }
+                    },
+                )
             }
         },
         modifier = modifier,

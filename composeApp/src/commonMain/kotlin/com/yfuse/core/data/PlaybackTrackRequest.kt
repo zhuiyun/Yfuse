@@ -18,7 +18,6 @@ package com.yfuse.core.data
  * picked anyway — they chose 国语, not stream 3.
  */
 class PlaybackTrackRequest {
-
     private var pending: Pending? = null
 
     private data class Pending(
@@ -28,9 +27,16 @@ class PlaybackTrackRequest {
         val subtitleLanguage: String?,
     )
 
-    data class Tracks(val audioLanguage: String?, val subtitleLanguage: String?)
+    data class Tracks(
+        val audioLanguage: String?,
+        val subtitleLanguage: String?,
+    )
 
-    fun set(itemId: String, audioLanguage: String? = null, subtitleLanguage: String? = null) {
+    fun set(
+        itemId: String,
+        audioLanguage: String? = null,
+        subtitleLanguage: String? = null,
+    ) {
         if (itemId.isBlank() || (audioLanguage == null && subtitleLanguage == null)) {
             pending = null
             return

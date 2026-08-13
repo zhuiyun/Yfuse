@@ -39,7 +39,10 @@ data class TmdbDetail(
 )
 
 @Serializable
-data class TmdbRow(val title: String, val items: List<TmdbItem>)
+data class TmdbRow(
+    val title: String,
+    val items: List<TmdbItem>,
+)
 
 /** Aggregated TMDB content for the home tab. */
 @Serializable

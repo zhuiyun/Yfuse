@@ -1,6 +1,7 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -28,7 +29,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -46,16 +46,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.animation.core.Animatable
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -68,23 +66,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.data.rankServerSources
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.ActionToast
-import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.BackdropState
-import com.yfuse.core.designsystem.backdropBlur
-import com.yfuse.core.designsystem.backdropSource
-import com.yfuse.core.designsystem.rememberBackdropState
-import com.yfuse.core.designsystem.LocalAccessibilityOptions
-import com.yfuse.core.designsystem.LocalRouteVisible
-import com.yfuse.core.designsystem.Motion
-import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.BurstIcon
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
@@ -93,48 +87,59 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.HeroInk
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
+import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.WindowWidthTier
+import com.yfuse.core.designsystem.backdropBlur
+import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
+import com.yfuse.core.designsystem.isSharedMediaArtworkActive
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.liquidGlass
-import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.isSharedMediaArtworkActive
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberBackdropState
+import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
-import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.Episode
-import com.yfuse.core.model.MediaDetail
-import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
+import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.network.currentPlaybackNetworkClass
+import com.yfuse.core.offline.OfflineBatchMode
+import com.yfuse.core.offline.OfflineDownloadQuality
+import com.yfuse.core.offline.OfflineDownloadSelection
+import com.yfuse.core.offline.estimateOfflineBytes
 import com.yfuse.core.sync.WatchInvite
-import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.feature.player.PlaybackSelectionState
+import com.yfuse.feature.profile.formatDownloadBytes
 import com.yfuse.feature.watch.WatchInviteShareSheet
-import kotlinx.coroutines.launch
 
 /** Height of the collapsing top bar's content row, above the status bar inset. */
 private val TopBarHeight = 52.dp
@@ -202,31 +207,36 @@ fun DetailScreen(component: DetailComponent) {
     // Episode details carry the episode title in `title` and the show's name separately.
     // The artwork is the show's visual identity, so its caption and collapsed bar use the
     // show name; episode coordinates remain on the play action below.
-    val displayTitle = detail?.let { item ->
-        if (item.type == "Episode") {
-            item.seriesName?.takeIf { it.isNotBlank() } ?: item.title
-        } else {
-            item.title
-        }
-    }.orEmpty()
+    val displayTitle =
+        detail
+            ?.let { item ->
+                if (item.type == "Episode") {
+                    item.seriesName?.takeIf { it.isNotBlank() } ?: item.title
+                } else {
+                    item.title
+                }
+            }.orEmpty()
 
     // The backdrop is the hero, the poster is what stands in when the item has none.
-    val heroUrls = detail?.let {
-        listOf(
-            EmbyImages.backdrop(baseUrl, it, accessToken = accessToken),
-            EmbyImages.poster(baseUrl, it, accessToken = accessToken),
-        )
-    }.orEmpty()
+    val heroUrls =
+        detail
+            ?.let {
+                listOf(
+                    EmbyImages.backdrop(baseUrl, it, accessToken = accessToken),
+                    EmbyImages.poster(baseUrl, it, accessToken = accessToken),
+                )
+            }.orEmpty()
     // The backdrop can fail while the poster succeeds. Wait for FallbackImage to report the
     // candidate that is actually on screen so Palette never tints one picture from another.
     // Include the server because different libraries may legitimately reuse the same item id.
     val heroIdentity = remember(baseUrl, detail?.id) { baseUrl to detail?.id }
-    val sharedHeroKey = detail?.let {
-        MediaSharedElementKey(
-            serverId = state.server?.id ?: component.serverId,
-            itemId = it.id,
-        )
-    }
+    val sharedHeroKey =
+        detail?.let {
+            MediaSharedElementKey(
+                serverId = state.server?.id ?: component.serverId,
+                itemId = it.id,
+            )
+        }
     var resolvedHeroUrl by remember(heroIdentity) { mutableStateOf<String?>(null) }
     // The poster is what the page takes its colour from, and the backdrop is only the
     // stand-in. A backdrop is a frame of the film — a night exterior, a white-sky wide —
@@ -237,12 +247,13 @@ fun DetailScreen(component: DetailComponent) {
     val posterUrl = detail?.let { EmbyImages.poster(baseUrl, it, accessToken = accessToken) }
     // Artwork is allowed to set the mood, not to redefine the product. Harmonize the final
     // target before animation; doing the thresholded correction on every frame caused jumps.
-    val detailAccent = rememberAnimatedArtworkAccent(
-        url = posterUrl ?: resolvedHeroUrl,
-        fallback = Brand.Primary, // design-system: brand-identity
-        darkTheme = palette.isDark,
-        identity = heroIdentity,
-    )
+    val detailAccent =
+        rememberAnimatedArtworkAccent(
+            url = posterUrl ?: resolvedHeroUrl,
+            fallback = Brand.Primary, // design-system: brand-identity
+            darkTheme = palette.isDark,
+            identity = heroIdentity,
+        )
 
     var seasonPickerOpen by remember { mutableStateOf(false) }
     var overviewExpanded by remember { mutableStateOf(false) }
@@ -252,39 +263,54 @@ fun DetailScreen(component: DetailComponent) {
     val playableVersions = remember(serverVersions) { serverVersions.bestVersionsFirst() }
     // Resolved against the server's own order, not the sorted one: the fallback is "whatever
     // the server lists first", which is also what an unqualified stream request returns.
-    val selectedVersion = serverVersions.firstOrNull { it.id == state.selectedVersionId }
-        ?: serverVersions.firstOrNull()
+    val selectedVersion =
+        serverVersions.firstOrNull { it.id == state.selectedVersionId }
+            ?: serverVersions.firstOrNull()
     // 资源 has to describe the file that will play, not the server's default — see `describing`.
-    val comparableSources = remember(
-        state.sources,
-        selectedVersion,
-        state.selectedSourceServerId,
-        state.selectedSourceItemId,
-    ) {
-        // Restate first, then rank the facts the cards actually display. Sorting the old
-        // default and rewriting it afterwards could leave a selected 720p copy wearing Best
-        // while a visible 1080p copy sat behind it.
-        state.sources.describing(
-            version = selectedVersion,
-            selectedServerId = state.selectedSourceServerId,
-            selectedItemId = state.selectedSourceItemId,
-        ).bestSourcesFirst()
-    }
+    val comparableSources =
+        remember(
+            state.sources,
+            selectedVersion,
+            state.selectedSourceServerId,
+            state.selectedSourceItemId,
+        ) {
+            // Restate first, then rank the facts the cards actually display. Sorting the old
+            // default and rewriting it afterwards could leave a selected 720p copy wearing Best
+            // while a visible 1080p copy sat behind it.
+            state.sources
+                .describing(
+                    version = selectedVersion,
+                    selectedServerId = state.selectedSourceServerId,
+                    selectedItemId = state.selectedSourceItemId,
+                ).let { sources ->
+                    if (component.dependencies.playbackPreferences.smartCrossServerSource.value) {
+                        rankServerSources(
+                            sources = sources,
+                            health = component.dependencies.serverHealthMonitor.health.value,
+                            network = currentPlaybackNetworkClass(),
+                        ).map { it.source }
+                    } else {
+                        sources.bestSourcesFirst()
+                    }
+                }
+        }
     // Which library, and which episode. It used to append the version name, its quality
     // label and the resume timestamp as well, which on a long server name ran past the
     // button and ellipsized the part that identifies the episode. The version is stated by
     // 版本 and 媒体信息, and the resume point by the progress bar under the button.
-    val playDetailLine = remember(state.playServer, state.playTarget) {
-        val target = state.playTarget
-        val coordinate = listOfNotNull(
-            target?.seasonNumber?.let { "S$it" },
-            target?.episodeNumber?.let { "E$it" },
-        ).joinToString(" ").takeIf { it.isNotBlank() }
-        listOfNotNull(
-            state.playServer?.serverName,
-            coordinate,
-        ).joinToString(" · ").takeIf { it.isNotBlank() }
-    }
+    val playDetailLine =
+        remember(state.playServer, state.playTarget) {
+            val target = state.playTarget
+            val coordinate =
+                listOfNotNull(
+                    target?.seasonNumber?.let { "S$it" },
+                    target?.episodeNumber?.let { "E$it" },
+                ).joinToString(" ").takeIf { it.isNotBlank() }
+            listOfNotNull(
+                state.playServer?.serverName,
+                coordinate,
+            ).joinToString(" · ").takeIf { it.isNotBlank() }
+        }
 
     val watchTogether = component.dependencies.watchTogether
     val watchPreferences = component.dependencies.watchTogetherPreferences
@@ -293,6 +319,7 @@ fun DetailScreen(component: DetailComponent) {
     val share = rememberShareHandler()
     var shareSheetOpen by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
+    var downloadSheetOpen by remember { mutableStateOf(false) }
     var organizationSheetOpen by remember { mutableStateOf(false) }
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
@@ -327,13 +354,16 @@ fun DetailScreen(component: DetailComponent) {
                 appliedSelection = appliedSelection,
                 detailReady = state.detail != null,
                 playServerId = state.playServer?.id,
-                currentRootItemId = state.playSourceDetail?.let { source ->
-                    if (source.type == "Episode") source.seriesId ?: source.id else source.id
-                },
+                currentRootItemId =
+                    state.playSourceDetail?.let { source ->
+                        if (source.type == "Episode") source.seriesId ?: source.id else source.id
+                    },
                 playTargetReady = state.playTarget != null,
                 sources = state.sources,
             )
-        ) return@LaunchedEffect
+        ) {
+            return@LaunchedEffect
+        }
         val syncedServerId = playbackSelection.serverId ?: return@LaunchedEffect
         val syncedItemId = playbackSelection.itemId ?: return@LaunchedEffect
         component.store.accept(
@@ -346,495 +376,675 @@ fun DetailScreen(component: DetailComponent) {
         appliedSelection = playbackSelection
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val density = LocalDensity.current
-        // Enough artwork to feel cinematic while still exposing the title and primary
-        // decision on compact phones. The old 60% crop hid too much of the useful page.
-        val heroHeight = when (windowWidthTier(maxWidth)) {
-            WindowWidthTier.Compact -> (maxHeight * 0.55f).coerceIn(360.dp, 520.dp)
-            WindowWidthTier.Medium -> (maxHeight * 0.52f).coerceIn(420.dp, 600.dp)
-            WindowWidthTier.Expanded -> (maxHeight * 0.50f).coerceIn(460.dp, 640.dp)
-        }
-        val heroHeightPx = with(density) { heroHeight.toPx() }
+    // 影视详情页 has always coloured its own controls from the poster; under 跟随封面 that
+    // becomes the page's whole accent, so chips, switches and sheets follow it too.
+    ArtworkAccent(detailAccent) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val density = LocalDensity.current
+            // Enough artwork to feel cinematic while still exposing the title and primary
+            // decision on compact phones. The old 60% crop hid too much of the useful page.
+            val heroHeight =
+                when (windowWidthTier(maxWidth)) {
+                    WindowWidthTier.Compact -> (maxHeight * 0.55f).coerceIn(360.dp, 520.dp)
+                    WindowWidthTier.Medium -> (maxHeight * 0.52f).coerceIn(420.dp, 600.dp)
+                    WindowWidthTier.Expanded -> (maxHeight * 0.50f).coerceIn(460.dp, 640.dp)
+                }
+            val heroHeightPx = with(density) { heroHeight.toPx() }
 
-        // Lift the measured caption and the primary action over the artwork. The backdrop
-        // continues 20dp below 播放, while the blend into the page still begins at the
-        // artwork's physical lower edge.
-        var captionLift by remember {
-            mutableStateOf(TypicalCaptionHeight + SheetGap + PlayButtonHeroOverlap)
-        }
+            // Lift the measured caption and the primary action over the artwork. The backdrop
+            // continues 20dp below 播放, while the blend into the page still begins at the
+            // artwork's physical lower edge.
+            var captionLift by remember {
+                mutableStateOf(TypicalCaptionHeight + SheetGap + PlayButtonHeroOverlap)
+            }
 
-        val detailSurface = remember(detailAccent, palette.isDark) {
-            heroSurface(detailAccent, palette.isDark)
-        }
-        val ambientBrush = remember(
-            detailAccent,
-            detailSurface,
-            heroHeightPx,
-            palette.isDark,
-        ) {
-            Brush.verticalGradient(
-                colors = listOf(
-                    detailAccent.copy(alpha = if (palette.isDark) 0.18f else 0.10f),
-                    detailSurface.copy(alpha = 0f),
-                ),
-                startY = 0f,
-                // The hero scrim reaches pure [detailSurface] at this exact edge. Ambient
-                // colour must also be fully transparent here or the two sides cannot match.
-                endY = heroHeightPx,
-            )
-        }
-        // Blend band between the artwork and the page. It starts where the artwork ends,
-        // leaving the title block on clean artwork — see [heroPanelBrush].
-        val panelBrush = remember(detailSurface, density, captionLift) {
-            heroPanelBrush(detailSurface, density, start = captionLift)
-        }
+            val detailSurface =
+                remember(detailAccent, palette.isDark) {
+                    heroSurface(detailAccent, palette.isDark)
+                }
+            val ambientBrush =
+                remember(
+                    detailAccent,
+                    detailSurface,
+                    heroHeightPx,
+                    palette.isDark,
+                ) {
+                    Brush.verticalGradient(
+                        colors =
+                            listOf(
+                                detailAccent.copy(alpha = if (palette.isDark) 0.18f else 0.10f),
+                                detailSurface.copy(alpha = 0f),
+                            ),
+                        startY = 0f,
+                        // The hero scrim reaches pure [detailSurface] at this exact edge. Ambient
+                        // colour must also be fully transparent here or the two sides cannot match.
+                        endY = heroHeightPx,
+                    )
+                }
+            // Blend band between the artwork and the page. It starts where the artwork ends,
+            // leaving the title block on clean artwork — see [heroPanelBrush].
+            val panelBrush =
+                remember(detailSurface, density, captionLift) {
+                    heroPanelBrush(detailSurface, density, start = captionLift)
+                }
 
-        // A different detail route must always start at its hero. Keying the state by the
-        // route item also prevents a newly opened title inheriting the previous title's offset.
-        val listState = remember(component.itemId) { LazyListState() }
-        val detailBackdrop = rememberBackdropState()
-        val (overscrollPull, overscrollConnection) = rememberOverscrollPull(
-            LocalAccessibilityOptions.current.reduceMotion,
-        )
-        val heroScroll = rememberHeroScroll(listState, heroHeightPx, overscrollPull)
-        val topBarProgress = rememberTopBarProgress(listState, heroHeightPx, density)
-        val barSolid by remember(topBarProgress) { derivedStateOf { topBarProgress.value > 0.5f } }
+            // A different detail route must always start at its hero. Keying the state by the
+            // route item also prevents a newly opened title inheriting the previous title's offset.
+            val listState = remember(component.itemId) { LazyListState() }
+            val detailBackdrop = rememberBackdropState()
+            val (overscrollPull, overscrollConnection) =
+                rememberOverscrollPull(
+                    LocalAccessibilityOptions.current.reduceMotion,
+                )
+            val heroScroll = rememberHeroScroll(listState, heroHeightPx, overscrollPull)
+            val topBarProgress = rememberTopBarProgress(listState, heroHeightPx, density)
+            val barSolid by remember(topBarProgress) { derivedStateOf { topBarProgress.value > 0.5f } }
 
-        StatusBarIconStyle(darkIcons = !palette.isDark && (detail == null || barSolid))
+            StatusBarIconStyle(darkIcons = !palette.isDark && (detail == null || barSolid))
 
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(detailSurface)
-                .background(ambientBrush),
-        )
-
-        when {
-            detail == null && state.error == null -> DetailSkeleton(heroHeight)
-
-            detail == null -> ErrorState(
-                message = state.error ?: "加载失败",
-                onRetry = { component.store.accept(DetailIntent.Retry) },
-                modifier = Modifier.align(Alignment.Center),
-            )
-
-            else -> LazyColumn(
+            Box(
                 Modifier
                     .fillMaxSize()
-                    .nestedScroll(overscrollConnection)
-                    // What the collapsed top bar blurs. The bar is a sibling drawn after
-                    // this, which is what keeps it out of its own backdrop.
-                    .backdropSource(detailBackdrop),
-                state = listState,
-                contentPadding = PaddingValues(bottom = Dimens.contentBottom),
-            ) {
-                item(key = "hero") {
-                    Hero(
-                        urls = heroUrls,
-                        title = displayTitle,
-                        height = heroHeight,
-                        surfaceColor = detailSurface,
-                        animationKey = "detail-hero-${detail.id}",
-                        sharedKey = sharedHeroKey,
-                        scroll = heroScroll,
-                        onResolvedUrl = { resolvedHeroUrl = it },
-                    )
-                }
+                    .background(detailSurface)
+                    .background(ambientBrush),
+            )
 
-                item(key = "sheet") {
-                    Column(
+            when {
+                detail == null && state.error == null -> DetailSkeleton(heroHeight)
+
+                detail == null ->
+                    ErrorState(
+                        message = state.error ?: "加载失败",
+                        onRetry = { component.store.accept(DetailIntent.Retry) },
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+
+                else ->
+                    LazyColumn(
                         Modifier
-                            .fillMaxWidth()
-                            .liftOverHero(captionLift)
-                            .background(panelBrush)
-                            .padding(horizontal = Dimens.pageHorizontal)
-                            .padding(top = SheetGap),
-                        verticalArrangement = Arrangement.spacedBy(SheetGap),
+                            .fillMaxSize()
+                            .nestedScroll(overscrollConnection)
+                            // What the collapsed top bar blurs. The bar is a sibling drawn after
+                            // this, which is what keeps it out of its own backdrop.
+                            .backdropSource(detailBackdrop),
+                        state = listState,
+                        contentPadding = PaddingValues(bottom = Dimens.contentBottom),
                     ) {
-                        TitleBlock(
-                            detail = detail,
-                            title = displayTitle,
-                            accent = detailAccent,
-                            // A series has no file of its own, so its 杜比 facts belong to
-                            // the episode 继续观看 would open — which is the copy the badge
-                            // would be describing anyway.
-                            version = selectedVersion ?: state.playTarget?.versions?.firstOrNull(),
-                            modifier = Modifier.onSizeChanged {
-                                captionLift = with(density) { it.height.toDp() } +
-                                    SheetGap + PlayButtonHeroOverlap
-                            },
-                        )
-                        DetailActionDock(
-                            accent = detailAccent,
-                            label = if (state.playPositionTicks > 0L) "继续观看" else "播放",
-                            detailLine = playDetailLine,
-                            resolving = state.resolvingPlay || state.selectionLoading,
-                            favorite = detail.isFavorite,
-                            canPlayFromStart = state.playPositionTicks > 0L,
-                            onPlay = { component.store.accept(DetailIntent.Play) },
-                            onPlayFromStart = {
-                                component.store.accept(DetailIntent.PlayFromStart)
-                            },
-                            onFavorite = {
-                                component.store.accept(DetailIntent.ToggleFavorite)
-                            },
-                            onWatchLater = {
-                                component.store.accept(DetailIntent.AddToWatchLater)
-                            },
-                        )
-                    }
-                }
-
-                val overview = detail.overview
-                if (!overview.isNullOrBlank()) {
-                    item(key = "overview") {
-                        OverviewSection(
-                            text = overview,
-                            expanded = overviewExpanded,
-                            onToggle = { overviewExpanded = !overviewExpanded },
-                            accent = detailAccent,
-                            modifier = Modifier.sectionPadding(),
-                        )
-                    }
-                }
-
-                // Episodes are the next decision after reading the synopsis. Keeping the
-                // rail here avoids making a series viewer cross file metadata, artwork and
-                // external links before they can choose what to watch.
-                if (state.episodes.isNotEmpty()) {
-                    item(key = "episodes") {
-                        EpisodeSection(
-                            baseUrl = playBaseUrl,
-                            accessToken = playAccessToken,
-                            episodes = state.episodes,
-                            seriesPosterUrl = heroUrls.getOrNull(1),
-                            selectedEpisodeId = state.selectedEpisodeId,
-                            accent = detailAccent,
-                            seasonLabel = state.seasons
-                                .firstOrNull { it.id == state.selectedSeasonId }
-                                ?.name
-                                ?: "剧集",
-                            episodeCount = state.episodes.size,
-                            seasons = state.seasons.map { it.id to it.name },
-                            selectedSeasonId = state.selectedSeasonId,
-                            pickerOpen = seasonPickerOpen,
-                            onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
-                            onSelectSeason = {
-                                seasonPickerOpen = false
-                                component.store.accept(DetailIntent.SelectSeason(it))
-                            },
-                            onPlayEpisode = { episode ->
-                                component.store.accept(
-                                    DetailIntent.SelectEpisode(
-                                        episode.id,
-                                        episode.resumePositionTicks ?: 0L,
-                                    ),
-                                )
-                            },
-                            onSeeAll = { allEpisodesOpen = true },
-                        )
-                    }
-                }
-
-                if (playableVersions.isNotEmpty()) {
-                    item(key = "versions") {
-                        VersionSection(
-                            versions = playableVersions,
-                            selectedId = state.selectedVersionId,
-                            accent = detailAccent,
-                            onSelect = {
-                                component.store.accept(DetailIntent.SelectVersion(it))
-                            },
-                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                        )
-                    }
-                }
-
-                // The tracks of whatever file will actually open. A film's own, or, for a
-                // series, the episode 继续观看 resolves to — the same copy the 杜比 badge
-                // above describes.
-                val playableVersion = selectedVersion
-                if (playableVersion != null &&
-                    (playableVersion.audioTracks.size > 1 ||
-                        playableVersion.subtitleTracks.isNotEmpty())
-                ) {
-                    item(key = "tracks") {
-                        TrackSection(
-                            version = playableVersion,
-                            audioLanguage = state.preferredAudioLanguage,
-                            subtitleLanguage = state.preferredSubtitleLanguage,
-                            accent = detailAccent,
-                            onSelectAudio = {
-                                component.store.accept(DetailIntent.SelectAudioLanguage(it))
-                            },
-                            onSelectSubtitle = {
-                                component.store.accept(DetailIntent.SelectSubtitleLanguage(it))
-                            },
-                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                        )
-                    }
-                }
-
-                if (comparableSources.any { it.reachable && it.source != null && it.itemId != null }) {
-                    item(key = "sources") {
-                        SourceSection(
-                            sources = comparableSources,
-                            selectedServerId = state.selectedSourceServerId,
-                            selectedItemId = state.selectedSourceItemId,
-                            accent = detailAccent,
-                            onSelect = { serverId, itemId ->
-                                component.store.accept(DetailIntent.SelectSource(serverId, itemId))
-                            },
-                            onSeeAll = { sourceListOpen = true },
-                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                        )
-                    }
-                }
-
-                if (detail.genres.isNotEmpty()) {
-                    item(key = "genres") {
-                        GenreSection(detail.genres, Modifier.sectionPadding())
-                    }
-                }
-
-                if (detail.backdropTags.isNotEmpty()) {
-                    item(key = "artwork") {
-                        ArtworkSection(
-                            // Whichever item owns the artwork — the episode's own, or the
-                            // show's when the episode has none. The index addresses that
-                            // item's backdrop list, so it has to be that item's id.
-                            baseUrl = baseUrl,
-                            accessToken = accessToken,
-                            itemId = detail.backdropItemId,
-                            tags = detail.backdropTags,
-                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                        )
-                    }
-                }
-
-                if (externalLinks(detail.providerIds).isNotEmpty()) {
-                    item(key = "links") {
-                        ExternalLinksSection(detail.providerIds, Modifier.sectionPadding())
-                    }
-                }
-
-                if (detail.people.isNotEmpty()) {
-                    item(key = "cast") {
-                        CastRow(
-                            baseUrl = baseUrl,
-                            accessToken = accessToken,
-                            people = detail.people,
-                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                        )
-                    }
-                }
-
-                if (state.related.isNotEmpty()) {
-                    item(key = "related") {
-                        RelatedSection(
-                            baseUrl = baseUrl,
-                            accessToken = accessToken,
-                            serverId = state.server?.id,
-                            items = state.related,
-                            accent = detailAccent,
-                            onOpen = { itemId ->
-                                state.server?.id?.let { component.onOpenRelated(it, itemId) }
-                            },
-                        )
-                    }
-                }
-
-                // Last on the page: 媒体信息 is the file's technical readout — codec,
-                // bitrate, size — which is what someone comes back for, not what they came
-                // for. Everything above it is about the title itself.
-                if (selectedVersion != null) {
-                    item(key = "mediaInfo") {
-                        MediaInfoSection(
-                            version = selectedVersion,
-                            dateCreated = state.playTarget?.dateCreated,
-                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                        )
-                    }
-                }
-            }
-        }
-
-        DetailTopBar(
-            title = displayTitle,
-            backdrop = detailBackdrop,
-            progress = topBarProgress,
-            surfaceColor = detailSurface,
-            accent = detailAccent,
-            showPlay = detail != null,
-            showMore = detail != null,
-            solid = barSolid,
-            onBack = component.onBack,
-            onPlay = { component.store.accept(DetailIntent.Play) },
-            onMore = { moreSheetOpen = true },
-        )
-
-        if (state.resolvingPlay) {
-            CircularProgressIndicator(Modifier.align(Alignment.Center))
-        }
-
-        if (moreSheetOpen && detail != null) {
-            GlassDialog(onDismiss = { moreSheetOpen = false }) {
-                OverlayHeader(
-                    title = detail.title,
-                    subtitle = "更多操作",
-                    onClose = { moreSheetOpen = false },
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-                    OverlayOptionRow(
-                        label = "下载到本地",
-                        selected = false,
-                        onClick = {
-                            moreSheetOpen = false
-                            component.download()
-                        },
-                    )
-                    OverlayOptionRow(
-                        label = if (detail.played) "标记未看" else "标记已看",
-                        selected = detail.played,
-                        onClick = {
-                            moreSheetOpen = false
-                            component.store.accept(DetailIntent.TogglePlayed)
-                        },
-                    )
-                    OverlayOptionRow(
-                        label = "加入合集或播放列表",
-                        selected = false,
-                        onClick = {
-                            moreSheetOpen = false
-                            organizationSheetOpen = true
-                            component.store.accept(DetailIntent.LoadOrganizationContainers)
-                        },
-                    )
-                    // 一起看 belongs where the decision is made — at the point of choosing
-                    // what to watch, not in the settings of a player you must already have
-                    // open.
-                    //
-                    // Playback is *not* started here. It used to be, in the same tap, and the
-                    // player activity that came up covered the invite sheet this opens — the
-                    // host reached the film without ever being shown the link they created it
-                    // for. The sheet starts playback itself, once the invite has been sent.
-                    OverlayOptionRow(
-                        label = "一起看",
-                        selected = watchState.roomCode != null,
-                        onClick = {
-                            moreSheetOpen = false
-                            watchTogether.createRoom(
-                                endpoint = watchEndpoint,
-                                mediaKey = detail.providerIds.watchKey(detail.id),
+                        item(key = "hero") {
+                            Hero(
+                                urls = heroUrls,
+                                title = displayTitle,
+                                height = heroHeight,
+                                surfaceColor = detailSurface,
+                                animationKey = "detail-hero-${detail.id}",
+                                sharedKey = sharedHeroKey,
+                                scroll = heroScroll,
+                                onResolvedUrl = { resolvedHeroUrl = it },
                             )
-                            shareSheetOpen = true
-                        },
+                        }
+
+                        item(key = "sheet") {
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .liftOverHero(captionLift)
+                                    .background(panelBrush)
+                                    .padding(horizontal = Dimens.pageHorizontal)
+                                    .padding(top = SheetGap),
+                                verticalArrangement = Arrangement.spacedBy(SheetGap),
+                            ) {
+                                TitleBlock(
+                                    detail = detail,
+                                    title = displayTitle,
+                                    accent = detailAccent,
+                                    // A series has no file of its own, so its 杜比 facts belong to
+                                    // the episode 继续观看 would open — which is the copy the badge
+                                    // would be describing anyway.
+                                    version = selectedVersion ?: state.playTarget?.versions?.firstOrNull(),
+                                    modifier =
+                                        Modifier.onSizeChanged {
+                                            captionLift = with(density) { it.height.toDp() } +
+                                                SheetGap + PlayButtonHeroOverlap
+                                        },
+                                )
+                                DetailActionDock(
+                                    accent = detailAccent,
+                                    label = if (state.playPositionTicks > 0L) "继续观看" else "播放",
+                                    detailLine = playDetailLine,
+                                    resolving = state.resolvingPlay || state.selectionLoading,
+                                    favorite = detail.isFavorite,
+                                    canPlayFromStart = state.playPositionTicks > 0L,
+                                    onPlay = { component.store.accept(DetailIntent.Play) },
+                                    onPlayFromStart = {
+                                        component.store.accept(DetailIntent.PlayFromStart)
+                                    },
+                                    onFavorite = {
+                                        component.store.accept(DetailIntent.ToggleFavorite)
+                                    },
+                                    onWatchLater = {
+                                        component.store.accept(DetailIntent.AddToWatchLater)
+                                    },
+                                )
+                            }
+                        }
+
+                        val overview = detail.overview
+                        if (!overview.isNullOrBlank()) {
+                            item(key = "overview") {
+                                OverviewSection(
+                                    text = overview,
+                                    expanded = overviewExpanded,
+                                    onToggle = { overviewExpanded = !overviewExpanded },
+                                    accent = detailAccent,
+                                    modifier = Modifier.sectionPadding(),
+                                )
+                            }
+                        }
+
+                        // Episodes are the next decision after reading the synopsis. Keeping the
+                        // rail here avoids making a series viewer cross file metadata, artwork and
+                        // external links before they can choose what to watch.
+                        if (state.episodes.isNotEmpty()) {
+                            item(key = "episodes") {
+                                EpisodeSection(
+                                    baseUrl = playBaseUrl,
+                                    accessToken = playAccessToken,
+                                    episodes = state.episodes,
+                                    seriesPosterUrl = heroUrls.getOrNull(1),
+                                    selectedEpisodeId = state.selectedEpisodeId,
+                                    accent = detailAccent,
+                                    seasonLabel =
+                                        state.seasons
+                                            .firstOrNull { it.id == state.selectedSeasonId }
+                                            ?.name
+                                            ?: "剧集",
+                                    episodeCount = state.episodes.size,
+                                    seasons = state.seasons.map { it.id to it.name },
+                                    selectedSeasonId = state.selectedSeasonId,
+                                    pickerOpen = seasonPickerOpen,
+                                    onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
+                                    onSelectSeason = {
+                                        seasonPickerOpen = false
+                                        component.store.accept(DetailIntent.SelectSeason(it))
+                                    },
+                                    onPlayEpisode = { episode ->
+                                        component.store.accept(
+                                            DetailIntent.SelectEpisode(
+                                                episode.id,
+                                                episode.resumePositionTicks ?: 0L,
+                                            ),
+                                        )
+                                    },
+                                    onSeeAll = { allEpisodesOpen = true },
+                                )
+                            }
+                        }
+
+                        if (playableVersions.isNotEmpty()) {
+                            item(key = "versions") {
+                                VersionSection(
+                                    versions = playableVersions,
+                                    selectedId = state.selectedVersionId,
+                                    accent = detailAccent,
+                                    onSelect = {
+                                        component.store.accept(DetailIntent.SelectVersion(it))
+                                    },
+                                    modifier = Modifier.padding(top = Dimens.sectionGap),
+                                )
+                            }
+                        }
+
+                        // The tracks of whatever file will actually open. A film's own, or, for a
+                        // series, the episode 继续观看 resolves to — the same copy the 杜比 badge
+                        // above describes.
+                        val playableVersion = selectedVersion
+                        if (playableVersion != null &&
+                            (
+                                playableVersion.audioTracks.size > 1 ||
+                                    playableVersion.subtitleTracks.isNotEmpty()
+                            )
+                        ) {
+                            item(key = "tracks") {
+                                TrackSection(
+                                    version = playableVersion,
+                                    audioLanguage = state.preferredAudioLanguage,
+                                    subtitleLanguage = state.preferredSubtitleLanguage,
+                                    accent = detailAccent,
+                                    onSelectAudio = {
+                                        component.store.accept(DetailIntent.SelectAudioLanguage(it))
+                                    },
+                                    onSelectSubtitle = {
+                                        component.store.accept(DetailIntent.SelectSubtitleLanguage(it))
+                                    },
+                                    modifier = Modifier.padding(top = Dimens.sectionGap),
+                                )
+                            }
+                        }
+
+                        if (comparableSources.any { it.reachable && it.source != null && it.itemId != null }) {
+                            item(key = "sources") {
+                                SourceSection(
+                                    sources = comparableSources,
+                                    selectedServerId = state.selectedSourceServerId,
+                                    selectedItemId = state.selectedSourceItemId,
+                                    accent = detailAccent,
+                                    onSelect = { serverId, itemId ->
+                                        component.store.accept(DetailIntent.SelectSource(serverId, itemId))
+                                    },
+                                    onSeeAll = { sourceListOpen = true },
+                                    modifier = Modifier.padding(top = Dimens.sectionGap),
+                                )
+                            }
+                        }
+
+                        if (detail.genres.isNotEmpty()) {
+                            item(key = "genres") {
+                                GenreSection(detail.genres, Modifier.sectionPadding())
+                            }
+                        }
+
+                        if (detail.backdropTags.isNotEmpty()) {
+                            item(key = "artwork") {
+                                ArtworkSection(
+                                    // Whichever item owns the artwork — the episode's own, or the
+                                    // show's when the episode has none. The index addresses that
+                                    // item's backdrop list, so it has to be that item's id.
+                                    baseUrl = baseUrl,
+                                    accessToken = accessToken,
+                                    itemId = detail.backdropItemId,
+                                    tags = detail.backdropTags,
+                                    modifier = Modifier.padding(top = Dimens.sectionGap),
+                                )
+                            }
+                        }
+
+                        if (externalLinks(detail.providerIds).isNotEmpty()) {
+                            item(key = "links") {
+                                ExternalLinksSection(detail.providerIds, Modifier.sectionPadding())
+                            }
+                        }
+
+                        if (detail.people.isNotEmpty()) {
+                            item(key = "cast") {
+                                CastRow(
+                                    baseUrl = baseUrl,
+                                    accessToken = accessToken,
+                                    people = detail.people,
+                                    modifier = Modifier.padding(top = Dimens.sectionGap),
+                                )
+                            }
+                        }
+
+                        if (state.related.isNotEmpty()) {
+                            item(key = "related") {
+                                RelatedSection(
+                                    baseUrl = baseUrl,
+                                    accessToken = accessToken,
+                                    serverId = state.server?.id,
+                                    items = state.related,
+                                    accent = detailAccent,
+                                    onOpen = { itemId ->
+                                        state.server?.id?.let { component.onOpenRelated(it, itemId) }
+                                    },
+                                )
+                            }
+                        }
+
+                        // Last on the page: 媒体信息 is the file's technical readout — codec,
+                        // bitrate, size — which is what someone comes back for, not what they came
+                        // for. Everything above it is about the title itself.
+                        if (selectedVersion != null) {
+                            item(key = "mediaInfo") {
+                                MediaInfoSection(
+                                    version = selectedVersion,
+                                    dateCreated = state.playTarget?.dateCreated,
+                                    modifier = Modifier.padding(top = Dimens.sectionGap),
+                                )
+                            }
+                        }
+                    }
+            }
+
+            DetailTopBar(
+                title = displayTitle,
+                backdrop = detailBackdrop,
+                progress = topBarProgress,
+                surfaceColor = detailSurface,
+                accent = detailAccent,
+                showPlay = detail != null,
+                showMore = detail != null,
+                solid = barSolid,
+                onBack = component.onBack,
+                onPlay = { component.store.accept(DetailIntent.Play) },
+                onMore = { moreSheetOpen = true },
+            )
+
+            if (state.resolvingPlay) {
+                CircularProgressIndicator(Modifier.align(Alignment.Center))
+            }
+
+            if (moreSheetOpen && detail != null) {
+                GlassDialog(onDismiss = { moreSheetOpen = false }) {
+                    OverlayHeader(
+                        title = detail.title,
+                        subtitle = "更多操作",
+                        onClose = { moreSheetOpen = false },
                     )
+                    Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                        OverlayOptionRow(
+                            label = "下载到本地",
+                            selected = false,
+                            onClick = {
+                                moreSheetOpen = false
+                                downloadSheetOpen = true
+                            },
+                        )
+                        OverlayOptionRow(
+                            label = if (detail.played) "标记未看" else "标记已看",
+                            selected = detail.played,
+                            onClick = {
+                                moreSheetOpen = false
+                                component.store.accept(DetailIntent.TogglePlayed)
+                            },
+                        )
+                        OverlayOptionRow(
+                            label = "加入合集或播放列表",
+                            selected = false,
+                            onClick = {
+                                moreSheetOpen = false
+                                organizationSheetOpen = true
+                                component.store.accept(DetailIntent.LoadOrganizationContainers)
+                            },
+                        )
+                        // 一起看 belongs where the decision is made — at the point of choosing
+                        // what to watch, not in the settings of a player you must already have
+                        // open.
+                        //
+                        // Playback is *not* started here. It used to be, in the same tap, and the
+                        // player activity that came up covered the invite sheet this opens — the
+                        // host reached the film without ever being shown the link they created it
+                        // for. The sheet starts playback itself, once the invite has been sent.
+                        OverlayOptionRow(
+                            label = "一起看",
+                            selected = watchState.roomCode != null,
+                            onClick = {
+                                moreSheetOpen = false
+                                watchTogether.createRoom(
+                                    endpoint = watchEndpoint,
+                                    mediaKey = detail.providerIds.watchKey(detail.id),
+                                )
+                                shareSheetOpen = true
+                            },
+                        )
+                    }
                 }
+            }
+
+            val downloadTarget = state.playTarget
+            if (downloadSheetOpen && downloadTarget != null) {
+                OfflineDownloadDialog(
+                    detail = downloadTarget,
+                    episodes = state.episodes,
+                    selectedVersionId = state.selectedVersionId,
+                    onConfirm = { selection ->
+                        downloadSheetOpen = false
+                        component.download(selection)
+                    },
+                    onDismiss = { downloadSheetOpen = false },
+                )
+            }
+
+            if (organizationSheetOpen && detail != null) {
+                OrganizationContainerDialog(
+                    containers = state.organizationContainers,
+                    loading = state.organizationLoading,
+                    error = state.organizationError,
+                    addingIds = state.addingContainerIds,
+                    addedIds = state.addedContainerIds,
+                    onRetry = {
+                        component.store.accept(DetailIntent.LoadOrganizationContainers)
+                    },
+                    onAdd = {
+                        component.store.accept(DetailIntent.AddToOrganizationContainer(it))
+                    },
+                    onDismiss = { organizationSheetOpen = false },
+                )
+            }
+
+            if (sourceListOpen) {
+                SourceListDialog(
+                    sources = comparableSources,
+                    selectedServerId = state.selectedSourceServerId,
+                    selectedItemId = state.selectedSourceItemId,
+                    accent = detailAccent,
+                    onSelect = { serverId, itemId ->
+                        val willPlay =
+                            state.selectedSourceServerId == serverId &&
+                                state.selectedSourceItemId == itemId
+                        if (willPlay) sourceListOpen = false
+                        component.store.accept(DetailIntent.SelectSource(serverId, itemId))
+                    },
+                    onDismiss = { sourceListOpen = false },
+                )
+            }
+
+            // A layer rather than a route: it covers the page that owns this season and its
+            // artwork, and the detail store has already loaded the episodes it lists.
+            if (allEpisodesOpen && detail != null) {
+                SeasonEpisodesPage(
+                    seasonLabel =
+                        state.seasons
+                            .firstOrNull { it.id == state.selectedSeasonId }
+                            ?.name
+                            ?: "剧集",
+                    seriesName = detail.seriesName?.ifBlank { null } ?: detail.title,
+                    episodes = state.episodes,
+                    heroUrls = heroUrls,
+                    baseUrl = playBaseUrl,
+                    accessToken = playAccessToken,
+                    seriesPosterUrl = heroUrls.getOrNull(1),
+                    accent = detailAccent,
+                    currentEpisodeId = state.selectedEpisodeId,
+                    onPlayEpisode = { episode ->
+                        if (state.selectedEpisodeId == episode.id) allEpisodesOpen = false
+                        component.store.accept(
+                            DetailIntent.SelectEpisode(
+                                episode.id,
+                                episode.resumePositionTicks ?: 0L,
+                            ),
+                        )
+                    },
+                    onDismiss = { allEpisodesOpen = false },
+                )
+            }
+
+            // Opened as soon as the room is asked for, not once it exists: the relay can be slow
+            // or down, and the tap used to have no visible result at all in either case.
+            if (shareSheetOpen) {
+                val invite =
+                    WatchInvite(
+                        roomCode = watchState.roomCode.orEmpty(),
+                        mediaKey = detail?.let { it.providerIds.watchKey(it.id) },
+                        title = detail?.title,
+                        // Only travel the endpoint when it isn't the built-in default, so the common
+                        // case produces a short link and no "unfamiliar relay" warning on the far end.
+                        endpoint =
+                            watchEndpoint.takeIf {
+                                it.trimEnd('/') != WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
+                            },
+                    )
+                WatchInviteShareSheet(
+                    roomCode = watchState.roomCode,
+                    connecting = watchState.connecting,
+                    error = watchState.error,
+                    title = detail?.title,
+                    participantCount = watchState.participantCount,
+                    shareText = invite.shareText(),
+                    onShare = share::shareText,
+                    onCopy = share::copyText,
+                    onStartPlayback = {
+                        shareSheetOpen = false
+                        component.store.accept(DetailIntent.Play)
+                    },
+                    onDismiss = { shareSheetOpen = false },
+                )
+            }
+
+            // Over the page rather than inside it: as a row in the action column this
+            // pushed 简介 and everything under it down the moment a tap was confirmed,
+            // and it stayed there until some other action happened to replace it.
+            ActionToast(
+                message = state.actionMessage ?: state.sourceFailure?.toDetailMessage(),
+                onDismiss = { component.store.accept(DetailIntent.DismissMessage) },
+                accent = detailAccent,
+                modifier = Modifier.padding(bottom = 28.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun OfflineDownloadDialog(
+    detail: MediaDetail,
+    episodes: List<Episode>,
+    selectedVersionId: String?,
+    onConfirm: (OfflineDownloadSelection) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val versions = detail.versions
+    var versionId by remember(detail.id, selectedVersionId) {
+        mutableStateOf(selectedVersionId ?: versions.firstOrNull()?.id)
+    }
+    var quality by remember(detail.id) { mutableStateOf(OfflineDownloadQuality.Original) }
+    var subtitleIndex by remember(detail.id) { mutableStateOf<Int?>(null) }
+    var batchMode by remember(detail.id) { mutableStateOf(OfflineBatchMode.Current) }
+    val selectedVersion = versions.firstOrNull { it.id == versionId } ?: versions.firstOrNull()
+    val selectedSubtitle = selectedVersion?.subtitleTracks?.firstOrNull { it.index == subtitleIndex }
+    val batchCount =
+        when (batchMode) {
+            OfflineBatchMode.Current -> 1
+            OfflineBatchMode.Season -> episodes.size.coerceAtLeast(1)
+            OfflineBatchMode.Unwatched -> episodes.count { !it.played }
+        }
+    val estimatePerItem =
+        estimateOfflineBytes(
+            sourceSizeBytes = selectedVersion?.sizeBytes,
+            sourceBitrateBps = selectedVersion?.bitrateBps,
+            runtimeMinutes = detail.runtimeMinutes,
+            quality = quality,
+            includeSubtitle = selectedSubtitle != null,
+        )
+    val totalEstimate =
+        estimatePerItem?.let { bytes ->
+            if (batchCount > 0 && bytes > Long.MAX_VALUE / batchCount) Long.MAX_VALUE else bytes * batchCount
+        }
+
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "智能离线",
+            subtitle =
+                buildString {
+                    append("下载前确认版本、画质和字幕")
+                    append(" · ")
+                    append(totalEstimate?.let { "预计 ${formatDownloadBytes(it)}" } ?: "空间待服务器确认")
+                },
+            onClose = onDismiss,
+        )
+
+        Text("范围", style = AppTypography.caption.strong, color = palette.sub2)
+        OfflineChoiceRow(OfflineBatchMode.entries, batchMode, { it.label }) { batchMode = it }
+
+        if (versions.size > 1) {
+            Text("版本", style = AppTypography.caption.strong, color = palette.sub2)
+            versions.forEach { version ->
+                OverlayOptionRow(
+                    label =
+                        listOfNotNull(version.name, version.summary.takeIf(String::isNotBlank))
+                            .joinToString(" · "),
+                    selected = version.id == selectedVersion?.id,
+                    onClick = {
+                        versionId = version.id
+                        subtitleIndex = null
+                    },
+                )
             }
         }
 
-        if (organizationSheetOpen && detail != null) {
-            OrganizationContainerDialog(
-                containers = state.organizationContainers,
-                loading = state.organizationLoading,
-                error = state.organizationError,
-                addingIds = state.addingContainerIds,
-                addedIds = state.addedContainerIds,
-                onRetry = {
-                    component.store.accept(DetailIntent.LoadOrganizationContainers)
-                },
-                onAdd = {
-                    component.store.accept(DetailIntent.AddToOrganizationContainer(it))
-                },
-                onDismiss = { organizationSheetOpen = false },
+        Text("画质", style = AppTypography.caption.strong, color = palette.sub2)
+        OfflineChoiceRow(OfflineDownloadQuality.entries, quality, { it.label }) { quality = it }
+
+        selectedVersion?.subtitleTracks?.takeIf { it.isNotEmpty() }?.let { tracks ->
+            Text("字幕", style = AppTypography.caption.strong, color = palette.sub2)
+            OverlayOptionRow(
+                label = "不下载字幕",
+                selected = subtitleIndex == null,
+                onClick = { subtitleIndex = null },
             )
+            tracks.forEach { track ->
+                val index = track.index ?: return@forEach
+                OverlayOptionRow(
+                    label = track.label,
+                    selected = index == subtitleIndex,
+                    onClick = { subtitleIndex = index },
+                )
+            }
         }
 
-        if (sourceListOpen) {
-            SourceListDialog(
-                sources = comparableSources,
-                selectedServerId = state.selectedSourceServerId,
-                selectedItemId = state.selectedSourceItemId,
-                accent = detailAccent,
-                onSelect = { serverId, itemId ->
-                    val willPlay = state.selectedSourceServerId == serverId &&
-                        state.selectedSourceItemId == itemId
-                    if (willPlay) sourceListOpen = false
-                    component.store.accept(DetailIntent.SelectSource(serverId, itemId))
-                },
-                onDismiss = { sourceListOpen = false },
-            )
-        }
-
-        // A layer rather than a route: it covers the page that owns this season and its
-        // artwork, and the detail store has already loaded the episodes it lists.
-        if (allEpisodesOpen && detail != null) {
-            SeasonEpisodesPage(
-                seasonLabel = state.seasons.firstOrNull { it.id == state.selectedSeasonId }
-                    ?.name
-                    ?: "剧集",
-                seriesName = detail.seriesName?.ifBlank { null } ?: detail.title,
-                episodes = state.episodes,
-                heroUrls = heroUrls,
-                baseUrl = playBaseUrl,
-                accessToken = playAccessToken,
-                seriesPosterUrl = heroUrls.getOrNull(1),
-                accent = detailAccent,
-                currentEpisodeId = state.selectedEpisodeId,
-                onPlayEpisode = { episode ->
-                    if (state.selectedEpisodeId == episode.id) allEpisodesOpen = false
-                    component.store.accept(
-                        DetailIntent.SelectEpisode(
-                            episode.id,
-                            episode.resumePositionTicks ?: 0L,
-                        ),
-                    )
-                },
-                onDismiss = { allEpisodesOpen = false },
-            )
-        }
-
-        // Opened as soon as the room is asked for, not once it exists: the relay can be slow
-        // or down, and the tap used to have no visible result at all in either case.
-        if (shareSheetOpen) {
-            val invite = WatchInvite(
-                roomCode = watchState.roomCode.orEmpty(),
-                mediaKey = detail?.let { it.providerIds.watchKey(it.id) },
-                title = detail?.title,
-                // Only travel the endpoint when it isn't the built-in default, so the common
-                // case produces a short link and no "unfamiliar relay" warning on the far end.
-                endpoint = watchEndpoint.takeIf {
-                    it.trimEnd('/') != WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
-                },
-            )
-            WatchInviteShareSheet(
-                roomCode = watchState.roomCode,
-                connecting = watchState.connecting,
-                error = watchState.error,
-                title = detail?.title,
-                participantCount = watchState.participantCount,
-                shareText = invite.shareText(),
-                onShare = share::shareText,
-                onCopy = share::copyText,
-                onStartPlayback = {
-                    shareSheetOpen = false
-                    component.store.accept(DetailIntent.Play)
-                },
-                onDismiss = { shareSheetOpen = false },
-            )
-        }
-
-        // Over the page rather than inside it: as a row in the action column this
-        // pushed 简介 and everything under it down the moment a tap was confirmed,
-        // and it stayed there until some other action happened to replace it.
-        ActionToast(
-            message = state.actionMessage ?: state.sourceFailure?.toDetailMessage(),
-            onDismiss = { component.store.accept(DetailIntent.DismissMessage) },
-            accent = detailAccent,
-            modifier = Modifier.padding(bottom = 28.dp),
+        Text(
+            when (batchMode) {
+                OfflineBatchMode.Current -> "将加入 1 个下载任务"
+                OfflineBatchMode.Season -> "将加入 $batchCount 集；每集自动选择对应媒体源"
+                OfflineBatchMode.Unwatched ->
+                    if (batchCount == 0) {
+                        "本季已全部看完，没有可下载的未看剧集"
+                    } else {
+                        "将加入 $batchCount 集，已看剧集会跳过"
+                    }
+            },
+            style = AppTypography.caption.regular,
+            color = palette.sub2,
+            modifier = Modifier.padding(top = 8.dp),
         )
+        OverlayButtonRow(
+            dismissLabel = "取消",
+            confirmLabel = "加入下载",
+            onDismiss = onDismiss,
+            onConfirm = {
+                onConfirm(
+                    OfflineDownloadSelection(
+                        batchMode = batchMode,
+                        mediaSourceId = selectedVersion?.id,
+                        quality = quality,
+                        subtitleStreamIndex = selectedSubtitle?.index,
+                        subtitleCodec = selectedSubtitle?.codec,
+                        subtitleLanguage = selectedSubtitle?.language,
+                    ),
+                )
+            },
+            confirmEnabled =
+                (versions.isEmpty() || selectedVersion != null) &&
+                    !(batchMode == OfflineBatchMode.Unwatched && batchCount == 0),
+        )
+    }
+}
+
+@Composable
+private fun <T> OfflineChoiceRow(
+    values: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(values) { value ->
+            OverlayOptionRow(
+                label = label(value),
+                selected = value == selected,
+                onClick = { onSelect(value) },
+                modifier = Modifier.width(118.dp),
+            )
+        }
     }
 }
 
@@ -857,16 +1067,17 @@ private fun OrganizationContainerDialog(
             onClose = onDismiss,
         )
         when {
-            loading && containers.isEmpty() -> Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator(Modifier.size(22.dp))
-                Text("正在读取服务器容器…", style = AppTypography.body.regular, color = palette.sub)
-            }
+            loading && containers.isEmpty() ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(Modifier.size(22.dp))
+                    Text("正在读取服务器容器…", style = AppTypography.body.regular, color = palette.sub)
+                }
 
             error != null && containers.isEmpty() -> {
                 Text(
@@ -878,12 +1089,13 @@ private fun OrganizationContainerDialog(
                 OverlayOptionRow(label = "重试", selected = false, onClick = onRetry)
             }
 
-            containers.isEmpty() -> Text(
-                text = "此服务器没有可用的合集或播放列表。Yfuse 不会偷偷创建替代片单。",
-                style = AppTypography.body.regular,
-                color = palette.sub,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-            )
+            containers.isEmpty() ->
+                Text(
+                    text = "此服务器没有可用的合集或播放列表。Yfuse 不会偷偷创建替代片单。",
+                    style = AppTypography.body.regular,
+                    color = palette.sub,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                )
 
             else -> {
                 if (error != null) {
@@ -898,9 +1110,10 @@ private fun OrganizationContainerDialog(
                 // server containers. Rows keep their intrinsic large-text height and the
                 // option component supplies the 48dp minimum touch target.
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f, fill = false),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing),
                 ) {
                     items(
@@ -909,18 +1122,20 @@ private fun OrganizationContainerDialog(
                     ) { container ->
                         val added = container.id in addedIds
                         val adding = container.id in addingIds
-                        val kind = if (container.kind == MediaContainerKind.BoxSet) {
-                            "合集"
-                        } else {
-                            "播放列表"
-                        }
+                        val kind =
+                            if (container.kind == MediaContainerKind.BoxSet) {
+                                "合集"
+                            } else {
+                                "播放列表"
+                            }
                         OverlayOptionRow(
-                            label = buildString {
-                                append(kind)
-                                append(" · ")
-                                append(container.title)
-                                if (adding) append(" · 正在加入…")
-                            },
+                            label =
+                                buildString {
+                                    append(kind)
+                                    append(" · ")
+                                    append(container.title)
+                                    if (adding) append(" · 正在加入…")
+                                },
                             selected = added,
                             onClick = { if (!adding && !added) onAdd(container.id) },
                         )
@@ -963,13 +1178,14 @@ private fun RelatedSection(
                         ),
                 ) {
                     Poster(
-                        url = EmbyImages.primary(
-                            baseUrl = baseUrl,
-                            itemId = item.posterItemId,
-                            tag = item.posterTag,
-                            maxHeight = 480,
-                            accessToken = accessToken,
-                        ),
+                        url =
+                            EmbyImages.primary(
+                                baseUrl = baseUrl,
+                                itemId = item.posterItemId,
+                                tag = item.posterTag,
+                                maxHeight = 480,
+                                accessToken = accessToken,
+                            ),
                         shape = GlassShapes.poster,
                         sharedTransitionKey = sharedKey,
                         modifier = Modifier.fillMaxWidth().height(140.dp),
@@ -1038,32 +1254,33 @@ private fun rememberHeroScroll(
 @Composable
 private fun rememberOverscrollPull(reduceMotion: Boolean): Pair<State<Float>, NestedScrollConnection> {
     val raw = remember { mutableFloatStateOf(0f) }
-    val connection = remember(reduceMotion) {
-        object : NestedScrollConnection {
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                if (reduceMotion) return Offset.Zero
-                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                if (available.y <= 0f) return Offset.Zero
-                raw.floatValue += available.y * OVERSCROLL_DAMPING
-                // Not consumed: the list's own overscroll effect should still play, and
-                // claiming it here would fight the pull-to-refresh above it.
-                return Offset.Zero
-            }
-
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                if (raw.floatValue != 0f) {
-                    Animatable(raw.floatValue).animateTo(0f, Motion.settle<Float>()) {
-                        raw.floatValue = value
-                    }
+    val connection =
+        remember(reduceMotion) {
+            object : NestedScrollConnection {
+                override fun onPostScroll(
+                    consumed: Offset,
+                    available: Offset,
+                    source: NestedScrollSource,
+                ): Offset {
+                    if (reduceMotion) return Offset.Zero
+                    if (source != NestedScrollSource.UserInput) return Offset.Zero
+                    if (available.y <= 0f) return Offset.Zero
+                    raw.floatValue += available.y * OVERSCROLL_DAMPING
+                    // Not consumed: the list's own overscroll effect should still play, and
+                    // claiming it here would fight the pull-to-refresh above it.
+                    return Offset.Zero
                 }
-                return Velocity.Zero
+
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    if (raw.floatValue != 0f) {
+                        Animatable(raw.floatValue).animateTo(0f, Motion.settle<Float>()) {
+                            raw.floatValue = value
+                        }
+                    }
+                    return Velocity.Zero
+                }
             }
         }
-    }
     return remember(raw, connection) { raw to connection }
 }
 
@@ -1076,17 +1293,18 @@ private fun rememberTopBarProgress(
     listState: LazyListState,
     heroHeightPx: Float,
     density: Density,
-): State<Float> = remember(listState, heroHeightPx, density) {
-    val start = (heroHeightPx - with(density) { 136.dp.toPx() }).coerceAtLeast(1f)
-    val span = with(density) { 64.dp.toPx() }
-    derivedStateOf {
-        if (listState.firstVisibleItemIndex > 0) {
-            1f
-        } else {
-            ((listState.firstVisibleItemScrollOffset - start) / span).coerceIn(0f, 1f)
+): State<Float> =
+    remember(listState, heroHeightPx, density) {
+        val start = (heroHeightPx - with(density) { 136.dp.toPx() }).coerceAtLeast(1f)
+        val span = with(density) { 64.dp.toPx() }
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex > 0) {
+                1f
+            } else {
+                ((listState.firstVisibleItemScrollOffset - start) / span).coerceIn(0f, 1f)
+            }
         }
     }
-}
 
 // ---------------------------------------------------------------- chrome
 
@@ -1113,10 +1331,11 @@ private fun Hero(
     LaunchedEffect(animationKey) { entered = true }
     val entrance by animateFloatAsState(
         targetValue = if (entered) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (reduceMotion) 0 else Motion.EXPAND,
-            easing = Motion.Curve,
-        ),
+        animationSpec =
+            tween(
+                durationMillis = if (reduceMotion) 0 else Motion.EXPAND,
+                easing = Motion.Curve,
+            ),
         label = "heroEntrance",
     )
     Box(
@@ -1162,15 +1381,17 @@ private fun Hero(
                 progressive = true,
                 alphaOnly = true,
                 onResolvedUrl = onResolvedUrl,
-                modifier = Modifier
-                    .sharedMediaArtwork(sharedKey)
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        val scale = 1f +
-                            (Motion.DETAIL_HERO_SCALE_FROM - 1f) * (1f - entrance)
-                        scaleX = scale
-                        scaleY = scale
-                    },
+                modifier =
+                    Modifier
+                        .sharedMediaArtwork(sharedKey)
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val scale =
+                                1f +
+                                    (Motion.DETAIL_HERO_SCALE_FROM - 1f) * (1f - entrance)
+                            scaleX = scale
+                            scaleY = scale
+                        },
             )
             Box(
                 Modifier
@@ -1239,26 +1460,28 @@ private fun DetailTopBar(
                 AppIcons.ChevronLeft,
                 contentDescription = "返回",
                 tint = lerp(Color.White, palette.text, p),
-                modifier = Modifier
-                    .pressable(onClick = onBack)
-                    .touchTarget()
-                    .size(38.dp)
-                    .liquidGlass(
-                        shape = CircleShape,
-                        fill = lerp(
-                            Color(0xFF11151F).copy(alpha = 0.28f),
-                            palette.card2,
-                            p,
-                        ),
-                        border = lerp(
-                            Color.White.copy(alpha = 0.34f),
-                            palette.border,
-                            p,
-                        ),
-                        over = behind,
-                        sheen = 0.7f,
-                    )
-                    .padding(11.dp),
+                modifier =
+                    Modifier
+                        .pressable(onClick = onBack)
+                        .touchTarget()
+                        .size(38.dp)
+                        .liquidGlass(
+                            shape = CircleShape,
+                            fill =
+                                lerp(
+                                    Color(0xFF11151F).copy(alpha = 0.28f),
+                                    palette.card2,
+                                    p,
+                                ),
+                            border =
+                                lerp(
+                                    Color.White.copy(alpha = 0.34f),
+                                    palette.border,
+                                    p,
+                                ),
+                            over = behind,
+                            sheen = 0.7f,
+                        ).padding(11.dp),
             )
             Text(
                 title,
@@ -1266,9 +1489,10 @@ private fun DetailTopBar(
                 color = palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .graphicsLayer { alpha = progress.value },
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .graphicsLayer { alpha = progress.value },
             )
             if (showPlay) {
                 Row(
@@ -1283,8 +1507,7 @@ private fun DetailTopBar(
                             // It only ever appears once the bar's own plate is opaque.
                             over = surfaceColor,
                             sheen = 0.7f,
-                        )
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                        ).padding(horizontal = 12.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -1300,26 +1523,28 @@ private fun DetailTopBar(
                     AppIcons.More,
                     contentDescription = "更多操作",
                     tint = lerp(Color.White, palette.text, p),
-                    modifier = Modifier
-                        .pressable(onClick = onMore)
-                        .touchTarget()
-                        .size(38.dp)
-                        .liquidGlass(
-                            shape = CircleShape,
-                            fill = lerp(
-                                Color(0xFF11151F).copy(alpha = 0.28f),
-                                palette.card2,
-                                p,
-                            ),
-                            border = lerp(
-                                Color.White.copy(alpha = 0.34f),
-                                palette.border,
-                                p,
-                            ),
-                            over = behind,
-                            sheen = 0.7f,
-                        )
-                        .padding(11.dp),
+                    modifier =
+                        Modifier
+                            .pressable(onClick = onMore)
+                            .touchTarget()
+                            .size(38.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                fill =
+                                    lerp(
+                                        Color(0xFF11151F).copy(alpha = 0.28f),
+                                        palette.card2,
+                                        p,
+                                    ),
+                                border =
+                                    lerp(
+                                        Color.White.copy(alpha = 0.34f),
+                                        palette.border,
+                                        p,
+                                    ),
+                                over = behind,
+                                sheen = 0.7f,
+                            ).padding(11.dp),
                 )
             }
         }
@@ -1363,10 +1588,11 @@ private fun TitleBlock(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        val facts = listOfNotNull(
-            detail.year?.toString(),
-            detail.runtimeMinutes?.let(::runtimeLabel),
-        )
+        val facts =
+            listOfNotNull(
+                detail.year?.toString(),
+                detail.runtimeMinutes?.let(::runtimeLabel),
+            )
         if (facts.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text(
@@ -1457,7 +1683,10 @@ private val ArtworkInkFaint = Color.White.copy(alpha = 0.84f)
 
 /** `TMDB` in the secondary ink, the figure itself large and in the accent. */
 @Composable
-private fun RatingFigure(rating: Double, accent: Color) {
+private fun RatingFigure(
+    rating: Double,
+    accent: Color,
+) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1474,13 +1703,13 @@ private fun CertificationBadge(label: String) {
         label,
         style = AppTypography.caption.strong,
         color = ArtworkInkSub,
-        modifier = Modifier
-            .solidGlass(
-                shape = AppShapes.micro,
-                fill = Color.Transparent,
-                border = ArtworkInkSub.copy(alpha = 0.42f),
-            )
-            .padding(horizontal = 7.dp, vertical = 2.dp),
+        modifier =
+            Modifier
+                .solidGlass(
+                    shape = AppShapes.micro,
+                    fill = Color.Transparent,
+                    border = ArtworkInkSub.copy(alpha = 0.42f),
+                ).padding(horizontal = 7.dp, vertical = 2.dp),
     )
 }
 
@@ -1656,16 +1885,18 @@ private fun GlassActionButton(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    val fill = when {
-        active -> accent.copy(alpha = if (palette.isDark) 0.20f else 0.12f)
-        palette.isDark -> Color.White.copy(alpha = 0.075f)
-        else -> Color.White.copy(alpha = 0.72f)
-    }
-    val edge = when {
-        active -> accent.copy(alpha = 0.38f)
-        palette.isDark -> Color.White.copy(alpha = 0.19f)
-        else -> Color(0xFFE0E7F1)
-    }
+    val fill =
+        when {
+            active -> accent.copy(alpha = if (palette.isDark) 0.20f else 0.12f)
+            palette.isDark -> Color.White.copy(alpha = 0.075f)
+            else -> Color.White.copy(alpha = 0.72f)
+        }
+    val edge =
+        when {
+            active -> accent.copy(alpha = 0.38f)
+            palette.isDark -> Color.White.copy(alpha = 0.19f)
+            else -> Color(0xFFE0E7F1)
+        }
     Row(
         modifier
             .height(46.dp)
@@ -1678,8 +1909,7 @@ private fun GlassActionButton(
                 fill = fill,
                 border = edge,
                 sheen = 0.72f,
-            )
-            .padding(horizontal = 11.dp),
+            ).padding(horizontal = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1688,10 +1918,12 @@ private fun GlassActionButton(
                 .size(28.dp)
                 .clip(CircleShape)
                 .background(
-                    if (active) accent.copy(alpha = 0.14f)
-                    else palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f),
-                )
-                .border(
+                    if (active) {
+                        accent.copy(alpha = 0.14f)
+                    } else {
+                        palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f)
+                    },
+                ).border(
                     Dimens.hairline,
                     if (active) accent.copy(alpha = 0.20f) else palette.border,
                     CircleShape,
@@ -1724,7 +1956,10 @@ private fun GlassActionButton(
 
 /** 分类 — the genres as chips, which is the only place they are listed in full. */
 @Composable
-private fun GenreSection(genres: List<String>, modifier: Modifier = Modifier) {
+private fun GenreSection(
+    genres: List<String>,
+    modifier: Modifier = Modifier,
+) {
     val palette = LocalPalette.current
     Column(modifier) {
         SectionHeader("分类")
@@ -1734,19 +1969,20 @@ private fun GenreSection(genres: List<String>, modifier: Modifier = Modifier) {
                     genre,
                     style = AppTypography.body.strong,
                     color = palette.body,
-                    modifier = Modifier
-                        .shadow(GlassLift.control, GlassShapes.chip)
-                        .liquidGlass(
-                            shape = GlassShapes.chip,
-                            fill = if (palette.isDark) {
-                                Color.White.copy(alpha = 0.075f)
-                            } else {
-                                Color.White.copy(alpha = 0.72f)
-                            },
-                            border = palette.border,
-                            sheen = 0.7f,
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    modifier =
+                        Modifier
+                            .shadow(GlassLift.control, GlassShapes.chip)
+                            .liquidGlass(
+                                shape = GlassShapes.chip,
+                                fill =
+                                    if (palette.isDark) {
+                                        Color.White.copy(alpha = 0.075f)
+                                    } else {
+                                        Color.White.copy(alpha = 0.72f)
+                                    },
+                                border = palette.border,
+                                sheen = 0.7f,
+                            ).padding(horizontal = 12.dp, vertical = 6.dp),
                 )
             }
         }
@@ -1775,21 +2011,23 @@ private fun ArtworkSection(
         ) {
             itemsIndexed(tags, key = { _, tag -> tag }) { index, tag ->
                 FallbackImage(
-                    urls = listOf(
-                        EmbyImages.backdropAt(
-                            baseUrl,
-                            itemId,
-                            index,
-                            tag,
-                            maxWidth = 720,
-                            accessToken = accessToken,
+                    urls =
+                        listOf(
+                            EmbyImages.backdropAt(
+                                baseUrl,
+                                itemId,
+                                index,
+                                tag,
+                                maxWidth = 720,
+                                accessToken = accessToken,
+                            ),
                         ),
-                    ),
                     contentDescription = null,
-                    modifier = Modifier
-                        .width(232.dp)
-                        .height(130.dp)
-                        .clip(GlassShapes.card),
+                    modifier =
+                        Modifier
+                            .width(232.dp)
+                            .height(130.dp)
+                            .clip(GlassShapes.card),
                 )
             }
         }
@@ -1816,15 +2054,15 @@ private fun ExternalLinksSection(
                         .shadow(GlassLift.control, GlassShapes.chip)
                         .liquidGlass(
                             shape = GlassShapes.chip,
-                            fill = if (palette.isDark) {
-                                Color.White.copy(alpha = 0.075f)
-                            } else {
-                                Color.White.copy(alpha = 0.72f)
-                            },
+                            fill =
+                                if (palette.isDark) {
+                                    Color.White.copy(alpha = 0.075f)
+                                } else {
+                                    Color.White.copy(alpha = 0.72f)
+                                },
                             border = palette.border,
                             sheen = 0.7f,
-                        )
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                        ).padding(horizontal = 12.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -1846,10 +2084,11 @@ private fun ExternalLinksSection(
  * returns (a scraper's internal key, say) has nowhere to link to and is left out.
  */
 private fun externalLinks(providerIds: Map<String, String>): List<Pair<String, String>> {
-    fun id(name: String) = providerIds.entries
-        .firstOrNull { it.key.equals(name, ignoreCase = true) }
-        ?.value
-        ?.takeIf { it.isNotBlank() }
+    fun id(name: String) =
+        providerIds.entries
+            .firstOrNull { it.key.equals(name, ignoreCase = true) }
+            ?.value
+            ?.takeIf { it.isNotBlank() }
     return buildList {
         id("Tmdb")?.let { add("TMDB" to "https://www.themoviedb.org/movie/$it") }
         id("Imdb")?.let { add("IMDb" to "https://www.imdb.com/title/$it/") }
@@ -1890,15 +2129,13 @@ private fun OverviewSection(
         modifier
             .animateContentSize(
                 animationSpec = if (reduceMotion) snap() else Motion.settle(),
-            )
-            .then(
+            ).then(
                 if (canToggle) {
                     Modifier
                         .pressable(
                             onClickLabel = if (expanded) "收起剧情简介" else "展开剧情简介",
                             onClick = onToggle,
-                        )
-                        .semantics {
+                        ).semantics {
                             stateDescription = if (expanded) "已展开" else "已收起"
                         }
                 } else {
@@ -1989,8 +2226,7 @@ private fun EpisodeHeader(
                                 fill = accent.copy(alpha = 0.13f),
                                 border = accent.copy(alpha = 0.28f),
                                 sheen = 0.7f,
-                            )
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                            ).padding(horizontal = 10.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -2020,27 +2256,29 @@ private fun EpisodeHeader(
                         style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
                         color = if (selected) accent else palette.body,
                         maxLines = 1,
-                        modifier = Modifier
-                            .pressable { onSelectSeason(id) }
-                            // No lift: these read as one picker's options, and a shadow under
-                            // each would break the row into a scatter of separate keys.
-                            .liquidGlass(
-                                shape = GlassShapes.thumb,
-                                fill = if (selected) {
-                                    accent.copy(alpha = 0.14f)
-                                } else if (palette.isDark) {
-                                    palette.card2
-                                } else {
-                                    Color.White.copy(alpha = 0.52f)
-                                },
-                                border = if (selected) {
-                                    accent.copy(alpha = 0.30f)
-                                } else {
-                                    palette.border
-                                },
-                                sheen = 0.7f,
-                            )
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        modifier =
+                            Modifier
+                                .pressable { onSelectSeason(id) }
+                                // No lift: these read as one picker's options, and a shadow under
+                                // each would break the row into a scatter of separate keys.
+                                .liquidGlass(
+                                    shape = GlassShapes.thumb,
+                                    fill =
+                                        if (selected) {
+                                            accent.copy(alpha = 0.14f)
+                                        } else if (palette.isDark) {
+                                            palette.card2
+                                        } else {
+                                            Color.White.copy(alpha = 0.52f)
+                                        },
+                                    border =
+                                        if (selected) {
+                                            accent.copy(alpha = 0.30f)
+                                        } else {
+                                            palette.border
+                                        },
+                                    sheen = 0.7f,
+                                ).padding(horizontal = 12.dp, vertical = 7.dp),
                     )
                 }
             }
@@ -2069,9 +2307,10 @@ private fun EpisodeSection(
     val listState = rememberLazyListState()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
-    val focusedEpisodeIndex = remember(episodes, selectedEpisodeId) {
-        episodeFocusIndex(episodes, selectedEpisodeId)
-    }
+    val focusedEpisodeIndex =
+        remember(episodes, selectedEpisodeId) {
+            episodeFocusIndex(episodes, selectedEpisodeId)
+        }
     var initiallyPositioned by remember(selectedSeasonId) { mutableStateOf(false) }
 
     Column(Modifier.padding(top = Dimens.sectionGap)) {
@@ -2089,9 +2328,10 @@ private fun EpisodeSection(
         )
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val density = LocalDensity.current
-            val centeredOffset = with(density) {
-                -((maxWidth - 172.dp) / 2f).coerceAtLeast(0.dp).roundToPx()
-            }
+            val centeredOffset =
+                with(density) {
+                    -((maxWidth - 172.dp) / 2f).coerceAtLeast(0.dp).roundToPx()
+                }
             LaunchedEffect(
                 selectedEpisodeId,
                 focusedEpisodeIndex,
@@ -2149,30 +2389,32 @@ private fun EpisodeCard(
             .pressable(onClick = onPlay)
             .solidGlass(
                 shape = GlassShapes.card,
-                fill = when {
-                    selected -> accent.copy(alpha = 0.14f)
-                    watching -> accent.copy(alpha = 0.08f)
-                    palette.isDark -> palette.card
-                    else -> Color.White.copy(alpha = 0.56f)
-                },
-                border = if (selected) {
-                    accent.copy(alpha = 0.52f)
-                } else {
-                    Color.White.copy(alpha = if (palette.isDark) 0.20f else 0.86f)
-                },
-            )
-            .padding(8.dp),
+                fill =
+                    when {
+                        selected -> accent.copy(alpha = 0.14f)
+                        watching -> accent.copy(alpha = 0.08f)
+                        palette.isDark -> palette.card
+                        else -> Color.White.copy(alpha = 0.56f)
+                    },
+                border =
+                    if (selected) {
+                        accent.copy(alpha = 0.52f)
+                    } else {
+                        Color.White.copy(alpha = if (palette.isDark) 0.20f else 0.86f)
+                    },
+            ).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Box(Modifier.fillMaxWidth().height(86.dp)) {
             Poster(
-                url = EmbyImages.primary(
-                    baseUrl,
-                    episode.id,
-                    episode.primaryTag,
-                    maxHeight = 240,
-                    accessToken = accessToken,
-                ),
+                url =
+                    EmbyImages.primary(
+                        baseUrl,
+                        episode.id,
+                        episode.primaryTag,
+                        maxHeight = 240,
+                        accessToken = accessToken,
+                    ),
                 fallbackUrls = listOfNotNull(seriesPosterUrl),
                 shape = GlassShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
@@ -2208,8 +2450,11 @@ private fun EpisodeCard(
             Spacer(Modifier.height(4.dp))
             Text(
                 buildString {
-                    if (selected) append("已选中 · 再次点击播放")
-                    else if (watching) append("正在观看")
+                    if (selected) {
+                        append("已选中 · 再次点击播放")
+                    } else if (watching) {
+                        append("正在观看")
+                    }
                     val runtime = episode.runtimeMinutes?.let { "$it 分钟" }
                     if ((selected || watching) && runtime != null) append(" · ")
                     if (runtime != null) append(runtime)
@@ -2246,9 +2491,10 @@ private fun CastRow(
                     Poster(
                         url = EmbyImages.avatar(baseUrl, person, accessToken = accessToken),
                         shape = CircleShape,
-                        modifier = Modifier
-                            .size(52.dp)
-                            .border(1.dp, Color.White.copy(alpha = 0.88f), CircleShape),
+                        modifier =
+                            Modifier
+                                .size(52.dp)
+                                .border(1.dp, Color.White.copy(alpha = 0.88f), CircleShape),
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -2301,24 +2547,72 @@ private fun DetailSkeleton(heroHeight: Dp) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Box(Modifier.width(96.dp).height(142.dp).clip(GlassShapes.poster).background(fill))
+                Box(
+                    Modifier
+                        .width(96.dp)
+                        .height(142.dp)
+                        .clip(GlassShapes.poster)
+                        .background(fill),
+                )
                 Column(
                     Modifier.weight(1f).padding(top = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Box(Modifier.fillMaxWidth(0.72f).height(18.dp).clip(GlassShapes.thumb).background(fill))
-                    Box(Modifier.fillMaxWidth(0.46f).height(11.dp).clip(GlassShapes.thumb).background(fill))
-                    Box(Modifier.width(64.dp).height(11.dp).clip(GlassShapes.thumb).background(fill))
+                    Box(
+                        Modifier
+                            .fillMaxWidth(0.72f)
+                            .height(18.dp)
+                            .clip(GlassShapes.thumb)
+                            .background(fill),
+                    )
+                    Box(
+                        Modifier
+                            .fillMaxWidth(0.46f)
+                            .height(11.dp)
+                            .clip(GlassShapes.thumb)
+                            .background(fill),
+                    )
+                    Box(
+                        Modifier
+                            .width(64.dp)
+                            .height(11.dp)
+                            .clip(GlassShapes.thumb)
+                            .background(fill),
+                    )
                 }
             }
-            Box(Modifier.fillMaxWidth().height(48.dp).clip(GlassShapes.card).background(fill))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .clip(GlassShapes.card)
+                    .background(fill),
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(3) {
-                    Box(Modifier.weight(1f).height(36.dp).clip(GlassShapes.chip).background(fill))
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                            .clip(GlassShapes.chip)
+                            .background(fill),
+                    )
                 }
             }
-            Box(Modifier.fillMaxWidth().height(12.dp).clip(GlassShapes.thumb).background(fill))
-            Box(Modifier.fillMaxWidth(0.86f).height(12.dp).clip(GlassShapes.thumb).background(fill))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(12.dp)
+                    .clip(GlassShapes.thumb)
+                    .background(fill),
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth(0.86f)
+                    .height(12.dp)
+                    .clip(GlassShapes.thumb)
+                    .background(fill),
+            )
         }
     }
 }

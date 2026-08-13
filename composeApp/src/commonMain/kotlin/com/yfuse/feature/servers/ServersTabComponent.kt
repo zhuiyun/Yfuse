@@ -44,14 +44,15 @@ class ServersTabComponent(
     /** Where a newly chosen server is meant to take the user. */
     val onOpenLibrary: () -> Unit,
 ) : ComponentContext by componentContext {
-
     /** Adding, editing, choosing the default and removing all live in this one store. */
-    val store = ServersStoreFactory(
-        storeFactory = storeFactory,
-        repo = repo,
-        registry = registry,
-        discovery = dependencies.lanDiscovery,
-    ).create()
+    val store =
+        ServersStoreFactory(
+            storeFactory = storeFactory,
+            repo = repo,
+            registry = registry,
+            discovery = dependencies.lanDiscovery,
+            onAuthenticated = dependencies.playbackReportingCoordinator::resumeAfterAuthentication,
+        ).create()
 
     val health: ServerHealthMonitor = dependencies.serverHealthMonitor
     val activity: ServerActivityStore = dependencies.serverActivity
@@ -61,13 +62,31 @@ class ServersTabComponent(
     val layout: StateFlow<ServerLayout> = themePreferences.serverLayout
 
     fun setLayout(value: ServerLayout) = themePreferences.setServerLayout(value)
+
     private val libraryCache: LibraryCache = dependencies.libraryCache
     private val scope = componentScope(lifecycle)
 
     private val _refreshing = MutableStateFlow(false)
 
+    private val _listFilter = MutableStateFlow(ServerListFilter())
+
+    /** Sorting, latency and account filtering stay with this tab while the app is alive. */
+    val listFilter: StateFlow<ServerListFilter> = _listFilter.asStateFlow()
+
     /** Drives the header's refresh control so a whole-grid re-probe is visibly running. */
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    fun setSortOrder(value: ServerSortOrder) {
+        _listFilter.value = _listFilter.value.copy(sort = value)
+    }
+
+    fun setAccountFilter(value: String?) {
+        _listFilter.value = _listFilter.value.copy(account = value)
+    }
+
+    fun setLatencyFilter(value: ServerLatencyFilter) {
+        _listFilter.value = _listFilter.value.copy(latency = value)
+    }
 
     /**
      * Re-probes every saved server and re-reads its totals.
@@ -107,36 +126,53 @@ class ServersTabComponent(
      */
     fun primeStats() {
         scope.launch {
-            val missing = registry.data.value.servers.filter { stats.statsFor(it.id) == null }
+            val missing =
+                registry.data.value.servers
+                    .filter { stats.statsFor(it.id) == null }
             if (missing.isNotEmpty()) refreshStats(this, missing)
         }
     }
 
-    private suspend fun refreshStats(scope: CoroutineScope, servers: List<SavedServer>) {
-        servers.map { server ->
-            scope.async {
-                repo.itemCounts(server).onSuccess { stats.record(server.id, it) }
-            }
-        }.awaitAll()
+    private suspend fun refreshStats(
+        scope: CoroutineScope,
+        servers: List<SavedServer>,
+    ) {
+        servers
+            .map { server ->
+                scope.async {
+                    repo.itemCounts(server).onSuccess { stats.record(server.id, it) }
+                }
+            }.awaitAll()
     }
 
     /** Saves an edited route list, then re-probes so the new addresses report immediately. */
-    fun setRoutes(serverId: String, routes: List<ServerRoute>) {
-        if (!registry.setRoutes(serverId, routes)) return
+    fun setRoutes(
+        serverId: String,
+        routes: List<ServerRoute>,
+        localCleartextConfirmed: Boolean = false,
+    ) {
+        if (!registry.setRoutes(serverId, routes, localCleartextConfirmed)) return
         registry.serverById(serverId)?.let { updated ->
             scope.launch { health.refresh(updated) }
         }
     }
 
     /** Moves a server onto one of its routes by hand. */
-    fun activateRoute(serverId: String, routeId: String) {
+    fun activateRoute(
+        serverId: String,
+        routeId: String,
+    ) {
         if (!registry.activateRoute(serverId, routeId)) return
         registry.serverById(serverId)?.let { updated ->
             scope.launch { health.refresh(updated) }
         }
     }
 
-    fun setIcon(serverId: String, emoji: String?, tint: Long?) {
+    fun setIcon(
+        serverId: String,
+        emoji: String?,
+        tint: Long?,
+    ) {
         registry.setIcon(serverId, emoji, tint)
     }
 
@@ -148,7 +184,9 @@ class ServersTabComponent(
     fun removeServer(id: String) {
         store.accept(ServersIntent.Remove(id))
         libraryCache.clear(id)
-        val remaining = registry.data.value.servers.mapTo(mutableSetOf()) { it.id }
+        val remaining =
+            registry.data.value.servers
+                .mapTo(mutableSetOf()) { it.id }
         activity.retainOnly(remaining)
         stats.retainOnly(remaining)
     }

@@ -4,41 +4,41 @@ import com.yfuse.core.data.dto.AuthRequestDto
 import com.yfuse.core.data.dto.AuthResultDto
 import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.DeviceProfileDto
-import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.ItemCountsDto
+import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.MediaSourceDto
-import com.yfuse.core.data.dto.PublicInfoDto
-import com.yfuse.core.data.dto.PublicUserDto
-import com.yfuse.core.data.dto.PlaybackReportDto
 import com.yfuse.core.data.dto.PlaybackInfoRequestDto
 import com.yfuse.core.data.dto.PlaybackInfoResponseDto
+import com.yfuse.core.data.dto.PlaybackReportDto
 import com.yfuse.core.data.dto.PlaylistCreatedDto
+import com.yfuse.core.data.dto.PublicInfoDto
+import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.data.dto.RemoteSubtitleInfoDto
 import com.yfuse.core.data.dto.ViewsDto
+import com.yfuse.core.data.dto.bestTrickplay
 import com.yfuse.core.data.dto.toEpisode
 import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.data.dto.toPerson
 import com.yfuse.core.data.dto.toSeason
 import com.yfuse.core.data.dto.toSourceInfo
-import com.yfuse.core.data.dto.bestTrickplay
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.HomeContent
-import com.yfuse.core.model.Season
-import com.yfuse.core.model.MediaDetail
-import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.LibraryCounts
 import com.yfuse.core.model.LibraryPage
 import com.yfuse.core.model.LibrarySort
-import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaContainerPage
+import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.Person
+import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.SourceInfo
 import com.yfuse.core.model.TrickplayInfo
@@ -52,8 +52,8 @@ import com.yfuse.deviceId
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
-import io.ktor.client.request.get
 import io.ktor.client.request.delete
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
@@ -64,12 +64,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.content.TextContent
 import io.ktor.http.contentType
 import io.ktor.http.encodeURLPathPart
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
 import kotlinx.serialization.encodeToString
@@ -84,13 +84,17 @@ data class AuthedServer(
     val userName: String,
     val accessToken: String,
 ) {
-    fun toSavedServer(serverName: String? = null) = SavedServer(
+    fun toSavedServer(
+        serverName: String? = null,
+        localCleartextConfirmed: Boolean = false,
+    ) = SavedServer(
         id = SavedServer.idOf(baseUrl, userId),
         baseUrl = baseUrl,
         serverName = serverName ?: this.serverName,
         userId = userId,
         userName = userName,
         accessToken = accessToken,
+        localCleartextConfirmed = localCleartextConfirmed,
     )
 }
 
@@ -98,8 +102,12 @@ data class AuthedServer(
  * Talks to Emby. Stateless with respect to sessions: every call targets an
  * explicit server. Failures carry an [EmbyErrorException].
  */
+
 /** One library item found by provider id: what to open, and whether it was watched. */
-data class ProviderHit(val itemId: String, val played: Boolean)
+data class ProviderHit(
+    val itemId: String,
+    val played: Boolean,
+)
 
 /** A real page of server search results, including the server-reported result boundary. */
 data class MediaSearchPage(
@@ -143,7 +151,9 @@ private fun List<MediaSourceDto>?.bestSourceInfo(): SourceInfo? =
 
 private sealed interface ComparableSourceResult {
     /** The title/episode exists; null only means its stream metadata was omitted. */
-    data class Found(val source: SourceInfo?) : ComparableSourceResult
+    data class Found(
+        val source: SourceInfo?,
+    ) : ComparableSourceResult
 
     /** The title exists on this server, but the requested series coordinate does not. */
     data object MissingEpisode : ComparableSourceResult
@@ -172,11 +182,12 @@ private fun Throwable.isTransientSourceDiscoveryFailure(): Boolean {
     var current: Throwable? = this
     while (current != null) {
         when (current) {
-            is EmbyErrorException -> when (val error = current.error) {
-                EmbyError.Network -> return true
-                is EmbyError.Server -> return error.code in 500..599
-                else -> return false
-            }
+            is EmbyErrorException ->
+                when (val error = current.error) {
+                    EmbyError.Network -> return true
+                    is EmbyError.Server -> return error.code in 500..599
+                    else -> return false
+                }
             is ResponseException -> return current.response.status.value in 500..599
             is IOException -> return true
         }
@@ -220,9 +231,13 @@ private fun pageTotal(
 }
 
 /** Exact and prefix matches stay ahead without destroying the server's order inside a tier. */
-internal fun rankSearchResults(items: List<MediaItem>, query: String): List<MediaItem> {
+internal fun rankSearchResults(
+    items: List<MediaItem>,
+    query: String,
+): List<MediaItem> {
     val needle = query.trim().lowercase()
     if (needle.isEmpty()) return items
+
     fun score(title: String): Int {
         val value = title.trim().lowercase()
         return when {
@@ -233,7 +248,8 @@ internal fun rankSearchResults(items: List<MediaItem>, query: String): List<Medi
             else -> 4
         }
     }
-    return items.withIndex()
+    return items
+        .withIndex()
         .sortedWith(compareBy<IndexedValue<MediaItem>> { score(it.value.title) }.thenBy { it.index })
         .map(IndexedValue<MediaItem>::value)
 }
@@ -243,33 +259,34 @@ private data class PersonalCollection(
     val totalCount: Int,
 )
 
-private val bilingualGenrePairs = mapOf(
-    "action" to "动作",
-    "adventure" to "冒险",
-    "animation" to "动画",
-    "biography" to "传记",
-    "children" to "儿童",
-    "kids" to "儿童",
-    "comedy" to "喜剧",
-    "crime" to "犯罪",
-    "documentary" to "纪录片",
-    "drama" to "剧情",
-    "family" to "家庭",
-    "fantasy" to "奇幻",
-    "history" to "历史",
-    "horror" to "恐怖",
-    "music" to "音乐",
-    "mystery" to "悬疑",
-    "romance" to "爱情",
-    "science fiction" to "科幻",
-    "sci-fi" to "科幻",
-    "sci-fi & fantasy" to "科幻",
-    "sport" to "体育",
-    "sports" to "体育",
-    "thriller" to "惊悚",
-    "war" to "战争",
-    "western" to "西部",
-)
+private val bilingualGenrePairs =
+    mapOf(
+        "action" to "动作",
+        "adventure" to "冒险",
+        "animation" to "动画",
+        "biography" to "传记",
+        "children" to "儿童",
+        "kids" to "儿童",
+        "comedy" to "喜剧",
+        "crime" to "犯罪",
+        "documentary" to "纪录片",
+        "drama" to "剧情",
+        "family" to "家庭",
+        "fantasy" to "奇幻",
+        "history" to "历史",
+        "horror" to "恐怖",
+        "music" to "音乐",
+        "mystery" to "悬疑",
+        "romance" to "爱情",
+        "science fiction" to "科幻",
+        "sci-fi" to "科幻",
+        "sci-fi & fantasy" to "科幻",
+        "sport" to "体育",
+        "sports" to "体育",
+        "thriller" to "惊悚",
+        "war" to "战争",
+        "western" to "西部",
+    )
 
 /**
  * Removes bilingual duplicates without translating a server-only English value.
@@ -288,34 +305,42 @@ internal fun dedupeBilingualGenreLabels(values: List<String>): List<String> {
     }
 }
 
-class EmbyRepository(private val client: HttpClient) {
-
-    suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> = call("public_users") {
-        client.get("${normalizeBaseUrl(baseUrl)}/Users/Public").body()
-    }
-
-    suspend fun authenticate(baseUrl: String, username: String, password: String): Result<AuthedServer> =
-        call("authenticate") {
-        val url = normalizeBaseUrl(baseUrl)
-        val auth: AuthResultDto = client.post("$url/Users/AuthenticateByName") {
-            contentType(ContentType.Application.Json)
-            setBody(AuthRequestDto(Username = username, Pw = password))
-        }.body()
-        val serverInfo = runCatching {
-            client.get("$url/System/Info/Public").body<PublicInfoDto>().ServerName
-        }.onFailure {
-            AppLog.warning(
-                category = "emby",
-                event = "server_info_degraded",
-                message = "Authentication succeeded but public server info failed",
-                throwable = it,
-            )
+class EmbyRepository(
+    private val client: HttpClient,
+) {
+    suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> =
+        call("public_users") {
+            client.get("${normalizeBaseUrl(baseUrl)}/Users/Public").body()
         }
-        AuthedServer(url, serverInfo.getOrNull() ?: url, auth.User.Id, auth.User.Name, auth.AccessToken)
-    }
 
-    suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> =
-        call("libraries") { fetchViews(server) }
+    suspend fun authenticate(
+        baseUrl: String,
+        username: String,
+        password: String,
+    ): Result<AuthedServer> =
+        call("authenticate") {
+            val url = normalizeBaseUrl(baseUrl)
+            val auth: AuthResultDto =
+                client
+                    .post("$url/Users/AuthenticateByName") {
+                        contentType(ContentType.Application.Json)
+                        setBody(AuthRequestDto(Username = username, Pw = password))
+                    }.body()
+            val serverInfo =
+                runCatching {
+                    client.get("$url/System/Info/Public").body<PublicInfoDto>().ServerName
+                }.onFailure {
+                    AppLog.warning(
+                        category = "emby",
+                        event = "server_info_degraded",
+                        message = "Authentication succeeded but public server info failed",
+                        throwable = it,
+                    )
+                }
+            AuthedServer(url, serverInfo.getOrNull() ?: url, auth.User.Id, auth.User.Name, auth.AccessToken)
+        }
+
+    suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> = call("libraries") { fetchViews(server) }
 
     /** Real BoxSet and Playlist containers visible to this Emby user. */
     suspend fun mediaContainers(server: SavedServer): Result<List<MediaContainer>> =
@@ -330,37 +355,40 @@ class EmbyRepository(private val client: HttpClient) {
         kind: MediaContainerKind,
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
-    ): Result<MediaContainerPage> = call("media_containers_page") {
-        fetchMediaContainers(server, kind, startIndex, limit)
-    }
+    ): Result<MediaContainerPage> =
+        call("media_containers_page") {
+            fetchMediaContainers(server, kind, startIndex, limit)
+        }
 
     suspend fun setFavorite(
         server: SavedServer,
         itemId: String,
         favorite: Boolean,
-    ): Result<Unit> = call("set_favorite") {
-        val url = "${server.baseUrl}/Users/${server.userId}/FavoriteItems/$itemId"
-        if (favorite) {
-            client.post(url) { header("X-Emby-Token", server.accessToken) }
-        } else {
-            client.delete(url) { header("X-Emby-Token", server.accessToken) }
+    ): Result<Unit> =
+        call("set_favorite") {
+            val url = "${server.baseUrl}/Users/${server.userId}/FavoriteItems/$itemId"
+            if (favorite) {
+                client.post(url) { header("X-Emby-Token", server.accessToken) }
+            } else {
+                client.delete(url) { header("X-Emby-Token", server.accessToken) }
+            }
+            Unit
         }
-        Unit
-    }
 
     suspend fun setPlayed(
         server: SavedServer,
         itemId: String,
         played: Boolean,
-    ): Result<Unit> = call("set_played") {
-        val url = "${server.baseUrl}/Users/${server.userId}/PlayedItems/$itemId"
-        if (played) {
-            client.post(url) { header("X-Emby-Token", server.accessToken) }
-        } else {
-            client.delete(url) { header("X-Emby-Token", server.accessToken) }
+    ): Result<Unit> =
+        call("set_played") {
+            val url = "${server.baseUrl}/Users/${server.userId}/PlayedItems/$itemId"
+            if (played) {
+                client.post(url) { header("X-Emby-Token", server.accessToken) }
+            } else {
+                client.delete(url) { header("X-Emby-Token", server.accessToken) }
+            }
+            Unit
         }
-        Unit
-    }
 
     /** Adds an existing media item to an existing server-owned BoxSet or Playlist. */
     suspend fun addItemToMediaContainer(
@@ -368,18 +396,20 @@ class EmbyRepository(private val client: HttpClient) {
         containerId: String,
         kind: MediaContainerKind,
         itemId: String,
-    ): Result<Unit> = call("add_item_to_media_container") {
-        val path = when (kind) {
-            MediaContainerKind.BoxSet -> "Collections/${containerId.encodeURLPathPart()}/Items"
-            MediaContainerKind.Playlist -> "Playlists/${containerId.encodeURLPathPart()}/Items"
+    ): Result<Unit> =
+        call("add_item_to_media_container") {
+            val path =
+                when (kind) {
+                    MediaContainerKind.BoxSet -> "Collections/${containerId.encodeURLPathPart()}/Items"
+                    MediaContainerKind.Playlist -> "Playlists/${containerId.encodeURLPathPart()}/Items"
+                }
+            client.post("${server.baseUrl}/$path") {
+                header("X-Emby-Token", server.accessToken)
+                parameter("Ids", itemId)
+                if (kind == MediaContainerKind.Playlist) parameter("UserId", server.userId)
+            }
+            Unit
         }
-        client.post("${server.baseUrl}/$path") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("Ids", itemId)
-            if (kind == MediaContainerKind.Playlist) parameter("UserId", server.userId)
-        }
-        Unit
-    }
 
     /**
      * Removes one membership. PlaylistService requires its entry id; substituting [itemId]
@@ -391,55 +421,62 @@ class EmbyRepository(private val client: HttpClient) {
         kind: MediaContainerKind,
         itemId: String,
         playlistItemId: String? = null,
-    ): Result<Unit> = call("remove_item_from_media_container") {
-        when (kind) {
-            MediaContainerKind.BoxSet ->
-                client.delete(
-                    "${server.baseUrl}/Collections/${containerId.encodeURLPathPart()}/Items",
-                ) {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("Ids", itemId)
-                }
+    ): Result<Unit> =
+        call("remove_item_from_media_container") {
+            when (kind) {
+                MediaContainerKind.BoxSet ->
+                    client.delete(
+                        "${server.baseUrl}/Collections/${containerId.encodeURLPathPart()}/Items",
+                    ) {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Ids", itemId)
+                    }
 
-            MediaContainerKind.Playlist -> {
-                val entryId = requireNotNull(playlistItemId?.takeIf(String::isNotBlank)) {
-                    "PlaylistItemId is required to remove a playlist entry"
-                }
-                client.delete(
-                    "${server.baseUrl}/Playlists/${containerId.encodeURLPathPart()}/Items",
-                ) {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("EntryIds", entryId)
+                MediaContainerKind.Playlist -> {
+                    val entryId =
+                        requireNotNull(playlistItemId?.takeIf(String::isNotBlank)) {
+                            "PlaylistItemId is required to remove a playlist entry"
+                        }
+                    client.delete(
+                        "${server.baseUrl}/Playlists/${containerId.encodeURLPathPart()}/Items",
+                    ) {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("EntryIds", entryId)
+                    }
                 }
             }
+            Unit
         }
-        Unit
-    }
 
     /**
      * Emby has no special “watch later” flag. It is represented by a real
      * user playlist so it follows the account across clients and servers.
      */
-    suspend fun addToWatchLater(server: SavedServer, itemId: String): Result<Unit> =
+    suspend fun addToWatchLater(
+        server: SavedServer,
+        itemId: String,
+    ): Result<Unit> =
         call("add_to_watch_later") {
-        val playlistId = findWatchLaterPlaylistId(server)
-        if (playlistId != null) {
-            client.post("${server.baseUrl}/Playlists/$playlistId/Items") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("Ids", itemId)
-                parameter("UserId", server.userId)
+            val playlistId = findWatchLaterPlaylistId(server)
+            if (playlistId != null) {
+                client.post("${server.baseUrl}/Playlists/$playlistId/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Ids", itemId)
+                    parameter("UserId", server.userId)
+                }
+            } else {
+                val created: PlaylistCreatedDto =
+                    client
+                        .post("${server.baseUrl}/Playlists") {
+                            header("X-Emby-Token", server.accessToken)
+                            parameter("UserId", server.userId)
+                            parameter("Name", "稍后观看")
+                            parameter("Ids", itemId)
+                        }.body()
+                require(!created.Id.isNullOrBlank()) { "playlist was not created" }
             }
-        } else {
-            val created: PlaylistCreatedDto = client.post("${server.baseUrl}/Playlists") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("UserId", server.userId)
-                parameter("Name", "稍后观看")
-                parameter("Ids", itemId)
-            }.body()
-            require(!created.Id.isNullOrBlank()) { "playlist was not created" }
+            Unit
         }
-        Unit
-    }
 
     suspend fun reportPlaybackStarted(
         server: SavedServer,
@@ -448,15 +485,16 @@ class EmbyRepository(private val client: HttpClient) {
         positionTicks: Long,
         isPaused: Boolean,
         playMethod: String = "DirectPlay",
-    ): Result<Unit> = reportPlayback(
-        server = server,
-        path = "/Sessions/Playing",
-        itemId = itemId,
-        playSessionId = playSessionId,
-        positionTicks = positionTicks,
-        isPaused = isPaused,
-        playMethod = playMethod,
-    )
+    ): Result<Unit> =
+        reportPlayback(
+            server = server,
+            path = "/Sessions/Playing",
+            itemId = itemId,
+            playSessionId = playSessionId,
+            positionTicks = positionTicks,
+            isPaused = isPaused,
+            playMethod = playMethod,
+        )
 
     suspend fun reportPlaybackProgress(
         server: SavedServer,
@@ -465,15 +503,16 @@ class EmbyRepository(private val client: HttpClient) {
         positionTicks: Long,
         isPaused: Boolean,
         playMethod: String = "DirectPlay",
-    ): Result<Unit> = reportPlayback(
-        server = server,
-        path = "/Sessions/Playing/Progress",
-        itemId = itemId,
-        playSessionId = playSessionId,
-        positionTicks = positionTicks,
-        isPaused = isPaused,
-        playMethod = playMethod,
-    )
+    ): Result<Unit> =
+        reportPlayback(
+            server = server,
+            path = "/Sessions/Playing/Progress",
+            itemId = itemId,
+            playSessionId = playSessionId,
+            positionTicks = positionTicks,
+            isPaused = isPaused,
+            playMethod = playMethod,
+        )
 
     suspend fun reportPlaybackStopped(
         server: SavedServer,
@@ -482,15 +521,16 @@ class EmbyRepository(private val client: HttpClient) {
         positionTicks: Long,
         isPaused: Boolean,
         playMethod: String = "DirectPlay",
-    ): Result<Unit> = reportPlayback(
-        server = server,
-        path = "/Sessions/Playing/Stopped",
-        itemId = itemId,
-        playSessionId = playSessionId,
-        positionTicks = positionTicks,
-        isPaused = isPaused,
-        playMethod = playMethod,
-    )
+    ): Result<Unit> =
+        reportPlayback(
+            server = server,
+            path = "/Sessions/Playing/Stopped",
+            itemId = itemId,
+            playSessionId = playSessionId,
+            positionTicks = positionTicks,
+            isPaused = isPaused,
+            playMethod = playMethod,
+        )
 
     /**
      * Negotiates the actual source URL and playback method with the server.
@@ -503,231 +543,251 @@ class EmbyRepository(private val client: HttpClient) {
         mediaSourceId: String? = null,
         startPositionTicks: Long = 0L,
         playSessionId: String,
-    ): Result<PlaybackInfoResponseDto> = call("playback_info") {
-        // Pre-encode the device profile. Ktor's deferred request-body serializer can deadlock
-        // when this call is made from an unconfined UI/test dispatcher and the engine starts
-        // consuming the body on that same dispatcher.
-        val requestJson = playbackRequestJson.encodeToString(
-            PlaybackInfoRequestDto(
-                Id = itemId,
-                UserId = server.userId,
-                DeviceProfile = DeviceProfileDto.yfuseAndroid(),
-                StartTimeTicks = startPositionTicks.coerceAtLeast(0L),
-                MediaSourceId = mediaSourceId,
-                CurrentPlaySessionId = playSessionId,
-            ),
-        )
-        withContext(Dispatchers.Default) {
-            client.post("${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/PlaybackInfo") {
-                header("X-Emby-Token", server.accessToken)
-                setBody(TextContent(requestJson, ContentType.Application.Json))
-            }.body()
+    ): Result<PlaybackInfoResponseDto> =
+        call("playback_info") {
+            // Pre-encode the device profile. Ktor's deferred request-body serializer can deadlock
+            // when this call is made from an unconfined UI/test dispatcher and the engine starts
+            // consuming the body on that same dispatcher.
+            val requestJson =
+                playbackRequestJson.encodeToString(
+                    PlaybackInfoRequestDto(
+                        Id = itemId,
+                        UserId = server.userId,
+                        DeviceProfile = DeviceProfileDto.yfuseAndroid(),
+                        StartTimeTicks = startPositionTicks.coerceAtLeast(0L),
+                        MediaSourceId = mediaSourceId,
+                        CurrentPlaySessionId = playSessionId,
+                    ),
+                )
+            withContext(Dispatchers.Default) {
+                client
+                    .post("${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/PlaybackInfo") {
+                        header("X-Emby-Token", server.accessToken)
+                        setBody(TextContent(requestJson, ContentType.Application.Json))
+                    }.body()
+            }
         }
-    }
 
     /** Authenticated, cheap server probe used by the health monitor. */
-    suspend fun probeServer(server: SavedServer): Result<Long> =
-        probeAddress(server.baseUrl, server.accessToken)
+    suspend fun probeServer(server: SavedServer): Result<Long> = probeAddress(server.baseUrl, server.accessToken)
 
     /**
      * Probes one address of a saved session. Routes of the same server share its token, so
      * timing an alternate address needs the URL and nothing else.
      */
-    suspend fun probeAddress(baseUrl: String, accessToken: String): Result<Long> =
+    suspend fun probeAddress(
+        baseUrl: String,
+        accessToken: String,
+    ): Result<Long> =
         call("server_probe") {
             val mark = TimeSource.Monotonic.markNow()
-            client.get("${normalizeBaseUrl(baseUrl)}/System/Info") {
-                header("X-Emby-Token", accessToken)
-            }.bodyAsText()
+            client
+                .get("${normalizeBaseUrl(baseUrl)}/System/Info") {
+                    header("X-Emby-Token", accessToken)
+                }.bodyAsText()
             mark.elapsedNow().inWholeMilliseconds
         }
 
     /** Server-wide Movie/Series totals, for the server cards' at-a-glance figures. */
-    suspend fun itemCounts(server: SavedServer): Result<LibraryCounts> = call("item_counts") {
-        fetchItemCounts(server)
-    }
+    suspend fun itemCounts(server: SavedServer): Result<LibraryCounts> =
+        call("item_counts") {
+            fetchItemCounts(server)
+        }
 
     /** Aggregates the home screen: continue-watching, latest-per-library, featured. */
-    suspend fun homeContent(server: SavedServer): Result<HomeContent> = call("home_content") {
-        coroutineScope {
-            val views = fetchViews(server)
-            // A single library (or the resume row) failing must not blank the
-            // whole home screen — degrade to an empty row instead.
-            val resumeDeferred = async {
-                runCatching { fetchResume(server) }
-                    .onFailure {
-                        AppLog.warning(
-                            category = "emby",
-                            event = "home_section_degraded",
-                            message = "Continue-watching section failed and was omitted",
-                            throwable = it,
-                            attributes = mapOf(
-                                "serverId" to server.id,
-                                "section" to "resume",
-                            ),
-                        )
+    suspend fun homeContent(server: SavedServer): Result<HomeContent> =
+        call("home_content") {
+            coroutineScope {
+                val views = fetchViews(server)
+                // A single library (or the resume row) failing must not blank the
+                // whole home screen — degrade to an empty row instead.
+                val resumeDeferred =
+                    async {
+                        runCatching { fetchResume(server) }
+                            .onFailure {
+                                AppLog.warning(
+                                    category = "emby",
+                                    event = "home_section_degraded",
+                                    message = "Continue-watching section failed and was omitted",
+                                    throwable = it,
+                                    attributes =
+                                        mapOf(
+                                            "serverId" to server.id,
+                                            "section" to "resume",
+                                        ),
+                                )
+                            }.getOrDefault(emptyList())
                     }
-                    .getOrDefault(emptyList())
-            }
-            val favoritesDeferred = async {
-                runCatching {
-                    val collection = fetchFavorites(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
-                    HomeRow(
-                        libraryId = FAVORITES_COLLECTION_ID,
-                        title = "我的收藏",
-                        items = collection.items,
-                        totalCount = collection.totalCount,
-                    )
-                }.onFailure {
-                    AppLog.warning(
-                        category = "emby",
-                        event = "home_section_degraded",
-                        message = "Favorites section failed and was left empty",
-                        throwable = it,
-                        attributes = mapOf(
-                            "serverId" to server.id,
-                            "section" to "favorites",
-                        ),
-                    )
-                }.getOrDefault(HomeRow(FAVORITES_COLLECTION_ID, "我的收藏", emptyList()))
-            }
-            val watchLaterDeferred = async {
-                runCatching {
-                    val collection = fetchWatchLater(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
-                    HomeRow(
-                        libraryId = WATCH_LATER_COLLECTION_ID,
-                        title = "稍后观看",
-                        items = collection.items,
-                        totalCount = collection.totalCount,
-                    )
-                }.onFailure {
-                    AppLog.warning(
-                        category = "emby",
-                        event = "home_section_degraded",
-                        message = "Watch-later section failed and was left empty",
-                        throwable = it,
-                        attributes = mapOf(
-                            "serverId" to server.id,
-                            "section" to "watch_later",
-                        ),
-                    )
-                }.getOrDefault(HomeRow(WATCH_LATER_COLLECTION_ID, "稍后观看", emptyList()))
-            }
-            val countsDeferred = async {
-                runCatching { fetchItemCounts(server) }
-                    .onFailure {
-                        // Counts are useful footer metadata, not a reason to blank an
-                        // otherwise healthy library page. A missing/older endpoint simply
-                        // leaves the footer hidden until a later refresh succeeds.
-                        AppLog.warning(
-                            category = "emby",
-                            event = "library_counts_degraded",
-                            message = "Library title counts failed and were omitted",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id),
-                        )
-                    }
-                    .getOrNull()
-            }
-            val collectionsDeferred = async {
-                runCatching {
-                    fetchMediaContainers(
-                        server,
-                        MediaContainerKind.BoxSet,
-                        startIndex = 0,
-                        limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
-                    ).containers
-                }
-                    .onFailure {
-                        AppLog.warning(
-                            category = "emby",
-                            event = "home_section_degraded",
-                            message = "Collection previews failed and were omitted",
-                            throwable = it,
-                            attributes = mapOf(
-                                "serverId" to server.id,
-                                "section" to "collections",
-                            ),
-                        )
-                    }
-                    .getOrDefault(emptyList())
-            }
-            val playlistsDeferred = async {
-                runCatching {
-                    fetchMediaContainers(
-                        server,
-                        MediaContainerKind.Playlist,
-                        startIndex = 0,
-                        limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
-                    ).containers
-                }.onFailure {
-                    AppLog.warning(
-                        category = "emby",
-                        event = "home_section_degraded",
-                        message = "Playlist previews failed and were omitted",
-                        throwable = it,
-                        attributes = mapOf(
-                            "serverId" to server.id,
-                            "section" to "playlists",
-                        ),
-                    )
-                }.getOrDefault(emptyList())
-            }
-            val rowDeferred = views.map { view ->
-                async {
-                    val items = runCatching { fetchLatest(server, view.id) }
-                        .onFailure {
+                val favoritesDeferred =
+                    async {
+                        runCatching {
+                            val collection = fetchFavorites(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
+                            HomeRow(
+                                libraryId = FAVORITES_COLLECTION_ID,
+                                title = "我的收藏",
+                                items = collection.items,
+                                totalCount = collection.totalCount,
+                            )
+                        }.onFailure {
                             AppLog.warning(
                                 category = "emby",
                                 event = "home_section_degraded",
-                                message = "Library latest-items section failed and was omitted",
+                                message = "Favorites section failed and was left empty",
                                 throwable = it,
-                                attributes = mapOf(
-                                    "serverId" to server.id,
-                                    "section" to "latest",
-                                    "libraryId" to view.id,
-                                ),
+                                attributes =
+                                    mapOf(
+                                        "serverId" to server.id,
+                                        "section" to "favorites",
+                                    ),
                             )
-                        }
-                        .getOrDefault(emptyList())
-                    // The chip shows the library's real size, not the loaded page.
-                    val total = runCatching { fetchLibraryCount(server, view.id) }
-                        .onFailure {
+                        }.getOrDefault(HomeRow(FAVORITES_COLLECTION_ID, "我的收藏", emptyList()))
+                    }
+                val watchLaterDeferred =
+                    async {
+                        runCatching {
+                            val collection = fetchWatchLater(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
+                            HomeRow(
+                                libraryId = WATCH_LATER_COLLECTION_ID,
+                                title = "稍后观看",
+                                items = collection.items,
+                                totalCount = collection.totalCount,
+                            )
+                        }.onFailure {
                             AppLog.warning(
                                 category = "emby",
-                                event = "library_count_degraded",
-                                message = "Library count failed; loaded item count used as fallback",
+                                event = "home_section_degraded",
+                                message = "Watch-later section failed and was left empty",
                                 throwable = it,
-                                attributes = mapOf(
-                                    "serverId" to server.id,
-                                    "libraryId" to view.id,
-                                ),
+                                attributes =
+                                    mapOf(
+                                        "serverId" to server.id,
+                                        "section" to "watch_later",
+                                    ),
                             )
+                        }.getOrDefault(HomeRow(WATCH_LATER_COLLECTION_ID, "稍后观看", emptyList()))
+                    }
+                val countsDeferred =
+                    async {
+                        runCatching { fetchItemCounts(server) }
+                            .onFailure {
+                                // Counts are useful footer metadata, not a reason to blank an
+                                // otherwise healthy library page. A missing/older endpoint simply
+                                // leaves the footer hidden until a later refresh succeeds.
+                                AppLog.warning(
+                                    category = "emby",
+                                    event = "library_counts_degraded",
+                                    message = "Library title counts failed and were omitted",
+                                    throwable = it,
+                                    attributes = mapOf("serverId" to server.id),
+                                )
+                            }.getOrNull()
+                    }
+                val collectionsDeferred =
+                    async {
+                        runCatching {
+                            fetchMediaContainers(
+                                server,
+                                MediaContainerKind.BoxSet,
+                                startIndex = 0,
+                                limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
+                            ).containers
+                        }.onFailure {
+                            AppLog.warning(
+                                category = "emby",
+                                event = "home_section_degraded",
+                                message = "Collection previews failed and were omitted",
+                                throwable = it,
+                                attributes =
+                                    mapOf(
+                                        "serverId" to server.id,
+                                        "section" to "collections",
+                                    ),
+                            )
+                        }.getOrDefault(emptyList())
+                    }
+                val playlistsDeferred =
+                    async {
+                        runCatching {
+                            fetchMediaContainers(
+                                server,
+                                MediaContainerKind.Playlist,
+                                startIndex = 0,
+                                limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
+                            ).containers
+                        }.onFailure {
+                            AppLog.warning(
+                                category = "emby",
+                                event = "home_section_degraded",
+                                message = "Playlist previews failed and were omitted",
+                                throwable = it,
+                                attributes =
+                                    mapOf(
+                                        "serverId" to server.id,
+                                        "section" to "playlists",
+                                    ),
+                            )
+                        }.getOrDefault(emptyList())
+                    }
+                val rowDeferred =
+                    views.map { view ->
+                        async {
+                            val items =
+                                runCatching { fetchLatest(server, view.id) }
+                                    .onFailure {
+                                        AppLog.warning(
+                                            category = "emby",
+                                            event = "home_section_degraded",
+                                            message = "Library latest-items section failed and was omitted",
+                                            throwable = it,
+                                            attributes =
+                                                mapOf(
+                                                    "serverId" to server.id,
+                                                    "section" to "latest",
+                                                    "libraryId" to view.id,
+                                                ),
+                                        )
+                                    }.getOrDefault(emptyList())
+                            // The chip shows the library's real size, not the loaded page.
+                            val total =
+                                runCatching { fetchLibraryCount(server, view.id) }
+                                    .onFailure {
+                                        AppLog.warning(
+                                            category = "emby",
+                                            event = "library_count_degraded",
+                                            message = "Library count failed; loaded item count used as fallback",
+                                            throwable = it,
+                                            attributes =
+                                                mapOf(
+                                                    "serverId" to server.id,
+                                                    "libraryId" to view.id,
+                                                ),
+                                        )
+                                    }.getOrDefault(items.size)
+                            HomeRow(view.id, view.name, items, total)
                         }
-                        .getOrDefault(items.size)
-                    HomeRow(view.id, view.name, items, total)
-                }
+                    }
+                val resume = resumeDeferred.await()
+                val counts = countsDeferred.await()
+                val collections = collectionsDeferred.await()
+                val playlists = playlistsDeferred.await()
+                val rows =
+                    listOf(favoritesDeferred.await(), watchLaterDeferred.await()) +
+                        rowDeferred.awaitAll().filter { it.items.isNotEmpty() }
+                val featured =
+                    (resume + rows.flatMap { it.items })
+                        .filter { it.backdropTag != null }
+                        .distinctBy { it.id }
+                        .take(6)
+                HomeContent(
+                    featured = featured,
+                    resume = resume,
+                    rows = rows,
+                    counts = counts,
+                    collections = collections,
+                    playlists = playlists,
+                )
             }
-            val resume = resumeDeferred.await()
-            val counts = countsDeferred.await()
-            val collections = collectionsDeferred.await()
-            val playlists = playlistsDeferred.await()
-            val rows = listOf(favoritesDeferred.await(), watchLaterDeferred.await()) +
-                rowDeferred.awaitAll().filter { it.items.isNotEmpty() }
-            val featured = (resume + rows.flatMap { it.items })
-                .filter { it.backdropTag != null }
-                .distinctBy { it.id }
-                .take(6)
-            HomeContent(
-                featured = featured,
-                resume = resume,
-                rows = rows,
-                counts = counts,
-                collections = collections,
-                playlists = playlists,
-            )
         }
-    }
 
     /**
      * One page inside a real BoxSet or Playlist.
@@ -744,38 +804,43 @@ class EmbyRepository(private val client: HttpClient) {
         genre: String? = null,
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
-    ): Result<LibraryPage> = call("media_container_items") {
-        val dto: ItemsResponseDto = when (kind) {
-            MediaContainerKind.BoxSet ->
-                client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("ParentId", containerId)
-                    parameter("IncludeItemTypes", "Movie,Series,Episode,Video,MusicVideo")
-                    parameter("SortBy", sort.sortBy)
-                    parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
-                    if (!genre.isNullOrBlank()) parameter("Genres", genre)
-                    containerItemParameters(startIndex, limit, includePlaylistItemId = false)
-                }.body()
+    ): Result<LibraryPage> =
+        call("media_container_items") {
+            val dto: ItemsResponseDto =
+                when (kind) {
+                    MediaContainerKind.BoxSet ->
+                        client
+                            .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                                header("X-Emby-Token", server.accessToken)
+                                parameter("ParentId", containerId)
+                                parameter("IncludeItemTypes", "Movie,Series,Episode,Video,MusicVideo")
+                                parameter("SortBy", sort.sortBy)
+                                parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
+                                if (!genre.isNullOrBlank()) parameter("Genres", genre)
+                                containerItemParameters(startIndex, limit, includePlaylistItemId = false)
+                            }.body()
 
-            MediaContainerKind.Playlist ->
-                client.get("${server.baseUrl}/Playlists/$containerId/Items") {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("UserId", server.userId)
-                    // No SortBy/SortOrder here: this endpoint's original order is meaningful.
-                    containerItemParameters(startIndex, limit, includePlaylistItemId = true)
-                }.body()
-        }
-        LibraryPage(
-            items = dto.Items.map { it.toMediaItem() },
-            totalCount = pageTotal(
-                reportedTotal = dto.TotalRecordCount,
+                    MediaContainerKind.Playlist ->
+                        client
+                            .get("${server.baseUrl}/Playlists/$containerId/Items") {
+                                header("X-Emby-Token", server.accessToken)
+                                parameter("UserId", server.userId)
+                                // No SortBy/SortOrder here: this endpoint's original order is meaningful.
+                                containerItemParameters(startIndex, limit, includePlaylistItemId = true)
+                            }.body()
+                }
+            LibraryPage(
+                items = dto.Items.map { it.toMediaItem() },
+                totalCount =
+                    pageTotal(
+                        reportedTotal = dto.TotalRecordCount,
+                        startIndex = startIndex,
+                        itemCount = dto.Items.size,
+                        limit = limit,
+                    ),
                 startIndex = startIndex,
-                itemCount = dto.Items.size,
-                limit = limit,
-            ),
-            startIndex = startIndex,
-        )
-    }
+            )
+        }
 
     /** Genre facets apply to BoxSet folders, never to a hand-ordered Playlist. */
     suspend fun mediaContainerGenres(
@@ -785,15 +850,17 @@ class EmbyRepository(private val client: HttpClient) {
     ): Result<List<String>> {
         if (kind == MediaContainerKind.Playlist) return Result.success(emptyList())
         return runCatching {
-            val dto: ItemsResponseDto = client.get("${server.baseUrl}/Genres") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("UserId", server.userId)
-                parameter("ParentId", containerId)
-                parameter("IncludeItemTypes", "Movie,Series,Episode,Video,MusicVideo")
-                parameter("SortBy", "SortName")
-                parameter("SortOrder", "Ascending")
-                parameter("Limit", LIBRARY_GENRE_LIMIT)
-            }.body()
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Genres") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        parameter("ParentId", containerId)
+                        parameter("IncludeItemTypes", "Movie,Series,Episode,Video,MusicVideo")
+                        parameter("SortBy", "SortName")
+                        parameter("SortOrder", "Ascending")
+                        parameter("Limit", LIBRARY_GENRE_LIMIT)
+                    }.body()
             dedupeBilingualGenreLabels(
                 dto.Items.mapNotNull { it.Name?.takeIf(String::isNotBlank) },
             )
@@ -824,46 +891,50 @@ class EmbyRepository(private val client: HttpClient) {
         genre: String? = null,
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
-    ): Result<LibraryPage> = call("library_items") {
-        when (libraryId) {
-            FAVORITES_COLLECTION_ID ->
-                return@call fetchFavorites(server, limit, startIndex, sort)
-                    .toLibraryPage(startIndex)
-            // The playlist's own order is the one the user arranged, so 稍后观看 ignores
-            // [sort] rather than overriding that with a column of its own choosing.
-            WATCH_LATER_COLLECTION_ID ->
-                return@call fetchWatchLater(server, limit, startIndex)
-                    .toLibraryPage(startIndex)
-        }
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("ParentId", libraryId)
-            parameter("Recursive", true)
-            parameter("IncludeItemTypes", "Movie,Series")
-            parameter("SortBy", sort.sortBy)
-            parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
-            if (!genre.isNullOrBlank()) parameter("Genres", genre)
-            parameter(
-                "Fields",
-                "ProductionYear,BackdropImageTags,ParentBackdropItemId," +
-                    "ParentBackdropImageTags,SeriesPrimaryImageTag",
-            )
-            parameter("EnableImageTypes", "Primary,Backdrop")
-            parameter("ImageTypeLimit", 2)
-            parameter("StartIndex", startIndex)
-            parameter("Limit", limit)
-        }.body()
-        LibraryPage(
-            items = dto.Items.map { it.toMediaItem() },
-            totalCount = pageTotal(
-                reportedTotal = dto.TotalRecordCount,
+    ): Result<LibraryPage> =
+        call("library_items") {
+            when (libraryId) {
+                FAVORITES_COLLECTION_ID ->
+                    return@call fetchFavorites(server, limit, startIndex, sort)
+                        .toLibraryPage(startIndex)
+                // The playlist's own order is the one the user arranged, so 稍后观看 ignores
+                // [sort] rather than overriding that with a column of its own choosing.
+                WATCH_LATER_COLLECTION_ID ->
+                    return@call fetchWatchLater(server, limit, startIndex)
+                        .toLibraryPage(startIndex)
+            }
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("ParentId", libraryId)
+                        parameter("Recursive", true)
+                        parameter("IncludeItemTypes", "Movie,Series")
+                        parameter("SortBy", sort.sortBy)
+                        parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
+                        if (!genre.isNullOrBlank()) parameter("Genres", genre)
+                        parameter(
+                            "Fields",
+                            "ProductionYear,BackdropImageTags,ParentBackdropItemId," +
+                                "ParentBackdropImageTags,SeriesPrimaryImageTag",
+                        )
+                        parameter("EnableImageTypes", "Primary,Backdrop")
+                        parameter("ImageTypeLimit", 2)
+                        parameter("StartIndex", startIndex)
+                        parameter("Limit", limit)
+                    }.body()
+            LibraryPage(
+                items = dto.Items.map { it.toMediaItem() },
+                totalCount =
+                    pageTotal(
+                        reportedTotal = dto.TotalRecordCount,
+                        startIndex = startIndex,
+                        itemCount = dto.Items.size,
+                        limit = limit,
+                    ),
                 startIndex = startIndex,
-                itemCount = dto.Items.size,
-                limit = limit,
-            ),
-            startIndex = startIndex,
-        )
-    }
+            )
+        }
 
     /**
      * The genres present in one library, for the grid's filter row.
@@ -871,20 +942,25 @@ class EmbyRepository(private val client: HttpClient) {
      * Failure stays separate from a valid empty facet so the grid can keep showing its
      * content while still allowing an explicit retry to recover the filter row.
      */
-    suspend fun libraryGenres(server: SavedServer, libraryId: String): Result<List<String>> {
+    suspend fun libraryGenres(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<List<String>> {
         if (libraryId == FAVORITES_COLLECTION_ID || libraryId == WATCH_LATER_COLLECTION_ID) {
             return Result.success(emptyList())
         }
         return runCatching {
-            val dto: ItemsResponseDto = client.get("${server.baseUrl}/Genres") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("UserId", server.userId)
-                parameter("ParentId", libraryId)
-                parameter("IncludeItemTypes", "Movie,Series")
-                parameter("SortBy", "SortName")
-                parameter("SortOrder", "Ascending")
-                parameter("Limit", LIBRARY_GENRE_LIMIT)
-            }.body()
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Genres") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        parameter("ParentId", libraryId)
+                        parameter("IncludeItemTypes", "Movie,Series")
+                        parameter("SortBy", "SortName")
+                        parameter("SortOrder", "Ascending")
+                        parameter("Limit", LIBRARY_GENRE_LIMIT)
+                    }.body()
             dedupeBilingualGenreLabels(
                 dto.Items.mapNotNull { it.Name?.takeIf(String::isNotBlank) },
             )
@@ -905,54 +981,70 @@ class EmbyRepository(private val client: HttpClient) {
         server: SavedServer,
         itemId: String,
         limit: Int = 12,
-    ): Result<List<MediaItem>> = call("similar_items") {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Items/$itemId/Similar") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("UserId", server.userId)
-            parameter("Limit", limit)
-            parameter(
-                "Fields",
-                "ProductionYear,CommunityRating,BackdropImageTags,ParentBackdropItemId," +
-                    "ParentBackdropImageTags,SeriesPrimaryImageTag",
-            )
-            parameter("EnableImageTypes", "Primary,Backdrop")
-            parameter("ImageTypeLimit", 2)
-        }.body()
-        dto.Items.map { it.toMediaItem() }
-    }
+    ): Result<List<MediaItem>> =
+        call("similar_items") {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Items/$itemId/Similar") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        parameter("Limit", limit)
+                        parameter(
+                            "Fields",
+                            "ProductionYear,CommunityRating,BackdropImageTags,ParentBackdropItemId," +
+                                "ParentBackdropImageTags,SeriesPrimaryImageTag",
+                        )
+                        parameter("EnableImageTypes", "Primary,Backdrop")
+                        parameter("ImageTypeLimit", 2)
+                    }.body()
+            dto.Items.map { it.toMediaItem() }
+        }
 
     /**
      * Resolves what to actually play for a detail item: movies/episodes play
      * themselves; a series plays its "next up" episode (falling back to the
      * first episode), carrying that episode's resume position.
      */
-    suspend fun resolvePlayTarget(server: SavedServer, detail: MediaDetail): Result<PlayTarget> =
+    suspend fun resolvePlayTarget(
+        server: SavedServer,
+        detail: MediaDetail,
+    ): Result<PlayTarget> =
         call("resolve_play_target") {
-        if (detail.type != "Series") {
-            PlayTarget(detail.id, detail.resumePositionTicks ?: 0L)
-        } else {
-            val episode = fetchNextUp(server, detail.id) ?: fetchFirstEpisode(server, detail.id)
-            requireNotNull(episode) { "no episodes" }
-            PlayTarget(episode.Id, episode.UserData?.PlaybackPositionTicks ?: 0L)
+            if (detail.type != "Series") {
+                PlayTarget(detail.id, detail.resumePositionTicks ?: 0L)
+            } else {
+                val episode = fetchNextUp(server, detail.id) ?: fetchFirstEpisode(server, detail.id)
+                requireNotNull(episode) { "no episodes" }
+                PlayTarget(episode.Id, episode.UserData?.PlaybackPositionTicks ?: 0L)
+            }
         }
-    }
 
-    private suspend fun fetchNextUp(server: SavedServer, seriesId: String): BaseItemDto? {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/NextUp") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("UserId", server.userId)
-            parameter("SeriesId", seriesId)
-            parameter("Limit", 1)
-        }.body()
+    private suspend fun fetchNextUp(
+        server: SavedServer,
+        seriesId: String,
+    ): BaseItemDto? {
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Shows/NextUp") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("UserId", server.userId)
+                    parameter("SeriesId", seriesId)
+                    parameter("Limit", 1)
+                }.body()
         return dto.Items.firstOrNull()
     }
 
-    private suspend fun fetchFirstEpisode(server: SavedServer, seriesId: String): BaseItemDto? {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/$seriesId/Episodes") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("UserId", server.userId)
-            parameter("Limit", 1)
-        }.body()
+    private suspend fun fetchFirstEpisode(
+        server: SavedServer,
+        seriesId: String,
+    ): BaseItemDto? {
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("UserId", server.userId)
+                    parameter("Limit", 1)
+                }.body()
         return dto.Items.firstOrNull()
     }
 
@@ -961,35 +1053,45 @@ class EmbyRepository(private val client: HttpClient) {
         call("search_libraries") { fetchViews(server) }
 
     /** Genre facet for search; parentId narrows it to one library when selected. */
-    suspend fun searchGenres(server: SavedServer, parentId: String? = null): Result<List<String>> =
+    suspend fun searchGenres(
+        server: SavedServer,
+        parentId: String? = null,
+    ): Result<List<String>> =
         call("search_genres") {
-            val dto: ItemsResponseDto = client.get("${server.baseUrl}/Genres") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("UserId", server.userId)
-                parentId?.let { parameter("ParentId", it) }
-                parameter("IncludeItemTypes", "Movie,Series")
-                parameter("SortBy", "SortName")
-                parameter("SortOrder", "Ascending")
-                parameter("Limit", LIBRARY_GENRE_LIMIT)
-            }.body()
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Genres") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        parentId?.let { parameter("ParentId", it) }
+                        parameter("IncludeItemTypes", "Movie,Series")
+                        parameter("SortBy", "SortName")
+                        parameter("SortOrder", "Ascending")
+                        parameter("Limit", LIBRARY_GENRE_LIMIT)
+                    }.body()
             dedupeBilingualGenreLabels(dto.Items.mapNotNull { it.Name?.takeIf(String::isNotBlank) })
         }
 
     /** Server-wide next episodes for the 首页「下一集」shelf. */
-    suspend fun nextUpEpisodes(server: SavedServer, limit: Int = 12): Result<List<MediaItem>> =
+    suspend fun nextUpEpisodes(
+        server: SavedServer,
+        limit: Int = 12,
+    ): Result<List<MediaItem>> =
         call("next_up") {
-            val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/NextUp") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("UserId", server.userId)
-                parameter("Limit", limit)
-                parameter(
-                    "Fields",
-                    "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
-                        "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
-                )
-                parameter("EnableImageTypes", "Primary,Backdrop")
-                parameter("ImageTypeLimit", 2)
-            }.body()
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Shows/NextUp") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        parameter("Limit", limit)
+                        parameter(
+                            "Fields",
+                            "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+                                "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+                        )
+                        parameter("EnableImageTypes", "Primary,Backdrop")
+                        parameter("ImageTypeLimit", 2)
+                    }.body()
             dto.Items.map { it.toMediaItem() }
         }
 
@@ -999,13 +1101,14 @@ class EmbyRepository(private val client: HttpClient) {
         query: String,
         limit: Int = 24,
         filter: MediaSearchFilter = MediaSearchFilter(),
-    ): Result<List<MediaItem>> = searchPage(
-        server = server,
-        query = query,
-        startIndex = 0,
-        limit = limit,
-        filter = filter,
-    ).map(MediaSearchPage::items)
+    ): Result<List<MediaItem>> =
+        searchPage(
+            server = server,
+            query = query,
+            startIndex = 0,
+            limit = limit,
+            filter = filter,
+        ).map(MediaSearchPage::items)
 
     /** Search page with offset/total preserved so UI pagination is not a fake fixed cap. */
     suspend fun searchPage(
@@ -1014,80 +1117,90 @@ class EmbyRepository(private val client: HttpClient) {
         startIndex: Int = 0,
         limit: Int = 24,
         filter: MediaSearchFilter = MediaSearchFilter(),
-    ): Result<MediaSearchPage> = call("search") {
-        suspend fun request(term: String, offset: Int): ItemsResponseDto =
-            client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("SearchTerm", term)
-                parameter("Recursive", true)
-                parameter("IncludeItemTypes", filter.includeItemTypes)
-                filter.parentId?.let { parameter("ParentId", it) }
-                filter.productionYear?.let { parameter("ProductionYear", it) }
-                filter.genre?.takeIf { it.isNotBlank() }?.let { parameter("Genres", it) }
-                filter.played?.let { parameter("IsPlayed", it) }
-                if (filter.resumable) parameter("Filters", "IsResumable")
-                filter.sortBy?.let {
-                    parameter("SortBy", it)
-                    parameter(
-                        "SortOrder",
-                        if (filter.descending) "Descending" else "Ascending",
-                    )
-                }
-                parameter(
-                    "Fields",
-                    "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
-                        "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
-                )
-                parameter("EnableImageTypes", "Primary,Backdrop")
-                parameter("ImageTypeLimit", 2)
-                if (offset > 0) parameter("StartIndex", offset)
-                parameter("Limit", limit)
-            }.body()
+    ): Result<MediaSearchPage> =
+        call("search") {
+            suspend fun request(
+                term: String,
+                offset: Int,
+            ): ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("SearchTerm", term)
+                        parameter("Recursive", true)
+                        parameter("IncludeItemTypes", filter.includeItemTypes)
+                        filter.parentId?.let { parameter("ParentId", it) }
+                        filter.productionYear?.let { parameter("ProductionYear", it) }
+                        filter.genre?.takeIf { it.isNotBlank() }?.let { parameter("Genres", it) }
+                        filter.played?.let { parameter("IsPlayed", it) }
+                        if (filter.resumable) parameter("Filters", "IsResumable")
+                        filter.sortBy?.let {
+                            parameter("SortBy", it)
+                            parameter(
+                                "SortOrder",
+                                if (filter.descending) "Descending" else "Ascending",
+                            )
+                        }
+                        parameter(
+                            "Fields",
+                            "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
+                                "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+                        )
+                        parameter("EnableImageTypes", "Primary,Backdrop")
+                        parameter("ImageTypeLimit", 2)
+                        if (offset > 0) parameter("StartIndex", offset)
+                        parameter("Limit", limit)
+                    }.body()
 
-        val exactPage = request(query, startIndex)
-        if (exactPage.Items.isNotEmpty() || startIndex > 0) {
-            val items = exactPage.Items.map { it.toMediaItem() }
-            return@call MediaSearchPage(
-                items = if (filter.sortBy == null) rankSearchResults(items, query) else items,
-                totalCount = pageTotal(
-                    reportedTotal = exactPage.TotalRecordCount,
+            val exactPage = request(query, startIndex)
+            if (exactPage.Items.isNotEmpty() || startIndex > 0) {
+                val items = exactPage.Items.map { it.toMediaItem() }
+                return@call MediaSearchPage(
+                    items = if (filter.sortBy == null) rankSearchResults(items, query) else items,
+                    totalCount =
+                        pageTotal(
+                            reportedTotal = exactPage.TotalRecordCount,
+                            startIndex = startIndex,
+                            itemCount = items.size,
+                            limit = limit,
+                        ),
                     startIndex = startIndex,
-                    itemCount = items.size,
-                    limit = limit,
-                ),
-                startIndex = startIndex,
+                )
+            }
+
+            // Some Emby/Jellyfin search indexes reject a full CJK title even though a suffix
+            // returns it (for example 鬼迷东宫 -> no rows, 东宫 -> 鬼迷东宫). Query a small set
+            // of stable fragments, then require the returned title to contain the original
+            // text so broad fallback terms never pollute the result list.
+            val normalizedQuery = query.trim()
+            val fallbackTerms =
+                buildList {
+                    addAll(normalizedQuery.split(Regex("\\s+")).filter { it.length >= 2 })
+                    if (normalizedQuery.length >= 3) add(normalizedQuery.takeLast(2))
+                    if (normalizedQuery.length >= 4) {
+                        add(normalizedQuery.drop(normalizedQuery.length / 2))
+                        add(normalizedQuery.take(normalizedQuery.length / 2))
+                    }
+                }.distinct().filterNot { it.equals(normalizedQuery, ignoreCase = true) }
+
+            val fallbackItems =
+                buildList {
+                    fallbackTerms.forEach { term -> addAll(request(term, 0).Items) }
+                }
+            val items =
+                fallbackItems
+                    .asSequence()
+                    .distinctBy { it.Id }
+                    .filter { it.Name?.contains(normalizedQuery, ignoreCase = true) == true }
+                    .take(limit)
+                    .map { it.toMediaItem() }
+                    .toList()
+            MediaSearchPage(
+                items = rankSearchResults(items, query),
+                totalCount = items.size,
+                startIndex = 0,
             )
         }
-
-        // Some Emby/Jellyfin search indexes reject a full CJK title even though a suffix
-        // returns it (for example 鬼迷东宫 -> no rows, 东宫 -> 鬼迷东宫). Query a small set
-        // of stable fragments, then require the returned title to contain the original
-        // text so broad fallback terms never pollute the result list.
-        val normalizedQuery = query.trim()
-        val fallbackTerms = buildList {
-            addAll(normalizedQuery.split(Regex("\\s+")).filter { it.length >= 2 })
-            if (normalizedQuery.length >= 3) add(normalizedQuery.takeLast(2))
-            if (normalizedQuery.length >= 4) {
-                add(normalizedQuery.drop(normalizedQuery.length / 2))
-                add(normalizedQuery.take(normalizedQuery.length / 2))
-            }
-        }.distinct().filterNot { it.equals(normalizedQuery, ignoreCase = true) }
-
-        val fallbackItems = buildList {
-            fallbackTerms.forEach { term -> addAll(request(term, 0).Items) }
-        }
-        val items = fallbackItems.asSequence()
-            .distinctBy { it.Id }
-            .filter { it.Name?.contains(normalizedQuery, ignoreCase = true) == true }
-            .take(limit)
-            .map { it.toMediaItem() }
-            .toList()
-        MediaSearchPage(
-            items = rankSearchResults(items, query),
-            totalCount = items.size,
-            startIndex = 0,
-        )
-    }
 
     /**
      * People whose name matches the query, for the search tab's 演员 row.
@@ -1100,53 +1213,59 @@ class EmbyRepository(private val client: HttpClient) {
         server: SavedServer,
         query: String,
         limit: Int = PERSON_SEARCH_LIMIT,
-    ): List<Person> = runCatching {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Persons") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("UserId", server.userId)
-            parameter("SearchTerm", query)
-            parameter("EnableImageTypes", "Primary")
-            parameter("ImageTypeLimit", 1)
-            parameter("Limit", limit)
-        }.body()
-        dto.Items
-            .filter { !it.Name.isNullOrBlank() }
-            .map { Person(it.Id, it.Name.orEmpty(), null, it.ImageTags?.get("Primary")) }
-    }.onFailure {
-        if (it is CancellationException) throw it
-        AppLog.warning(
-            category = "emby",
-            event = "person_search_unavailable",
-            message = "Person search is unavailable; the 演员 row stays hidden",
-            throwable = it,
-            attributes = mapOf("serverId" to server.id),
-        )
-    }.getOrDefault(emptyList())
+    ): List<Person> =
+        runCatching {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Persons") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        parameter("SearchTerm", query)
+                        parameter("EnableImageTypes", "Primary")
+                        parameter("ImageTypeLimit", 1)
+                        parameter("Limit", limit)
+                    }.body()
+            dto.Items
+                .filter { !it.Name.isNullOrBlank() }
+                .map { Person(it.Id, it.Name.orEmpty(), null, it.ImageTags?.get("Primary")) }
+        }.onFailure {
+            if (it is CancellationException) throw it
+            AppLog.warning(
+                category = "emby",
+                event = "person_search_unavailable",
+                message = "Person search is unavailable; the 演员 row stays hidden",
+                throwable = it,
+                attributes = mapOf("serverId" to server.id),
+            )
+        }.getOrDefault(emptyList())
 
     /** Everything on this server that credits one person, newest first. */
     suspend fun itemsByPerson(
         server: SavedServer,
         personId: String,
         limit: Int = PERSON_ITEMS_LIMIT,
-    ): Result<List<MediaItem>> = call("items_by_person") {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("PersonIds", personId)
-            parameter("Recursive", true)
-            parameter("IncludeItemTypes", "Movie,Series")
-            parameter("SortBy", "ProductionYear,SortName")
-            parameter("SortOrder", "Descending")
-            parameter(
-                "Fields",
-                "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
-                    "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag",
-            )
-            parameter("EnableImageTypes", "Primary,Backdrop")
-            parameter("ImageTypeLimit", 2)
-            parameter("Limit", limit)
-        }.body()
-        dto.Items.map { it.toMediaItem() }
-    }
+    ): Result<List<MediaItem>> =
+        call("items_by_person") {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("PersonIds", personId)
+                        parameter("Recursive", true)
+                        parameter("IncludeItemTypes", "Movie,Series")
+                        parameter("SortBy", "ProductionYear,SortName")
+                        parameter("SortOrder", "Descending")
+                        parameter(
+                            "Fields",
+                            "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
+                                "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag",
+                        )
+                        parameter("EnableImageTypes", "Primary,Backdrop")
+                        parameter("ImageTypeLimit", 2)
+                        parameter("Limit", limit)
+                    }.body()
+            dto.Items.map { it.toMediaItem() }
+        }
 
     /**
      * Complete user-state snapshot used by the real multi-server sync coordinator.
@@ -1159,57 +1278,60 @@ class EmbyRepository(private val client: HttpClient) {
      */
     suspend fun userLibrarySnapshot(server: SavedServer): Result<List<SyncedUserItem>> =
         call("user_library_snapshot") {
-        val collected = mutableListOf<SyncedUserItem>()
-        val seenIds = HashSet<String>()
-        var startIndex = 0
-        var total = Int.MAX_VALUE
-        while (startIndex < total && collected.size < SNAPSHOT_MAX_ITEMS) {
-            val dto: ItemsResponseDto =
-                client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("Recursive", true)
-                    parameter("IncludeItemTypes", "Movie,Series,Episode")
-                    parameter("Fields", "UserData,DateModified")
-                    parameter("EnableImages", false)
-                    parameter("SortBy", "Id")
-                    parameter("StartIndex", startIndex)
-                    parameter("Limit", SNAPSHOT_PAGE_SIZE)
-                }.body()
-            // Empty is the normal terminator when TotalRecordCount is absent. A repeated id is
-            // different: accepting an incomplete/duplicated snapshot as authoritative can replay
-            // pending mutations over remote changes, so fail the sync instead of merging it.
-            if (dto.Items.isEmpty()) break
-            check(dto.Items.all { seenIds.add(it.Id) }) {
-                "服务器分页未前进，已取消本次同步"
+            val collected = mutableListOf<SyncedUserItem>()
+            val seenIds = HashSet<String>()
+            var startIndex = 0
+            var total = Int.MAX_VALUE
+            while (startIndex < total && collected.size < SNAPSHOT_MAX_ITEMS) {
+                val dto: ItemsResponseDto =
+                    client
+                        .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                            header("X-Emby-Token", server.accessToken)
+                            parameter("Recursive", true)
+                            parameter("IncludeItemTypes", "Movie,Series,Episode")
+                            parameter("Fields", "UserData,DateModified")
+                            parameter("EnableImages", false)
+                            parameter("SortBy", "Id")
+                            parameter("StartIndex", startIndex)
+                            parameter("Limit", SNAPSHOT_PAGE_SIZE)
+                        }.body()
+                // Empty is the normal terminator when TotalRecordCount is absent. A repeated id is
+                // different: accepting an incomplete/duplicated snapshot as authoritative can replay
+                // pending mutations over remote changes, so fail the sync instead of merging it.
+                if (dto.Items.isEmpty()) break
+                check(dto.Items.all { seenIds.add(it.Id) }) {
+                    "服务器分页未前进，已取消本次同步"
+                }
+                collected +=
+                    dto.Items.map { item ->
+                        SyncedUserItem(
+                            id = item.Id,
+                            title = item.Name.orEmpty(),
+                            favorite = item.UserData?.IsFavorite == true,
+                            played = item.UserData?.Played == true,
+                            positionTicks = item.UserData?.PlaybackPositionTicks ?: 0L,
+                            dateModified = item.DateModified,
+                        )
+                    }
+                dto.TotalRecordCount?.takeIf { it > 0 }?.let { total = it }
+                startIndex += dto.Items.size
             }
-            collected += dto.Items.map { item ->
-                SyncedUserItem(
-                    id = item.Id,
-                    title = item.Name.orEmpty(),
-                    favorite = item.UserData?.IsFavorite == true,
-                    played = item.UserData?.Played == true,
-                    positionTicks = item.UserData?.PlaybackPositionTicks ?: 0L,
-                    dateModified = item.DateModified,
+            if (userLibrarySnapshotIsTruncated(collected.size, total, SNAPSHOT_MAX_ITEMS)) {
+                AppLog.warning(
+                    category = "emby",
+                    event = "library_snapshot_truncated",
+                    message = "User library snapshot hit the client ceiling and is incomplete",
+                    attributes =
+                        mapOf(
+                            "serverId" to server.id,
+                            "collected" to collected.size.toString(),
+                            "total" to total.toString(),
+                        ),
                 )
+                error("媒体库项目过多，本次同步已取消以避免使用不完整快照")
             }
-            dto.TotalRecordCount?.takeIf { it > 0 }?.let { total = it }
-            startIndex += dto.Items.size
+            collected
         }
-        if (userLibrarySnapshotIsTruncated(collected.size, total, SNAPSHOT_MAX_ITEMS)) {
-            AppLog.warning(
-                category = "emby",
-                event = "library_snapshot_truncated",
-                message = "User library snapshot hit the client ceiling and is incomplete",
-                attributes = mapOf(
-                    "serverId" to server.id,
-                    "collected" to collected.size.toString(),
-                    "total" to total.toString(),
-                ),
-            )
-            error("媒体库项目过多，本次同步已取消以避免使用不完整快照")
-        }
-        collected
-    }
 
     /**
      * Asks the server to end the encoding started for [playSessionId] on this device.
@@ -1218,40 +1340,46 @@ class EmbyRepository(private val client: HttpClient) {
      * the stream URL carried no session id to match against. Failure is not worth surfacing:
      * the job may already be gone, or the server may be the one that is unreachable.
      */
-    suspend fun stopTranscoding(server: SavedServer, playSessionId: String): Result<Unit> =
+    suspend fun stopTranscoding(
+        server: SavedServer,
+        playSessionId: String,
+    ): Result<Unit> =
         call("stop_transcoding") {
-        try {
-            client.delete("${server.baseUrl}/Videos/ActiveEncodings") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("DeviceId", deviceId())
-                parameter("PlaySessionId", playSessionId)
+            try {
+                client.delete("${server.baseUrl}/Videos/ActiveEncodings") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("DeviceId", deviceId())
+                    parameter("PlaySessionId", playSessionId)
+                }
+            } catch (error: ResponseException) {
+                // DELETE is idempotent: both mean the encoder no longer exists, which is the
+                // exact postcondition callers need before starting another transcode.
+                if (error.response.status.value !in setOf(404, 410)) throw error
             }
-        } catch (error: ResponseException) {
-            // DELETE is idempotent: both mean the encoder no longer exists, which is the
-            // exact postcondition callers need before starting another transcode.
-            if (error.response.status.value !in setOf(404, 410)) throw error
+            Unit
         }
-        Unit
-    }
 
     /** Precise TMDB-to-Emby match, avoiding localized-title mismatches. */
     suspend fun findByTmdbId(
         server: SavedServer,
         tmdbId: Int,
         mediaType: String,
-    ): Result<MediaItem?> = call("find_item_by_provider") {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("Recursive", true)
-            parameter("IncludeItemTypes", if (mediaType == "tv") "Series" else "Movie")
-            parameter("AnyProviderIdEquals", "tmdb.$tmdbId")
-            parameter("Fields", "ProductionYear,Overview,ProviderIds")
-            parameter("EnableImageTypes", "Primary,Backdrop")
-            parameter("ImageTypeLimit", 2)
-            parameter("Limit", 1)
-        }.body()
-        dto.Items.firstOrNull()?.toMediaItem()
-    }
+    ): Result<MediaItem?> =
+        call("find_item_by_provider") {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Recursive", true)
+                        parameter("IncludeItemTypes", if (mediaType == "tv") "Series" else "Movie")
+                        parameter("AnyProviderIdEquals", "tmdb.$tmdbId")
+                        parameter("Fields", "ProductionYear,Overview,ProviderIds")
+                        parameter("EnableImageTypes", "Primary,Backdrop")
+                        parameter("ImageTypeLimit", 2)
+                        parameter("Limit", 1)
+                    }.body()
+            dto.Items.firstOrNull()?.toMediaItem()
+        }
 
     /**
      * Resolves a watch-together `mediaKey` to an item on [server].
@@ -1269,92 +1397,107 @@ class EmbyRepository(private val client: HttpClient) {
     suspend fun findByMediaKey(
         server: SavedServer,
         mediaKey: String,
-    ): Result<MediaItem?> = call("find_item_by_media_key") {
-        // `tmdb:1399/s2e5` — the show is identified by provider id, the episode by its
-        // place in it. Resolved in two steps because that's how Emby indexes it: nothing
-        // queries "episode 5 of the show with this Tmdb id" directly.
-        parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
-            val series = findByMediaKey(server, coordinate.seriesKey).getOrNull()
-                ?: return@call null
-            val dto: ItemsResponseDto = client.get(
-                "${server.baseUrl}/Shows/${series.id}/Episodes",
-            ) {
-                header("X-Emby-Token", server.accessToken)
-                parameter("UserId", server.userId)
-                parameter("Season", coordinate.seasonNumber)
-                parameter("Fields", "ProductionYear,Overview,ProviderIds")
-            }.body()
-            return@call dto.Items
-                .firstOrNull { it.IndexNumber == coordinate.episodeNumber }
-                ?.toMediaItem()
+    ): Result<MediaItem?> =
+        call("find_item_by_media_key") {
+            // `tmdb:1399/s2e5` — the show is identified by provider id, the episode by its
+            // place in it. Resolved in two steps because that's how Emby indexes it: nothing
+            // queries "episode 5 of the show with this Tmdb id" directly.
+            parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
+                val series =
+                    findByMediaKey(server, coordinate.seriesKey).getOrNull()
+                        ?: return@call null
+                val dto: ItemsResponseDto =
+                    client
+                        .get(
+                            "${server.baseUrl}/Shows/${series.id}/Episodes",
+                        ) {
+                            header("X-Emby-Token", server.accessToken)
+                            parameter("UserId", server.userId)
+                            parameter("Season", coordinate.seasonNumber)
+                            parameter("Fields", "ProductionYear,Overview,ProviderIds")
+                        }.body()
+                return@call dto.Items
+                    .firstOrNull { it.IndexNumber == coordinate.episodeNumber }
+                    ?.toMediaItem()
+            }
+            val provider = mediaKey.substringBefore(':', "")
+            val value = mediaKey.substringAfter(':', "")
+            if (provider.isBlank() || value.isBlank()) {
+                return@call null
+            }
+            if (provider.equals("emby", ignoreCase = true)) {
+                val dto: BaseItemDto =
+                    client
+                        .get(
+                            "${server.baseUrl}/Users/${server.userId}/Items/$value",
+                        ) {
+                            header("X-Emby-Token", server.accessToken)
+                            parameter("Fields", "ProductionYear,Overview,ProviderIds")
+                        }.body()
+                return@call dto.toMediaItem()
+            }
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Recursive", true)
+                        parameter("IncludeItemTypes", "Movie,Series,Episode")
+                        parameter("AnyProviderIdEquals", "${provider.lowercase()}.$value")
+                        parameter("Fields", "ProductionYear,Overview,ProviderIds")
+                        parameter("EnableImageTypes", "Primary,Backdrop")
+                        parameter("ImageTypeLimit", 2)
+                        parameter("Limit", 1)
+                    }.body()
+            dto.Items.firstOrNull()?.toMediaItem()
         }
-        val provider = mediaKey.substringBefore(':', "")
-        val value = mediaKey.substringAfter(':', "")
-        if (provider.isBlank() || value.isBlank()) {
-            return@call null
-        }
-        if (provider.equals("emby", ignoreCase = true)) {
-            val dto: BaseItemDto = client.get(
-                "${server.baseUrl}/Users/${server.userId}/Items/$value",
-            ) {
-                header("X-Emby-Token", server.accessToken)
-                parameter("Fields", "ProductionYear,Overview,ProviderIds")
-            }.body()
-            return@call dto.toMediaItem()
-        }
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("Recursive", true)
-            parameter("IncludeItemTypes", "Movie,Series,Episode")
-            parameter("AnyProviderIdEquals", "${provider.lowercase()}.$value")
-            parameter("Fields", "ProductionYear,Overview,ProviderIds")
-            parameter("EnableImageTypes", "Primary,Backdrop")
-            parameter("ImageTypeLimit", 2)
-            parameter("Limit", 1)
-        }.body()
-        dto.Items.firstOrNull()?.toMediaItem()
-    }
 
     /** Full detail for a single item. Episodes inherit the series' cast. */
-    suspend fun itemDetail(server: SavedServer, itemId: String): Result<MediaDetail> =
+    suspend fun itemDetail(
+        server: SavedServer,
+        itemId: String,
+    ): Result<MediaDetail> =
         call("item_detail") {
-        val dto: BaseItemDto = client.get("${server.baseUrl}/Users/${server.userId}/Items/$itemId") {
-            header("X-Emby-Token", server.accessToken)
-            parameter(
-                "Fields",
-                // Path and DateCreated are opt-in, and the 媒体信息 block is built out of
-                // them. BackdropImageTags is deliberately absent: it is not an ItemFields
-                // value — image tags come back on their own — and naming one Emby doesn't
-                // know risks the whole request rather than adding a field.
-                "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
-                    "SeriesPrimaryImageTag,MediaSources,MediaStreams," +
-                    "Path,DateCreated,Chapters,ProviderIds",
-            )
-        }.body()
-        val detail = dto.toMediaDetail()
+            val dto: BaseItemDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items/$itemId") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter(
+                            "Fields",
+                            // Path and DateCreated are opt-in, and the 媒体信息 block is built out of
+                            // them. BackdropImageTags is deliberately absent: it is not an ItemFields
+                            // value — image tags come back on their own — and naming one Emby doesn't
+                            // know risks the whole request rather than adding a field.
+                            "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
+                                "SeriesPrimaryImageTag,MediaSources,MediaStreams," +
+                                "Path,DateCreated,Chapters,ProviderIds",
+                        )
+                    }.body()
+            val detail = dto.toMediaDetail()
 
-        // Emby returns no cast on episodes; borrow the series' cast instead.
-        if (detail.type == "Episode" && detail.people.isEmpty() && detail.seriesId != null) {
-            val seriesResult = runCatching {
-                client.get("${server.baseUrl}/Users/${server.userId}/Items/${detail.seriesId}") {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("Fields", "People")
-                }.body<BaseItemDto>()
-            }.onFailure {
-                AppLog.warning(
-                    category = "emby",
-                    event = "episode_cast_degraded",
-                    message = "Episode detail loaded but series cast lookup failed",
-                    throwable = it,
-                    attributes = mapOf("serverId" to server.id),
-                )
+            // Emby returns no cast on episodes; borrow the series' cast instead.
+            if (detail.type == "Episode" && detail.people.isEmpty() && detail.seriesId != null) {
+                val seriesResult =
+                    runCatching {
+                        client
+                            .get("${server.baseUrl}/Users/${server.userId}/Items/${detail.seriesId}") {
+                                header("X-Emby-Token", server.accessToken)
+                                parameter("Fields", "People")
+                            }.body<BaseItemDto>()
+                    }.onFailure {
+                        AppLog.warning(
+                            category = "emby",
+                            event = "episode_cast_degraded",
+                            message = "Episode detail loaded but series cast lookup failed",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                    }
+                val series = seriesResult.getOrNull()
+                detail.copy(people = series?.People?.map { it.toPerson() } ?: emptyList())
+            } else {
+                detail
             }
-            val series = seriesResult.getOrNull()
-            detail.copy(people = series?.People?.map { it.toPerson() } ?: emptyList())
-        } else {
-            detail
         }
-    }
 
     /**
      * 跨服务器片源对比: looks the title up on every saved server and reports which
@@ -1370,100 +1513,113 @@ class EmbyRepository(private val client: HttpClient) {
         year: Int? = null,
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
-    ): List<ServerSource> = coroutineScope {
-        servers.map { server ->
-            async {
-                val lookup = discoverSourceWithRetry {
-                    suspend fun query(providerMatch: Boolean): ItemsResponseDto =
-                        client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-                            header("X-Emby-Token", server.accessToken)
-                            parameter("Recursive", true)
-                            parameter(
-                                "IncludeItemTypes",
-                                when (mediaType) {
-                                    "tv" -> "Series"
-                                    "movie" -> "Movie"
-                                    else -> "Movie,Series"
-                                },
-                            )
-                            if (providerMatch && tmdbId != null) {
-                                parameter("AnyProviderIdEquals", "tmdb.$tmdbId")
-                            } else {
-                                parameter("SearchTerm", title)
+    ): List<ServerSource> =
+        coroutineScope {
+            servers
+                .map { server ->
+                    async {
+                        val lookup =
+                            discoverSourceWithRetry {
+                                suspend fun query(providerMatch: Boolean): ItemsResponseDto =
+                                    client
+                                        .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                                            header("X-Emby-Token", server.accessToken)
+                                            parameter("Recursive", true)
+                                            parameter(
+                                                "IncludeItemTypes",
+                                                when (mediaType) {
+                                                    "tv" -> "Series"
+                                                    "movie" -> "Movie"
+                                                    else -> "Movie,Series"
+                                                },
+                                            )
+                                            if (providerMatch && tmdbId != null) {
+                                                parameter("AnyProviderIdEquals", "tmdb.$tmdbId")
+                                            } else {
+                                                parameter("SearchTerm", title)
+                                            }
+                                            parameter("Fields", "MediaSources,ProductionYear,ProviderIds")
+                                            parameter("Limit", 5)
+                                        }.body()
+                                val providerItems =
+                                    if (tmdbId != null) {
+                                        query(providerMatch = true).Items
+                                    } else {
+                                        emptyList()
+                                    }
+                                val candidates =
+                                    providerItems.ifEmpty {
+                                        query(providerMatch = false).Items
+                                    }
+                                candidates.firstOrNull { candidate ->
+                                    val titleMatches = candidate.Name.equals(title, ignoreCase = true)
+                                    val yearMatches = year == null || candidate.ProductionYear == year
+                                    val typeMatches =
+                                        when (mediaType) {
+                                            "tv" -> candidate.Type == "Series"
+                                            "movie" -> candidate.Type == "Movie"
+                                            else -> true
+                                        }
+                                    titleMatches && yearMatches && typeMatches
+                                } ?: candidates.firstOrNull()
                             }
-                            parameter("Fields", "MediaSources,ProductionYear,ProviderIds")
-                            parameter("Limit", 5)
-                        }.body()
-                    val providerItems = if (tmdbId != null) query(providerMatch = true).Items
-                    else emptyList()
-                    val candidates = providerItems.ifEmpty {
-                        query(providerMatch = false).Items
-                    }
-                    candidates.firstOrNull { candidate ->
-                        val titleMatches = candidate.Name.equals(title, ignoreCase = true)
-                        val yearMatches = year == null || candidate.ProductionYear == year
-                        val typeMatches = when (mediaType) {
-                            "tv" -> candidate.Type == "Series"
-                            "movie" -> candidate.Type == "Movie"
-                            else -> true
-                        }
-                        titleMatches && yearMatches && typeMatches
-                    } ?: candidates.firstOrNull()
-                }
-                lookup.onFailure {
-                    AppLog.warning(
-                        category = "emby",
-                        event = "source_lookup_failed",
-                        message = "Cross-server source lookup failed",
-                        throwable = it,
-                        attributes = mapOf("serverId" to server.id),
-                    )
-                }
-                val item = lookup.getOrNull()
-                val comparable = item?.let {
-                    discoverSourceWithRetry {
-                        fetchComparableSource(
-                            server = server,
-                            item = it,
-                            seasonNumber = seasonNumber,
-                            episodeNumber = episodeNumber,
-                        )
-                    }
-                        .onFailure { error ->
+                        lookup.onFailure {
                             AppLog.warning(
                                 category = "emby",
-                                event = "source_metadata_degraded",
-                                message = "Cross-server source metadata lookup failed",
-                                throwable = error,
+                                event = "source_lookup_failed",
+                                message = "Cross-server source lookup failed",
+                                throwable = it,
                                 attributes = mapOf("serverId" to server.id),
                             )
                         }
-                }
-                val source = when (val result = comparable?.getOrNull()) {
-                    ComparableSourceResult.MissingEpisode -> null
-                    is ComparableSourceResult.Found -> result.source
-                        // A matching item is still a resource when this server withholds
-                        // only its stream metadata.
-                        ?: SourceInfo("已有资源", null, null)
-                    null -> if (item != null) {
-                        // A failed metadata request says nothing about availability. Keep
-                        // the item selectable so a later user-initiated resolve can retry.
-                        SourceInfo("已有资源", null, null)
-                    } else {
-                        null
+                        val item = lookup.getOrNull()
+                        val comparable =
+                            item?.let {
+                                discoverSourceWithRetry {
+                                    fetchComparableSource(
+                                        server = server,
+                                        item = it,
+                                        seasonNumber = seasonNumber,
+                                        episodeNumber = episodeNumber,
+                                    )
+                                }.onFailure { error ->
+                                    AppLog.warning(
+                                        category = "emby",
+                                        event = "source_metadata_degraded",
+                                        message = "Cross-server source metadata lookup failed",
+                                        throwable = error,
+                                        attributes = mapOf("serverId" to server.id),
+                                    )
+                                }
+                            }
+                        val source =
+                            when (val result = comparable?.getOrNull()) {
+                                ComparableSourceResult.MissingEpisode -> null
+                                is ComparableSourceResult.Found ->
+                                    result.source
+                                        // A matching item is still a resource when this server withholds
+                                        // only its stream metadata.
+                                        ?: SourceInfo("已有资源", null, null)
+                                null ->
+                                    if (item != null) {
+                                        // A failed metadata request says nothing about availability. Keep
+                                        // the item selectable so a later user-initiated resolve can retry.
+                                        SourceInfo("已有资源", null, null)
+                                    } else {
+                                        null
+                                    }
+                            }
+                        ServerSource(
+                            serverId = server.id,
+                            serverName = server.serverName,
+                            isCurrent = server.id == currentServerId,
+                            itemId = item?.Id,
+                            source = source,
+                            reachable = lookup.isSuccess,
+                        )
                     }
-                }
-                ServerSource(
-                    serverId = server.id,
-                    serverName = server.serverName,
-                    isCurrent = server.id == currentServerId,
-                    itemId = item?.Id,
-                    source = source,
-                    reachable = lookup.isSuccess,
-                )
-            }
-        }.awaitAll()
-    }
+                }.awaitAll()
+        }
 
     /**
      * Search results frequently omit MediaSources. Fetch the concrete item again;
@@ -1482,26 +1638,28 @@ class EmbyRepository(private val client: HttpClient) {
             }
         }
 
-        val playable = if (item.Type == "Series") {
-            if (seasonNumber != null && episodeNumber != null) {
-                fetchEpisodeAtCoordinate(server, item.Id, seasonNumber, episodeNumber)
-                    ?: return ComparableSourceResult.MissingEpisode
+        val playable =
+            if (item.Type == "Series") {
+                if (seasonNumber != null && episodeNumber != null) {
+                    fetchEpisodeAtCoordinate(server, item.Id, seasonNumber, episodeNumber)
+                        ?: return ComparableSourceResult.MissingEpisode
+                } else {
+                    fetchNextUp(server, item.Id) ?: fetchFirstEpisode(server, item.Id)
+                }
             } else {
-                fetchNextUp(server, item.Id) ?: fetchFirstEpisode(server, item.Id)
-            }
-        } else {
-            item
-        } ?: return ComparableSourceResult.Found(null)
+                item
+            } ?: return ComparableSourceResult.Found(null)
 
         playable.MediaSources.bestSourceInfo()?.let {
             return ComparableSourceResult.Found(it)
         }
 
         val full: BaseItemDto =
-            client.get("${server.baseUrl}/Users/${server.userId}/Items/${playable.Id}") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("Fields", "MediaSources")
-            }.body()
+            client
+                .get("${server.baseUrl}/Users/${server.userId}/Items/${playable.Id}") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Fields", "MediaSources")
+                }.body()
         return ComparableSourceResult.Found(full.MediaSources.bestSourceInfo())
     }
 
@@ -1513,29 +1671,36 @@ class EmbyRepository(private val client: HttpClient) {
         episodeNumber: Int,
     ): BaseItemDto? {
         val dto: ItemsResponseDto =
-            client.get("${server.baseUrl}/Shows/$seriesId/Episodes") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("UserId", server.userId)
-                parameter("Season", seasonNumber)
-                parameter("Fields", "MediaSources,MediaStreams")
-                parameter("Limit", 10_000)
-            }.body()
+            client
+                .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("UserId", server.userId)
+                    parameter("Season", seasonNumber)
+                    parameter("Fields", "MediaSources,MediaStreams")
+                    parameter("Limit", 10_000)
+                }.body()
         return dto.Items.firstOrNull { episode ->
             episode.ParentIndexNumber == seasonNumber && episode.IndexNumber == episodeNumber
         }
     }
 
     /** Seasons of a series. */
-    suspend fun seasons(server: SavedServer, seriesId: String): Result<List<Season>> =
+    suspend fun seasons(
+        server: SavedServer,
+        seriesId: String,
+    ): Result<List<Season>> =
         call("seasons") {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/$seriesId/Seasons") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("UserId", server.userId)
-        }.body()
-        dto.Items.map { it.toSeason() }
-    }
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Shows/$seriesId/Seasons") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                    }.body()
+            dto.Items.map { it.toSeason() }
+        }
 
     /** Episodes of a season (or of the whole series when [seasonId] is null). */
+
     /**
      * Every series in the library, indexed by provider key (`tmdb:1399`).
      *
@@ -1563,15 +1728,17 @@ class EmbyRepository(private val client: HttpClient) {
         includeItemTypes: String,
     ): Result<Map<String, ProviderHit>> =
         call("provider_index") {
-            val dto: ItemsResponseDto = client.get(
-                "${server.baseUrl}/Users/${server.userId}/Items",
-            ) {
-                header("X-Emby-Token", server.accessToken)
-                parameter("IncludeItemTypes", includeItemTypes)
-                parameter("Recursive", "true")
-                parameter("Fields", "ProviderIds")
-                parameter("EnableImages", "false")
-            }.body()
+            val dto: ItemsResponseDto =
+                client
+                    .get(
+                        "${server.baseUrl}/Users/${server.userId}/Items",
+                    ) {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("IncludeItemTypes", includeItemTypes)
+                        parameter("Recursive", "true")
+                        parameter("Fields", "ProviderIds")
+                        parameter("EnableImages", "false")
+                    }.body()
             buildMap {
                 dto.Items.forEach { item ->
                     val hit = ProviderHit(item.Id, item.UserData?.Played == true)
@@ -1589,29 +1756,37 @@ class EmbyRepository(private val client: HttpClient) {
         seriesId: String,
         seasonId: String?,
         includeMediaSources: Boolean = false,
-    ): Result<List<Episode>> = call("episodes") {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Shows/$seriesId/Episodes") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("UserId", server.userId)
-            if (seasonId != null) parameter("SeasonId", seasonId)
-            parameter(
-                "Fields",
-                "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate" +
-                    if (includeMediaSources) ",MediaSources,MediaStreams" else "",
-            )
-        }.body()
-        dto.Items.map { it.toEpisode() }
-    }
+    ): Result<List<Episode>> =
+        call("episodes") {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Shows/$seriesId/Episodes") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        if (seasonId != null) parameter("SeasonId", seasonId)
+                        parameter(
+                            "Fields",
+                            "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate" +
+                                if (includeMediaSources) ",MediaSources,MediaStreams" else "",
+                        )
+                    }.body()
+            dto.Items.map { it.toEpisode() }
+        }
 
     /** Optional Jellyfin storyboard metadata; failure is intentionally isolated from playback. */
-    suspend fun trickplayInfo(server: SavedServer, itemId: String): Result<TrickplayInfo?> =
+    suspend fun trickplayInfo(
+        server: SavedServer,
+        itemId: String,
+    ): Result<TrickplayInfo?> =
         call("trickplay_info") {
-            val dto: BaseItemDto = client.get(
-                "${server.baseUrl}/Users/${server.userId}/Items/$itemId",
-            ) {
-                header("X-Emby-Token", server.accessToken)
-                parameter("Fields", "Trickplay")
-            }.body()
+            val dto: BaseItemDto =
+                client
+                    .get(
+                        "${server.baseUrl}/Users/${server.userId}/Items/$itemId",
+                    ) {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Fields", "Trickplay")
+                    }.body()
             dto.bestTrickplay()
         }
 
@@ -1619,39 +1794,43 @@ class EmbyRepository(private val client: HttpClient) {
         server: SavedServer,
         itemId: String,
         language: String = "zh",
-    ): Result<List<RemoteSubtitleInfoDto>> = call("remote_subtitle_search") {
-        client.get(
-            "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
-                language.encodeURLPathPart(),
-        ) {
-            header("X-Emby-Token", server.accessToken)
-            parameter("IsPerfectMatch", false)
-        }.body()
-    }
+    ): Result<List<RemoteSubtitleInfoDto>> =
+        call("remote_subtitle_search") {
+            client
+                .get(
+                    "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
+                        language.encodeURLPathPart(),
+                ) {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("IsPerfectMatch", false)
+                }.body()
+        }
 
     suspend fun downloadRemoteSubtitle(
         server: SavedServer,
         itemId: String,
         subtitleId: String,
-    ): Result<Unit> = call("remote_subtitle_download") {
-        client.post(
-            "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
-                subtitleId.encodeURLPathPart(),
-        ) {
-            header("X-Emby-Token", server.accessToken)
+    ): Result<Unit> =
+        call("remote_subtitle_download") {
+            client.post(
+                "${normalizeBaseUrl(server.baseUrl)}/Items/$itemId/RemoteSearch/Subtitles/" +
+                    subtitleId.encodeURLPathPart(),
+            ) {
+                header("X-Emby-Token", server.accessToken)
+            }
+            Unit
         }
-        Unit
-    }
 
     private suspend fun findWatchLaterPlaylistId(server: SavedServer): String? {
         val playlists: ItemsResponseDto =
-            client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-                header("X-Emby-Token", server.accessToken)
-                parameter("Recursive", true)
-                parameter("IncludeItemTypes", "Playlist")
-                parameter("SearchTerm", "稍后观看")
-                parameter("Limit", 20)
-            }.body()
+            client
+                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Recursive", true)
+                    parameter("IncludeItemTypes", "Playlist")
+                    parameter("SearchTerm", "稍后观看")
+                    parameter("Limit", 20)
+                }.body()
         return playlists.Items
             .firstOrNull { it.Name.equals("稍后观看", ignoreCase = true) }
             ?.Id
@@ -1663,48 +1842,53 @@ class EmbyRepository(private val client: HttpClient) {
         startIndex: Int,
         limit: Int,
     ): MediaContainerPage {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("Recursive", true)
-            parameter(
-                "IncludeItemTypes",
-                when (kind) {
-                    MediaContainerKind.BoxSet -> "BoxSet"
-                    MediaContainerKind.Playlist -> "Playlist"
-                    null -> "BoxSet,Playlist"
-                },
-            )
-            parameter("SortBy", "SortName")
-            parameter("SortOrder", "Ascending")
-            parameter("Fields", "ChildCount")
-            parameter("EnableImageTypes", "Primary")
-            parameter("ImageTypeLimit", 1)
-            if (startIndex > 0) parameter("StartIndex", startIndex)
-            parameter("Limit", limit)
-        }.body()
-        val containers = dto.Items.mapNotNull { item ->
-            val kind = when (item.Type) {
-                "BoxSet" -> MediaContainerKind.BoxSet
-                "Playlist" -> MediaContainerKind.Playlist
-                else -> null
-            } ?: return@mapNotNull null
-            MediaContainer(
-                id = item.Id,
-                title = item.Name?.takeIf(String::isNotBlank) ?: return@mapNotNull null,
-                kind = kind,
-                serverId = server.id,
-                posterTag = item.ImageTags?.get("Primary"),
-                itemCount = item.ChildCount,
-            )
-        }
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Recursive", true)
+                    parameter(
+                        "IncludeItemTypes",
+                        when (kind) {
+                            MediaContainerKind.BoxSet -> "BoxSet"
+                            MediaContainerKind.Playlist -> "Playlist"
+                            null -> "BoxSet,Playlist"
+                        },
+                    )
+                    parameter("SortBy", "SortName")
+                    parameter("SortOrder", "Ascending")
+                    parameter("Fields", "ChildCount")
+                    parameter("EnableImageTypes", "Primary")
+                    parameter("ImageTypeLimit", 1)
+                    if (startIndex > 0) parameter("StartIndex", startIndex)
+                    parameter("Limit", limit)
+                }.body()
+        val containers =
+            dto.Items.mapNotNull { item ->
+                val kind =
+                    when (item.Type) {
+                        "BoxSet" -> MediaContainerKind.BoxSet
+                        "Playlist" -> MediaContainerKind.Playlist
+                        else -> null
+                    } ?: return@mapNotNull null
+                MediaContainer(
+                    id = item.Id,
+                    title = item.Name?.takeIf(String::isNotBlank) ?: return@mapNotNull null,
+                    kind = kind,
+                    serverId = server.id,
+                    posterTag = item.ImageTags?.get("Primary"),
+                    itemCount = item.ChildCount,
+                )
+            }
         return MediaContainerPage(
             containers = containers,
-            totalCount = pageTotal(
-                reportedTotal = dto.TotalRecordCount,
-                startIndex = startIndex,
-                itemCount = dto.Items.size,
-                limit = limit,
-            ),
+            totalCount =
+                pageTotal(
+                    reportedTotal = dto.TotalRecordCount,
+                    startIndex = startIndex,
+                    itemCount = dto.Items.size,
+                    limit = limit,
+                ),
             startIndex = startIndex,
         )
     }
@@ -1714,13 +1898,14 @@ class EmbyRepository(private val client: HttpClient) {
         limit: Int,
         includePlaylistItemId: Boolean,
     ) {
-        val fields = buildString {
-            append(
-                "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
-                    "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
-            )
-            if (includePlaylistItemId) append(",PlaylistItemId")
-        }
+        val fields =
+            buildString {
+                append(
+                    "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+                        "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+                )
+                if (includePlaylistItemId) append(",PlaylistItemId")
+            }
         parameter("Fields", fields)
         parameter("EnableImageTypes", "Primary,Backdrop")
         parameter("EnableUserData", true)
@@ -1735,15 +1920,17 @@ class EmbyRepository(private val client: HttpClient) {
         startIndex: Int = 0,
         sort: LibrarySort = LibrarySort.RecentlyAdded,
     ): PersonalCollection {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("Recursive", true)
-            parameter("Filters", "IsFavorite")
-            parameter("IncludeItemTypes", "Movie,Series")
-            parameter("SortBy", sort.sortBy)
-            parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
-            personalCollectionParameters(limit, startIndex)
-        }.body()
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Recursive", true)
+                    parameter("Filters", "IsFavorite")
+                    parameter("IncludeItemTypes", "Movie,Series")
+                    parameter("SortBy", sort.sortBy)
+                    parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
+                    personalCollectionParameters(limit, startIndex)
+                }.body()
         return dto.toPersonalCollection(startIndex, limit)
     }
 
@@ -1752,13 +1939,16 @@ class EmbyRepository(private val client: HttpClient) {
         limit: Int,
         startIndex: Int = 0,
     ): PersonalCollection {
-        val playlistId = findWatchLaterPlaylistId(server)
-            ?: return PersonalCollection(emptyList(), 0)
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Playlists/$playlistId/Items") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("UserId", server.userId)
-            personalCollectionParameters(limit, startIndex)
-        }.body()
+        val playlistId =
+            findWatchLaterPlaylistId(server)
+                ?: return PersonalCollection(emptyList(), 0)
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Playlists/$playlistId/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("UserId", server.userId)
+                    personalCollectionParameters(limit, startIndex)
+                }.body()
         return dto.toPersonalCollection(startIndex, limit)
     }
 
@@ -1783,33 +1973,39 @@ class EmbyRepository(private val client: HttpClient) {
     ): PersonalCollection =
         PersonalCollection(
             items = Items.map { it.toMediaItem() },
-            totalCount = pageTotal(
-                reportedTotal = TotalRecordCount,
-                startIndex = startIndex,
-                itemCount = Items.size,
-                limit = limit,
-            ),
+            totalCount =
+                pageTotal(
+                    reportedTotal = TotalRecordCount,
+                    startIndex = startIndex,
+                    itemCount = Items.size,
+                    limit = limit,
+                ),
         )
 
-    private fun PersonalCollection.toLibraryPage(startIndex: Int) = LibraryPage(
-        items = items,
-        totalCount = totalCount,
-        startIndex = startIndex,
-    )
+    private fun PersonalCollection.toLibraryPage(startIndex: Int) =
+        LibraryPage(
+            items = items,
+            totalCount = totalCount,
+            startIndex = startIndex,
+        )
 
     private suspend fun fetchViews(server: SavedServer): List<MediaLibrary> {
-        val dto: ViewsDto = client.get("${server.baseUrl}/Users/${server.userId}/Views") {
-            header("X-Emby-Token", server.accessToken)
-        }.body()
+        val dto: ViewsDto =
+            client
+                .get("${server.baseUrl}/Users/${server.userId}/Views") {
+                    header("X-Emby-Token", server.accessToken)
+                }.body()
         return dto.Items.map { MediaLibrary(it.Id, it.Name, it.CollectionType) }
     }
 
     /** One lightweight request gives exact Movie/Series totals across the selected user. */
     private suspend fun fetchItemCounts(server: SavedServer): LibraryCounts {
-        val dto: ItemCountsDto = client.get("${server.baseUrl}/Items/Counts") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("UserId", server.userId)
-        }.body()
+        val dto: ItemCountsDto =
+            client
+                .get("${server.baseUrl}/Items/Counts") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("UserId", server.userId)
+                }.body()
         return LibraryCounts(
             movieCount = dto.MovieCount.coerceAtLeast(0),
             seriesCount = dto.SeriesCount.coerceAtLeast(0),
@@ -1817,49 +2013,61 @@ class EmbyRepository(private val client: HttpClient) {
     }
 
     /** `Limit=0` returns just the count, which is all the category chip needs. */
-    private suspend fun fetchLibraryCount(server: SavedServer, viewId: String): Int {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("ParentId", viewId)
-            parameter("Recursive", true)
-            parameter("IncludeItemTypes", "Movie,Series")
-            parameter("Limit", 0)
-        }.body()
+    private suspend fun fetchLibraryCount(
+        server: SavedServer,
+        viewId: String,
+    ): Int {
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("ParentId", viewId)
+                    parameter("Recursive", true)
+                    parameter("IncludeItemTypes", "Movie,Series")
+                    parameter("Limit", 0)
+                }.body()
         return dto.TotalRecordCount ?: 0
     }
 
     private suspend fun fetchResume(server: SavedServer): List<MediaItem> {
-        val dto: ItemsResponseDto = client.get("${server.baseUrl}/Users/${server.userId}/Items/Resume") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("Limit", 12)
-            parameter("Recursive", true)
-            parameter("MediaTypes", "Video")
-            // UserData carries PlayedPercentage, which draws the resume bar.
-            parameter(
-                "Fields",
-                "BackdropImageTags,UserData,Overview,ParentBackdropItemId," +
-                    "ParentBackdropImageTags,SeriesPrimaryImageTag",
-            )
-            parameter("EnableImageTypes", "Primary,Backdrop")
-            parameter("ImageTypeLimit", 2)
-        }.body()
+        val dto: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Users/${server.userId}/Items/Resume") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Limit", 12)
+                    parameter("Recursive", true)
+                    parameter("MediaTypes", "Video")
+                    // UserData carries PlayedPercentage, which draws the resume bar.
+                    parameter(
+                        "Fields",
+                        "BackdropImageTags,UserData,Overview,ParentBackdropItemId," +
+                            "ParentBackdropImageTags,SeriesPrimaryImageTag",
+                    )
+                    parameter("EnableImageTypes", "Primary,Backdrop")
+                    parameter("ImageTypeLimit", 2)
+                }.body()
         return dto.Items.map { it.toMediaItem() }
     }
 
-    private suspend fun fetchLatest(server: SavedServer, viewId: String): List<MediaItem> {
-        val items: List<BaseItemDto> = client.get("${server.baseUrl}/Users/${server.userId}/Items/Latest") {
-            header("X-Emby-Token", server.accessToken)
-            parameter("ParentId", viewId)
-            parameter("Limit", 16)
-            // Overview feeds the carousel synopsis.
-            parameter(
-                "Fields",
-                "BackdropImageTags,ProductionYear,Overview,ParentBackdropItemId," +
-                    "ParentBackdropImageTags,SeriesPrimaryImageTag",
-            )
-            parameter("EnableImageTypes", "Primary,Backdrop")
-            parameter("ImageTypeLimit", 2)
-        }.body()
+    private suspend fun fetchLatest(
+        server: SavedServer,
+        viewId: String,
+    ): List<MediaItem> {
+        val items: List<BaseItemDto> =
+            client
+                .get("${server.baseUrl}/Users/${server.userId}/Items/Latest") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("ParentId", viewId)
+                    parameter("Limit", 16)
+                    // Overview feeds the carousel synopsis.
+                    parameter(
+                        "Fields",
+                        "BackdropImageTags,ProductionYear,Overview,ParentBackdropItemId," +
+                            "ParentBackdropImageTags,SeriesPrimaryImageTag",
+                    )
+                    parameter("EnableImageTypes", "Primary,Backdrop")
+                    parameter("ImageTypeLimit", 2)
+                }.body()
         return items.map { it.toMediaItem() }
     }
 
@@ -1871,22 +2079,23 @@ class EmbyRepository(private val client: HttpClient) {
         positionTicks: Long,
         isPaused: Boolean,
         playMethod: String,
-    ): Result<Unit> = call("report_playback") {
-        client.post("${normalizeBaseUrl(server.baseUrl)}$path") {
-            header("X-Emby-Token", server.accessToken)
-            contentType(ContentType.Application.Json)
-            setBody(
-                PlaybackReportDto(
-                    ItemId = itemId,
-                    PlaySessionId = playSessionId,
-                    PositionTicks = positionTicks.coerceAtLeast(0L),
-                    IsPaused = isPaused,
-                    PlayMethod = playMethod,
-                ),
-            )
+    ): Result<Unit> =
+        call("report_playback") {
+            client.post("${normalizeBaseUrl(server.baseUrl)}$path") {
+                header("X-Emby-Token", server.accessToken)
+                contentType(ContentType.Application.Json)
+                setBody(
+                    PlaybackReportDto(
+                        ItemId = itemId,
+                        PlaySessionId = playSessionId,
+                        PositionTicks = positionTicks.coerceAtLeast(0L),
+                        IsPaused = isPaused,
+                        PlayMethod = playMethod,
+                    ),
+                )
+            }
+            Unit
         }
-        Unit
-    }
 
     private suspend inline fun <T> call(
         operation: String,
@@ -1903,47 +2112,56 @@ class EmbyRepository(private val client: HttpClient) {
                 event = "request_failed",
                 message = "Emby operation failed",
                 throwable = e,
-                attributes = mapOf(
-                    "operation" to operation,
-                    "error" to mapped.toString(),
-                ),
+                attributes =
+                    mapOf(
+                        "operation" to operation,
+                        "error" to mapped.toString(),
+                    ),
             )
             Result.failure(EmbyErrorException(mapped))
         }
 
-    private suspend fun Throwable.toEmbyError(): EmbyError = when (this) {
-        is ResponseException -> when (response.status.value) {
-            401 -> EmbyError.Unauthorized
-            // Emby itself can answer 403 for a revoked token or disabled account, but a
-            // Cloudflare/WAF block uses the same status. Re-login cannot repair the latter,
-            // so inspect the saved error response before deciding what the user should do.
-            403 -> forbiddenError()
-            in 500..599 -> EmbyError.Server(response.status.value)
-            else -> EmbyError.Unknown("HTTP ${response.status.value}")
+    private suspend fun Throwable.toEmbyError(): EmbyError =
+        when (this) {
+            is ResponseException ->
+                when (response.status.value) {
+                    401 -> EmbyError.Unauthorized
+                    // Emby itself can answer 403 for a revoked token or disabled account, but a
+                    // Cloudflare/WAF block uses the same status. Re-login cannot repair the latter,
+                    // so inspect the saved error response before deciding what the user should do.
+                    403 -> forbiddenError()
+                    in 500..599 -> EmbyError.Server(response.status.value)
+                    else -> EmbyError.Unknown("HTTP ${response.status.value}")
+                }
+            is IOException -> EmbyError.Network
+            else -> EmbyError.Unknown(message ?: "无法解析服务器响应")
         }
-        is IOException -> EmbyError.Network
-        else -> EmbyError.Unknown(message ?: "无法解析服务器响应")
-    }
 
     private suspend fun ResponseException.forbiddenError(): EmbyError {
         val serverHeader = response.headers[HttpHeaders.Server].orEmpty()
-        val responseText = runCatching { response.bodyAsText() }
-            .getOrDefault(message.orEmpty())
-            .take(8_192)
-            .lowercase()
-        val cloudflare = serverHeader.contains("cloudflare", ignoreCase = true) ||
-            response.headers["CF-Ray"] != null ||
-            "cloudflare" in responseText
-        val htmlResponse = response.headers[HttpHeaders.ContentType]
-            ?.contains("text/html", ignoreCase = true) == true ||
-            "<!doctype html" in responseText ||
-            "<html" in responseText
-        val accessBlock = cloudflare || htmlResponse || listOf(
-            "sorry, you have been blocked",
-            "access denied",
-            "request blocked",
-            "security policy",
-        ).any(responseText::contains)
+        val responseText =
+            runCatching { response.bodyAsText() }
+                .getOrDefault(message.orEmpty())
+                .take(8_192)
+                .lowercase()
+        val cloudflare =
+            serverHeader.contains("cloudflare", ignoreCase = true) ||
+                response.headers["CF-Ray"] != null ||
+                "cloudflare" in responseText
+        val htmlResponse =
+            response.headers[HttpHeaders.ContentType]
+                ?.contains("text/html", ignoreCase = true) == true ||
+                "<!doctype html" in responseText ||
+                "<html" in responseText
+        val accessBlock =
+            cloudflare ||
+                htmlResponse ||
+                listOf(
+                    "sorry, you have been blocked",
+                    "access denied",
+                    "request blocked",
+                    "security policy",
+                ).any(responseText::contains)
 
         return if (accessBlock) {
             EmbyError.AccessDenied(provider = "Cloudflare".takeIf { cloudflare })

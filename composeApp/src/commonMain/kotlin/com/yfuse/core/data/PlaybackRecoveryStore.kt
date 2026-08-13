@@ -36,8 +36,9 @@ data class PlaybackRecoveryEvaluation(
     val server: SavedServer? = null,
 ) {
     val shouldPrompt: Boolean
-        get() = eligibility == PlaybackRecoveryEligibility.Eligible ||
-            eligibility == PlaybackRecoveryEligibility.AuthenticationRequired
+        get() =
+            eligibility == PlaybackRecoveryEligibility.Eligible ||
+                eligibility == PlaybackRecoveryEligibility.AuthenticationRequired
 }
 
 private const val MIN_RECOVERY_POSITION_MS = 10_000L
@@ -52,8 +53,10 @@ fun evaluatePlaybackRecovery(
     nowEpochMs: Long,
 ): PlaybackRecoveryEvaluation {
     if (
-        snapshot.itemId.isBlank() || snapshot.serverId.isNullOrBlank() ||
-        snapshot.positionMs < 0L || snapshot.durationMs < 0L ||
+        snapshot.itemId.isBlank() ||
+        snapshot.serverId.isNullOrBlank() ||
+        snapshot.positionMs < 0L ||
+        snapshot.durationMs < 0L ||
         snapshot.updatedAtEpochMs <= 0L
     ) {
         return PlaybackRecoveryEvaluation(snapshot, PlaybackRecoveryEligibility.Invalid)
@@ -77,17 +80,20 @@ fun evaluatePlaybackRecovery(
     ) {
         return PlaybackRecoveryEvaluation(snapshot, PlaybackRecoveryEligibility.NearEnd)
     }
-    val serverId = snapshot.serverId
-        ?: return PlaybackRecoveryEvaluation(snapshot, PlaybackRecoveryEligibility.Invalid)
-    val server = servers.firstOrNull { it.id == serverId || serverId in it.previousIds }
-        ?: return PlaybackRecoveryEvaluation(snapshot, PlaybackRecoveryEligibility.ServerMissing)
+    val serverId =
+        snapshot.serverId
+            ?: return PlaybackRecoveryEvaluation(snapshot, PlaybackRecoveryEligibility.Invalid)
+    val server =
+        servers.firstOrNull { it.id == serverId || serverId in it.previousIds }
+            ?: return PlaybackRecoveryEvaluation(snapshot, PlaybackRecoveryEligibility.ServerMissing)
     return PlaybackRecoveryEvaluation(
         snapshot = snapshot,
-        eligibility = if (server.accessToken.isBlank()) {
-            PlaybackRecoveryEligibility.AuthenticationRequired
-        } else {
-            PlaybackRecoveryEligibility.Eligible
-        },
+        eligibility =
+            if (server.accessToken.isBlank()) {
+                PlaybackRecoveryEligibility.AuthenticationRequired
+            } else {
+                PlaybackRecoveryEligibility.Eligible
+            },
         server = server,
     )
 }
@@ -96,18 +102,25 @@ fun evaluatePlaybackRecovery(
  * Process-death-safe playback checkpoint. Authenticated media URLs are
  * deliberately excluded; they are rebuilt from the saved server on resume.
  */
-class PlaybackRecoveryStore(private val settings: Settings) {
+class PlaybackRecoveryStore(
+    private val settings: Settings,
+) {
     private companion object {
         const val KEY = "playback.recovery.v1"
         const val WRITE_INTERVAL_MS = 5_000L
     }
 
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     private val _snapshot = MutableStateFlow(load())
     val snapshot: StateFlow<PlaybackRecoverySnapshot?> = _snapshot.asStateFlow()
     private var lastWriteEpochMs = 0L
     private var lastItemId: String? = _snapshot.value?.itemId
     private var persistenceFailureReported = false
+
     /** A singleton store is process-scoped: configuration changes must not offer it twice. */
     private var startupSnapshotChecked = false
 
@@ -132,15 +145,16 @@ class PlaybackRecoveryStore(private val settings: Settings) {
         if (itemId.isBlank() || positionMs < 0L) return
         val now = System.currentTimeMillis()
         val changedItem = itemId != lastItemId
-        val value = PlaybackRecoverySnapshot(
-            itemId = itemId,
-            title = title,
-            serverId = serverId,
-            positionMs = positionMs,
-            durationMs = durationMs,
-            engine = engine,
-            updatedAtEpochMs = now,
-        )
+        val value =
+            PlaybackRecoverySnapshot(
+                itemId = itemId,
+                title = title,
+                serverId = serverId,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                engine = engine,
+                updatedAtEpochMs = now,
+            )
         _snapshot.value = value
         if (!force && !changedItem && now - lastWriteEpochMs < WRITE_INTERVAL_MS) return
         runCatching {

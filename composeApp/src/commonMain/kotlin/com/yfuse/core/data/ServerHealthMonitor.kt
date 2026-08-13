@@ -20,12 +20,35 @@ import kotlinx.coroutines.launch
 /** A lightweight health model used by server rows and playback failover decisions. */
 enum class ServerHealthStatus { Unknown, Healthy, Degraded, Offline, AuthRequired }
 
+/**
+ * The experience implied by a measured round-trip time.
+ *
+ * This deliberately does not reuse [ServerHealthStatus]: a server can be reachable while
+ * being painfully slow. Keeping the dimensions separate prevents a successful 1.3 second
+ * response from inheriting the same green treatment as a fast one.
+ */
+enum class LatencySeverity(
+    val label: String,
+) {
+    Unknown("未测速"),
+    Stable("稳定"),
+    Slow("较慢"),
+    Unstable("不稳定"),
+}
+
+const val SLOW_LATENCY_MS = 400L
+const val UNSTABLE_LATENCY_MS = 1_200L
+
 /** What one address of a server answered on its last probe. */
 data class RouteHealth(
     val status: ServerHealthStatus = ServerHealthStatus.Unknown,
     val latencyMs: Long? = null,
 ) {
-    val reachable: Boolean get() = status == ServerHealthStatus.Healthy
+    val reachable: Boolean
+        get() = status == ServerHealthStatus.Healthy || status == ServerHealthStatus.Degraded
+
+    val latencySeverity: LatencySeverity
+        get() = latencySeverity(latencyMs)
 }
 
 data class ServerHealth(
@@ -36,14 +59,22 @@ data class ServerHealth(
     /** Keyed by [ServerRoute.id]; empty until the first multi-route probe lands. */
     val routes: Map<String, RouteHealth> = emptyMap(),
 ) {
+    val reachable: Boolean
+        get() = status == ServerHealthStatus.Healthy || status == ServerHealthStatus.Degraded
+
+    val latencySeverity: LatencySeverity
+        get() = latencySeverity(latencyMs)
+
     val summary: String
-        get() = when (status) {
-            ServerHealthStatus.Healthy -> latencyMs?.let { "在线 · ${it} ms" } ?: "在线"
-            ServerHealthStatus.Degraded -> message ?: "连接不稳定"
-            ServerHealthStatus.Offline -> "无法连接"
-            ServerHealthStatus.AuthRequired -> "需要重新登录"
-            ServerHealthStatus.Unknown -> "正在检查"
-        }
+        get() =
+            when (status) {
+                ServerHealthStatus.Healthy ->
+                    latencyMs?.let { "在线 · ${latencySeverity.label} · $it ms" } ?: "在线"
+                ServerHealthStatus.Degraded -> message ?: "连接不稳定"
+                ServerHealthStatus.Offline -> "无法连接"
+                ServerHealthStatus.AuthRequired -> "需要重新登录"
+                ServerHealthStatus.Unknown -> "正在检查"
+            }
 
     fun route(id: String): RouteHealth? = routes[id]
 
@@ -90,10 +121,11 @@ class ServerHealthMonitor(
         }
     }
 
-    suspend fun refreshAll(servers: List<SavedServer> = registry.data.value.servers) = coroutineScope {
-        servers.map { server -> async { refresh(server) } }.awaitAll()
-        Unit
-    }
+    suspend fun refreshAll(servers: List<SavedServer> = registry.data.value.servers) =
+        coroutineScope {
+            servers.map { server -> async { refresh(server) } }.awaitAll()
+            Unit
+        }
 
     /**
      * Probes every address the server has and records each one, then reports the active
@@ -106,31 +138,42 @@ class ServerHealthMonitor(
     suspend fun refresh(server: SavedServer) {
         val routes = server.effectiveRoutes
         if (routes.size <= 1) {
-            repository.probeServer(server)
+            repository
+                .probeServer(server)
                 .onSuccess { latency -> recordSuccess(server.id, latency) }
                 .onFailure { recordFailure(server.id, it) }
             return
         }
-        val probed: List<Pair<ServerRoute, Result<Long>>> = coroutineScope {
-            routes.map { route ->
-                async { route to repository.probeAddress(route.url, server.accessToken) }
-            }.awaitAll()
-        }
-        val routeHealth = probed.associate { (route, result) ->
-            route.id to result.fold(
-                onSuccess = { RouteHealth(ServerHealthStatus.Healthy, it) },
-                onFailure = { RouteHealth(statusFor(it)) },
-            )
-        }
+        val probed: List<Pair<ServerRoute, Result<Long>>> =
+            coroutineScope {
+                routes
+                    .map { route ->
+                        async { route to repository.probeAddress(route.url, server.accessToken) }
+                    }.awaitAll()
+            }
+        val routeHealth =
+            probed.associate { (route, result) ->
+                route.id to
+                    result.fold(
+                        onSuccess = {
+                            RouteHealth(
+                                status = ServerHealthStatus.Healthy,
+                                latencyMs = it,
+                            )
+                        },
+                        onFailure = { RouteHealth(statusFor(it)) },
+                    )
+            }
         val activeId = server.activeRoute.id
         val activeResult = probed.firstOrNull { it.first.id == activeId }?.second
         when {
             activeResult == null -> Unit
-            activeResult.isSuccess -> recordSuccess(
-                serverId = server.id,
-                latencyMs = activeResult.getOrNull(),
-                routes = routeHealth,
-            )
+            activeResult.isSuccess ->
+                recordSuccess(
+                    serverId = server.id,
+                    latencyMs = activeResult.getOrNull(),
+                    routes = routeHealth,
+                )
             else -> {
                 val error = activeResult.exceptionOrNull() ?: IllegalStateException("probe failed")
                 recordFailure(server.id, error, routes = routeHealth)
@@ -147,26 +190,31 @@ class ServerHealthMonitor(
      * a LAN route is chosen because it is faster, not because the WAN route is down — and
      * silently returning to it the moment it answers would fight that choice on every probe.
      */
-    private fun failOver(server: SavedServer, probed: List<Pair<ServerRoute, Result<Long>>>) {
+    private fun failOver(
+        server: SavedServer,
+        probed: List<Pair<ServerRoute, Result<Long>>>,
+    ) {
         val now = nowEpochMs()
         val last = lastAutoSwitchAtMs[server.id]
         if (last != null && now - last < MIN_AUTO_SWITCH_INTERVAL_MS) return
-        val fallback = probed
-            .filter { it.first.id != server.activeRoute.id }
-            .mapNotNull { (route, result) -> result.getOrNull()?.let { route to it } }
-            .minByOrNull { it.second }
-            ?: return
+        val fallback =
+            probed
+                .filter { it.first.id != server.activeRoute.id }
+                .mapNotNull { (route, result) -> result.getOrNull()?.let { route to it } }
+                .minByOrNull { it.second }
+                ?: return
         lastAutoSwitchAtMs[server.id] = now
         if (!registry.activateRoute(server.id, fallback.first.id)) return
         AppLog.info(
             category = "server.health",
             event = "route_failover",
             message = "Switched to a reachable route after the active one stopped answering",
-            attributes = mapOf(
-                "serverId" to server.id,
-                "routeId" to fallback.first.id,
-                "latencyMs" to fallback.second.toString(),
-            ),
+            attributes =
+                mapOf(
+                    "serverId" to server.id,
+                    "routeId" to fallback.first.id,
+                    "latencyMs" to fallback.second.toString(),
+                ),
         )
     }
 
@@ -176,10 +224,12 @@ class ServerHealthMonitor(
         routes: Map<String, RouteHealth>? = null,
     ) {
         update(serverId) {
+            val resolvedLatency = latencyMs ?: it?.latencyMs
             ServerHealth(
                 status = ServerHealthStatus.Healthy,
-                latencyMs = latencyMs ?: it?.latencyMs,
+                latencyMs = resolvedLatency,
                 consecutiveFailures = 0,
+                message = null,
                 routes = routes ?: it?.routes.orEmpty(),
             )
         }
@@ -196,11 +246,12 @@ class ServerHealthMonitor(
                 status = status,
                 latencyMs = previous?.latencyMs,
                 consecutiveFailures = (previous?.consecutiveFailures ?: 0) + 1,
-                message = when (status) {
-                    ServerHealthStatus.AuthRequired -> "需要重新登录"
-                    ServerHealthStatus.Offline -> "无法连接"
-                    else -> "服务器暂时异常"
-                },
+                message =
+                    when (status) {
+                        ServerHealthStatus.AuthRequired -> "需要重新登录"
+                        ServerHealthStatus.Offline -> "无法连接"
+                        else -> "服务器暂时异常"
+                    },
                 routes = routes ?: previous?.routes.orEmpty(),
             )
         }
@@ -217,17 +268,35 @@ class ServerHealthMonitor(
         when (val emby = (error as? EmbyErrorException)?.error) {
             EmbyError.Unauthorized, is EmbyError.AccessDenied -> ServerHealthStatus.AuthRequired
             EmbyError.Network -> ServerHealthStatus.Offline
-            is EmbyError.Server -> if (emby.code in 500..599) {
-                ServerHealthStatus.Degraded
-            } else {
-                ServerHealthStatus.Offline
-            }
+            is EmbyError.Server ->
+                if (emby.code in 500..599) {
+                    ServerHealthStatus.Degraded
+                } else {
+                    ServerHealthStatus.Offline
+                }
             else -> ServerHealthStatus.Degraded
         }
 
-    private inline fun update(serverId: String, block: (ServerHealth?) -> ServerHealth) {
-        _health.value = _health.value.toMutableMap().apply {
-            this[serverId] = block(this[serverId])
-        }
+    private inline fun update(
+        serverId: String,
+        block: (ServerHealth?) -> ServerHealth,
+    ) {
+        _health.value =
+            _health.value.toMutableMap().apply {
+                this[serverId] = block(this[serverId])
+            }
     }
 }
+
+/** Shared thresholds for cards, route diagnostics, filtering and source ranking. */
+fun latencySeverity(
+    latencyMs: Long?,
+    slowLatencyMs: Long = SLOW_LATENCY_MS,
+    unstableLatencyMs: Long = UNSTABLE_LATENCY_MS,
+): LatencySeverity =
+    when {
+        latencyMs == null -> LatencySeverity.Unknown
+        latencyMs >= unstableLatencyMs -> LatencySeverity.Unstable
+        latencyMs >= slowLatencyMs -> LatencySeverity.Slow
+        else -> LatencySeverity.Stable
+    }

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,10 +31,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
-import com.yfuse.core.designsystem.LocalAccessibilityOptions
-import com.yfuse.core.designsystem.rememberAccentColorsForSurface
-import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.WatchAvatar
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.sticker
 import kotlin.math.roundToInt
@@ -56,7 +55,9 @@ internal sealed interface WatchChatAnimationKey {
         val clientMessageId: String,
     ) : WatchChatAnimationKey
 
-    data class ServerMessage(val id: Long) : WatchChatAnimationKey
+    data class ServerMessage(
+        val id: Long,
+    ) : WatchChatAnimationKey
 }
 
 /**
@@ -64,17 +65,19 @@ internal sealed interface WatchChatAnimationKey {
  * sender see the optimistic message immediately without animating it a second time when
  * the echo replaces the pending row in chat history.
  */
-internal fun WatchChatMessage.animationKey(): WatchChatAnimationKey = clientMessageId
-    ?.let { WatchChatAnimationKey.ClientMessage(clientId, it) }
-    ?: WatchChatAnimationKey.ServerMessage(id)
+internal fun WatchChatMessage.animationKey(): WatchChatAnimationKey =
+    clientMessageId
+        ?.let { WatchChatAnimationKey.ClientMessage(clientId, it) }
+        ?: WatchChatAnimationKey.ServerMessage(id)
 
 /** Returns only messages whose stable local/server identity has not been animated yet. */
 internal fun watchChatMessagesNotSeen(
     messages: List<WatchChatMessage>,
     seenKeys: Set<WatchChatAnimationKey>,
-): List<WatchChatMessage> = messages
-    .filter { it.animationKey() !in seenKeys }
-    .sortedWith(compareBy<WatchChatMessage> { it.sentAtMs }.thenBy { it.id })
+): List<WatchChatMessage> =
+    messages
+        .filter { it.animationKey() !in seenKeys }
+        .sortedWith(compareBy<WatchChatMessage> { it.sentAtMs }.thenBy { it.id })
 
 /**
  * What is owed a flight right now.
@@ -132,14 +135,16 @@ internal fun WatchChatDanmakuOverlay(
             // When every lane is occupied, leave the message unseen; completion changes
             // activeKeys and this effect schedules the waiting message on the next free lane.
             val occupied = active.mapTo(mutableSetOf()) { it.lane }
-            val available = (0 until laneCount)
-                .map { (nextLane + it) % laneCount }
-                .filterNot(occupied::contains)
+            val available =
+                (0 until laneCount)
+                    .map { (nextLane + it) % laneCount }
+                    .filterNot(occupied::contains)
             val arrivals = watchChatDanmakuArrivals(messages, seenKeys, available.size)
             if (arrivals.isEmpty()) return@LaunchedEffect
-            val flights = arrivals.mapIndexed { index, message ->
-                WatchChatFlight(message, available[index])
-            }
+            val flights =
+                arrivals.mapIndexed { index, message ->
+                    WatchChatFlight(message, available[index])
+                }
             // History can be bounded by the relay; discard identities no longer present so
             // a long room session does not turn this into an ever-growing set.
             seenKeys = (seenKeys intersect messageKeys.toSet()) +
@@ -182,8 +187,9 @@ private fun WatchChatDanmakuItem(
         if (viewportWidthPx <= 0f || contentWidthPx <= 0) return@LaunchedEffect
         offsetX.snapTo(viewportWidthPx)
         ready = true
-        val durationMs = (
-            (viewportWidthPx + contentWidthPx) / density.density / SPEED_DP_PER_SECOND * 1_000f
+        val durationMs =
+            (
+                (viewportWidthPx + contentWidthPx) / density.density / SPEED_DP_PER_SECOND * 1_000f
             ).roundToInt().coerceIn(5_500, 11_000)
         offsetX.animateTo(
             targetValue = -contentWidthPx.toFloat(),
@@ -198,28 +204,28 @@ private fun WatchChatDanmakuItem(
             .graphicsLayer {
                 translationX = offsetX.value
                 alpha = if (ready) 1f else 0f
-            }
-            .onSizeChanged { contentWidthPx = it.width }
+            }.onSizeChanged { contentWidthPx = it.width }
             .background(
-                color = if (flight.message.isMine) {
-                    accent.container
-                } else {
-                    Color.Black.copy(alpha = 0.66f)
-                },
+                color =
+                    if (flight.message.isMine) {
+                        accent.container
+                    } else {
+                        Color.Black.copy(alpha = 0.66f)
+                    },
                 shape = AppShapes.pill,
-            )
-            .padding(start = 5.dp, end = 11.dp, top = 4.dp, bottom = 4.dp),
+            ).padding(start = 5.dp, end = 11.dp, top = 4.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         WatchAvatar(flight.message.avatarId, 22.dp)
         val sticker = flight.message.sticker
         Text(
-            text = if (sticker == null) {
-                "${flight.message.name}：${flight.message.text}"
-            } else {
-                flight.message.name
-            },
+            text =
+                if (sticker == null) {
+                    "${flight.message.name}：${flight.message.text}"
+                } else {
+                    flight.message.name
+                },
             style = AppTypography.caption.strong,
             color = if (flight.message.isMine) accent.accent else Color.White,
             maxLines = 1,

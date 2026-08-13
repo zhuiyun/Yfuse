@@ -60,26 +60,30 @@ class WatchGatedPlayback(
     val locked: Boolean
         get() = watchTogether.state.value.let { it.connected && !it.canControl }
 
-    fun togglePlayPause(): Boolean = gated { engine ->
-        val willPlay = state?.playing != true
-        if (willPlay) engine.play() else engine.pause()
-        publish(paused = !willPlay)
-    }
+    fun togglePlayPause(): Boolean =
+        gated { engine ->
+            val willPlay = state?.playing != true
+            if (willPlay) engine.play() else engine.pause()
+            publish(paused = !willPlay)
+        }
 
-    fun play(): Boolean = gated { engine ->
-        engine.play()
-        publish(paused = false)
-    }
+    fun play(): Boolean =
+        gated { engine ->
+            engine.play()
+            publish(paused = false)
+        }
 
-    fun pause(): Boolean = gated { engine ->
-        engine.pause()
-        publish(paused = true)
-    }
+    fun pause(): Boolean =
+        gated { engine ->
+            engine.pause()
+            publish(paused = true)
+        }
 
-    fun seekTo(positionMs: Long): Boolean = gated { engine ->
-        engine.seekTo(positionMs)
-        publish(positionMs = positionMs)
-    }
+    fun seekTo(positionMs: Long): Boolean =
+        gated { engine ->
+            engine.seekTo(positionMs)
+            publish(positionMs = positionMs)
+        }
 
     fun selectItem(index: Int): Boolean {
         if (index !in items().indices) return false
@@ -94,10 +98,11 @@ class WatchGatedPlayback(
 
     fun selectPrevious(): Boolean = selectItem((state?.currentIndex ?: 0) - 1)
 
-    fun setSpeed(speed: Float): Boolean = gated { engine ->
-        engine.setSpeed(speed)
-        publish(rate = speed)
-    }
+    fun setSpeed(speed: Float): Boolean =
+        gated { engine ->
+            engine.setSpeed(speed)
+            publish(rate = speed)
+        }
 
     /**
      * Re-anchors the room on the entry the engine moved to on its own. Engines advance
@@ -138,10 +143,11 @@ class WatchGatedPlayback(
     private fun publish(
         index: Int = state?.currentIndex ?: 0,
         positionMs: Long? = null,
-        paused: Boolean = watchTimelinePaused(
-            playbackRequested = engine()?.playbackRequested == true,
-            ended = state?.ended == true,
-        ),
+        paused: Boolean =
+            watchTimelinePaused(
+                playbackRequested = engine()?.playbackRequested == true,
+                ended = state?.ended == true,
+            ),
         rate: Float = nominalRate(),
     ) {
         val item = items().getOrNull(index) ?: return
@@ -169,14 +175,19 @@ class WatchGatedPlayback(
     }
 }
 
-internal fun nominalWatchRate(measured: Float, room: Float): Float {
+internal fun nominalWatchRate(
+    measured: Float,
+    room: Float,
+): Float {
     val band = room * NUDGE_FRACTION + RATE_EPSILON
     return if (abs(measured - room) <= band) room else measured
 }
 
 /** The room follows playback intent; loading and rebuffering are not pause actions. */
-internal fun watchTimelinePaused(playbackRequested: Boolean, ended: Boolean): Boolean =
-    !playbackRequested || ended
+internal fun watchTimelinePaused(
+    playbackRequested: Boolean,
+    ended: Boolean,
+): Boolean = !playbackRequested || ended
 
 /**
  * Tracks whether a guest can actually follow the room, so "connected but silently not
@@ -191,11 +202,16 @@ internal fun watchTimelinePaused(playbackRequested: Boolean, ended: Boolean): Bo
  * changes all sit behind a non-null answer from [resolve]. A miss is not a degraded room,
  * it is an inert one — which is why this tries three ways to say yes before giving up.
  */
-class WatchMediaMatcher(private val onWarning: (String?) -> Unit) {
+class WatchMediaMatcher(
+    private val onWarning: (String?) -> Unit,
+) {
     private var missedTicks = 0
 
     /** Returns the queue index to follow, or null when the room is playing something else. */
-    fun resolve(items: List<PlayerMediaItem>, mediaKey: String?): Int? {
+    fun resolve(
+        items: List<PlayerMediaItem>,
+        mediaKey: String?,
+    ): Int? {
         if (mediaKey == null) {
             reset()
             return null
@@ -221,16 +237,17 @@ class WatchMediaMatcher(private val onWarning: (String?) -> Unit) {
         // one case where a matching coordinate is provably a different episode.
         parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
             val roomShow = coordinate.seriesKey.takeUnless { it.startsWith(LOCAL_KEY_PREFIX) }
-            val byCoordinate = items.indexOfFirst { item ->
-                item.episodeNumber == coordinate.episodeNumber &&
-                    (item.seasonNumber ?: 0) == coordinate.seasonNumber &&
-                    item.knownSeriesKeys().let { known ->
-                        known.isEmpty() ||
-                            roomShow == null ||
-                            roomShow in known ||
-                            known.none { it.providerName() == roomShow.providerName() }
-                    }
-            }
+            val byCoordinate =
+                items.indexOfFirst { item ->
+                    item.episodeNumber == coordinate.episodeNumber &&
+                        (item.seasonNumber ?: 0) == coordinate.seasonNumber &&
+                        item.knownSeriesKeys().let { known ->
+                            known.isEmpty() ||
+                                roomShow == null ||
+                                roomShow in known ||
+                                known.none { it.providerName() == roomShow.providerName() }
+                        }
+                }
             if (byCoordinate >= 0) {
                 reset()
                 return byCoordinate
@@ -257,7 +274,8 @@ private const val LOCAL_KEY_PREFIX = "emby:"
  * — those say nothing about whether two devices mean the same show.
  */
 private fun PlayerMediaItem.knownSeriesKeys(): List<String> =
-    matchKeys.mapNotNull { parseEpisodeWatchKey(it)?.seriesKey }
+    matchKeys
+        .mapNotNull { parseEpisodeWatchKey(it)?.seriesKey }
         .filterNot { it.startsWith(LOCAL_KEY_PREFIX) }
 
 /** A different id is only contradictory when both sides use the same metadata provider. */

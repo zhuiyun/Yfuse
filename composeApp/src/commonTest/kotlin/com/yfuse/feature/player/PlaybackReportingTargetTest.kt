@@ -36,7 +36,10 @@ class PlaybackReportingTargetTest {
         assertEquals(PlaybackReportingTarget.Disabled, playbackReportingTarget(null))
     }
 
-    private fun item(url: String, serverId: String? = null) = PlayerMediaItem(
+    private fun item(
+        url: String,
+        serverId: String? = null,
+    ) = PlayerMediaItem(
         id = "item-1",
         url = url,
         transcodeUrl = url,

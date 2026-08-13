@@ -6,24 +6,27 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
-import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.MAX_SMART_SOURCE_FALLBACKS
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerHealthStatus
+import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.logging.AppLog
-import com.yfuse.core.network.EmbyImages
-import com.yfuse.core.network.EmbyStream
-import com.yfuse.core.network.EmbyError
-import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.model.MediaVersion
+import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlaybackSegment
-import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.TrickplayInfo
+import com.yfuse.core.network.EmbyError
+import com.yfuse.core.network.EmbyErrorException
+import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
@@ -107,78 +110,93 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
     itemId: String,
     token: String,
     negotiatedPlaySessionId: String? = null,
-): List<PlayerMediaVersion> = map { version ->
-    val generated = EmbyStream.streamUrls(
-        baseUrl = baseUrl,
-        itemId = itemId,
-        token = token,
-        mediaSourceId = version.id,
-        sourceWidth = version.video?.width,
-        sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
-    )
-    val sessionId = negotiatedPlaySessionId?.takeIf { it.isNotBlank() }
-        ?: generated.playSessionId
-    val directStream = version.directStreamUrl?.let { raw ->
-        EmbyStream.negotiatedUrl(
-            baseUrl = baseUrl,
-            rawUrl = raw,
-            token = token,
+    localCleartextConfirmed: Boolean = false,
+): List<PlayerMediaVersion> =
+    map { version ->
+        val generated =
+            EmbyStream.streamUrls(
+                baseUrl = baseUrl,
+                itemId = itemId,
+                token = token,
+                mediaSourceId = version.id,
+                sourceWidth = version.video?.width,
+                sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
+            )
+        val sessionId =
+            negotiatedPlaySessionId?.takeIf { it.isNotBlank() }
+                ?: generated.playSessionId
+        val directStream =
+            version.directStreamUrl?.let { raw ->
+                EmbyStream.negotiatedUrl(
+                    baseUrl = baseUrl,
+                    rawUrl = raw,
+                    token = token,
+                    playSessionId = sessionId,
+                    addApiKey = version.addApiKeyToDirectStreamUrl,
+                    localCleartextConfirmed = localCleartextConfirmed,
+                )
+            }
+        val negotiatedTranscode =
+            version.transcodingUrl?.let { raw ->
+                EmbyStream.negotiatedUrl(
+                    baseUrl = baseUrl,
+                    rawUrl = raw,
+                    token = token,
+                    playSessionId = sessionId,
+                    localCleartextConfirmed = localCleartextConfirmed,
+                )
+            }
+        val hlsTranscode =
+            when {
+                negotiatedTranscode != null -> negotiatedTranscode
+                version.supportsTranscoding == false -> ""
+                else -> generated.transcode.withPlaySessionId(sessionId)
+            }
+        val method =
+            when {
+                version.supportsDirectPlay != false -> PlaybackMethod.DirectPlay
+                version.supportsDirectStream == true && directStream != null -> PlaybackMethod.DirectStream
+                version.supportsTranscoding == true && hlsTranscode.isNotBlank() -> PlaybackMethod.Transcode
+                else -> PlaybackMethod.DirectPlay
+            }
+        val primaryUrl =
+            when (method) {
+                PlaybackMethod.DirectPlay -> generated.direct.withPlaySessionId(sessionId)
+                PlaybackMethod.DirectStream -> requireNotNull(directStream)
+                PlaybackMethod.Transcode -> hlsTranscode
+            }
+        val progressiveTranscode =
+            if (version.supportsTranscoding == false) {
+                ""
+            } else {
+                generated.progressiveTranscode.withPlaySessionId(sessionId)
+            }
+        PlayerMediaVersion(
+            id = version.id,
+            label = version.name,
+            detail = version.summary,
+            url = primaryUrl,
+            transcodeUrl = hlsTranscode,
+            fallbackTranscodeUrl = progressiveTranscode,
             playSessionId = sessionId,
-            addApiKey = version.addApiKeyToDirectStreamUrl,
+            playMethod = method,
+            container = version.container?.uppercase(),
+            dolbyVision = version.isDolbyVision,
+            dolbyAtmos = version.hasDolbyAtmos,
+            dolbyProfile = version.dolbyProfile,
+            needsDolbyDecoder = version.needsDolbyCapableDecoder,
+            sourceWidth = version.video?.width,
+            sourceHeight = version.videoHeight ?: version.video?.height,
+            sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
+            sourceDynamicRange = version.rangeLabel,
+            sourceAudio =
+                (
+                    version.audioTracks.firstOrNull { it.default == true }
+                        ?: version.audioTracks.firstOrNull()
+                )?.label,
+            audioTrackCount = version.audioTracks.size,
         )
     }
-    val negotiatedTranscode = version.transcodingUrl?.let { raw ->
-        EmbyStream.negotiatedUrl(
-            baseUrl = baseUrl,
-            rawUrl = raw,
-            token = token,
-            playSessionId = sessionId,
-        )
-    }
-    val hlsTranscode = when {
-        negotiatedTranscode != null -> negotiatedTranscode
-        version.supportsTranscoding == false -> ""
-        else -> generated.transcode.withPlaySessionId(sessionId)
-    }
-    val method = when {
-        version.supportsDirectPlay != false -> PlaybackMethod.DirectPlay
-        version.supportsDirectStream == true && directStream != null -> PlaybackMethod.DirectStream
-        version.supportsTranscoding == true && hlsTranscode.isNotBlank() -> PlaybackMethod.Transcode
-        else -> PlaybackMethod.DirectPlay
-    }
-    val primaryUrl = when (method) {
-        PlaybackMethod.DirectPlay -> generated.direct.withPlaySessionId(sessionId)
-        PlaybackMethod.DirectStream -> requireNotNull(directStream)
-        PlaybackMethod.Transcode -> hlsTranscode
-    }
-    val progressiveTranscode = if (version.supportsTranscoding == false) {
-        ""
-    } else {
-        generated.progressiveTranscode.withPlaySessionId(sessionId)
-    }
-    PlayerMediaVersion(
-        id = version.id,
-        label = version.name,
-        detail = version.summary,
-        url = primaryUrl,
-        transcodeUrl = hlsTranscode,
-        fallbackTranscodeUrl = progressiveTranscode,
-        playSessionId = sessionId,
-        playMethod = method,
-        container = version.container?.uppercase(),
-        dolbyVision = version.isDolbyVision,
-        dolbyAtmos = version.hasDolbyAtmos,
-        dolbyProfile = version.dolbyProfile,
-        needsDolbyDecoder = version.needsDolbyCapableDecoder,
-        sourceWidth = version.video?.width,
-        sourceHeight = version.videoHeight ?: version.video?.height,
-        sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
-        sourceDynamicRange = version.rangeLabel,
-        sourceAudio = (version.audioTracks.firstOrNull { it.default == true }
-            ?: version.audioTracks.firstOrNull())?.label,
-        audioTrackCount = version.audioTracks.size,
-    )
-}
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
 data class PlayerMediaItem(
@@ -230,6 +248,17 @@ data class PlayerMediaItem(
     val playSessionId: String = "",
     val playMethod: PlaybackMethod = PlaybackMethod.DirectPlay,
     val trickplay: TrickplayStoryboard? = null,
+    /** Optional process-local offline sidecar; never contains an account token. */
+    val externalSubtitleUri: String? = null,
+    val externalSubtitleLanguage: String? = null,
+    /**
+     * Exact copies on other servers, resolved before the player starts.
+     *
+     * Each entry is a complete, credential-free playback item and deliberately has an empty
+     * [serverFallbacks] list of its own. The player can therefore switch without another network
+     * call, while one bad title can never create a recursive or unbounded failover graph.
+     */
+    val serverFallbacks: List<PlayerMediaItem> = emptyList(),
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.
@@ -269,17 +298,25 @@ data class PlayerMediaItem(
         return copy(
             transcodeUrl = EmbyStream.withQuality(transcodeUrl, quality),
             fallbackTranscodeUrl = EmbyStream.withQuality(fallbackTranscodeUrl, quality),
-            versions = versions.map { version ->
-                version.copy(
-                    transcodeUrl = EmbyStream.withQuality(version.transcodeUrl, quality),
-                    fallbackTranscodeUrl = EmbyStream.withQuality(
-                        version.fallbackTranscodeUrl,
-                        quality,
-                    ),
-                )
-            },
+            versions =
+                versions.map { version ->
+                    version.copy(
+                        transcodeUrl = EmbyStream.withQuality(version.transcodeUrl, quality),
+                        fallbackTranscodeUrl =
+                            EmbyStream.withQuality(
+                                version.fallbackTranscodeUrl,
+                                quality,
+                            ),
+                    )
+                },
         )
     }
+
+    /** The next untried cross-server copy, or null when the bounded plan is exhausted. */
+    fun nextServerFallback(triedServerIds: Set<String>): PlayerMediaItem? =
+        serverFallbacks.firstOrNull { fallback ->
+            fallback.serverId != null && fallback.serverId !in triedServerIds
+        }
 }
 
 @Serializable
@@ -293,9 +330,10 @@ data class TrickplayStoryboard(
     val thumbnailCount: Int,
 ) {
     fun frameAt(positionMs: Long): TrickplayFrame {
-        val frame = (positionMs.coerceAtLeast(0L) / intervalMs.coerceAtLeast(1L))
-            .coerceAtMost((thumbnailCount - 1).coerceAtLeast(0).toLong())
-            .toInt()
+        val frame =
+            (positionMs.coerceAtLeast(0L) / intervalMs.coerceAtLeast(1L))
+                .coerceAtMost((thumbnailCount - 1).coerceAtLeast(0).toLong())
+                .toInt()
         val perSheet = (tileColumns * tileRows).coerceAtLeast(1)
         val local = frame % perSheet
         return TrickplayFrame(
@@ -306,7 +344,11 @@ data class TrickplayStoryboard(
     }
 }
 
-data class TrickplayFrame(val url: String, val column: Int, val row: Int)
+data class TrickplayFrame(
+    val url: String,
+    val column: Int,
+    val row: Int,
+)
 
 private fun String.withPlaySessionId(sessionId: String): String {
     if (isBlank()) return this
@@ -334,9 +376,9 @@ internal fun List<PlayerMediaItem>.hasSamePlaybackSourcesAs(other: List<PlayerMe
         current.id == refreshed.id &&
             current.url.playbackSourceKey() == refreshed.url.playbackSourceKey() &&
             current.transcodeUrl.playbackSourceKey() ==
-                refreshed.transcodeUrl.playbackSourceKey() &&
+            refreshed.transcodeUrl.playbackSourceKey() &&
             current.fallbackTranscodeUrl.playbackSourceKey() ==
-                refreshed.fallbackTranscodeUrl.playbackSourceKey()
+            refreshed.fallbackTranscodeUrl.playbackSourceKey()
     }
 }
 
@@ -347,9 +389,7 @@ internal fun List<PlayerMediaItem>.hasSamePlaybackSourcesAs(other: List<PlayerMe
  * reorder, a removal, a file swapped underneath an entry — needs the engine rebuilt, because
  * its playlist is addressed by position.
  */
-internal fun List<PlayerMediaItem>.appendedBy(
-    other: List<PlayerMediaItem>,
-): List<PlayerMediaItem>? {
+internal fun List<PlayerMediaItem>.appendedBy(other: List<PlayerMediaItem>): List<PlayerMediaItem>? {
     if (other.size <= size) return null
     if (!hasSamePlaybackSourcesAs(other.subList(0, size))) return null
     return other.subList(size, other.size).toList()
@@ -363,8 +403,7 @@ internal fun List<PlayerMediaItem>.appendedBy(
  * tear down a healthy engine — which is the question this key exists to answer correctly.
  * For comparison only; the result is not a fetchable URL.
  */
-private fun String.playbackSourceKey(): String =
-    replace(Regex("[?&]PlaySessionId=[^&]*"), "")
+private fun String.playbackSourceKey(): String = replace(Regex("[?&]PlaySessionId=[^&]*"), "")
 
 data class PlayerState(
     val loading: Boolean = true,
@@ -379,12 +418,22 @@ sealed interface PlayerIntent {
     data object Retry : PlayerIntent
 }
 
-private sealed interface PlayerAction { data object Load : PlayerAction }
+private sealed interface PlayerAction {
+    data object Load : PlayerAction
+}
 
 private sealed interface PlayerMsg {
     data object Loading : PlayerMsg
-    data class Ready(val items: List<PlayerMediaItem>, val startIndex: Int, val startMs: Long) : PlayerMsg
-    data class Failed(val message: String) : PlayerMsg
+
+    data class Ready(
+        val items: List<PlayerMediaItem>,
+        val startIndex: Int,
+        val startMs: Long,
+    ) : PlayerMsg
+
+    data class Failed(
+        val message: String,
+    ) : PlayerMsg
 }
 
 /**
@@ -414,7 +463,6 @@ class PlayerStoreFactory(
 
     private inner class ExecutorImpl :
         CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
-
         override fun executeAction(action: PlayerAction) {
             load()
         }
@@ -455,9 +503,18 @@ class PlayerStoreFactory(
                     healthMonitor?.recordFailure(server.id, primaryFailure)
                 }
                 if (primaryFailure?.isPlaybackFailoverEligible() == true && failoverPlan != null) {
-                    for (fallbackId in failoverPlan.fallbackServerIds) {
+                    for (fallbackId in failoverPlan.fallbackServerIds.take(MAX_SMART_SOURCE_FALLBACKS)) {
+                        if (fallbackId == server.id) continue
                         val fallback = registry.serverById(fallbackId) ?: continue
-                        if (healthMonitor?.health?.value?.get(fallback.id)?.status == ServerHealthStatus.AuthRequired) continue
+                        if (healthMonitor
+                                ?.health
+                                ?.value
+                                ?.get(fallback.id)
+                                ?.status ==
+                            ServerHealthStatus.AuthRequired
+                        ) {
+                            continue
+                        }
                         val hitResult = repo.findByMediaKey(fallback, failoverPlan.mediaKey)
                         val hit = hitResult.getOrNull()
                         if (hit == null) {
@@ -471,11 +528,12 @@ class PlayerStoreFactory(
                                 category = "feature.player",
                                 event = "playback_server_failover",
                                 message = "Primary server failed before playback; switched to an exact-media fallback",
-                                attributes = mapOf(
-                                    "fromServerId" to server.id,
-                                    "toServerId" to fallback.id,
-                                    "mediaKey" to failoverPlan.mediaKey,
-                                ),
+                                attributes =
+                                    mapOf(
+                                        "fromServerId" to server.id,
+                                        "toServerId" to fallback.id,
+                                        "mediaKey" to failoverPlan.mediaKey,
+                                    ),
                             )
                             server = fallback
                             effectiveItemId = hit.id
@@ -488,6 +546,16 @@ class PlayerStoreFactory(
                         }
                     }
                 }
+                val remainingFallbackServerIds =
+                    failoverPlan
+                        ?.fallbackServerIds
+                        .orEmpty()
+                        .asSequence()
+                        .filter(String::isNotBlank)
+                        .filter { it != server.id }
+                        .distinct()
+                        .take(MAX_SMART_SOURCE_FALLBACKS)
+                        .toList()
 
                 var negotiatedVersions: List<MediaVersion> = emptyList()
                 var negotiatedSessionId: String? = null
@@ -508,99 +576,109 @@ class PlayerStoreFactory(
                     progress: Float? = null,
                     caption: String? = null,
                 ): PlayerMediaItem {
-                  val effectiveVersions = if (id == effectiveItemId && negotiatedVersions.isNotEmpty()) {
-                      negotiatedVersions
-                  } else {
-                      versions
-                  }
-                  val playerVersions = effectiveVersions.toPlayerMediaVersions(
-                      baseUrl = server.baseUrl,
-                      itemId = id,
-                      token = server.accessToken,
-                      negotiatedPlaySessionId = negotiatedSessionId.takeIf { id == effectiveItemId },
-                  )
-                  // The file the detail page picked, else the server's first — which is
-                  // also what an unqualified stream request would have returned anyway.
-                  val chosen = playerVersions.firstOrNull { it.id == effectiveMediaSourceId }
-                      ?: playerVersions.firstOrNull()
-                  // Entries whose sources were never fetched still need addresses; they get
-                  // the unqualified ones, which is the file the server would have picked.
-                  val unqualified = chosen ?: EmbyStream
-                      .streamUrls(server.baseUrl, id, server.accessToken)
-                      .let {
-                          PlayerMediaVersion(
-                              id = id,
-                              label = "",
-                              detail = "",
-                              url = it.direct,
-                              transcodeUrl = it.transcode,
-                              fallbackTranscodeUrl = it.progressiveTranscode,
-                              playSessionId = it.playSessionId,
-                          )
-                      }
-                  return PlayerMediaItem(
-                    id = id,
-                    url = unqualified.url,
-                    transcodeUrl = unqualified.transcodeUrl,
-                    title = title,
-                    fallbackTranscodeUrl = unqualified.fallbackTranscodeUrl,
-                    playSessionId = unqualified.playSessionId,
-                    playMethod = unqualified.playMethod,
-                    trickplay = (if (id == effectiveItemId) negotiatedTrickplay else null)?.let { info ->
-                        TrickplayStoryboard(
-                            urlPattern = EmbyStream.trickplayTilePattern(
-                                baseUrl = server.baseUrl,
-                                itemId = id,
-                                mediaSourceId = unqualified.id,
-                                width = info.width,
-                                token = server.accessToken,
-                            ),
-                            width = info.width,
-                            height = info.height,
-                            tileColumns = info.tileColumns,
-                            tileRows = info.tileRows,
-                            intervalMs = info.intervalMs,
-                            thumbnailCount = info.thumbnailCount,
+                    val effectiveVersions =
+                        if (id == effectiveItemId && negotiatedVersions.isNotEmpty()) {
+                            negotiatedVersions
+                        } else {
+                            versions
+                        }
+                    val playerVersions =
+                        effectiveVersions.toPlayerMediaVersions(
+                            baseUrl = server.baseUrl,
+                            itemId = id,
+                            token = server.accessToken,
+                            negotiatedPlaySessionId = negotiatedSessionId.takeIf { id == effectiveItemId },
+                            localCleartextConfirmed = server.localCleartextConfirmed,
                         )
-                    },
-                    serverId = server.id,
-                    playbackSegments = playbackSegments,
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                    seriesId = seriesId,
-                    seriesName = seriesName,
-                    watchKey = if (seriesProviderIds == null) {
-                        providerIds.watchKey(id)
-                    } else {
-                        episodeWatchKey(
-                            ownProviderIds = providerIds,
-                            seriesProviderIds = seriesProviderIds,
-                            seasonNumber = seasonNumber,
-                            episodeNumber = episodeNumber,
-                            fallbackId = id,
-                        )
-                    },
-                    matchKeys = watchMatchKeys(
-                        ownProviderIds = providerIds,
-                        seriesProviderIds = seriesProviderIds.orEmpty(),
+                    // The file the detail page picked, else the server's first — which is
+                    // also what an unqualified stream request would have returned anyway.
+                    val chosen =
+                        playerVersions.firstOrNull { it.id == effectiveMediaSourceId }
+                            ?: playerVersions.firstOrNull()
+                    // Entries whose sources were never fetched still need addresses; they get
+                    // the unqualified ones, which is the file the server would have picked.
+                    val unqualified =
+                        chosen ?: EmbyStream
+                            .streamUrls(server.baseUrl, id, server.accessToken)
+                            .let {
+                                PlayerMediaVersion(
+                                    id = id,
+                                    label = "",
+                                    detail = "",
+                                    url = it.direct,
+                                    transcodeUrl = it.transcode,
+                                    fallbackTranscodeUrl = it.progressiveTranscode,
+                                    playSessionId = it.playSessionId,
+                                )
+                            }
+                    return PlayerMediaItem(
+                        id = id,
+                        url = unqualified.url,
+                        transcodeUrl = unqualified.transcodeUrl,
+                        title = title,
+                        fallbackTranscodeUrl = unqualified.fallbackTranscodeUrl,
+                        playSessionId = unqualified.playSessionId,
+                        playMethod = unqualified.playMethod,
+                        trickplay =
+                            (if (id == effectiveItemId) negotiatedTrickplay else null)?.let { info ->
+                                TrickplayStoryboard(
+                                    urlPattern =
+                                        EmbyStream.trickplayTilePattern(
+                                            baseUrl = server.baseUrl,
+                                            itemId = id,
+                                            mediaSourceId = unqualified.id,
+                                            width = info.width,
+                                            token = server.accessToken,
+                                        ),
+                                    width = info.width,
+                                    height = info.height,
+                                    tileColumns = info.tileColumns,
+                                    tileRows = info.tileRows,
+                                    intervalMs = info.intervalMs,
+                                    thumbnailCount = info.thumbnailCount,
+                                )
+                            },
+                        serverId = server.id,
+                        playbackSegments = playbackSegments,
                         seasonNumber = seasonNumber,
                         episodeNumber = episodeNumber,
-                        fallbackId = id,
-                    ),
-                    versions = playerVersions,
-                    versionId = chosen?.id,
-                    stillUrl = stillTag?.let {
-                        EmbyImages.primary(
-                            server.baseUrl,
-                            id,
-                            it,
-                            maxHeight = 240,
-                            accessToken = server.accessToken,
-                        )
-                    },
-                    progress = progress,
-                    caption = caption,
-                  )
+                        seriesId = seriesId,
+                        seriesName = seriesName,
+                        watchKey =
+                            if (seriesProviderIds == null) {
+                                providerIds.watchKey(id)
+                            } else {
+                                episodeWatchKey(
+                                    ownProviderIds = providerIds,
+                                    seriesProviderIds = seriesProviderIds,
+                                    seasonNumber = seasonNumber,
+                                    episodeNumber = episodeNumber,
+                                    fallbackId = id,
+                                )
+                            },
+                        matchKeys =
+                            watchMatchKeys(
+                                ownProviderIds = providerIds,
+                                seriesProviderIds = seriesProviderIds.orEmpty(),
+                                seasonNumber = seasonNumber,
+                                episodeNumber = episodeNumber,
+                                fallbackId = id,
+                            ),
+                        versions = playerVersions,
+                        versionId = chosen?.id,
+                        stillUrl =
+                            stillTag?.let {
+                                EmbyImages.primary(
+                                    server.baseUrl,
+                                    id,
+                                    it,
+                                    maxHeight = 240,
+                                    accessToken = server.accessToken,
+                                )
+                            },
+                        progress = progress,
+                        caption = caption,
+                    )
                 }
 
                 detailResult.onFailure {
@@ -614,15 +692,16 @@ class PlayerStoreFactory(
                 }
                 val detail = detailResult.getOrNull()
                 val requestedSessionId = EmbyStream.newPlaySessionId()
-                val playbackInfoResult = withTimeoutOrNull(5_000L) {
-                    repo.playbackInfo(
-                        server = server,
-                        itemId = effectiveItemId,
-                        mediaSourceId = effectiveMediaSourceId,
-                        startPositionTicks = startPositionTicks,
-                        playSessionId = requestedSessionId,
-                    )
-                }
+                val playbackInfoResult =
+                    withTimeoutOrNull(5_000L) {
+                        repo.playbackInfo(
+                            server = server,
+                            itemId = effectiveItemId,
+                            mediaSourceId = effectiveMediaSourceId,
+                            startPositionTicks = startPositionTicks,
+                            playSessionId = requestedSessionId,
+                        )
+                    }
                 if (playbackInfoResult == null) {
                     AppLog.warning(
                         category = "feature.player",
@@ -631,53 +710,80 @@ class PlayerStoreFactory(
                         attributes = mapOf("serverId" to server.id),
                     )
                 } else {
-                    playbackInfoResult.onSuccess { playbackInfo ->
-                        negotiatedVersions = playbackInfo.MediaSources.mapIndexed { index, source ->
-                            source.toMediaVersion(fallbackId = effectiveItemId, ordinal = index)
+                    playbackInfoResult
+                        .onSuccess { playbackInfo ->
+                            negotiatedVersions =
+                                playbackInfo.MediaSources.mapIndexed { index, source ->
+                                    source.toMediaVersion(fallbackId = effectiveItemId, ordinal = index)
+                                }
+                            negotiatedSessionId = playbackInfo.PlaySessionId
+                                ?.takeIf { it.isNotBlank() }
+                                ?: requestedSessionId
+                            AppLog.info(
+                                category = "feature.player",
+                                event = "playback_negotiated",
+                                message = "PlaybackInfo selected server-approved playback capabilities",
+                                attributes =
+                                    mapOf(
+                                        "serverId" to server.id,
+                                        "sourceCount" to negotiatedVersions.size.toString(),
+                                    ),
+                            )
+                        }.onFailure { error ->
+                            AppLog.warning(
+                                category = "feature.player",
+                                event = "playback_negotiation_failed",
+                                message = "PlaybackInfo failed; using compatibility URL ladder",
+                                throwable = error,
+                                attributes = mapOf("serverId" to server.id),
+                            )
                         }
-                        negotiatedSessionId = playbackInfo.PlaySessionId
-                            ?.takeIf { it.isNotBlank() }
-                            ?: requestedSessionId
-                        AppLog.info(
-                            category = "feature.player",
-                            event = "playback_negotiated",
-                            message = "PlaybackInfo selected server-approved playback capabilities",
-                            attributes = mapOf(
-                                "serverId" to server.id,
-                                "sourceCount" to negotiatedVersions.size.toString(),
-                            ),
-                        )
-                    }.onFailure { error ->
-                        AppLog.warning(
-                            category = "feature.player",
-                            event = "playback_negotiation_failed",
-                            message = "PlaybackInfo failed; using compatibility URL ladder",
-                            throwable = error,
-                            attributes = mapOf("serverId" to server.id),
-                        )
-                    }
                 }
                 // The shared Ktor client already enforces a request timeout. Wrapping a second
                 // request in a coroutine timeout here can strand MockEngine/UI continuations
                 // on the caller dispatcher, so the optional metadata relies on that budget.
                 negotiatedTrickplay = repo.trickplayInfo(server, effectiveItemId).getOrNull()
                 val seriesId = detail?.seriesId
+                val serverFallbacks =
+                    failoverPlan?.let { plan ->
+                        resolveServerFallbacks(
+                            serverIds = remainingFallbackServerIds,
+                            mediaKey = plan.mediaKey,
+                            startPositionTicks = startPositionTicks,
+                            titleFallback = detail?.title.orEmpty(),
+                        )
+                    }.orEmpty()
+                if (serverFallbacks.isNotEmpty()) {
+                    AppLog.info(
+                        category = "feature.player",
+                        event = "playback_server_fallbacks_ready",
+                        message = "Exact-media server fallbacks were resolved before playback",
+                        attributes =
+                            mapOf(
+                                "serverId" to server.id,
+                                "fallbackCount" to serverFallbacks.size.toString(),
+                            ),
+                    )
+                }
 
                 if (detail?.type == "Episode" && seriesId != null) {
                     // The show's provider ids, not this episode's: they are what makes an
                     // episode recognisable on someone else's server (see episodeWatchKey).
                     // One extra request per queue, and a miss only costs the cross-server
                     // half of watch-together.
-                    val seriesProviderIds = repo.itemDetail(server, seriesId)
-                        .getOrNull()
-                        ?.providerIds
-                        .orEmpty()
-                    val episodesResult = repo.episodes(
-                        server,
-                        seriesId,
-                        null,
-                        includeMediaSources = true,
-                    )
+                    val seriesProviderIds =
+                        repo
+                            .itemDetail(server, seriesId)
+                            .getOrNull()
+                            ?.providerIds
+                            .orEmpty()
+                    val episodesResult =
+                        repo.episodes(
+                            server,
+                            seriesId,
+                            null,
+                            includeMediaSources = true,
+                        )
                     episodesResult.onFailure {
                         AppLog.warning(
                             category = "feature.player",
@@ -689,41 +795,52 @@ class PlayerStoreFactory(
                     }
                     val episodes = episodesResult.getOrDefault(emptyList())
                     if (episodes.isNotEmpty()) {
-                        val items = episodes.map { ep ->
-                            itemOf(
-                                ep.id,
-                                listOfNotNull(ep.indexNumber?.let { "第 $it 集" }, ep.name).joinToString("  "),
-                                ep.playbackSegments,
-                                ep.providerIds,
-                                ep.seasonNumber,
-                                ep.indexNumber,
-                                seriesId,
-                                detail.seriesName,
-                                seriesProviderIds,
-                                // The opened detail is the freshest copy; every sibling now
-                                // carries MediaSources from the single episode-list request.
-                                // Without this, their transcode URL used item id as
-                                // MediaSourceId and Emby rejected it with HTTP 400.
-                                versions = if (ep.id == effectiveItemId) detail.versions else ep.versions,
-                                stillTag = ep.primaryTag,
-                                // A finished episode reads as full rather than as untouched:
-                                // Emby clears the resume percentage on completion, so the
-                                // two are indistinguishable without the played flag.
-                                progress = when {
-                                    ep.played -> 1f
-                                    else -> ep.playedPercentage?.let { (it / 100.0).toFloat() }
-                                },
-                                caption = ep.indexNumber?.let { "第 $it 集" },
-                            )
-                        }
-                        val index = items.indexOfFirst { it.id == effectiveItemId }.coerceAtLeast(0)
+                        val items =
+                            episodes.map { ep ->
+                                itemOf(
+                                    ep.id,
+                                    listOfNotNull(ep.indexNumber?.let { "第 $it 集" }, ep.name).joinToString("  "),
+                                    ep.playbackSegments,
+                                    ep.providerIds,
+                                    ep.seasonNumber,
+                                    ep.indexNumber,
+                                    seriesId,
+                                    detail.seriesName,
+                                    seriesProviderIds,
+                                    // The opened detail is the freshest copy; every sibling now
+                                    // carries MediaSources from the single episode-list request.
+                                    // Without this, their transcode URL used item id as
+                                    // MediaSourceId and Emby rejected it with HTTP 400.
+                                    versions = if (ep.id == effectiveItemId) detail.versions else ep.versions,
+                                    stillTag = ep.primaryTag,
+                                    // A finished episode reads as full rather than as untouched:
+                                    // Emby clears the resume percentage on completion, so the
+                                    // two are indistinguishable without the played flag.
+                                    progress =
+                                        when {
+                                            ep.played -> 1f
+                                            else -> ep.playedPercentage?.let { (it / 100.0).toFloat() }
+                                        },
+                                    caption = ep.indexNumber?.let { "第 $it 集" },
+                                )
+                            }
+                        val effectiveIndex = items.indexOfFirst { it.id == effectiveItemId }
+                        val itemsWithFailover =
+                            items.mapIndexed { itemIndex, item ->
+                                if (itemIndex == effectiveIndex) {
+                                    item.copy(serverFallbacks = serverFallbacks)
+                                } else {
+                                    item
+                                }
+                            }
+                        val index = itemsWithFailover.indexOfFirst { it.id == effectiveItemId }.coerceAtLeast(0)
                         AppLog.info(
                             category = "feature.player",
                             event = "queue_ready",
                             message = "Episode playback queue prepared",
-                            attributes = mapOf("itemCount" to items.size.toString()),
+                            attributes = mapOf("itemCount" to itemsWithFailover.size.toString()),
                         )
-                        dispatch(PlayerMsg.Ready(items, index, startMs))
+                        dispatch(PlayerMsg.Ready(itemsWithFailover, index, startMs))
                         return@launch
                     }
                 }
@@ -737,7 +854,7 @@ class PlayerStoreFactory(
                                 playbackSegments = detail?.playbackSegments.orEmpty(),
                                 providerIds = detail?.providerIds.orEmpty(),
                                 versions = detail?.versions.orEmpty(),
-                            ),
+                            ).copy(serverFallbacks = serverFallbacks),
                         ),
                         0,
                         startMs,
@@ -751,33 +868,181 @@ class PlayerStoreFactory(
                 )
             }
         }
-    }
 
-    private object ReducerImpl : Reducer<PlayerState, PlayerMsg> {
-        override fun PlayerState.reduce(msg: PlayerMsg): PlayerState = when (msg) {
-            PlayerMsg.Loading -> copy(
-                loading = true,
-                items = emptyList(),
-                error = null,
-            )
-            is PlayerMsg.Ready -> copy(
-                loading = false,
-                items = msg.items,
-                startIndex = msg.startIndex,
-                startPositionMs = msg.startMs,
-                error = null,
-            )
-            is PlayerMsg.Failed -> copy(
-                loading = false,
-                items = emptyList(),
-                error = msg.message,
+        private suspend fun resolveServerFallbacks(
+            serverIds: List<String>,
+            mediaKey: String,
+            startPositionTicks: Long,
+            titleFallback: String,
+        ): List<PlayerMediaItem> {
+            if (serverIds.isEmpty() || mediaKey.isBlank()) return emptyList()
+            val candidates =
+                serverIds
+                    .asSequence()
+                    .filter(String::isNotBlank)
+                    .distinct()
+                    .take(MAX_SMART_SOURCE_FALLBACKS)
+                    .toList()
+            val resolved = mutableListOf<Pair<Int, PlayerMediaItem?>>()
+            withTimeoutOrNull(SERVER_FALLBACK_TOTAL_TIMEOUT_MS) {
+                coroutineScope {
+                    candidates
+                        .mapIndexed { index, fallbackServerId ->
+                            async {
+                                index to
+                                    withTimeoutOrNull(SERVER_FALLBACK_CANDIDATE_TIMEOUT_MS) {
+                                        resolveServerFallback(
+                                            serverId = fallbackServerId,
+                                            mediaKey = mediaKey,
+                                            startPositionTicks = startPositionTicks,
+                                            titleFallback = titleFallback,
+                                        )
+                                    }
+                            }
+                        }.forEach { deferred ->
+                            resolved += deferred.await()
+                        }
+                }
+            }
+            return resolved
+                .sortedBy(Pair<Int, PlayerMediaItem?>::first)
+                .mapNotNull(Pair<Int, PlayerMediaItem?>::second)
+                .distinctBy { it.serverId }
+                .take(MAX_SMART_SOURCE_FALLBACKS)
+        }
+
+        private suspend fun resolveServerFallback(
+            serverId: String,
+            mediaKey: String,
+            startPositionTicks: Long,
+            titleFallback: String,
+        ): PlayerMediaItem? {
+            val fallback = registry.serverById(serverId) ?: return null
+            if (
+                healthMonitor
+                    ?.health
+                    ?.value
+                    ?.get(serverId)
+                    ?.status in setOf(ServerHealthStatus.AuthRequired, ServerHealthStatus.Offline)
+            ) {
+                return null
+            }
+            val hitResult = repo.findByMediaKey(fallback, mediaKey)
+            val hit = hitResult.getOrNull()
+            if (hit == null) {
+                hitResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(serverId, it) }
+                return null
+            }
+            val detailResult = repo.itemDetail(fallback, hit.id)
+            val detail = detailResult.getOrNull()
+            if (detail == null) {
+                detailResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(serverId, it) }
+                return null
+            }
+            val requestedSessionId = EmbyStream.newPlaySessionId()
+            val playbackInfo =
+                repo
+                    .playbackInfo(
+                        server = fallback,
+                        itemId = detail.id,
+                        startPositionTicks = startPositionTicks,
+                        playSessionId = requestedSessionId,
+                    ).getOrNull()
+            val versions =
+                playbackInfo
+                    ?.MediaSources
+                    ?.mapIndexed { index, source ->
+                        source.toMediaVersion(fallbackId = detail.id, ordinal = index)
+                    }?.takeIf(List<MediaVersion>::isNotEmpty)
+                    ?: detail.versions
+            val playerVersions =
+                versions.toPlayerMediaVersions(
+                    baseUrl = fallback.baseUrl,
+                    itemId = detail.id,
+                    token = fallback.accessToken,
+                    negotiatedPlaySessionId =
+                        playbackInfo
+                            ?.PlaySessionId
+                            ?.takeIf(String::isNotBlank)
+                            ?: requestedSessionId,
+                    localCleartextConfirmed = fallback.localCleartextConfirmed,
+                )
+            val selected = playerVersions.firstOrNull()
+            val playable =
+                selected ?: EmbyStream
+                    .streamUrls(fallback.baseUrl, detail.id, fallback.accessToken)
+                    .let { urls ->
+                        PlayerMediaVersion(
+                            id = detail.id,
+                            label = "",
+                            detail = "",
+                            url = urls.direct,
+                            transcodeUrl = urls.transcode,
+                            fallbackTranscodeUrl = urls.progressiveTranscode,
+                            playSessionId = urls.playSessionId,
+                        )
+                    }
+            healthMonitor?.recordSuccess(serverId)
+            return PlayerMediaItem(
+                id = detail.id,
+                url = playable.url,
+                transcodeUrl = playable.transcodeUrl,
+                title = detail.title.ifBlank { titleFallback },
+                fallbackTranscodeUrl = playable.fallbackTranscodeUrl,
+                serverId = serverId,
+                playbackSegments = detail.playbackSegments,
+                seasonNumber = detail.seasonNumber,
+                episodeNumber = detail.episodeNumber,
+                seriesId = detail.seriesId,
+                seriesName = detail.seriesName,
+                watchKey = mediaKey,
+                matchKeys =
+                    watchMatchKeys(
+                        ownProviderIds = detail.providerIds,
+                        seasonNumber = detail.seasonNumber,
+                        episodeNumber = detail.episodeNumber,
+                        fallbackId = detail.id,
+                    ),
+                versions = playerVersions,
+                versionId = selected?.id,
+                playSessionId = playable.playSessionId,
+                playMethod = playable.playMethod,
+                serverFallbacks = emptyList(),
             )
         }
     }
+
+    private object ReducerImpl : Reducer<PlayerState, PlayerMsg> {
+        override fun PlayerState.reduce(msg: PlayerMsg): PlayerState =
+            when (msg) {
+                PlayerMsg.Loading ->
+                    copy(
+                        loading = true,
+                        items = emptyList(),
+                        error = null,
+                    )
+                is PlayerMsg.Ready ->
+                    copy(
+                        loading = false,
+                        items = msg.items,
+                        startIndex = msg.startIndex,
+                        startPositionMs = msg.startMs,
+                        error = null,
+                    )
+                is PlayerMsg.Failed ->
+                    copy(
+                        loading = false,
+                        items = emptyList(),
+                        error = msg.message,
+                    )
+            }
+    }
 }
 
-// watchKey now lives in com.yfuse.core.sync alongside the invite payload that carries it.
+private const val SERVER_FALLBACK_CANDIDATE_TIMEOUT_MS = 6_000L
+private const val SERVER_FALLBACK_TOTAL_TIMEOUT_MS = 9_000L
 
+// watchKey now lives in com.yfuse.core.sync alongside the invite payload that carries it.
 
 internal fun Throwable.isPlaybackFailoverEligible(): Boolean =
     when (val error = (this as? EmbyErrorException)?.error) {

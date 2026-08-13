@@ -10,7 +10,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ProfileSettingsLogicTest {
-
     @Test
     fun root_playback_summary_uses_user_goals_instead_of_backend_names() {
         assertEquals("兼容优先 · 硬件优先", playbackSettingsSummary(PlayerEngine.Exo, DecoderMode.Hardware))
@@ -25,14 +24,26 @@ class ProfileSettingsLogicTest {
 
     @Test
     fun every_real_engine_and_decoder_has_clear_non_empty_copy() {
-        (PlayerEngine.selectable.map { it.playbackOptionCopy() } +
-            DecoderMode.entries.map { it.playbackOptionCopy() }).forEach { copy ->
+        (
+            PlayerEngine.selectable.map { it.playbackOptionCopy() } +
+                DecoderMode.entries.map { it.playbackOptionCopy() }
+        ).forEach { copy ->
             assertTrue(copy.label.isNotBlank())
             assertTrue(copy.summary.isNotBlank())
             assertTrue(copy.description.isNotBlank())
         }
-        assertTrue(PlayerEngine.Mpv.playbackOptionCopy().description.contains("libmpv"))
-        assertTrue(DecoderMode.Software.playbackOptionCopy().description.contains("软件解码"))
+        assertTrue(
+            PlayerEngine.Mpv
+                .playbackOptionCopy()
+                .description
+                .contains("libmpv"),
+        )
+        assertTrue(
+            DecoderMode.Software
+                .playbackOptionCopy()
+                .description
+                .contains("软件解码"),
+        )
     }
 
     @Test

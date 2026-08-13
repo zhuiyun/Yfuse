@@ -33,9 +33,9 @@ import com.yfuse.core.data.DanmakuKind
 import com.yfuse.core.data.DanmakuOpacity
 import com.yfuse.core.data.DanmakuSpeed
 import com.yfuse.core.designsystem.sc
+import kotlinx.coroutines.isActive
 import kotlin.math.abs
 import kotlin.math.max
-import kotlinx.coroutines.isActive
 
 private const val FIXED_DURATION_MS = 4_000L
 private const val POSITION_RESET_THRESHOLD_MS = 1_000L
@@ -76,20 +76,22 @@ internal fun allocateDanmakuLanes(
     val tails = arrayOfNulls<LaneTail>(laneCount)
     return buildList {
         inputs.forEach { input ->
-            val duration = if (input.comment.kind == DanmakuKind.Scroll) {
-                scrollDurationMs
-            } else {
-                fixedDurationMs
-            }
+            val duration =
+                if (input.comment.kind == DanmakuKind.Scroll) {
+                    scrollDurationMs
+                } else {
+                    fixedDurationMs
+                }
             val cachedLane = laneCache?.get(input.index)
             if (cachedLane != null) {
                 if (cachedLane >= 0) {
-                    tails[cachedLane] = LaneTail(
-                        startedAtMs = input.comment.timeMs,
-                        width = input.width,
-                        kind = input.comment.kind,
-                        durationMs = duration,
-                    )
+                    tails[cachedLane] =
+                        LaneTail(
+                            startedAtMs = input.comment.timeMs,
+                            width = input.width,
+                            kind = input.comment.kind,
+                            durationMs = duration,
+                        )
                     add(DanmakuLanePlacement(input, cachedLane))
                 }
                 return@forEach
@@ -100,25 +102,27 @@ internal fun allocateDanmakuLanes(
                 } else {
                     0 until laneCount
                 }
-            val lane = laneOrder.firstOrNull { candidate ->
-                canEnterLane(
-                    previous = tails[candidate],
-                    next = input,
-                    viewportWidth = viewportWidth,
-                    scrollDurationMs = scrollDurationMs,
-                )
-            }
+            val lane =
+                laneOrder.firstOrNull { candidate ->
+                    canEnterLane(
+                        previous = tails[candidate],
+                        next = input,
+                        viewportWidth = viewportWidth,
+                        scrollDurationMs = scrollDurationMs,
+                    )
+                }
             if (lane == null) {
                 laneCache?.put(input.index, -1)
                 return@forEach
             }
             laneCache?.put(input.index, lane)
-            tails[lane] = LaneTail(
-                startedAtMs = input.comment.timeMs,
-                width = input.width,
-                kind = input.comment.kind,
-                durationMs = duration,
-            )
+            tails[lane] =
+                LaneTail(
+                    startedAtMs = input.comment.timeMs,
+                    width = input.width,
+                    kind = input.comment.kind,
+                    durationMs = duration,
+                )
             add(DanmakuLanePlacement(input, lane))
         }
     }
@@ -147,7 +151,10 @@ private fun canEnterLane(
     return gapMs >= max(previousClearMs, noCatchUpMs).toLong()
 }
 
-internal fun lowerBoundDanmaku(comments: List<DanmakuComment>, timeMs: Long): Int {
+internal fun lowerBoundDanmaku(
+    comments: List<DanmakuComment>,
+    timeMs: Long,
+): Int {
     var low = 0
     var high = comments.size
     while (low < high) {
@@ -212,96 +219,110 @@ fun DanmakuOverlay(
                 .clipToBounds(),
         ) {
             val textSize = 18f * fontSize.scale
-            val textStyle = remember(textSize) {
-                sc(textSize, 650).copy(
-                    shadow = Shadow(
-                        color = Color.Black.copy(alpha = 0.9f),
-                        offset = Offset(1.5f, 1.5f),
-                        blurRadius = 3f,
-                    ),
-                )
-            }
+            val textStyle =
+                remember(textSize) {
+                    sc(textSize, 650).copy(
+                        shadow =
+                            Shadow(
+                                color = Color.Black.copy(alpha = 0.9f),
+                                offset = Offset(1.5f, 1.5f),
+                                blurRadius = 3f,
+                            ),
+                    )
+                }
             val laneHeight = (textSize + 10f).dp
             val laneCount = (maxHeight / laneHeight).toInt().coerceAtLeast(1)
-            val widthCache = remember(comments, textStyle, density) {
-                HashMap<Int, Float>()
-            }
-            val laneCache = remember(
-                comments,
-                speed,
-                laneCount,
-                maxWidth,
-                textStyle,
-                density,
-            ) {
-                HashMap<Int, Int>()
-            }
-            val timeBucket = renderedPositionMs.floorDiv(WINDOW_BUCKET_MS)
-            val placements = remember(
-                comments,
-                timeBucket,
-                speed,
-                laneCount,
-                maxWidth,
-                textStyle,
-                density,
-            ) {
-                val bucketStart = timeBucket * WINDOW_BUCKET_MS
-                val maxDuration = max(speed.durationMs, FIXED_DURATION_MS)
-                val from = lowerBoundDanmaku(
-                    comments,
-                    (bucketStart - maxDuration).coerceAtLeast(0L),
-                )
-                val until = lowerBoundDanmaku(comments, bucketStart + WINDOW_BUCKET_MS)
-                val inputs = (from until until).map { index ->
-                    val comment = comments[index]
-                    val measuredWidth = widthCache.getOrPut(index) {
-                        with(density) {
-                            textMeasurer.measure(
-                                text = AnnotatedString(comment.displayText),
-                                style = textStyle,
-                                maxLines = 1,
-                            ).size.width.toDp().value
-                        }
-                    }
-                    DanmakuLayoutInput(index, comment, measuredWidth)
+            val widthCache =
+                remember(comments, textStyle, density) {
+                    HashMap<Int, Float>()
                 }
-                allocateDanmakuLanes(
-                    inputs = inputs,
-                    laneCount = laneCount,
-                    viewportWidth = maxWidth.value,
-                    scrollDurationMs = speed.durationMs,
-                    laneCache = laneCache,
-                )
-            }
+            val laneCache =
+                remember(
+                    comments,
+                    speed,
+                    laneCount,
+                    maxWidth,
+                    textStyle,
+                    density,
+                ) {
+                    HashMap<Int, Int>()
+                }
+            val timeBucket = renderedPositionMs.floorDiv(WINDOW_BUCKET_MS)
+            val placements =
+                remember(
+                    comments,
+                    timeBucket,
+                    speed,
+                    laneCount,
+                    maxWidth,
+                    textStyle,
+                    density,
+                ) {
+                    val bucketStart = timeBucket * WINDOW_BUCKET_MS
+                    val maxDuration = max(speed.durationMs, FIXED_DURATION_MS)
+                    val from =
+                        lowerBoundDanmaku(
+                            comments,
+                            (bucketStart - maxDuration).coerceAtLeast(0L),
+                        )
+                    val until = lowerBoundDanmaku(comments, bucketStart + WINDOW_BUCKET_MS)
+                    val inputs =
+                        (from until until).map { index ->
+                            val comment = comments[index]
+                            val measuredWidth =
+                                widthCache.getOrPut(index) {
+                                    with(density) {
+                                        textMeasurer
+                                            .measure(
+                                                text = AnnotatedString(comment.displayText),
+                                                style = textStyle,
+                                                maxLines = 1,
+                                            ).size.width
+                                            .toDp()
+                                            .value
+                                    }
+                                }
+                            DanmakuLayoutInput(index, comment, measuredWidth)
+                        }
+                    allocateDanmakuLanes(
+                        inputs = inputs,
+                        laneCount = laneCount,
+                        viewportWidth = maxWidth.value,
+                        scrollDurationMs = speed.durationMs,
+                        laneCache = laneCache,
+                    )
+                }
 
             placements.forEach { placement ->
                 val comment = placement.input.comment
-                val duration = if (comment.kind == DanmakuKind.Scroll) {
-                    speed.durationMs
-                } else {
-                    FIXED_DURATION_MS
-                }
+                val duration =
+                    if (comment.kind == DanmakuKind.Scroll) {
+                        speed.durationMs
+                    } else {
+                        FIXED_DURATION_MS
+                    }
                 val elapsed = renderedPositionMs - comment.timeMs
                 if (elapsed !in 0..duration) return@forEach
 
                 key(placement.input.index, comment.timeMs, comment.displayText) {
                     val measuredWidth = placement.input.width.dp
-                    val x = when (comment.kind) {
-                        DanmakuKind.Scroll -> {
-                            val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
-                            maxWidth - (maxWidth + measuredWidth) * progress
+                    val x =
+                        when (comment.kind) {
+                            DanmakuKind.Scroll -> {
+                                val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
+                                maxWidth - (maxWidth + measuredWidth) * progress
+                            }
+                            DanmakuKind.Top,
+                            DanmakuKind.Bottom,
+                            -> (maxWidth - measuredWidth).coerceAtLeast(0.dp) / 2f
                         }
-                        DanmakuKind.Top,
-                        DanmakuKind.Bottom,
-                        -> (maxWidth - measuredWidth).coerceAtLeast(0.dp) / 2f
-                    }
                     val y = laneHeight * placement.lane.toFloat()
                     Text(
                         text = comment.displayText,
                         maxLines = 1,
-                        color = Color(0xFF000000 or comment.color)
-                            .copy(alpha = opacity.alpha),
+                        color =
+                            Color(0xFF000000 or comment.color)
+                                .copy(alpha = opacity.alpha),
                         style = textStyle,
                         modifier = Modifier.offset(x = x, y = y),
                     )

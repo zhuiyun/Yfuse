@@ -6,7 +6,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class UserAgentPreferences(private val settings: Settings) {
+class UserAgentPreferences(
+    private val settings: Settings,
+) {
     private companion object {
         const val KEY = "network.customUserAgent"
     }
@@ -29,7 +31,12 @@ class UserAgentPreferences(private val settings: Settings) {
     val userAgent: StateFlow<String> = _userAgent.asStateFlow()
 
     fun setUserAgent(value: String) {
-        val normalized = value.trim().replace("\r", "").replace("\n", "").take(512)
+        val normalized =
+            value
+                .trim()
+                .replace("\r", "")
+                .replace("\n", "")
+                .take(512)
         _customValue.value = normalized
         _userAgent.value = normalized.effectiveUserAgent()
         if (normalized.isEmpty()) settings.remove(KEY) else settings.putString(KEY, normalized)

@@ -132,9 +132,25 @@ credentials over the legacy origin.
 The normal release path is a push to the default branch that changes
 `version.properties`:
 
-1. Update `VERSION_CODE` and `VERSION_NAME` in `version.properties`.
+For a watch protocol change, deploy and verify the matching server first. Protocol
+v4 is a security boundary and the client must not fall back to v3; the Android publish
+workflow checks production `/watch/version` and refuses to publish until it advertises
+the expected v4 protocol.
+
+1. Explicitly update and validate `version.properties`. The helper increments the
+   current code unless `--version-code` is provided:
+
+   ```bash
+   ./gradlew :composeApp:bumpVersion --version-name 0.2.55
+   # Or choose both values explicitly:
+   ./gradlew :composeApp:bumpVersion --version-code 132 --version-name 0.2.55
+   ```
+
+   The task rejects non-positive, non-increasing, overflowing codes and malformed
+   names. No assemble, bundle, or package task invokes it.
 2. Write the in-app update text in `release-notes.txt`.
-3. Commit both files with the feature changes and push the default branch.
+3. Review the diff, then commit both files with the feature changes and push the
+   default branch.
 4. GitHub Actions automatically builds, signs, uploads, and verifies the APK.
 
 Ordinary pushes that do not change `version.properties` do not publish an APK.
@@ -143,6 +159,12 @@ must advance the code stored in the repository. It reads `update-v2.json` first 
 this version gate. A 404 is treated as the one-time migration case and falls back to
 the legacy `update.json`; other v2 errors fail the gate instead of silently using an
 older source.
+
+Release builds are intentionally side-effect free: without `-PyfuseVersionCode` and
+`-PyfuseVersionName`, every build uses exactly the committed values. Explicit Gradle
+properties override APK metadata for CI/manual fallback but never write the source
+file. After any release build, `git diff --exit-code -- version.properties` should be
+empty.
 
 ### Manual fallback
 
@@ -166,6 +188,32 @@ then checked independently for version, APK SHA-256, and its exact HTTP or HTTPS
 The generated APK, `update.json`, and `update-v2.json` are also retained as a GitHub
 Actions artifact for 30 days. Both manifests describe the same release metadata;
 only their `apkUrl` values differ.
+
+## Reproducible dependencies and native artifacts
+
+Module dependency lockfiles are committed. Whenever a dependency changes, refresh
+all of them explicitly and review the resulting version diff:
+
+```bash
+./gradlew \
+  :composeApp:dependencies \
+  :mdkAndroid:dependencies \
+  :watchTogetherProtocol:dependencies \
+  :watchTogetherServer:dependencies \
+  --write-locks
+```
+
+`scripts/fetch-engines.sh` permits HTTPS downloads and HTTPS redirects only, downloads
+to a temporary file, verifies the pinned SHA-256 in `scripts/engine-checksums.sha256`,
+then replaces the local artifact. A version bump must update the URL and digest in the
+same reviewed change; never infer or guess a digest. The current hashes were measured
+from the exact locally cached upstream v1.0.0/v0.37.0 archives.
+
+Quality CI rejects new ktlint violations using committed per-module baselines, checks
+that dependency locks are current, and runs dependency review. CodeQL runs on changes
+and weekly. The dependency submission workflow archives an SPDX SBOM; retain it with
+each production release and complete the native-license checklist in
+`docs/third-party-licenses/README.md`.
 
 ## APK size
 

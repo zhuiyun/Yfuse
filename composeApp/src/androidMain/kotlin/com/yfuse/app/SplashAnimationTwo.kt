@@ -12,11 +12,14 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
  * same order, so switching variants in settings never changes how long a launch takes.
  */
 internal object SplashTwo : SplashChoreography {
-
     override val durationMs = 1_200f
     override val fadeStartMs = durationMs - FadeMs
 
-    override fun DrawScope.drawMark(nowMs: Float, mark: ImageBitmap) {
+    override fun DrawScope.drawMark(
+        nowMs: Float,
+        mark: ImageBitmap?,
+    ) {
+        mark ?: return
         drawWaterFireBloom(bell(span(nowMs, BloomStartMs, BloomMs)))
         val pop = span(nowMs, 0f, PopMs)
         drawCentredMark(

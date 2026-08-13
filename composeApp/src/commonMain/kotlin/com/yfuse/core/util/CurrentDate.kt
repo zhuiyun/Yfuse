@@ -4,7 +4,10 @@ package com.yfuse.core.util
 expect fun currentIsoDate(): String
 
 /** Subtracts whole calendar days from an ISO-8601 date without introducing a time zone. */
-expect fun isoDateDaysBefore(date: String, days: Int): String
+expect fun isoDateDaysBefore(
+    date: String,
+    days: Int,
+): String
 
 /**
  * Wall-clock time as the user's own locale writes it — 24-hour or 12-hour, per their device

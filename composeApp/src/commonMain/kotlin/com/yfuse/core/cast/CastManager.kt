@@ -2,9 +2,14 @@ package com.yfuse.core.cast
 
 import kotlinx.coroutines.flow.StateFlow
 
-data class CastDevice(val id: String, val name: String)
+data class CastDevice(
+    val id: String,
+    val name: String,
+)
 
-enum class CastPlaybackStatus(val label: String) {
+enum class CastPlaybackStatus(
+    val label: String,
+) {
     Idle("空闲"),
     Connecting("连接中"),
     Buffering("缓冲中"),
@@ -16,7 +21,9 @@ enum class CastPlaybackStatus(val label: String) {
 }
 
 /** A nullable Boolean is too easy for UI code to accidentally render as false. */
-enum class CastCapability(val label: String) {
+enum class CastCapability(
+    val label: String,
+) {
     Supported("支持"),
     Unsupported("不支持"),
     Unknown("未知"),
@@ -57,13 +64,17 @@ data class CastState(
     val activeDeviceId: String? get() = activeDevice?.id
 
     val hasActiveSession: Boolean
-        get() = activeDevice != null && sessionConfirmed && termination == null &&
-            status != CastPlaybackStatus.Idle &&
-            status != CastPlaybackStatus.Disconnected
+        get() =
+            activeDevice != null &&
+                sessionConfirmed &&
+                termination == null &&
+                status != CastPlaybackStatus.Idle &&
+                status != CastPlaybackStatus.Disconnected
 }
 
 interface CastManager {
     val state: StateFlow<CastState>
+
     suspend fun discover()
 
     /** Returns only after the receiver accepted the load and exposed a usable session. */
@@ -75,27 +86,34 @@ interface CastManager {
     ): Boolean
 
     suspend fun resume(): Boolean
+
     suspend fun pause(): Boolean
+
     suspend fun seekTo(positionMs: Long): Boolean
+
     suspend fun setVolume(volume: Float): Boolean
 
     /** True only when the receiver acknowledged stop (or no session remained). */
     suspend fun stop(): Boolean
 }
 
-internal fun CastState.connectingTo(device: CastDevice, positionMs: Long): CastState = copy(
-    status = CastPlaybackStatus.Connecting,
-    sessionRevision = sessionRevision + 1L,
-    activeDevice = device,
-    sessionConfirmed = false,
-    positionMs = positionMs.coerceAtLeast(0L),
-    positionConfirmed = false,
-    durationMs = 0L,
-    capabilities = CastCapabilities(),
-    lastRemoteWasPlaying = false,
-    termination = null,
-    error = null,
-)
+internal fun CastState.connectingTo(
+    device: CastDevice,
+    positionMs: Long,
+): CastState =
+    copy(
+        status = CastPlaybackStatus.Connecting,
+        sessionRevision = sessionRevision + 1L,
+        activeDevice = device,
+        sessionConfirmed = false,
+        positionMs = positionMs.coerceAtLeast(0L),
+        positionConfirmed = false,
+        durationMs = 0L,
+        capabilities = CastCapabilities(),
+        lastRemoteWasPlaying = false,
+        termination = null,
+        error = null,
+    )
 
 internal fun CastState.remoteUpdate(
     status: CastPlaybackStatus,
@@ -103,44 +121,49 @@ internal fun CastState.remoteUpdate(
     durationMs: Long? = null,
     volume: Float? = null,
     capabilities: CastCapabilities? = null,
-): CastState = copy(
-    status = status,
-    sessionConfirmed = true,
-    positionMs = positionMs?.coerceAtLeast(0L) ?: this.positionMs,
-    positionConfirmed = positionMs != null || positionConfirmed,
-    durationMs = durationMs?.coerceAtLeast(0L) ?: this.durationMs,
-    volume = volume?.coerceIn(0f, 1f) ?: this.volume,
-    capabilities = capabilities ?: this.capabilities,
-    lastRemoteWasPlaying = when (status) {
-        CastPlaybackStatus.Playing -> true
-        CastPlaybackStatus.Paused, CastPlaybackStatus.Ended -> false
-        else -> lastRemoteWasPlaying
-    },
-    termination = null,
-    error = null,
-)
+): CastState =
+    copy(
+        status = status,
+        sessionConfirmed = true,
+        positionMs = positionMs?.coerceAtLeast(0L) ?: this.positionMs,
+        positionConfirmed = positionMs != null || positionConfirmed,
+        durationMs = durationMs?.coerceAtLeast(0L) ?: this.durationMs,
+        volume = volume?.coerceIn(0f, 1f) ?: this.volume,
+        capabilities = capabilities ?: this.capabilities,
+        lastRemoteWasPlaying =
+            when (status) {
+                CastPlaybackStatus.Playing -> true
+                CastPlaybackStatus.Paused, CastPlaybackStatus.Ended -> false
+                else -> lastRemoteWasPlaying
+            },
+        termination = null,
+        error = null,
+    )
 
-internal fun CastState.commandFailed(message: String): CastState = copy(
-    status = CastPlaybackStatus.Error,
-    termination = null,
-    error = message,
-)
+internal fun CastState.commandFailed(message: String): CastState =
+    copy(
+        status = CastPlaybackStatus.Error,
+        termination = null,
+        error = message,
+    )
 
-internal fun CastState.unexpectedDisconnect(message: String): CastState = copy(
-    status = CastPlaybackStatus.Disconnected,
-    capabilities = CastCapabilities(),
-    termination = CastTermination.Unexpected,
-    error = message,
-)
+internal fun CastState.unexpectedDisconnect(message: String): CastState =
+    copy(
+        status = CastPlaybackStatus.Disconnected,
+        capabilities = CastCapabilities(),
+        termination = CastTermination.Unexpected,
+        error = message,
+    )
 
-internal fun CastState.userStopped(): CastState = copy(
-    status = CastPlaybackStatus.Idle,
-    activeDevice = null,
-    sessionConfirmed = false,
-    capabilities = CastCapabilities(),
-    termination = CastTermination.UserStop,
-    error = null,
-)
+internal fun CastState.userStopped(): CastState =
+    copy(
+        status = CastPlaybackStatus.Idle,
+        activeDevice = null,
+        sessionConfirmed = false,
+        capabilities = CastCapabilities(),
+        termination = CastTermination.UserStop,
+        error = null,
+    )
 
 data class CastRecoveryDecision(
     val positionMs: Long,
@@ -154,11 +177,12 @@ fun castRecoveryDecision(
 ): CastRecoveryDecision? {
     if (state.termination != CastTermination.Unexpected) return null
     return CastRecoveryDecision(
-        positionMs = if (state.positionConfirmed) {
-            state.positionMs
-        } else {
-            fallbackPositionMs
-        }.coerceAtLeast(0L),
+        positionMs =
+            if (state.positionConfirmed) {
+                state.positionMs
+            } else {
+                fallbackPositionMs
+            }.coerceAtLeast(0L),
         resumePlayback = state.lastRemoteWasPlaying,
     )
 }
@@ -184,12 +208,13 @@ fun formatDlnaTime(positionMs: Long): String {
         seconds.toString().padStart(2, '0')
 }
 
-internal fun castMediaUrlError(url: String): String? = when {
-    url.isBlank() -> "没有可用的投屏地址"
-    !(url.startsWith("http://", true) || url.startsWith("https://", true)) ->
-        "投屏地址必须使用 HTTP 或 HTTPS"
-    url.any(Char::isWhitespace) -> "投屏地址无效"
-    else -> null
-}
+internal fun castMediaUrlError(url: String): String? =
+    when {
+        url.isBlank() -> "没有可用的投屏地址"
+        !(url.startsWith("http://", true) || url.startsWith("https://", true)) ->
+            "投屏地址必须使用 HTTP 或 HTTPS"
+        url.any(Char::isWhitespace) -> "投屏地址无效"
+        else -> null
+    }
 
 expect fun createCastManager(): CastManager

@@ -46,7 +46,7 @@ class WatchTogetherServerTest {
 
                 val protocol = client.get("/watch/version")
                 assertEquals(HttpStatusCode.OK, protocol.status)
-                assertEquals(3, protocol.bodyAsText().asJson()["protocolVersion"]!!.jsonPrimitive.int)
+                assertEquals(4, protocol.bodyAsText().asJson()["protocolVersion"]!!.jsonPrimitive.int)
 
                 val update = client.get("/yfuse/update.json")
                 assertEquals(HttpStatusCode.OK, update.status)
@@ -68,7 +68,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","clientId":"host","name":"Host","mediaKey":"tmdb:42"}""")
+                send("""{"type":"hello","protocolVersion":4,"clientId":"host","name":"Host","mediaKey":"tmdb:42"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
                 assertTrue(welcome["isHost"]!!.jsonPrimitive.boolean)
@@ -84,7 +84,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             val code = roomCode.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","roomCode":"$code","clientId":"guest","name":"Guest"}""")
+                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest","name":"Guest"}""")
                 while (true) {
                     val payload = (incoming.receive() as Frame.Text).readText().asJson()
                     when (payload["type"]?.jsonPrimitive?.content) {
@@ -124,7 +124,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","clientId":"host","mediaKey":"tmdb:1"}""")
+                send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:1"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                 errorReceived.await()
@@ -133,7 +133,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             val code = roomCode.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","roomCode":"$code","clientId":"guest"}""")
+                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""")
                 incoming.receive() // welcome
                 guestReady.complete(Unit)
                 send("""{"type":"sync","mediaKey":"tmdb:1","positionMs":1,"paused":false,"rate":1.0}""")
@@ -164,7 +164,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","clientId":"host","mediaKey":"tmdb:7"}""")
+                send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:7"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                 guestJoined.await()
@@ -177,7 +177,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             val code = roomCode.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","roomCode":"$code","clientId":"guest"}""")
+                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 assertFalse(welcome["isHost"]!!.jsonPrimitive.boolean)
                 guestJoined.complete(Unit)
@@ -203,23 +203,231 @@ class WatchTogetherServerTest {
         application { watchTogetherModule() }
         val socketClient = createClient { install(WebSockets) }
         val roomCode = CompletableDeferred<String>()
+        var resumeCapability = ""
+        var hostCapability = ""
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","clientId":"host","mediaKey":"tmdb:9"}""")
+            send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:9"}""")
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
+            resumeCapability = welcome["resumeCapability"]!!.jsonPrimitive.content
+            hostCapability = welcome["hostCapability"]!!.jsonPrimitive.content
             // Close without an explicit leave message — same as a network drop.
         }
 
         val code = roomCode.await()
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","roomCode":"$code","clientId":"host"}""")
+            send(
+                """{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"host","resumeCapability":"$resumeCapability","hostCapability":"$hostCapability"}""",
+            )
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals(code, welcome["roomCode"]?.jsonPrimitive?.content)
             assertTrue(welcome["isHost"]!!.jsonPrimitive.boolean)
             assertNotEquals("null", welcome["mediaKey"].toString())
         }
     }
+
+    @Test
+    fun public_client_id_cannot_replace_connected_host_without_private_capabilities() =
+        testApplication {
+            application { watchTogetherModule() }
+            val socketClient = createClient { install(WebSockets) }
+            val roomCode = CompletableDeferred<String>()
+            val attackerRejected = CompletableDeferred<Unit>()
+            val hostStillControls = CompletableDeferred<Unit>()
+            val testScope = CoroutineScope(currentCoroutineContext())
+
+            val host = testScope.launch {
+                socketClient.webSocket("/watch") {
+                    send(
+                        """{"type":"hello","protocolVersion":4,"clientId":"public-host","mediaKey":"tmdb:901"}""",
+                    )
+                    val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                    roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
+                    attackerRejected.await()
+                    send(
+                        """{"type":"sync","mediaKey":"tmdb:901","positionMs":42,"paused":false,"rate":1.0}""",
+                    )
+                    while (!hostStillControls.isCompleted) {
+                        val payload = (incoming.receive() as Frame.Text).readText().asJson()
+                        if (payload["type"]?.jsonPrimitive?.content == "sync" &&
+                            payload["positionMs"]?.jsonPrimitive?.long == 42L
+                        ) {
+                            hostStillControls.complete(Unit)
+                        }
+                    }
+                }
+            }
+
+            val attacker = testScope.launch {
+                socketClient.webSocket("/watch") {
+                    send(
+                        """{"type":"hello","protocolVersion":4,"roomCode":"${roomCode.await()}","clientId":"public-host"}""",
+                    )
+                    val error = (incoming.receive() as Frame.Text).readText().asJson()
+                    assertEquals("resume_auth_failed", error["errorCode"]?.jsonPrimitive?.content)
+                    attackerRejected.complete(Unit)
+                }
+            }
+
+            withTimeout(5_000L) { hostStillControls.await() }
+            host.cancelAndJoin()
+            attacker.cancelAndJoin()
+        }
+
+    @Test
+    fun invalid_timeline_frames_are_rejected_without_advancing_room_state() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+
+        socketClient.webSocket("/watch") {
+            send(
+                """{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:902"}""",
+            )
+            incoming.receive() // welcome
+            incoming.receive() // own roomUpdate
+
+            val invalidFrames = listOf(
+                """{"type":"sync","positionMs":-1,"paused":false,"rate":1.0}""",
+                """{"type":"sync","positionMs":1,"paused":false,"rate":1e30}""",
+                """{"type":"sync","mediaKey":"tmdb:bad key","positionMs":1,"paused":false,"rate":1.0}""",
+                """{"type":"sync","positionMs":1,"paused":false}""",
+                """{"type":"sync","positionMs":1,"paused":false,"rate":1.0,"seq":99}""",
+            )
+            invalidFrames.forEach { frame ->
+                send(frame)
+                val error = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("timeline_invalid", error["errorCode"]?.jsonPrimitive?.content)
+            }
+
+            send("""{"type":"updateProfile","name":"bad\nname","avatarId":0}""")
+            val profileError = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("profile_invalid", profileError["errorCode"]?.jsonPrimitive?.content)
+
+            send(
+                """{"type":"sync","mediaKey":"tmdb:902","positionMs":7,"paused":true,"rate":1.0}""",
+            )
+            val sync = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("sync", sync["type"]?.jsonPrimitive?.content)
+            assertEquals(1L, sync["seq"]?.jsonPrimitive?.long)
+            assertEquals(7L, sync["positionMs"]?.jsonPrimitive?.long)
+        }
+    }
+
+    @Test
+    fun host_reconnect_requires_host_capability_as_well_as_resume_capability() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+        var code = ""
+        var resumeCapability = ""
+        var hostCapability = ""
+
+        socketClient.webSocket("/watch") {
+            send(
+                """{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:903"}""",
+            )
+            val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+            code = welcome["roomCode"]!!.jsonPrimitive.content
+            resumeCapability = welcome["resumeCapability"]!!.jsonPrimitive.content
+            hostCapability = welcome["hostCapability"]!!.jsonPrimitive.content
+        }
+
+        socketClient.webSocket("/watch") {
+            send(
+                """{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"host","resumeCapability":"$resumeCapability"}""",
+            )
+            val denied = (incoming.receive() as Frame.Text).readText().asJson()
+            assertEquals("host_auth_failed", denied["errorCode"]?.jsonPrimitive?.content)
+        }
+
+        socketClient.webSocket("/watch") {
+            send(
+                """{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"host","resumeCapability":"$resumeCapability","hostCapability":"$hostCapability"}""",
+            )
+            val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+            assertTrue(welcome["isHost"]!!.jsonPrimitive.boolean)
+        }
+    }
+
+    @Test
+    fun host_transfer_rotates_private_capability_and_rejects_the_previous_host_secret() =
+        testApplication {
+            application { watchTogetherModule() }
+            val socketClient = createClient { install(WebSockets) }
+            val roomCode = CompletableDeferred<String>()
+            val guestJoined = CompletableDeferred<Unit>()
+            val oldHostCapability = CompletableDeferred<String>()
+            val guestResumeCapability = CompletableDeferred<String>()
+            val guestHostCapability = CompletableDeferred<String>()
+            val testScope = CoroutineScope(currentCoroutineContext())
+
+            val host = testScope.launch {
+                socketClient.webSocket("/watch") {
+                    send(
+                        """{"type":"hello","protocolVersion":4,"clientId":"old-host","mediaKey":"tmdb:904"}""",
+                    )
+                    val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                    roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
+                    oldHostCapability.complete(welcome["hostCapability"]!!.jsonPrimitive.content)
+                    guestJoined.await()
+                    while (true) {
+                        val frame = (incoming.receive() as Frame.Text).readText().asJson()
+                        assertFalse(frame.containsKey("resumeCapability"))
+                        assertFalse(frame.containsKey("hostCapability"))
+                        if (frame["type"]?.jsonPrimitive?.content == "controlRequested") {
+                            send("""{"type":"grantControl","targetClientId":"new-host"}""")
+                            break
+                        }
+                    }
+                    guestHostCapability.await()
+                }
+            }
+
+            val guest = testScope.launch {
+                socketClient.webSocket("/watch") {
+                    send(
+                        """{"type":"hello","protocolVersion":4,"roomCode":"${roomCode.await()}","clientId":"new-host"}""",
+                    )
+                    val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                    guestResumeCapability.complete(
+                        welcome["resumeCapability"]!!.jsonPrimitive.content,
+                    )
+                    guestJoined.complete(Unit)
+                    send("""{"type":"requestControl"}""")
+                    while (true) {
+                        val frame = (incoming.receive() as Frame.Text).readText().asJson()
+                        if (frame["type"]?.jsonPrimitive?.content == "hostCapabilityGranted") {
+                            guestHostCapability.complete(
+                                frame["hostCapability"]!!.jsonPrimitive.content,
+                            )
+                            break
+                        }
+                    }
+                }
+            }
+
+            withTimeout(5_000L) {
+                guestHostCapability.await()
+                host.join()
+                guest.join()
+            }
+
+            socketClient.webSocket("/watch") {
+                send(
+                    """{"type":"hello","protocolVersion":4,"roomCode":"${roomCode.await()}","clientId":"new-host","resumeCapability":"${guestResumeCapability.await()}","hostCapability":"${oldHostCapability.await()}"}""",
+                )
+                val denied = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("host_auth_failed", denied["errorCode"]?.jsonPrimitive?.content)
+            }
+
+            socketClient.webSocket("/watch") {
+                send(
+                    """{"type":"hello","protocolVersion":4,"roomCode":"${roomCode.await()}","clientId":"new-host","resumeCapability":"${guestResumeCapability.await()}","hostCapability":"${guestHostCapability.await()}"}""",
+                )
+                val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                assertTrue(welcome["isHost"]!!.jsonPrimitive.boolean)
+            }
+        }
 
     @Test
     fun a_granted_control_request_moves_the_host_slot_to_the_asker() = testApplication {
@@ -233,7 +441,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","clientId":"host","mediaKey":"tmdb:11"}""")
+                send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:11"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                 guestJoined.await()
@@ -262,7 +470,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             val code = roomCode.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","roomCode":"$code","clientId":"guest","name":"Guest"}""")
+                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest","name":"Guest"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 assertFalse(welcome["isHost"]!!.jsonPrimitive.boolean)
                 guestJoined.complete(Unit)
@@ -297,7 +505,7 @@ class WatchTogetherServerTest {
 
             val host = testScope.launch {
                 socketClient.webSocket("/watch") {
-                    send("""{"type":"hello","clientId":"host","mediaKey":"tmdb:12"}""")
+                    send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:12"}""")
                     val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                     roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                     guestJoined.await()
@@ -314,7 +522,7 @@ class WatchTogetherServerTest {
             val guest = testScope.launch {
                 val code = roomCode.await()
                 socketClient.webSocket("/watch") {
-                    send("""{"type":"hello","roomCode":"$code","clientId":"guest","name":"Guest"}""")
+                    send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest","name":"Guest"}""")
                     incoming.receive() // welcome
                     guestJoined.complete(Unit)
                     send("""{"type":"requestControl"}""")
@@ -349,7 +557,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","clientId":"host","mediaKey":"tmdb:13"}""")
+                send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:13"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                 rejected.await()
@@ -358,7 +566,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             val code = roomCode.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","roomCode":"$code","clientId":"guest"}""")
+                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""")
                 incoming.receive() // welcome
                 guestJoined.complete(Unit)
                 send("""{"type":"grantControl","targetClientId":"guest"}""")
@@ -395,7 +603,7 @@ class WatchTogetherServerTest {
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
                 send(
-                    """{"type":"hello","clientId":"host","name":"小影迷 🎬","avatarId":3,"mediaKey":"tmdb:21"}""",
+                    """{"type":"hello","protocolVersion":4,"clientId":"host","name":"小影迷 🎬","avatarId":3,"mediaKey":"tmdb:21"}""",
                 )
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
@@ -423,7 +631,7 @@ class WatchTogetherServerTest {
             val code = roomCode.await()
             chatSent.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","roomCode":"$code","clientId":"guest","name":"访客","avatarId":1}""")
+                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest","name":"访客","avatarId":1}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 val history = welcome["chatHistory"]!!.jsonArray
                 assertEquals(1, history.size)
@@ -451,7 +659,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","clientId":"host","name":"房主","avatarId":0,"mediaKey":"tmdb:9"}""")
+                send("""{"type":"hello","protocolVersion":4,"clientId":"host","name":"房主","avatarId":0,"mediaKey":"tmdb:9"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 assertTrue(
                     "reactions" in welcome["capabilities"]!!.jsonArray.map {
@@ -488,7 +696,7 @@ class WatchTogetherServerTest {
             val code = roomCode.await()
             reactionSeen.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","roomCode":"$code","clientId":"guest","name":"访客","avatarId":1}""")
+                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest","name":"访客","avatarId":1}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 // Reactions leave no history: joining after one has happened shows nothing.
                 assertEquals(0, welcome["chatHistory"]?.jsonArray?.size ?: 0)
@@ -505,7 +713,7 @@ class WatchTogetherServerTest {
         val socketClient = createClient { install(WebSockets) }
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","clientId":"host","mediaKey":"tmdb:22"}""")
+            send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:22"}""")
             incoming.receive() // welcome
             incoming.receive() // own roomUpdate
 
@@ -535,7 +743,7 @@ class WatchTogetherServerTest {
         val socketClient = createClient { install(WebSockets) }
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","clientId":"host","name":"旧昵称","avatarId":0,"mediaKey":"tmdb:23"}""")
+            send("""{"type":"hello","protocolVersion":4,"clientId":"host","name":"旧昵称","avatarId":0,"mediaKey":"tmdb:23"}""")
             incoming.receive() // welcome
             incoming.receive() // own roomUpdate
             send("""{"type":"updateProfile","name":"新昵称 🐼","avatarId":5}""")
@@ -556,11 +764,11 @@ class WatchTogetherServerTest {
 
         socketClient.webSocket("/watch") {
             send(
-                """{"type":"hello","protocolVersion":3,"clientId":"host","mediaKey":"tmdb:30"}""",
+                """{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:30"}""",
             )
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
-            assertEquals(3, welcome["protocolVersion"]?.jsonPrimitive?.int)
+            assertEquals(4, welcome["protocolVersion"]?.jsonPrimitive?.int)
         }
 
         socketClient.webSocket("/watch") {
@@ -569,7 +777,60 @@ class WatchTogetherServerTest {
             )
             val error = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("protocol_incompatible", error["errorCode"]?.jsonPrimitive?.content)
-            assertEquals(3, error["protocolVersion"]?.jsonPrimitive?.int)
+            assertEquals(4, error["protocolVersion"]?.jsonPrimitive?.int)
+        }
+
+        listOf(
+            """{"type":"hello","clientId":"missing","mediaKey":"tmdb:31"}""",
+            """{"type":"hello","protocolVersion":3,"clientId":"legacy","mediaKey":"tmdb:31"}""",
+        ).forEach { legacyHello ->
+            socketClient.webSocket("/watch") {
+                send(legacyHello)
+                val error = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("protocol_incompatible", error["errorCode"]?.jsonPrimitive?.content)
+            }
+        }
+    }
+
+    @Test
+    fun malformed_unknown_and_invalid_payloads_are_explicitly_rejected() = testApplication {
+        application { watchTogetherModule() }
+        val socketClient = createClient { install(WebSockets) }
+
+        socketClient.webSocket("/watch") {
+            send("not-json")
+            assertEquals(
+                "message_invalid",
+                (incoming.receive() as Frame.Text).readText().asJson()["errorCode"]
+                    ?.jsonPrimitive?.content,
+            )
+
+            send("""{"type":"deleteRoom"}""")
+            assertEquals(
+                "message_type_invalid",
+                (incoming.receive() as Frame.Text).readText().asJson()["errorCode"]
+                    ?.jsonPrimitive?.content,
+            )
+
+            send(
+                """{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:905"}""",
+            )
+            incoming.receive() // welcome
+            incoming.receive() // own roomUpdate
+
+            send("""{"type":"chat","text":"bad\nmessage"}""")
+            assertEquals(
+                "chat_invalid",
+                (incoming.receive() as Frame.Text).readText().asJson()["errorCode"]
+                    ?.jsonPrimitive?.content,
+            )
+
+            send("""{"type":"playbackStatus","latencyMs":10001}""")
+            assertEquals(
+                "playback_status_invalid",
+                (incoming.receive() as Frame.Text).readText().asJson()["errorCode"]
+                    ?.jsonPrimitive?.content,
+            )
         }
     }
 
@@ -581,7 +842,7 @@ class WatchTogetherServerTest {
         var firstServerId = 0L
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","clientId":"host","mediaKey":"tmdb:32"}""")
+            send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:32"}""")
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             code = welcome["roomCode"]!!.jsonPrimitive.content
             incoming.receive() // own roomUpdate
@@ -597,7 +858,7 @@ class WatchTogetherServerTest {
         }
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","roomCode":"$code","clientId":"guest"}""")
+            send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""")
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             val history = welcome["chatHistory"]!!.jsonArray
             assertEquals(1, history.size)
@@ -611,7 +872,7 @@ class WatchTogetherServerTest {
         val socketClient = createClient { install(WebSockets) }
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","protocolVersion":3,"clientId":"host","mediaKey":"tmdb:33"}""")
+            send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:33"}""")
             incoming.receive() // welcome
             incoming.receive() // own roomUpdate
             send(
@@ -637,7 +898,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":3,"clientId":"host","mediaKey":"tmdb:34"}""")
+                send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:34"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                 guestJoined.await()
@@ -666,7 +927,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             socketClient.webSocket("/watch") {
                 send(
-                    """{"type":"hello","protocolVersion":3,"roomCode":"${roomCode.await()}","clientId":"guest"}""",
+                    """{"type":"hello","protocolVersion":4,"roomCode":"${roomCode.await()}","clientId":"guest"}""",
                 )
                 incoming.receive() // welcome
                 guestJoined.complete(Unit)
@@ -680,7 +941,7 @@ class WatchTogetherServerTest {
                     if (mode == "everyone" && canControl && !sentEveryone) {
                         sentEveryone = true
                         send(
-                            """{"type":"sync","mediaKey":"tmdb:34","positionMs":111,"paused":false}""",
+                            """{"type":"sync","mediaKey":"tmdb:34","positionMs":111,"paused":false,"rate":1.0}""",
                         )
                     }
                     if (mode == "moderators" && canControl && !sentModerator) {
@@ -690,7 +951,7 @@ class WatchTogetherServerTest {
                         assertTrue(self["isModerator"]!!.jsonPrimitive.boolean)
                         sentModerator = true
                         send(
-                            """{"type":"sync","mediaKey":"tmdb:34","positionMs":222,"paused":false}""",
+                            """{"type":"sync","mediaKey":"tmdb:34","positionMs":222,"paused":false,"rate":1.0}""",
                         )
                     }
                 }
@@ -719,7 +980,7 @@ class WatchTogetherServerTest {
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
                 send(
-                    """{"type":"hello","protocolVersion":3,"clientId":"host","mediaKey":"tmdb:35"}""",
+                    """{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:35"}""",
                 )
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
@@ -747,7 +1008,7 @@ class WatchTogetherServerTest {
             runCatching {
                 socketClient.webSocket("/watch") {
                     send(
-                        """{"type":"hello","protocolVersion":3,"roomCode":"$code","clientId":"guest"}""",
+                        """{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""",
                     )
                     while (!guestJoined.isCompleted) {
                         val payload = (incoming.receive() as Frame.Text).readText().asJson()
@@ -780,7 +1041,7 @@ class WatchTogetherServerTest {
 
             socketClient.webSocket("/watch") {
                 send(
-                    """{"type":"hello","protocolVersion":3,"roomCode":"$code","clientId":"guest"}""",
+                    """{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""",
                 )
                 val payload = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("error", payload["type"]?.jsonPrimitive?.content)
@@ -813,7 +1074,7 @@ class WatchTogetherServerTest {
         val socketClient = createClient { install(WebSockets) }
 
         socketClient.webSocket("/watch?testIp=shared") {
-            send("""{"type":"hello","clientId":"host-1","mediaKey":"tmdb:101"}""")
+            send("""{"type":"hello","protocolVersion":4,"clientId":"host-1","mediaKey":"tmdb:101"}""")
             val first = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("welcome", first["type"]?.jsonPrimitive?.content)
             assertTrue(
@@ -822,14 +1083,14 @@ class WatchTogetherServerTest {
             )
 
             socketClient.webSocket("/watch?testIp=shared") {
-                send("""{"type":"hello","clientId":"host-2","mediaKey":"tmdb:102"}""")
+                send("""{"type":"hello","protocolVersion":4,"clientId":"host-2","mediaKey":"tmdb:102"}""")
                 val limited = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("error", limited["type"]?.jsonPrimitive?.content)
                 assertEquals("room_ip_limit", limited["errorCode"]?.jsonPrimitive?.content)
             }
 
             socketClient.webSocket("/watch?testIp=other") {
-                send("""{"type":"hello","clientId":"host-3","mediaKey":"tmdb:103"}""")
+                send("""{"type":"hello","protocolVersion":4,"clientId":"host-3","mediaKey":"tmdb:103"}""")
                 val other = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("welcome", other["type"]?.jsonPrimitive?.content)
             }
@@ -850,7 +1111,7 @@ class WatchTogetherServerTest {
         val socketClient = createClient { install(WebSockets) }
 
         socketClient.webSocket("/watch?testIp=recycled") {
-            send("""{"type":"hello","clientId":"host-1","mediaKey":"tmdb:201"}""")
+            send("""{"type":"hello","protocolVersion":4,"clientId":"host-1","mediaKey":"tmdb:201"}""")
             val first = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("welcome", first["type"]?.jsonPrimitive?.content)
         }
@@ -859,7 +1120,7 @@ class WatchTogetherServerTest {
         delay(100L)
 
         socketClient.webSocket("/watch?testIp=recycled") {
-            send("""{"type":"hello","clientId":"host-2","mediaKey":"tmdb:202"}""")
+            send("""{"type":"hello","protocolVersion":4,"clientId":"host-2","mediaKey":"tmdb:202"}""")
             val recreated = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("welcome", recreated["type"]?.jsonPrimitive?.content)
         }
@@ -903,7 +1164,7 @@ class WatchTogetherServerTest {
 
         socketClient.webSocket("/watch") {
             val oversized = "x".repeat(129)
-            send("""{"type":"hello","clientId":"$oversized","mediaKey":"tmdb:301"}""")
+            send("""{"type":"hello","protocolVersion":4,"clientId":"$oversized","mediaKey":"tmdb:301"}""")
             val error = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("error", error["type"]?.jsonPrimitive?.content)
             assertEquals("client_id_invalid", error["errorCode"]?.jsonPrimitive?.content)

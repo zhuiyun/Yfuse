@@ -68,7 +68,10 @@ expect fun rememberHaptics(): Haptics
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RefreshThresholdHaptics(state: PullToRefreshState, refreshing: Boolean = false) {
+fun RefreshThresholdHaptics(
+    state: PullToRefreshState,
+    refreshing: Boolean = false,
+) {
     val haptics = LocalHaptics.current
     // Read through a holder: the effect outlives any single value of [refreshing], and
     // restarting it on every change would rearm the tick mid-pull.

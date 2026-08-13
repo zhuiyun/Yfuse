@@ -11,8 +11,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
@@ -25,32 +25,43 @@ import androidx.compose.ui.unit.sp
  * A 32×24 viewBox so the glyph is wider than tall the way the real mark is; tint it like
  * any other icon and it sits on artwork or on the page equally.
  */
-/** The official double-D silhouette uses counters; two solid half-discs read as brackets. */
-private val DolbyDoubleD: ImageVector = ImageVector.Builder(
-    name = "dolby-double-d-correct",
-    defaultWidth = 32.dp,
-    defaultHeight = 24.dp,
-    viewportWidth = 32f,
-    viewportHeight = 24f,
-).path(fill = SolidColor(Color.Black), pathFillType = PathFillType.EvenOdd) {
-    moveTo(15f, 3f); horizontalLineTo(10f)
-    curveTo(4.5f, 3f, 1f, 6.5f, 1f, 12f)
-    curveTo(1f, 17.5f, 4.5f, 21f, 10f, 21f)
-    horizontalLineTo(15f); close()
-    moveTo(11.5f, 7f); horizontalLineTo(10f)
-    curveTo(7f, 7f, 5f, 9f, 5f, 12f)
-    curveTo(5f, 15f, 7f, 17f, 10f, 17f)
-    horizontalLineTo(11.5f); close()
 
-    moveTo(17f, 3f); horizontalLineTo(22f)
-    curveTo(27.5f, 3f, 31f, 6.5f, 31f, 12f)
-    curveTo(31f, 17.5f, 27.5f, 21f, 22f, 21f)
-    horizontalLineTo(17f); close()
-    moveTo(20.5f, 7f); horizontalLineTo(22f)
-    curveTo(25f, 7f, 27f, 9f, 27f, 12f)
-    curveTo(27f, 15f, 25f, 17f, 22f, 17f)
-    horizontalLineTo(20.5f); close()
-}.build()
+/** The official double-D silhouette uses counters; two solid half-discs read as brackets. */
+private val DolbyDoubleD: ImageVector =
+    ImageVector
+        .Builder(
+            name = "dolby-double-d-correct",
+            defaultWidth = 32.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 32f,
+            viewportHeight = 24f,
+        ).path(fill = SolidColor(Color.Black), pathFillType = PathFillType.EvenOdd) {
+            moveTo(15f, 3f)
+            horizontalLineTo(10f)
+            curveTo(4.5f, 3f, 1f, 6.5f, 1f, 12f)
+            curveTo(1f, 17.5f, 4.5f, 21f, 10f, 21f)
+            horizontalLineTo(15f)
+            close()
+            moveTo(11.5f, 7f)
+            horizontalLineTo(10f)
+            curveTo(7f, 7f, 5f, 9f, 5f, 12f)
+            curveTo(5f, 15f, 7f, 17f, 10f, 17f)
+            horizontalLineTo(11.5f)
+            close()
+
+            moveTo(17f, 3f)
+            horizontalLineTo(22f)
+            curveTo(27.5f, 3f, 31f, 6.5f, 31f, 12f)
+            curveTo(31f, 17.5f, 27.5f, 21f, 22f, 21f)
+            horizontalLineTo(17f)
+            close()
+            moveTo(20.5f, 7f)
+            horizontalLineTo(22f)
+            curveTo(25f, 7f, 27f, 9f, 27f, 12f)
+            curveTo(27f, 15f, 25f, 17f, 22f, 17f)
+            horizontalLineTo(20.5f)
+            close()
+        }.build()
 
 /**
  * `◖◗ Dolby / VISION` — the format badge, as Dolby's own guidelines set it: the mark and
@@ -93,7 +104,11 @@ fun DolbyBadge(
  * card — where the stacked badge would be the tallest thing in it.
  */
 @Composable
-fun DolbyChip(caption: String, tint: Color, modifier: Modifier = Modifier) {
+fun DolbyChip(
+    caption: String,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
     Row(
         modifier,
         verticalAlignment = Alignment.CenterVertically,

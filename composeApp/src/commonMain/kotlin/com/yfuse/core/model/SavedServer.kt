@@ -1,6 +1,7 @@
 package com.yfuse.core.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 /** A server the user has logged into, with its saved session and user-visible name. */
 @Serializable
@@ -26,6 +27,15 @@ data class SavedServer(
     val iconEmoji: String? = null,
     /** ARGB tint for the icon and the card wash; null derives one from [serverName]. */
     val iconTint: Long? = null,
+    /**
+     * Device-local acknowledgement for sending credentials over a trusted LAN HTTP route.
+     *
+     * This must never travel in [ServersData]: a different device has a different network
+     * boundary and must make its own decision. [ServerRegistry] persists it separately in the
+     * local, token-free metadata document.
+     */
+    @Transient
+    val localCleartextConfirmed: Boolean = false,
 ) {
     /**
      * The routes as the user sees them. A server saved before multi-route existed has one
@@ -33,9 +43,10 @@ data class SavedServer(
      * the stored list happens to be empty.
      */
     val effectiveRoutes: List<ServerRoute>
-        get() = routes.ifEmpty {
-            listOf(ServerRoute(ServerRoute.PRIMARY_ID, ServerRoute.PRIMARY_NAME, baseUrl))
-        }
+        get() =
+            routes.ifEmpty {
+                listOf(ServerRoute(ServerRoute.PRIMARY_ID, ServerRoute.PRIMARY_NAME, baseUrl))
+            }
 
     /**
      * The address the session was established against, and the one [id] derives from. Editing
@@ -45,17 +56,17 @@ data class SavedServer(
         get() = effectiveRoutes.first().url
 
     val activeRoute: ServerRoute
-        get() = effectiveRoutes.let { list ->
-            list.firstOrNull { it.id == activeRouteId }
-                ?: list.firstOrNull { it.url == baseUrl }
-                ?: list.first()
-        }
+        get() =
+            effectiveRoutes.let { list ->
+                list.firstOrNull { it.id == activeRouteId }
+                    ?: list.firstOrNull { it.url == baseUrl }
+                    ?: list.first()
+            }
 
     val hasBackupRoutes: Boolean get() = effectiveRoutes.size > 1
 
     /** Repoints [baseUrl] at [route] without disturbing the server's identity. */
-    fun activating(route: ServerRoute): SavedServer =
-        copy(baseUrl = route.url, activeRouteId = route.id)
+    fun activating(route: ServerRoute): SavedServer = copy(baseUrl = route.url, activeRouteId = route.id)
 
     /**
      * Re-establishes the invariant that [baseUrl] is the active route's address. Servers with
@@ -70,15 +81,19 @@ data class SavedServer(
                 copy(routes = emptyList(), activeRouteId = null)
             }
         }
-        val active = normalized.firstOrNull { it.id == activeRouteId }
-            ?: normalized.firstOrNull { it.url == baseUrl }
-            ?: normalized.first()
+        val active =
+            normalized.firstOrNull { it.id == activeRouteId }
+                ?: normalized.firstOrNull { it.url == baseUrl }
+                ?: normalized.first()
         return copy(routes = normalized, activeRouteId = active.id, baseUrl = active.url)
     }
 
     companion object {
         /** Stable id so re-logging into the same server+user updates one entry. */
-        fun idOf(baseUrl: String, userId: String): String = "$baseUrl#$userId"
+        fun idOf(
+            baseUrl: String,
+            userId: String,
+        ): String = "$baseUrl#$userId"
     }
 }
 

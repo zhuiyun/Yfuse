@@ -12,7 +12,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class UpdateDownloadBoundaryTest {
-
     @Test
     fun manifest_reader_rejects_after_only_the_limit_plus_one_bytes() {
         val exact = ByteArrayInputStream("12345678".encodeToByteArray())
@@ -28,19 +27,22 @@ class UpdateDownloadBoundaryTest {
     @Test
     fun stale_update_files_are_cleaned_without_touching_the_current_or_unrelated_files() {
         val directory = Files.createTempDirectory("yfuse-updates-").toFile()
-        val current = File(directory, updatePackageFileName(versionCode = 72)).apply {
-            writeText("current")
-        }
+        val current =
+            File(directory, updatePackageFileName(versionCode = 72)).apply {
+                writeText("current")
+            }
         // The partial file of the version being fetched is the resume checkpoint, so the
         // sweep is asked to keep it.
-        val currentPartial = File(directory, "${current.name}.part").apply {
-            writeText("partial")
-        }
+        val currentPartial =
+            File(directory, "${current.name}.part").apply {
+                writeText("partial")
+            }
         val staleApk = File(directory, "Yfuse-71.apk").apply { writeText("stale") }
         val legacyApk = File(directory, "Yfuse-0.2.18.apk").apply { writeText("legacy") }
-        val stalePartial = File(directory, "Yfuse-0.2.17.apk.part").apply {
-            writeText("stale partial")
-        }
+        val stalePartial =
+            File(directory, "Yfuse-0.2.17.apk.part").apply {
+                writeText("stale partial")
+            }
         val unrelated = File(directory, "release-notes.txt").apply { writeText("keep") }
         val malformed = File(directory, "Yfuse-.apk").apply { writeText("keep") }
         val nestedDirectory = File(directory, "nested").apply { mkdir() }
@@ -82,10 +84,14 @@ class UpdateDownloadBoundaryTest {
 
     @Test
     fun oversized_stream_is_rejected_before_the_offending_chunk_is_written() {
-        val input = object : ByteArrayInputStream(byteArrayOf(1, 2, 3, 4)) {
-            override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-                super.read(buffer, offset, minOf(length, 3))
-        }
+        val input =
+            object : ByteArrayInputStream(byteArrayOf(1, 2, 3, 4)) {
+                override fun read(
+                    buffer: ByteArray,
+                    offset: Int,
+                    length: Int,
+                ): Int = super.read(buffer, offset, minOf(length, 3))
+            }
         val output = ByteArrayOutputStream()
 
         assertFailsWith<IllegalStateException> {
@@ -160,13 +166,14 @@ class UpdateDownloadBoundaryTest {
     @Test
     fun equal_length_cached_apk_is_rejected_when_the_same_version_is_republished() {
         val cached = File.createTempFile("yfuse-update-", ".apk")
-        val original = UpdateManifest(
-            versionCode = 80,
-            versionName = "0.2.80",
-            apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",
-            sha256 = SHA256_ABC,
-            size = 3L,
-        )
+        val original =
+            UpdateManifest(
+                versionCode = 80,
+                versionName = "0.2.80",
+                apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",
+                sha256 = SHA256_ABC,
+                size = 3L,
+            )
 
         try {
             cached.writeText("abc")
@@ -184,20 +191,23 @@ class UpdateDownloadBoundaryTest {
 
     @Test
     fun stale_restore_does_not_delete_a_new_generation_partial_with_the_same_version_code() {
-        val partial = File.createTempFile("yfuse-update-", ".part").apply {
-            writeText("new generation bytes")
-        }
-        val oldManifest = UpdateManifest(
-            versionCode = 80,
-            versionName = "0.2.80",
-            apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",
-            sha256 = SHA256_ABC,
-            size = 3L,
-        )
-        val republished = oldManifest.copy(
-            apkUrl = "https://47.112.219.60/yfuse/Yfuse-80-republished.apk",
-            sha256 = "0".repeat(64),
-        )
+        val partial =
+            File.createTempFile("yfuse-update-", ".part").apply {
+                writeText("new generation bytes")
+            }
+        val oldManifest =
+            UpdateManifest(
+                versionCode = 80,
+                versionName = "0.2.80",
+                apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",
+                sha256 = SHA256_ABC,
+                size = 3L,
+            )
+        val republished =
+            oldManifest.copy(
+                apkUrl = "https://47.112.219.60/yfuse/Yfuse-80-republished.apk",
+                sha256 = "0".repeat(64),
+            )
 
         try {
             assertEquals(
@@ -230,13 +240,14 @@ class UpdateDownloadBoundaryTest {
 
     @Test
     fun stale_download_owner_cannot_promote_a_verified_partial() {
-        val manifest = UpdateManifest(
-            versionCode = 80,
-            versionName = "0.2.80",
-            apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",
-            sha256 = SHA256_ABC,
-            size = 3L,
-        )
+        val manifest =
+            UpdateManifest(
+                versionCode = 80,
+                versionName = "0.2.80",
+                apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",
+                sha256 = SHA256_ABC,
+                size = 3L,
+            )
         val record = UpdateDownloadRecord(manifest)
 
         assertTrue(updateDownloadOwnerStillCurrent(7, 7, false, manifest, record))
@@ -286,7 +297,10 @@ class UpdateDownloadBoundaryTest {
         )
     }
 
-    private fun testManifest(size: Long, sha256: String) = UpdateManifest(
+    private fun testManifest(
+        size: Long,
+        sha256: String,
+    ) = UpdateManifest(
         versionCode = 80,
         versionName = "0.2.80",
         apkUrl = "https://47.112.219.60/yfuse/Yfuse-80.apk",

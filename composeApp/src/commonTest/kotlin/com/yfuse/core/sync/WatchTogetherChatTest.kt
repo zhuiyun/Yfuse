@@ -2,17 +2,25 @@ package com.yfuse.core.sync
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 
 class WatchTogetherChatTest {
     @Test
+    fun client_rejects_wire_control_characters_instead_of_silently_rewriting_them() {
+        assertNotNull(validateWatchChat("line one\nline two").error)
+        assertNotNull(validateWatchChat("bad\u0000message").error)
+    }
+
+    @Test
     fun server_echo_replaces_optimistic_chat_instead_of_duplicating_it() {
-        val pending = chat(
-            id = -1L,
-            clientId = "mine",
-            clientMessageId = "mine-1",
-            deliveryState = ChatDeliveryState.Pending,
-        )
+        val pending =
+            chat(
+                id = -1L,
+                clientId = "mine",
+                clientMessageId = "mine-1",
+                deliveryState = ChatDeliveryState.Pending,
+            )
         val echoed = pending.copy(id = 7L, deliveryState = ChatDeliveryState.Sent)
 
         val merged = mergeIncomingWatchChat(listOf(pending), echoed, maxHistory = 50)
@@ -22,12 +30,13 @@ class WatchTogetherChatTest {
 
     @Test
     fun repeated_server_echo_is_idempotent() {
-        val echoed = chat(
-            id = 7L,
-            clientId = "mine",
-            clientMessageId = "mine-1",
-            deliveryState = ChatDeliveryState.Sent,
-        )
+        val echoed =
+            chat(
+                id = 7L,
+                clientId = "mine",
+                clientMessageId = "mine-1",
+                deliveryState = ChatDeliveryState.Sent,
+            )
         val current = listOf(echoed)
 
         val merged = mergeIncomingWatchChat(current, echoed, maxHistory = 50)
@@ -37,12 +46,13 @@ class WatchTogetherChatTest {
 
     @Test
     fun repeated_echo_also_clears_an_extreme_stale_pending_duplicate() {
-        val echoed = chat(
-            id = 7L,
-            clientId = "mine",
-            clientMessageId = "mine-1",
-            deliveryState = ChatDeliveryState.Sent,
-        )
+        val echoed =
+            chat(
+                id = 7L,
+                clientId = "mine",
+                clientMessageId = "mine-1",
+                deliveryState = ChatDeliveryState.Sent,
+            )
         val stalePending = echoed.copy(id = -1L, deliveryState = ChatDeliveryState.Pending)
 
         assertEquals(
@@ -53,18 +63,20 @@ class WatchTogetherChatTest {
 
     @Test
     fun another_senders_matching_correlation_id_is_not_removed() {
-        val other = chat(
-            id = -2L,
-            clientId = "other",
-            clientMessageId = "same",
-            deliveryState = ChatDeliveryState.Pending,
-        )
-        val mine = chat(
-            id = 8L,
-            clientId = "mine",
-            clientMessageId = "same",
-            deliveryState = ChatDeliveryState.Sent,
-        )
+        val other =
+            chat(
+                id = -2L,
+                clientId = "other",
+                clientMessageId = "same",
+                deliveryState = ChatDeliveryState.Pending,
+            )
+        val mine =
+            chat(
+                id = 8L,
+                clientId = "mine",
+                clientMessageId = "same",
+                deliveryState = ChatDeliveryState.Sent,
+            )
 
         assertEquals(
             listOf(other, mine),

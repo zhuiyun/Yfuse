@@ -16,7 +16,6 @@ import com.yfuse.core.model.Person
  * screens ended up with half their posters blank while 播放记录 loaded fine.
  */
 object EmbyImages {
-
     fun primary(
         baseUrl: String,
         itemId: String,
@@ -36,14 +35,15 @@ object EmbyImages {
         tag: String?,
         maxWidth: Int = 1280,
         accessToken: String? = null,
-    ): String? = backdropAt(
-        baseUrl = baseUrl,
-        itemId = itemId,
-        index = 0,
-        tag = tag,
-        maxWidth = maxWidth,
-        accessToken = accessToken,
-    )
+    ): String? =
+        backdropAt(
+            baseUrl = baseUrl,
+            itemId = itemId,
+            index = 0,
+            tag = tag,
+            maxWidth = maxWidth,
+            accessToken = accessToken,
+        )
 
     /**
      * One of an item's several backdrops. The index addresses the image and the tag is what
@@ -60,7 +60,9 @@ object EmbyImages {
     ): String? {
         if (baseUrl.isBlank() || itemId.isBlank() || index < 0) return null
         val tagQuery = tag?.let { "tag=$it&" }.orEmpty()
-        return "${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Backdrop/$index?${tagQuery}maxWidth=$maxWidth&quality=85"
+        return "${normalizeBaseUrl(
+            baseUrl,
+        )}/Items/$itemId/Images/Backdrop/$index?${tagQuery}maxWidth=$maxWidth&quality=85"
             .withToken(accessToken)
     }
 
@@ -93,8 +95,7 @@ object EmbyImages {
         detail: MediaDetail,
         maxWidth: Int = 1280,
         accessToken: String? = null,
-    ): String? =
-        backdropOf(baseUrl, detail.backdropItemId, detail.backdropTag, maxWidth, accessToken)
+    ): String? = backdropOf(baseUrl, detail.backdropItemId, detail.backdropTag, maxWidth, accessToken)
 
     fun avatar(
         baseUrl: String,

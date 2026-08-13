@@ -5,16 +5,17 @@ import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackFailoverPlan
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.offline.OfflineDownloadRequest
-import com.yfuse.core.offline.OfflineMediaManager
-import com.yfuse.core.util.componentScope
+import com.yfuse.core.data.smartFailoverServerIds
+import com.yfuse.core.network.currentPlaybackNetworkClass
+import com.yfuse.core.offline.OfflineDownloadSelection
+import com.yfuse.core.offline.buildOfflineDownloadRequests
 import com.yfuse.core.sync.watchKey
-import com.yfuse.app.AppDependencies
+import com.yfuse.core.util.componentScope
 import com.yfuse.feature.player.PlaybackPreloadKey
-import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.player.PlayerStoreFactory
 import com.yfuse.feature.player.PreparedPlaybackRegistry
 import com.yfuse.feature.player.PreparedPlayerStore
@@ -47,26 +48,34 @@ class DetailComponent(
         mediaSourceId: String?,
     ) -> Unit,
 ) : ComponentContext by componentContext {
+    val store =
+        DetailStoreFactory(
+            storeFactory,
+            repo,
+            registry,
+            itemId,
+            serverId,
+            playbackTrackRequest = dependencies.playbackTrackRequest,
+            syncManager = dependencies.serverSyncManager,
+            playbackFailoverRequest = dependencies.playbackFailoverRequest,
+            playbackPreferences = dependencies.playbackPreferences,
+            healthMonitor = dependencies.serverHealthMonitor,
+            networkClass = ::currentPlaybackNetworkClass,
+        ).create()
 
-    val store = DetailStoreFactory(
-        storeFactory, repo, registry, itemId, serverId,
-        playbackTrackRequest = dependencies.playbackTrackRequest,
-        syncManager = dependencies.serverSyncManager,
-        playbackFailoverRequest = dependencies.playbackFailoverRequest,
-    ).create()
-
-    fun download() {
+    fun download(selection: OfflineDownloadSelection) {
         val state = store.state
         val detail = state.playTarget ?: return
         val server = state.playServer ?: return
-        dependencies.offlineMediaManager.enqueue(
-            OfflineDownloadRequest(
-                serverId = server.id,
-                itemId = detail.id,
-                title = detail.title,
-                mediaSourceId = state.selectedVersionId,
-            ),
-        )
+        buildOfflineDownloadRequests(
+            serverId = server.id,
+            currentItemId = detail.id,
+            currentTitle = detail.title,
+            currentRuntimeMinutes = detail.runtimeMinutes,
+            currentVersions = detail.versions,
+            seasonEpisodes = state.episodes,
+            selection = selection,
+        ).forEach(dependencies.offlineMediaManager::enqueue)
     }
 
     init {
@@ -82,7 +91,8 @@ class DetailComponent(
             preloadObserver = null
             val key = preloadKey
             val prepared = preloadStore
-            if (key != null && prepared != null &&
+            if (key != null &&
+                prepared != null &&
                 PreparedPlaybackRegistry.removeIfOwned(key, prepared)
             ) {
                 prepared.dispose()
@@ -96,8 +106,7 @@ class DetailComponent(
                 if (it is DetailLabel.Play) {
                     onPlay(it.serverId, it.itemId, it.startPositionTicks, it.mediaSourceId)
                 }
-            }
-            .launchIn(scope)
+            }.launchIn(scope)
 
         // Build the exact queue the play button will need while the user is still reading the
         // detail page. For episodes this resolves the series queue and all MediaSources in one
@@ -108,12 +117,13 @@ class DetailComponent(
                 val server = state.playServer ?: return@detailState
                 if (state.selectionLoading) return@detailState
 
-                val key = PlaybackPreloadKey(
-                    serverId = server.id,
-                    itemId = target.id,
-                    startPositionTicks = state.playPositionTicks,
-                    mediaSourceId = state.selectedVersionId,
-                )
+                val key =
+                    PlaybackPreloadKey(
+                        serverId = server.id,
+                        itemId = target.id,
+                        startPositionTicks = state.playPositionTicks,
+                        mediaSourceId = state.selectedVersionId,
+                    )
                 val currentPrepared = preloadStore
                 if (
                     key == preloadKey &&
@@ -124,51 +134,58 @@ class DetailComponent(
                 }
 
                 releaseOwnedPreload()
-                dependencies.playbackFailoverRequest.set(
-                    PlaybackFailoverPlan(
+                if (dependencies.playbackPreferences.smartCrossServerSource.value) {
+                    dependencies.playbackFailoverRequest.set(
+                        PlaybackFailoverPlan(
+                            itemId = target.id,
+                            mediaKey = target.providerIds.watchKey(target.id),
+                            fallbackServerIds =
+                                smartFailoverServerIds(
+                                    currentServerId = server.id,
+                                    sources = state.sources,
+                                    health = dependencies.serverHealthMonitor.health.value,
+                                    network = currentPlaybackNetworkClass(),
+                                ),
+                        ),
+                    )
+                } else {
+                    dependencies.playbackFailoverRequest.clear()
+                }
+                val prepared =
+                    PlayerStoreFactory(
+                        storeFactory = storeFactory,
+                        repo = repo,
+                        registry = registry,
                         itemId = target.id,
-                        mediaKey = target.providerIds.watchKey(target.id),
-                        fallbackServerIds = state.sources.asSequence()
-                            .filter { it.reachable && it.source != null && it.serverId != server.id }
-                            .map { it.serverId }
-                            .distinct()
-                            .toList(),
-                    ),
-                )
-                val prepared = PlayerStoreFactory(
-                    storeFactory = storeFactory,
-                    repo = repo,
-                    registry = registry,
-                    itemId = target.id,
-                    startPositionTicks = state.playPositionTicks,
-                    serverId = server.id,
-                    mediaSourceId = state.selectedVersionId,
-                    failoverRequest = dependencies.playbackFailoverRequest,
-                    healthMonitor = dependencies.serverHealthMonitor,
-                ).create()
+                        startPositionTicks = state.playPositionTicks,
+                        serverId = server.id,
+                        mediaSourceId = state.selectedVersionId,
+                        failoverRequest = dependencies.playbackFailoverRequest,
+                        healthMonitor = dependencies.serverHealthMonitor,
+                    ).create()
                 preloadKey = key
                 preloadStore = prepared
-                PreparedPlaybackRegistry.register(key, prepared)
+                PreparedPlaybackRegistry
+                    .register(key, prepared)
                     ?.takeIf { previous -> previous !== prepared }
                     ?.dispose()
 
                 // Metadata/URLs are useful to every engine. Android's preloader additionally
                 // puts the beginning of the selected direct stream into the shared Media3 cache.
-                preloadObserver = prepared.states
-                    .onEach playbackState@{ playback ->
-                        if (playback.loading) return@playbackState
-                        val selected = playback.items.getOrNull(playback.startIndex)
-                        if (playback.error == null && selected != null) {
-                            sourcePreloader?.preload(selected.url)
-                        }
-                        // Ready/failed is terminal for PlayerStore. Keeping the Store itself is
-                        // intentional: PlayerComponent claims this exact result for one launch.
-                        preloadObserver?.cancel()
-                        preloadObserver = null
-                    }
-                    .launchIn(scope)
-            }
-            .launchIn(scope)
+                preloadObserver =
+                    prepared.states
+                        .onEach playbackState@{ playback ->
+                            if (playback.loading) return@playbackState
+                            val selected = playback.items.getOrNull(playback.startIndex)
+                            if (playback.error == null && selected != null) {
+                                sourcePreloader?.preload(selected.url)
+                            }
+                            // Ready/failed is terminal for PlayerStore. Keeping the Store itself is
+                            // intentional: PlayerComponent claims this exact result for one launch.
+                            preloadObserver?.cancel()
+                            preloadObserver = null
+                        }.launchIn(scope)
+            }.launchIn(scope)
 
         if (autoPlay) {
             // Fired once, only after the same concrete selection used by the visible play
@@ -181,8 +198,7 @@ class DetailComponent(
                     }
                     started = true
                     store.accept(DetailIntent.Play)
-                }
-                .launchIn(scope)
+                }.launchIn(scope)
         }
         lifecycle.doOnDestroy {
             releaseOwnedPreload()

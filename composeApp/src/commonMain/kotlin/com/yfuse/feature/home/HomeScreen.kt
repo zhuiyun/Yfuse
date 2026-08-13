@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,7 +33,6 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
@@ -51,47 +49,46 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.app.TabBarInset
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.ActionToast
+import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
+import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroCaptionClearance
-import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.HeroPageIndicator
-import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
-import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.MediaSharedElementKey
+import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
-import com.yfuse.core.designsystem.ScrollToTopOnReselect
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.Poster
-import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.PrimaryGradient
+import com.yfuse.core.designsystem.RefreshThresholdHaptics
+import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.WindowWidthTier
-import com.yfuse.core.designsystem.CloudPlayerLogo
+import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.heroScrim
-import com.yfuse.core.designsystem.heroSurface
-import com.yfuse.core.designsystem.pageTint
+import com.yfuse.core.designsystem.heroReelScrim
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
 import com.yfuse.core.designsystem.loopingCarouselSemantics
 import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
-import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
-import com.yfuse.core.designsystem.windowWidthTier
+import com.yfuse.core.designsystem.pageTint
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberScrolledPastHero
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.TmdbGenres
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
@@ -101,6 +98,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val HomeHeroIndicatorBottom = 7.dp
+
+/**
+ * The hero artwork changes every few seconds, while the status-bar ink stays white.
+ *
+ * [heroReelScrim] keeps the whole header readable without flattening the artwork, but its
+ * deliberately light top wash is not a contrast guarantee for the smaller system glyphs.
+ * This short, stronger cap is confined to the status/header area so even a white poster has
+ * a stable dark surface behind the clock and indicators.
+ */
+private val HomeStatusBarScrim =
+    Brush.verticalGradient(
+        0f to Color(0xFF080B12).copy(alpha = 0.78f),
+        0.46f to Color(0xFF080B12).copy(alpha = 0.46f),
+        1f to Color.Transparent,
+    )
+
+private val HomeStatusBarScrimHeight = 128.dp
 
 /**
  * The caption clears the whole dissolve band.
@@ -118,49 +132,49 @@ private val HomeHeroContentBottom = HeroCaptionClearance
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(component: HomeComponent) {
+    // The carousel owns which slide is settled, so it reports the colour up rather than the
+    // page trying to work it out from an index it does not hold. Hoisted above the content
+    // so 跟随封面 can hand it to every control on the page — see [ArtworkAccent].
+    var heroAccent by remember { mutableStateOf<Color?>(null) }
+    ArtworkAccent(heroAccent) {
+        HomeContent(component = component, heroAccent = heroAccent, onHeroAccent = { heroAccent = it })
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomeContent(
+    component: HomeComponent,
+    heroAccent: Color?,
+    onHeroAccent: (Color) -> Unit,
+) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current.accent
     val listState = component.listState
-    val heroVisible by remember(listState) {
-        derivedStateOf {
-            listState.firstVisibleItemIndex == 0 &&
-                listState.firstVisibleItemScrollOffset < 330
-        }
-    }
+    // Same measurement as 媒体库's hero, off the same height token: the two roots open on the
+    // same picture, so the point where the status bar flips its icons has to be the same one.
+    val scrolledPastHero by rememberScrolledPastHero(listState, MediaSizing.heroHeight)
+    val heroVisible = !scrolledPastHero
     StatusBarIconStyle(darkIcons = !heroVisible && !palette.isDark)
     // The shelf opened out into a grid, or null. Held here rather than in the store: it is
     // which page is on screen, not anything about the data.
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
-    // The carousel owns which slide is settled, so it reports the colour up rather than the
-    // page trying to work it out from an index it does not hold.
-    var heroAccent by remember { mutableStateOf<Color?>(null) }
     val ground = pageTint(heroAccent ?: Brand.Primary) // design-system: brand-identity
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
-    // 首页's search, calendar and account entries live inside a hero that scrolls away, so
+    // 首页's calendar and account entries live inside a hero that scrolls away, so
     // this tab is the one where tapping the tab again matters most.
     ScrollToTopOnReselect(listState)
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Continue Watching is the highest-value shelf once it exists, so the hero gives it
-        // enough room to peek into the first viewport. Empty accounts keep the more cinematic
-        // treatment. Bounds protect compact phones and tablets from extreme proportions.
-        val widthTier = windowWidthTier(maxWidth)
-        val heroHeight = when (widthTier) {
-            WindowWidthTier.Compact ->
-                (maxHeight * if (state.resume.isNotEmpty()) 0.43f else 0.48f)
-                    .coerceIn(320.dp, 390.dp)
-
-            WindowWidthTier.Medium ->
-                (maxHeight * if (state.resume.isNotEmpty()) 0.46f else 0.50f)
-                    .coerceIn(360.dp, 440.dp)
-
-            WindowWidthTier.Expanded ->
-                (maxHeight * if (state.resume.isNotEmpty()) 0.48f else 0.52f)
-                    .coerceIn(390.dp, 480.dp)
-        }
+    Box(Modifier.fillMaxSize()) {
+        // 首页 and 媒体库 open on the same full-bleed reel, and they used to disagree about how
+        // tall it is: this one sized itself from the window and from whether 继续观看 had
+        // anything in it, so the same carousel was one height on the library tab and a
+        // different one — changing under the user as their resume list filled up — on the
+        // home tab. Both read the shared token now.
+        val heroHeight = MediaSizing.heroHeight
         PullToRefreshBox(
             isRefreshing = state.refreshing,
             onRefresh = { component.store.accept(HomeIntent.Refresh) },
@@ -182,11 +196,10 @@ fun HomeScreen(component: HomeComponent) {
                         height = heroHeight,
                         visible = heroVisible,
                         onOpenProfile = component.onOpenProfile,
-                        onOpenSearch = component.onOpenSearch,
                         onOpenCalendar = component.onOpenCalendar,
                         onPlay = { component.store.accept(HomeIntent.Open(it)) },
                         onFavorite = { component.store.accept(HomeIntent.Favorite(it)) },
-                        onAccent = { heroAccent = it },
+                        onAccent = onHeroAccent,
                     )
                 }
 
@@ -212,11 +225,12 @@ fun HomeScreen(component: HomeComponent) {
                 state.recommendationNotice?.let { notice ->
                     item(key = "recommendations-cache-notice") {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = Dimens.pageHorizontal)
-                                .glass(GlassShapes.chip, palette.card2, palette.border)
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = Dimens.pageHorizontal)
+                                    .glass(GlassShapes.chip, palette.card2, palette.border)
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -230,12 +244,12 @@ fun HomeScreen(component: HomeComponent) {
                                 text = "重新刷新",
                                 style = AppTypography.body.strong,
                                 color = themeAccent,
-                                modifier = Modifier
-                                    .pressable(
-                                        onClickLabel = "重新刷新首页",
-                                        onClick = { component.store.accept(HomeIntent.Retry) },
-                                    )
-                                    .touchTarget(),
+                                modifier =
+                                    Modifier
+                                        .pressable(
+                                            onClickLabel = "重新刷新首页",
+                                            onClick = { component.store.accept(HomeIntent.Retry) },
+                                        ).touchTarget(),
                             )
                         }
                     }
@@ -310,8 +324,8 @@ fun HomeScreen(component: HomeComponent) {
 /**
  * 首屏大图 — 390px, edge to edge, starting behind the status bar (§2 首页).
  *
- * The greeting row floats on the artwork rather than sitting above it, and the search
- * entry is a circular button in that row — the full-width search field is gone.
+ * The greeting row floats on the artwork rather than sitting above it. Search remains the
+ * shell's always-available destination instead of being repeated inside this header.
  */
 @Composable
 private fun HomeHeroCarousel(
@@ -320,15 +334,15 @@ private fun HomeHeroCarousel(
     height: androidx.compose.ui.unit.Dp,
     visible: Boolean,
     onOpenProfile: () -> Unit,
-    onOpenSearch: () -> Unit,
     onOpenCalendar: () -> Unit,
     onPlay: (TmdbItem) -> Unit,
     onFavorite: (TmdbItem) -> Unit,
     onAccent: (Color) -> Unit,
 ) {
-    val pagerState = rememberPagerState(
-        pageCount = { loopingCarouselPageCount(items.size) },
-    )
+    val pagerState =
+        rememberPagerState(
+            pageCount = { loopingCarouselPageCount(items.size) },
+        )
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -363,9 +377,10 @@ private fun HomeHeroCarousel(
         } else {
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .loopingCarouselSemantics(pagerState.currentPage, items.size),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .loopingCarouselSemantics(pagerState.currentPage, items.size),
                 beyondViewportPageCount = 1,
                 key = { page -> page },
             ) { page ->
@@ -381,10 +396,17 @@ private fun HomeHeroCarousel(
             }
         }
 
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(HomeStatusBarScrimHeight)
+                .align(Alignment.TopCenter)
+                .background(HomeStatusBarScrim),
+        )
+
         HeroHeader(
             userName = userName,
             onOpenProfile = onOpenProfile,
-            onOpenSearch = onOpenSearch,
             onOpenCalendar = onOpenCalendar,
             modifier = Modifier.align(Alignment.TopStart),
         )
@@ -396,11 +418,12 @@ private fun HomeHeroCarousel(
                 onPageSelected = { targetIndex ->
                     interaction++
                     carouselScope.launch {
-                        val targetPage = loopingCarouselTargetPage(
-                            currentPage = pagerState.currentPage,
-                            targetIndex = targetIndex,
-                            itemCount = items.size,
-                        )
+                        val targetPage =
+                            loopingCarouselTargetPage(
+                                currentPage = pagerState.currentPage,
+                                targetIndex = targetIndex,
+                                itemCount = items.size,
+                            )
                         if (reduceMotion) {
                             pagerState.scrollToPage(targetPage)
                         } else {
@@ -411,9 +434,10 @@ private fun HomeHeroCarousel(
                         }
                     }
                 },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = HomeHeroIndicatorBottom),
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = HomeHeroIndicatorBottom),
             )
         }
     }
@@ -428,27 +452,26 @@ private fun HeroSlide(
     onAccent: (Color) -> Unit = {},
 ) {
     val palette = LocalPalette.current
-    val artworkUrls: List<String?> = remember(item) {
-        if (item == null) {
-            emptyList()
-        } else {
-            listOf(
-                TmdbImages.backdrop(item.backdropPath),
-                TmdbImages.media(item.backdropPath, "w1280"),
-                TmdbImages.poster(item.posterPath, "w780"),
-                TmdbImages.media(item.posterPath, "w780"),
-            )
+    val artworkUrls: List<String?> =
+        remember(item) {
+            if (item == null) {
+                emptyList()
+            } else {
+                listOf(
+                    TmdbImages.backdrop(item.backdropPath),
+                    TmdbImages.media(item.backdropPath, "w1280"),
+                    TmdbImages.poster(item.posterPath, "w780"),
+                    TmdbImages.media(item.posterPath, "w780"),
+                )
+            }
         }
-    }
-    val artworkAccent = rememberAnimatedArtworkAccent(
-        url = artworkUrls.firstOrNull { it != null },
-        fallback = Brand.Primary, // design-system: brand-identity
-        darkTheme = palette.isDark,
-        identity = item?.id,
-    )
-    val slideSurface = remember(artworkAccent, palette.isDark) {
-        heroSurface(artworkAccent, palette.isDark)
-    }
+    val artworkAccent =
+        rememberAnimatedArtworkAccent(
+            url = artworkUrls.firstOrNull { it != null },
+            fallback = Brand.Primary, // design-system: brand-identity
+            darkTheme = palette.isDark,
+            identity = item?.id,
+        )
     // Only the slide the reader is actually on gets to colour the page; the pager keeps its
     // neighbours composed, and letting those report would tint the page from a slide that is
     // off screen.
@@ -480,12 +503,10 @@ private fun HeroSlide(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // Share the detail hero's exact bottom-to-top colour stops and surface treatment.
-        Box(
-            Modifier.fillMaxSize().background(
-                heroScrim(surface = slideSurface, bottomSurface = pageTint(artworkAccent)),
-            ),
-        )
+        // Its own slide's page colour rather than the settled one: mid-swipe the neighbour
+        // dissolves into the ground it is about to give the page, so the two arrive together
+        // instead of the scrim stepping to the new colour after the pager settles.
+        Box(Modifier.fillMaxSize().background(heroReelScrim(pageTint(artworkAccent))))
 
         if (item != null) {
             HeroCaption(
@@ -500,14 +521,13 @@ private fun HeroSlide(
 
 /**
  * Header row over the hero — `gap:10px`; left cluster `gap:9px` with the 30px mark,
- * `下午好` at `400 11px Manrope`, `继续你的旅程` at `800 17px`; 36px search + avatar.
+ * `下午好` at `400 11px Manrope`, `继续你的旅程` at `800 17px`; calendar + avatar.
  * Text is white here because it sits on the darkened artwork, not the page.
  */
 @Composable
 private fun HeroHeader(
     userName: String?,
     onOpenProfile: () -> Unit,
-    onOpenSearch: () -> Unit,
     onOpenCalendar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -563,23 +583,6 @@ private fun HeroHeader(
             }
         }
         Box(
-            Modifier.size(48.dp).pressable(onClick = onOpenSearch),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .glass(
-                        shape = CircleShape,
-                        fill = Color.White.copy(alpha = 0.14f),
-                        border = Color.White.copy(alpha = 0.34f),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(AppIcons.Search, "搜索", tint = Color.White, modifier = Modifier.size(17.dp))
-            }
-        }
-        Box(
             Modifier
                 .size(48.dp)
                 .pressable(onClickLabel = "打开个人中心", onClick = onOpenProfile)
@@ -630,13 +633,13 @@ private fun HeroCaption(
             "TMDB · 今日精选",
             style = AppTypography.caption.medium,
             color = Color.White,
-            modifier = Modifier
-                .glass(
-                    shape = GlassShapes.chip,
-                    fill = Color.White.copy(alpha = 0.14f),
-                    border = Color.White.copy(alpha = 0.30f),
-                )
-                .padding(horizontal = 9.dp, vertical = 3.dp),
+            modifier =
+                Modifier
+                    .glass(
+                        shape = GlassShapes.chip,
+                        fill = Color.White.copy(alpha = 0.14f),
+                        border = Color.White.copy(alpha = 0.30f),
+                    ).padding(horizontal = 9.dp, vertical = 3.dp),
         )
         Spacer(Modifier.height(10.dp))
         Text(
@@ -690,13 +693,13 @@ private fun HeroCaption(
                 style = AppTypography.caption.medium,
                 color = Color.White.copy(alpha = 0.92f),
                 maxLines = 1,
-                modifier = Modifier
-                    .border(
-                        width = Dimens.hairline,
-                        color = Color.White.copy(alpha = 0.42f),
-                        shape = GlassShapes.chip,
-                    )
-                    .padding(horizontal = 6.dp, vertical = 1.dp),
+                modifier =
+                    Modifier
+                        .border(
+                            width = Dimens.hairline,
+                            color = Color.White.copy(alpha = 0.42f),
+                            shape = GlassShapes.chip,
+                        ).padding(horizontal = 6.dp, vertical = 1.dp),
             )
         }
         Spacer(Modifier.height(14.dp))
@@ -707,13 +710,12 @@ private fun HeroCaption(
             Row(
                 Modifier
                     .height(48.dp)
-                    .pressable(onClick = onPlay)
+                    .pressable(onClickLabel = "查看影片详情", onClick = onPlay)
                     .glass(
                         shape = GlassShapes.chip,
                         fill = Color(0xFF101722).copy(alpha = 0.30f),
                         border = Color.White.copy(alpha = 0.40f),
-                    )
-                    .padding(start = 5.dp, end = 18.dp),
+                    ).padding(start = 5.dp, end = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -729,7 +731,7 @@ private fun HeroCaption(
                 ) {
                     Icon(
                         AppIcons.Info,
-                        null,
+                        contentDescription = "影片信息",
                         tint = Color.White,
                         modifier = Modifier.size(19.dp),
                     )
@@ -743,7 +745,11 @@ private fun HeroCaption(
 
 /** 次级玻璃圆钮 beside the hero's main CTA. */
 @Composable
-private fun HeroCircleButton(icon: ImageVector, label: String, onClick: () -> Unit = {}) {
+private fun HeroCircleButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit = {},
+) {
     Box(
         Modifier
             .pressable(onClick = onClick)
@@ -759,12 +765,13 @@ private fun HeroCircleButton(icon: ImageVector, label: String, onClick: () -> Un
     }
 }
 
-internal fun homeUserInitial(userName: String?): String = userName
-    ?.trim()
-    ?.firstOrNull(Char::isLetterOrDigit)
-    ?.uppercaseChar()
-    ?.toString()
-    ?: "访"
+internal fun homeUserInitial(userName: String?): String =
+    userName
+        ?.trim()
+        ?.firstOrNull(Char::isLetterOrDigit)
+        ?.uppercaseChar()
+        ?.toString()
+        ?: "访"
 
 @Composable
 private fun HomeSourceBadge(source: String) {
@@ -773,13 +780,13 @@ private fun HomeSourceBadge(source: String) {
         source,
         style = AppTypography.caption.strong,
         color = accent.accent,
-        modifier = Modifier
-            .glass(
-                shape = GlassShapes.chip,
-                fill = accent.container,
-                border = accent.border,
-            )
-            .padding(horizontal = 7.dp, vertical = 2.dp),
+        modifier =
+            Modifier
+                .glass(
+                    shape = GlassShapes.chip,
+                    fill = accent.container,
+                    border = accent.border,
+                ).padding(horizontal = 7.dp, vertical = 2.dp),
     )
 }
 
@@ -815,9 +822,10 @@ private fun NextUpShelf(
                 "追剧中心 ›",
                 style = AppTypography.caption.strong,
                 color = accent.accent,
-                modifier = Modifier
-                    .pressable(onClickLabel = "打开追剧中心", onClick = onSeeAll)
-                    .touchTarget(),
+                modifier =
+                    Modifier
+                        .pressable(onClickLabel = "打开追剧中心", onClick = onSeeAll)
+                        .touchTarget(),
             )
         }
         LazyRow(
@@ -827,14 +835,21 @@ private fun NextUpShelf(
             items(items, key = { "next-${it.server.id}-${it.item.id}" }) { entry ->
                 val item = entry.item
                 CaptionedPoster(
-                    url = EmbyImages.primary(entry.server.baseUrl, item.posterItemId, item.posterTag, accessToken = entry.server.accessToken),
+                    url =
+                        EmbyImages.primary(
+                            entry.server.baseUrl,
+                            item.posterItemId,
+                            item.posterTag,
+                            accessToken = entry.server.accessToken,
+                        ),
                     fallbackUrls = emptyList(),
                     title = item.title,
-                    year = listOfNotNull(
-                        "Emby",
-                        entry.server.serverName.takeIf(String::isNotBlank),
-                        item.subtitle ?: item.year?.toString(),
-                    ).joinToString(" · "),
+                    year =
+                        listOfNotNull(
+                            "Emby",
+                            entry.server.serverName.takeIf(String::isNotBlank),
+                            item.subtitle ?: item.year?.toString(),
+                        ).joinToString(" · "),
                     onClick = { onClick(entry) },
                     sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
                     modifier = Modifier.width(MediaSizing.landscapeCardWidth),
@@ -873,10 +888,11 @@ private fun ContinueWatching(
                 "全部 ›",
                 style = AppTypography.caption.medium,
                 color = palette.sub2,
-                modifier = Modifier
-                    .pressable(onClick = onSeeAll)
-                    .touchTarget()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                modifier =
+                    Modifier
+                        .pressable(onClick = onSeeAll)
+                        .touchTarget()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
         LazyRow(
@@ -886,23 +902,26 @@ private fun ContinueWatching(
             items(items, key = { "${it.server.id}:${it.item.id}" }) { entry ->
                 val item = entry.item
                 CaptionedPoster(
-                    url = EmbyImages.backdrop(
-                        entry.server.baseUrl,
-                        item,
-                        maxWidth = 480,
-                        accessToken = entry.server.accessToken,
-                    ),
-                    fallbackUrl = EmbyImages.poster(
-                        entry.server.baseUrl,
-                        item,
-                        accessToken = entry.server.accessToken,
-                    ),
+                    url =
+                        EmbyImages.backdrop(
+                            entry.server.baseUrl,
+                            item,
+                            maxWidth = 480,
+                            accessToken = entry.server.accessToken,
+                        ),
+                    fallbackUrl =
+                        EmbyImages.poster(
+                            entry.server.baseUrl,
+                            item,
+                            accessToken = entry.server.accessToken,
+                        ),
                     title = item.title,
-                    year = listOfNotNull(
-                        "Emby",
-                        entry.server.serverName.takeIf(String::isNotBlank),
-                        item.year?.toString(),
-                    ).joinToString(" · "),
+                    year =
+                        listOfNotNull(
+                            "Emby",
+                            entry.server.serverName.takeIf(String::isNotBlank),
+                            item.year?.toString(),
+                        ).joinToString(" · "),
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
                     // Keep the home content continuously rendered on pop. A shared-media
                     // overlay can briefly outlive the disposed detail image and flash blank.
@@ -943,10 +962,11 @@ private fun Recommended(
                 "全部 ›",
                 style = AppTypography.caption.medium,
                 color = palette.sub2,
-                modifier = Modifier
-                    .pressable(onClick = onSeeAll)
-                    .touchTarget()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                modifier =
+                    Modifier
+                        .pressable(onClick = onSeeAll)
+                        .touchTarget()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
         LazyRow(
@@ -956,21 +976,24 @@ private fun Recommended(
             items(items.take(12), key = { "${it.mediaType}:${it.id}" }) { item ->
                 CaptionedPoster(
                     url = TmdbImages.poster(item.posterPath),
-                    fallbackUrls = listOfNotNull(
-                        TmdbImages.media(item.posterPath),
-                        TmdbImages.poster(item.posterPath, "original"),
-                        TmdbImages.media(item.posterPath, "original"),
-                        TmdbImages.backdrop(item.backdropPath, "w780"),
-                        TmdbImages.media(item.backdropPath, "w780"),
-                        TmdbImages.backdrop(item.backdropPath, "original"),
-                        TmdbImages.media(item.backdropPath, "original"),
-                    ),
+                    fallbackUrls =
+                        listOfNotNull(
+                            TmdbImages.media(item.posterPath),
+                            TmdbImages.poster(item.posterPath, "original"),
+                            TmdbImages.media(item.posterPath, "original"),
+                            TmdbImages.backdrop(item.backdropPath, "w780"),
+                            TmdbImages.media(item.backdropPath, "w780"),
+                            TmdbImages.backdrop(item.backdropPath, "original"),
+                            TmdbImages.media(item.backdropPath, "original"),
+                        ),
                     title = item.title,
-                    year = "TMDB · " + if (showReleaseDate) {
-                        item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
-                    } else {
-                        item.year ?: "年份未知"
-                    },
+                    year =
+                        "TMDB · " +
+                            if (showReleaseDate) {
+                                item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
+                            } else {
+                                item.year ?: "年份未知"
+                            },
                     // The same title can appear in 热门 and 正在上映 at once.
                     // A shared-element key must be unique within a screen, so
                     // shelf posters use the route fade instead of competing for
@@ -1003,10 +1026,11 @@ private fun RecentAdded(
                 "全部 ›",
                 style = AppTypography.caption.medium,
                 color = palette.sub2,
-                modifier = Modifier
-                    .pressable(onClick = onSeeAll)
-                    .touchTarget()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                modifier =
+                    Modifier
+                        .pressable(onClick = onSeeAll)
+                        .touchTarget()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
         items.chunked(3).forEach { row ->
@@ -1017,11 +1041,12 @@ private fun RecentAdded(
                 row.forEach { item ->
                     Poster(
                         url = TmdbImages.poster(item.posterPath),
-                        fallbackUrls = listOfNotNull(
-                            TmdbImages.media(item.posterPath),
-                            TmdbImages.backdrop(item.backdropPath, "w780"),
-                            TmdbImages.media(item.backdropPath, "w780"),
-                        ),
+                        fallbackUrls =
+                            listOfNotNull(
+                                TmdbImages.media(item.posterPath),
+                                TmdbImages.backdrop(item.backdropPath, "w780"),
+                                TmdbImages.media(item.backdropPath, "w780"),
+                            ),
                         title = item.title,
                         onClick = { onClick(item) },
                         modifier = Modifier.weight(1f).aspectRatio(2f / 3f),

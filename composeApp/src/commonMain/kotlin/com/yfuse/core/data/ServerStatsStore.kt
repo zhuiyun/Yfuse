@@ -30,14 +30,15 @@ class ServerStatsStore(
     private val settings: Settings,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ) {
-
     private companion object {
         const val KEY = "servers.stats"
         const val MAX_ENTRIES = 100
     }
 
     @Serializable
-    private data class Persisted(val stats: Map<String, ServerStats> = emptyMap())
+    private data class Persisted(
+        val stats: Map<String, ServerStats> = emptyMap(),
+    )
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -48,13 +49,18 @@ class ServerStatsStore(
 
     fun statsFor(serverId: String): ServerStats? = _stats.value[serverId]
 
-    fun record(serverId: String, counts: LibraryCounts, atEpochMs: Long = nowEpochMs()) {
+    fun record(
+        serverId: String,
+        counts: LibraryCounts,
+        atEpochMs: Long = nowEpochMs(),
+    ) {
         if (serverId.isBlank()) return
-        val entry = ServerStats(
-            movieCount = counts.movieCount.coerceAtLeast(0),
-            seriesCount = counts.seriesCount.coerceAtLeast(0),
-            updatedAtEpochMs = atEpochMs,
-        )
+        val entry =
+            ServerStats(
+                movieCount = counts.movieCount.coerceAtLeast(0),
+                seriesCount = counts.seriesCount.coerceAtLeast(0),
+                updatedAtEpochMs = atEpochMs,
+            )
         if (_stats.value[serverId] == entry) return
         commit(_stats.value + (serverId to entry))
     }
@@ -66,14 +72,15 @@ class ServerStatsStore(
     }
 
     private fun commit(value: Map<String, ServerStats>) {
-        val bounded = if (value.size <= MAX_ENTRIES) {
-            value
-        } else {
-            value.entries
-                .sortedByDescending { it.value.updatedAtEpochMs }
-                .take(MAX_ENTRIES)
-                .associate { it.toPair() }
-        }
+        val bounded =
+            if (value.size <= MAX_ENTRIES) {
+                value
+            } else {
+                value.entries
+                    .sortedByDescending { it.value.updatedAtEpochMs }
+                    .take(MAX_ENTRIES)
+                    .associate { it.toPair() }
+            }
         _stats.value = bounded
         runCatching {
             settings.putString(KEY, json.encodeToString(Persisted.serializer(), Persisted(bounded)))
@@ -90,7 +97,9 @@ class ServerStatsStore(
     private fun load(): Map<String, ServerStats> {
         val raw = settings.getStringOrNull(KEY) ?: return emptyMap()
         return runCatching {
-            json.decodeFromString(Persisted.serializer(), raw).stats
+            json
+                .decodeFromString(Persisted.serializer(), raw)
+                .stats
                 .filterValues { it.movieCount >= 0 && it.seriesCount >= 0 }
         }.getOrDefault(emptyMap())
     }
@@ -101,8 +110,9 @@ class ServerStatsStore(
  * the only thing that distinguishes one large library from another. Beyond six digits, which
  * no real library reaches, it degrades rather than wrapping the card.
  */
-fun formatServerCount(value: Int?): String = when {
-    value == null || value < 0 -> "--"
-    value < 1_000_000 -> value.toString()
-    else -> "${value / 1_000_000}M+"
-}
+fun formatServerCount(value: Int?): String =
+    when {
+        value == null || value < 0 -> "--"
+        value < 1_000_000 -> value.toString()
+        else -> "${value / 1_000_000}M+"
+    }

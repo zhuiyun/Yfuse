@@ -10,7 +10,10 @@ package com.yfuse.core.util
  */
 
 /** [date] shifted by [days], which may be negative. Returns [date] unchanged if unparseable. */
-fun shiftIsoDate(date: String, days: Int): String {
+fun shiftIsoDate(
+    date: String,
+    days: Int,
+): String {
     val parts = date.split('-')
     if (parts.size != 3) return date
     val year = parts[0].toIntOrNull() ?: return date
@@ -22,7 +25,10 @@ fun shiftIsoDate(date: String, days: Int): String {
 }
 
 /** Days from [from] to [to]; negative when [to] is earlier. 0 for anything unparseable. */
-fun daysBetweenIso(from: String, to: String): Int {
+fun daysBetweenIso(
+    from: String,
+    to: String,
+): Int {
     val a = parseIso(from) ?: return 0
     val b = parseIso(to) ?: return 0
     return (isoToEpochDay(b.first, b.second, b.third) - isoToEpochDay(a.first, a.second, a.third)).toInt()
@@ -52,8 +58,7 @@ fun isoShortDate(date: String): String {
 }
 
 /** Days since 1970-01-01 for an ISO date, or null when it is not one. */
-fun isoEpochDay(date: String): Long? =
-    parseIso(date)?.let { (y, m, d) -> isoToEpochDay(y, m, d) }
+fun isoEpochDay(date: String): Long? = parseIso(date)?.let { (y, m, d) -> isoToEpochDay(y, m, d) }
 
 /**
  * Today's entry out of a pool: the same all day, a different one tomorrow.
@@ -84,7 +89,11 @@ private fun parseIso(date: String): Triple<Int, Int, Int>? {
  * exact for the proleptic Gregorian calendar and needs no leap-year special cases beyond
  * the era arithmetic it already does.
  */
-private fun isoToEpochDay(year: Int, month: Int, day: Int): Long {
+private fun isoToEpochDay(
+    year: Int,
+    month: Int,
+    day: Int,
+): Long {
     val y = if (month <= 2) year - 1 else year
     val era = (if (y >= 0) y else y - 399) / 400
     val yoe = (y - era * 400).toLong()

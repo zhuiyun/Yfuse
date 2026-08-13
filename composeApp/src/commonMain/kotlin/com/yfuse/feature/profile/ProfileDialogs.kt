@@ -9,9 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
@@ -28,36 +26,37 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.SkipMode
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
-import com.yfuse.core.designsystem.Palette
 import com.yfuse.core.designsystem.WatchAvatar
-import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.network.EndpointTransportDecision
+import com.yfuse.core.network.validateServiceEndpoint
 import com.yfuse.core.sync.WatchInvite
-import com.yfuse.feature.watch.CopyableRoomCode
 import com.yfuse.core.util.graphemeCount
 import com.yfuse.core.util.takeGraphemes
 import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
 import com.yfuse.core.util.withoutControlCharacters
+import com.yfuse.feature.watch.CopyableRoomCode
+import com.yfuse.core.designsystem.flatGlass as glass
 
 /**
  * 我的 — the option sheets.
@@ -108,9 +107,10 @@ internal fun UserAgentDialog(
                     singleLine = true,
                     textStyle = AppTypography.body.medium.copy(color = palette.text),
                     cursorBrush = SolidColor(accent.accent),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics { contentDescription = "User-Agent" },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = "User-Agent" },
                 )
             }
         }
@@ -174,11 +174,12 @@ internal fun DanmakuSourceDialog(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = if (draft == null) "弹幕链接" else "编辑弹幕源",
-            subtitle = if (draft == null) {
-                "可以配置多个，选中的那个负责搜索和匹配，播放器里也能切换。"
-            } else {
-                "填服务器地址即可搜索；带 {id} 等占位符的链接按模板直接取。"
-            },
+            subtitle =
+                if (draft == null) {
+                    "可以配置多个，选中的那个负责搜索和匹配，播放器里也能切换。"
+                } else {
+                    "填服务器地址即可搜索；带 {id} 等占位符的链接按模板直接取。"
+                },
             onClose = onDismiss,
         )
 
@@ -344,10 +345,11 @@ internal fun DanmakuBlockedDialog(
                             "移除",
                             style = AppTypography.caption.strong,
                             color = palette.error,
-                            modifier = Modifier
-                                .pressable(onClick = { onRemove(word) })
-                                .touchTarget()
-                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                            modifier =
+                                Modifier
+                                    .pressable(onClick = { onRemove(word) })
+                                    .touchTarget()
+                                    .padding(horizontal = 6.dp, vertical = 4.dp),
                         )
                     }
                 }
@@ -373,7 +375,11 @@ internal fun DanmakuBlockedDialog(
 }
 
 /** One entry mid-edit. A null [id] is a source that does not exist yet. */
-private data class DanmakuSourceDraft(val id: String?, val name: String, val url: String)
+private data class DanmakuSourceDraft(
+    val id: String?,
+    val name: String,
+    val url: String,
+)
 
 @Composable
 private fun DanmakuSourceRow(
@@ -393,8 +399,7 @@ private fun DanmakuSourceRow(
                 AppShapes.control,
                 if (selected) accent.container else palette.card2,
                 if (selected) accent.border else palette.border,
-            )
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            ).padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -428,10 +433,11 @@ private fun DanmakuSourceRow(
             "编辑",
             style = AppTypography.caption.strong,
             color = accent.accent,
-            modifier = Modifier
-                .pressable(onClickLabel = "编辑弹幕源", onClick = onEdit)
-                .touchTarget()
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+            modifier =
+                Modifier
+                    .pressable(onClickLabel = "编辑弹幕源", onClick = onEdit)
+                    .touchTarget()
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
         )
     }
 }
@@ -468,9 +474,10 @@ private fun DanmakuField(
             textStyle = AppTypography.body.medium.copy(color = palette.text),
             cursorBrush = SolidColor(accent.accent),
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics { contentDescription = placeholder },
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = placeholder },
         )
     }
 }
@@ -542,11 +549,12 @@ internal fun WatchJoinDialog(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = if (connected) "一起看" else "加入一起看",
-            subtitle = if (connected) {
-                "已在房间中。退出播放界面不会离开房间，随时可以再进去。"
-            } else {
-                "粘贴邀请或输入 6 位房间码。"
-            },
+            subtitle =
+                if (connected) {
+                    "已在房间中。退出播放界面不会离开房间，随时可以再进去。"
+                } else {
+                    "粘贴邀请或输入 6 位房间码。"
+                },
             onClose = onDismiss,
         )
         if (connected) {
@@ -614,9 +622,10 @@ internal fun WatchJoinDialog(
                         singleLine = true,
                         textStyle = AppTypography.body.medium.copy(color = palette.text),
                         cursorBrush = SolidColor(accent.accent),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics { contentDescription = "房间码或邀请链接" },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .semantics { contentDescription = "房间码或邀请链接" },
                     )
                 }
             }
@@ -653,15 +662,17 @@ internal fun WatchJoinDialog(
 @Composable
 internal fun WatchEndpointDialog(
     current: String,
-    onSave: (String) -> Unit,
+    onSave: (String, Boolean) -> Unit,
     onReset: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var draft by remember(current) { mutableStateOf(current) }
+    var localCleartextConfirmed by remember(current) { mutableStateOf(false) }
     val normalized = draft.trim().trimEnd('/')
-    val valid = listOf("http://", "https://", "ws://", "wss://").any { normalized.startsWith(it) }
-    val isDefault = current.trimEnd('/') ==
-        WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
+    val validation = validateServiceEndpoint(normalized, localCleartextConfirmed)
+    val isDefault =
+        current.trimEnd('/') ==
+            WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
 
@@ -688,24 +699,65 @@ internal fun WatchEndpointDialog(
                 }
                 BasicTextField(
                     value = draft,
-                    onValueChange = { draft = it.take(300) },
+                    onValueChange = {
+                        draft = it.take(300)
+                        localCleartextConfirmed = false
+                    },
                     singleLine = true,
                     textStyle = AppTypography.body.medium.copy(color = palette.text),
                     cursorBrush = SolidColor(accent.accent),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics { contentDescription = "一起看服务器地址" },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = "一起看服务器地址" },
                 )
             }
         }
-        if (normalized.isNotEmpty() && !valid) {
+        if (normalized.isNotEmpty() && validation.message != null) {
             Spacer(Modifier.height(6.dp))
             Text(
-                "地址必须以 http://、https://、ws:// 或 wss:// 开头",
+                validation.message,
                 style = AppTypography.caption.medium,
                 color = palette.error,
             )
+        }
+        if (validation.decision == EndpointTransportDecision.LocalCleartextConfirmationRequired ||
+            validation.decision == EndpointTransportDecision.LocalCleartextConfirmed
+        ) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .pressable(
+                        role = Role.Checkbox,
+                        onClickLabel =
+                            if (localCleartextConfirmed) {
+                                "取消局域网明文风险确认"
+                            } else {
+                                "确认局域网明文连接风险"
+                            },
+                        onClick = { localCleartextConfirmed = !localCleartextConfirmed },
+                    ).touchTarget()
+                    .semantics {
+                        toggleableState = ToggleableState(localCleartextConfirmed)
+                    }.padding(horizontal = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = if (localCleartextConfirmed) AppIcons.Check else AppIcons.Info,
+                    contentDescription = null,
+                    tint = palette.error,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    "我了解风险，仅在可信局域网中使用明文连接",
+                    style = AppTypography.caption.strong,
+                    color = palette.text,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         Row(
             Modifier.fillMaxWidth().padding(top = 16.dp),
@@ -723,10 +775,10 @@ internal fun WatchEndpointDialog(
             }
             OverlayButton(
                 label = "保存",
-                onClick = { onSave(normalized) },
+                onClick = { onSave(normalized, localCleartextConfirmed) },
                 modifier = Modifier.weight(1f),
                 tone = OverlayButtonTone.Primary,
-                enabled = valid,
+                enabled = validation.allowed,
             )
         }
     }
@@ -775,20 +827,23 @@ internal fun WatchProfileDialog(
                     BasicTextField(
                         value = draft,
                         onValueChange = { value ->
-                            draft = value.replace('\r', ' ')
-                                .replace('\n', ' ')
-                                .withoutControlCharacters()
-                                .takeGraphemes(WatchTogetherPreferences.MAX_NICKNAME_GRAPHEMES)
-                                .takeGraphemesWithinUtf8Bytes(
-                                    WatchTogetherPreferences.MAX_NICKNAME_BYTES,
-                                )
+                            draft =
+                                value
+                                    .replace('\r', ' ')
+                                    .replace('\n', ' ')
+                                    .withoutControlCharacters()
+                                    .takeGraphemes(WatchTogetherPreferences.MAX_NICKNAME_GRAPHEMES)
+                                    .takeGraphemesWithinUtf8Bytes(
+                                        WatchTogetherPreferences.MAX_NICKNAME_BYTES,
+                                    )
                         },
                         singleLine = true,
                         textStyle = AppTypography.body.medium.copy(color = palette.text),
                         cursorBrush = SolidColor(accent.accent),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics { contentDescription = "昵称" },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .semantics { contentDescription = "昵称" },
                     )
                 }
                 Text(
@@ -816,13 +871,13 @@ internal fun WatchProfileDialog(
                             avatarId = avatarId,
                             size = 42.dp,
                             selected = avatarId == selectedAvatar,
-                            modifier = Modifier
-                                .pressable(role = Role.RadioButton) { selectedAvatar = avatarId }
-                                .semantics {
-                                    this.selected = avatarId == selectedAvatar
-                                    contentDescription = "头像 ${avatarId + 1}"
-                                }
-                                .touchTarget(),
+                            modifier =
+                                Modifier
+                                    .pressable(role = Role.RadioButton) { selectedAvatar = avatarId }
+                                    .semantics {
+                                        this.selected = avatarId == selectedAvatar
+                                        contentDescription = "头像 ${avatarId + 1}"
+                                    }.touchTarget(),
                         )
                     }
                 }

@@ -22,13 +22,6 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertIs
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -37,292 +30,332 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class AccountRepositoryStateTest {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
 
     @Test
-    fun change_password_replaces_every_locally_stored_wrapper_field() = runTest {
-        val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
-        val oldVaultKey = assertNotNull(secureStore.get(KEY_VAULT_KEY))
-        val oldSalt = assertNotNull(secureStore.get(KEY_WRAP_SALT))
-        val oldNonce = assertNotNull(secureStore.get(KEY_WRAP_NONCE))
-        val oldWrappedKey = assertNotNull(secureStore.get(KEY_WRAPPED_VAULT))
-        var capturedChange: ChangePasswordRequest? = null
-        val api = accountApi(
-            MockEngine { request ->
-                when (request.url.encodedPath) {
-                    REFRESH_PATH -> respondAccountJson(
-                        json.encodeToString(authResponse(refreshToken = "refresh-before-change")),
-                    )
-                    SYNC_PATH -> respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
-                    PASSWORD_PATH -> {
-                        capturedChange = json.decodeFromString(
-                            request.body.toByteArray().decodeToString(),
-                        )
-                        respondAccountJson(
-                            json.encodeToString(
-                                authResponse(
-                                    accessToken = "access-after-change",
-                                    refreshToken = "refresh-after-change",
-                                ),
-                            ),
-                        )
-                    }
-                    else -> error("Unexpected path ${request.url.encodedPath}")
-                }
-            },
-        )
-        val repository = accountRepository(api, secureStore)
-        repository.start()
-        awaitAccountState(repository) {
-            it is AccountState.SignedIn && it.syncVersion == 5L
-        }
-        secureStore.resetObservations()
-
-        val result = repository.changePassword(
-            currentPassword = "current password".toCharArray(),
-            newPassword = "replacement password".toCharArray(),
-        )
-
-        assertTrue(result.isSuccess)
-        val request = assertNotNull(capturedChange)
-        assertEquals(5L, request.expectedSyncVersion)
-        assertEquals(1, request.keyVersion)
-        assertContentEquals(
-            request.wrappedVaultKey.base64UrlToBytes(),
-            secureStore.get(KEY_WRAPPED_VAULT),
-        )
-        assertContentEquals(request.wrapSalt.base64UrlToBytes(), secureStore.get(KEY_WRAP_SALT))
-        assertContentEquals(request.wrapNonce.base64UrlToBytes(), secureStore.get(KEY_WRAP_NONCE))
-        assertEquals(request.wrapVersion.toString(), secureStore.text(KEY_WRAP_VERSION))
-        assertEquals(request.wrapKdf, secureStore.text(KEY_WRAP_KDF))
-        assertEquals(request.wrapIterations.toString(), secureStore.text(KEY_WRAP_ITERATIONS))
-        assertContentEquals(oldVaultKey, secureStore.get(KEY_VAULT_KEY))
-
-        val locallyWrittenVaultFields = secureStore.putKeys.filterTo(mutableSetOf()) {
-            it in ALL_LOCAL_VAULT_FIELDS
-        }
-        assertEquals(ALL_LOCAL_VAULT_FIELDS, locallyWrittenVaultFields)
-        assertFalse(oldSalt.contentEquals(secureStore.get(KEY_WRAP_SALT)))
-        assertFalse(oldNonce.contentEquals(secureStore.get(KEY_WRAP_NONCE)))
-        assertFalse(oldWrappedKey.contentEquals(secureStore.get(KEY_WRAPPED_VAULT)))
-        assertEquals("refresh-after-change", secureStore.text(KEY_REFRESH_TOKEN))
-        val signedIn = assertIs<AccountState.SignedIn>(repository.state.value)
-        assertEquals("access-after-change", signedIn.session.accessToken)
-        assertEquals("登录密码已修改，加密密钥已同步更新", signedIn.message)
-    }
-
-    @Test
-    fun upload_conflict_stops_after_one_put_and_restores_non_syncing_state() = runTest {
-        val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
-        val uploadRequests = mutableListOf<String>()
-        val api = accountApi(
-            MockEngine { request ->
-                when (request.url.encodedPath) {
-                    REFRESH_PATH -> respondAccountJson(json.encodeToString(authResponse()))
-                    SYNC_PATH -> when (request.method.value) {
-                        "GET" -> {
-                            uploadRequests += "GET"
-                            respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
-                        }
-                        "PUT" -> {
-                            uploadRequests += "PUT"
-                            respondAccountJson(
-                                body = json.encodeToString(
-                                    ErrorEnvelope(
-                                        ErrorBody(
-                                            code = "sync_version_conflict",
-                                            message = "Sync version conflict",
-                                            currentVersion = 6,
+    fun change_password_replaces_every_locally_stored_wrapper_field() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val oldVaultKey = assertNotNull(secureStore.get(KEY_VAULT_KEY))
+            val oldSalt = assertNotNull(secureStore.get(KEY_WRAP_SALT))
+            val oldNonce = assertNotNull(secureStore.get(KEY_WRAP_NONCE))
+            val oldWrappedKey = assertNotNull(secureStore.get(KEY_WRAPPED_VAULT))
+            var capturedChange: ChangePasswordRequest? = null
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH ->
+                                respondAccountJson(
+                                    json.encodeToString(authResponse(refreshToken = "refresh-before-change")),
+                                )
+                            SYNC_PATH -> respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
+                            PASSWORD_PATH -> {
+                                capturedChange =
+                                    json.decodeFromString(
+                                        request.body.toByteArray().decodeToString(),
+                                    )
+                                respondAccountJson(
+                                    json.encodeToString(
+                                        authResponse(
+                                            accessToken = "access-after-change",
+                                            refreshToken = "refresh-after-change",
                                         ),
                                     ),
-                                ),
-                                status = HttpStatusCode.Conflict,
-                            )
+                                )
+                            }
+                            else -> error("Unexpected path ${request.url.encodedPath}")
                         }
-                        else -> error("Unexpected method ${request.method}")
-                    }
-                    else -> error("Unexpected path ${request.url.encodedPath}")
-                }
-            },
-        )
-        val repository = accountRepository(api, secureStore)
-        repository.start()
-        awaitAccountState(repository) {
-            it is AccountState.SignedIn && it.syncVersion == 5L
-        }
-        uploadRequests.clear()
-
-        val result = repository.uploadNow()
-
-        val failure = assertIs<AccountApiException>(result.exceptionOrNull())
-        assertEquals("sync_version_conflict", failure.code)
-        assertEquals(6L, failure.currentVersion)
-        assertEquals(listOf("GET", "PUT"), uploadRequests)
-        val signedIn = assertIs<AccountState.SignedIn>(repository.state.value)
-        assertEquals(5L, signedIn.syncVersion)
-        assertFalse(signedIn.cloudHasData)
-        assertFalse(signedIn.syncing)
-        assertEquals("云端已有更新，请先从云端恢复", signedIn.message)
-    }
-
-    @Test
-    fun sync_rebuilds_missing_local_key_wrap_from_the_cloud_copy() = runTest {
-        val secureStore = RecordingAccountSecureStore().apply {
-            seedStoredSession()
-            // A vault whose wrap entries never landed. This is the state that made every sync
-            // report a missing sync key even though the server still holds the same wrap.
-            listOf(
-                KEY_WRAP_SALT,
-                KEY_WRAP_NONCE,
-                KEY_WRAPPED_VAULT,
-                KEY_WRAP_VERSION,
-                KEY_WRAP_KDF,
-                KEY_WRAP_ITERATIONS,
-            ).forEach { remove(it) }
-            resetObservations()
-        }
-        val cloudPayload = cloudSyncPayload()
-        var uploaded: PutSyncRequest? = null
-        val api = accountApi(
-            MockEngine { request ->
-                when (request.url.encodedPath) {
-                    REFRESH_PATH -> respondAccountJson(json.encodeToString(authResponse()))
-                    SYNC_PATH -> when (request.method.value) {
-                        "GET" -> respondAccountJson(
-                            json.encodeToString(SyncResponse(version = 5, payload = cloudPayload)),
-                        )
-                        "PUT" -> {
-                            uploaded = json.decodeFromString(
-                                request.body.toByteArray().decodeToString(),
-                            )
-                            respondAccountJson(
-                                json.encodeToString(
-                                    SyncResponse(version = 6, payload = cloudPayload),
-                                ),
-                            )
-                        }
-                        else -> error("Unexpected method ${request.method}")
-                    }
-                    else -> error("Unexpected path ${request.url.encodedPath}")
-                }
-            },
-        )
-        val repository = accountRepository(api, secureStore)
-
-        repository.start()
-        awaitAccountState(repository) { it is AccountState.SignedIn && it.syncVersion == 5L }
-
-        assertContentEquals(
-            cloudPayload.wrappedVaultKey?.base64UrlToBytes(),
-            secureStore.get(KEY_WRAPPED_VAULT),
-        )
-        assertEquals(cloudPayload.wrapKdf, secureStore.text(KEY_WRAP_KDF))
-
-        val result = repository.uploadNow()
-
-        assertTrue(result.isSuccess)
-        val request = assertNotNull(uploaded)
-        assertEquals(cloudPayload.wrappedVaultKey, request.payload.wrappedVaultKey)
-        assertEquals(cloudPayload.wrapSalt, request.payload.wrapSalt)
-        assertEquals(cloudPayload.wrapNonce, request.payload.wrapNonce)
-        val signedIn = assertIs<AccountState.SignedIn>(repository.state.value)
-        assertEquals(6L, signedIn.syncVersion)
-        assertEquals("已用本机数据覆盖云端", signedIn.message)
-    }
-
-    @Test
-    fun restore_session_refresh_unauthorized_clears_credentials_and_signs_out() = runTest {
-        val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
-        val api = accountApi(
-            MockEngine { request ->
-                assertEquals(REFRESH_PATH, request.url.encodedPath)
-                respondAccountJson(
-                    body = json.encodeToString(
-                        ErrorEnvelope(ErrorBody("invalid_refresh_token", "Refresh token expired")),
-                    ),
-                    status = HttpStatusCode.Unauthorized,
+                    },
                 )
-            },
-        )
-        val repository = accountRepository(api, secureStore)
-
-        repository.start()
-        awaitAccountState(repository) { it is AccountState.SignedOut }
-
-        assertIs<AccountState.SignedOut>(repository.state.value)
-        assertTrue(secureStore.snapshot().isEmpty())
-        assertEquals(1, secureStore.clearCount)
-    }
-
-    @Test
-    fun restore_session_transient_refresh_failure_preserves_credentials() = runTest {
-        val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
-        val originalSecrets = secureStore.snapshot()
-        val api = accountApi(
-            MockEngine { request ->
-                assertEquals(REFRESH_PATH, request.url.encodedPath)
-                respondAccountJson(
-                    body = json.encodeToString(
-                        ErrorEnvelope(ErrorBody("account_busy", "Account service is busy")),
-                    ),
-                    status = HttpStatusCode.ServiceUnavailable,
-                )
-            },
-        )
-        val repository = accountRepository(api, secureStore)
-
-        repository.start()
-        val failed = assertIs<AccountState.RestoreFailed>(
-            awaitAccountState(repository) { it is AccountState.RestoreFailed },
-        )
-
-        assertEquals("网络暂不可用，本机登录信息仍已安全保留。", failed.message)
-        assertEquals(originalSecrets, secureStore.snapshot())
-        assertEquals(0, secureStore.clearCount)
-    }
-
-    @Test
-    fun restore_session_sync_failure_keeps_refreshed_session_signed_in() = runTest {
-        val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
-        val api = accountApi(
-            MockEngine { request ->
-                when (request.url.encodedPath) {
-                    REFRESH_PATH -> respondAccountJson(
-                        json.encodeToString(
-                            authResponse(
-                                accessToken = "refreshed-access",
-                                refreshToken = "rotated-refresh",
-                            ),
-                        ),
-                    )
-                    SYNC_PATH -> respondAccountJson(
-                        body = json.encodeToString(
-                            ErrorEnvelope(ErrorBody("account_busy", "Account service is busy")),
-                        ),
-                        status = HttpStatusCode.ServiceUnavailable,
-                    )
-                    else -> error("Unexpected path ${request.url.encodedPath}")
-                }
-            },
-        )
-        val repository = accountRepository(api, secureStore)
-
-        repository.start()
-        val signedIn = assertIs<AccountState.SignedIn>(
+            val repository = accountRepository(api, secureStore)
+            repository.start()
             awaitAccountState(repository) {
-                it is AccountState.SignedIn && it.message == "已登录，暂时无法读取云端数据"
-            },
-        )
+                it is AccountState.SignedIn && it.syncVersion == 5L
+            }
+            secureStore.resetObservations()
 
-        assertEquals("refreshed-access", signedIn.session.accessToken)
-        assertEquals(0L, signedIn.syncVersion)
-        assertFalse(signedIn.syncing)
-        assertEquals("rotated-refresh", secureStore.text(KEY_REFRESH_TOKEN))
-        assertNotNull(secureStore.get(KEY_VAULT_KEY))
-        assertEquals(0, secureStore.clearCount)
-    }
+            val result =
+                repository.changePassword(
+                    currentPassword = "current password".toCharArray(),
+                    newPassword = "replacement password".toCharArray(),
+                )
+
+            assertTrue(result.isSuccess)
+            val request = assertNotNull(capturedChange)
+            assertEquals(5L, request.expectedSyncVersion)
+            assertEquals(1, request.keyVersion)
+            assertContentEquals(
+                request.wrappedVaultKey.base64UrlToBytes(),
+                secureStore.get(KEY_WRAPPED_VAULT),
+            )
+            assertContentEquals(request.wrapSalt.base64UrlToBytes(), secureStore.get(KEY_WRAP_SALT))
+            assertContentEquals(request.wrapNonce.base64UrlToBytes(), secureStore.get(KEY_WRAP_NONCE))
+            assertEquals(request.wrapVersion.toString(), secureStore.text(KEY_WRAP_VERSION))
+            assertEquals(request.wrapKdf, secureStore.text(KEY_WRAP_KDF))
+            assertEquals(request.wrapIterations.toString(), secureStore.text(KEY_WRAP_ITERATIONS))
+            assertContentEquals(oldVaultKey, secureStore.get(KEY_VAULT_KEY))
+
+            val locallyWrittenVaultFields =
+                secureStore.putKeys.filterTo(mutableSetOf()) {
+                    it in ALL_LOCAL_VAULT_FIELDS
+                }
+            assertEquals(ALL_LOCAL_VAULT_FIELDS, locallyWrittenVaultFields)
+            assertFalse(oldSalt.contentEquals(secureStore.get(KEY_WRAP_SALT)))
+            assertFalse(oldNonce.contentEquals(secureStore.get(KEY_WRAP_NONCE)))
+            assertFalse(oldWrappedKey.contentEquals(secureStore.get(KEY_WRAPPED_VAULT)))
+            assertEquals("refresh-after-change", secureStore.text(KEY_REFRESH_TOKEN))
+            val signedIn = assertIs<AccountState.SignedIn>(repository.state.value)
+            assertEquals("access-after-change", signedIn.session.accessToken)
+            assertEquals("登录密码已修改，加密密钥已同步更新", signedIn.message)
+        }
+
+    @Test
+    fun upload_conflict_stops_after_one_put_and_restores_non_syncing_state() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val uploadRequests = mutableListOf<String>()
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH -> respondAccountJson(json.encodeToString(authResponse()))
+                            SYNC_PATH ->
+                                when (request.method.value) {
+                                    "GET" -> {
+                                        uploadRequests += "GET"
+                                        respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
+                                    }
+                                    "PUT" -> {
+                                        uploadRequests += "PUT"
+                                        respondAccountJson(
+                                            body =
+                                                json.encodeToString(
+                                                    ErrorEnvelope(
+                                                        ErrorBody(
+                                                            code = "sync_version_conflict",
+                                                            message = "Sync version conflict",
+                                                            currentVersion = 6,
+                                                        ),
+                                                    ),
+                                                ),
+                                            status = HttpStatusCode.Conflict,
+                                        )
+                                    }
+                                    else -> error("Unexpected method ${request.method}")
+                                }
+                            else -> error("Unexpected path ${request.url.encodedPath}")
+                        }
+                    },
+                )
+            val repository = accountRepository(api, secureStore)
+            repository.start()
+            awaitAccountState(repository) {
+                it is AccountState.SignedIn && it.syncVersion == 5L
+            }
+            uploadRequests.clear()
+
+            val result = repository.uploadNow()
+
+            val failure = assertIs<AccountApiException>(result.exceptionOrNull())
+            assertEquals("sync_version_conflict", failure.code)
+            assertEquals(6L, failure.currentVersion)
+            assertEquals(listOf("GET", "PUT"), uploadRequests)
+            val signedIn = assertIs<AccountState.SignedIn>(repository.state.value)
+            assertEquals(5L, signedIn.syncVersion)
+            assertFalse(signedIn.cloudHasData)
+            assertFalse(signedIn.syncing)
+            assertEquals("云端已有更新，请先从云端恢复", signedIn.message)
+        }
+
+    @Test
+    fun sync_rebuilds_missing_local_key_wrap_from_the_cloud_copy() =
+        runTest {
+            val secureStore =
+                RecordingAccountSecureStore().apply {
+                    seedStoredSession()
+                    // A vault whose wrap entries never landed. This is the state that made every sync
+                    // report a missing sync key even though the server still holds the same wrap.
+                    listOf(
+                        KEY_WRAP_SALT,
+                        KEY_WRAP_NONCE,
+                        KEY_WRAPPED_VAULT,
+                        KEY_WRAP_VERSION,
+                        KEY_WRAP_KDF,
+                        KEY_WRAP_ITERATIONS,
+                    ).forEach { remove(it) }
+                    resetObservations()
+                }
+            val cloudPayload = cloudSyncPayload()
+            var uploaded: PutSyncRequest? = null
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH -> respondAccountJson(json.encodeToString(authResponse()))
+                            SYNC_PATH ->
+                                when (request.method.value) {
+                                    "GET" ->
+                                        respondAccountJson(
+                                            json.encodeToString(SyncResponse(version = 5, payload = cloudPayload)),
+                                        )
+                                    "PUT" -> {
+                                        uploaded =
+                                            json.decodeFromString(
+                                                request.body.toByteArray().decodeToString(),
+                                            )
+                                        respondAccountJson(
+                                            json.encodeToString(
+                                                SyncResponse(version = 6, payload = cloudPayload),
+                                            ),
+                                        )
+                                    }
+                                    else -> error("Unexpected method ${request.method}")
+                                }
+                            else -> error("Unexpected path ${request.url.encodedPath}")
+                        }
+                    },
+                )
+            val repository = accountRepository(api, secureStore)
+
+            repository.start()
+            awaitAccountState(repository) { it is AccountState.SignedIn && it.syncVersion == 5L }
+
+            assertContentEquals(
+                cloudPayload.wrappedVaultKey?.base64UrlToBytes(),
+                secureStore.get(KEY_WRAPPED_VAULT),
+            )
+            assertEquals(cloudPayload.wrapKdf, secureStore.text(KEY_WRAP_KDF))
+
+            val result = repository.uploadNow()
+
+            assertTrue(result.isSuccess)
+            val request = assertNotNull(uploaded)
+            assertEquals(cloudPayload.wrappedVaultKey, request.payload.wrappedVaultKey)
+            assertEquals(cloudPayload.wrapSalt, request.payload.wrapSalt)
+            assertEquals(cloudPayload.wrapNonce, request.payload.wrapNonce)
+            val signedIn = assertIs<AccountState.SignedIn>(repository.state.value)
+            assertEquals(6L, signedIn.syncVersion)
+            assertEquals("已用本机数据覆盖云端", signedIn.message)
+        }
+
+    @Test
+    fun restore_session_refresh_unauthorized_clears_credentials_and_signs_out() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        assertEquals(REFRESH_PATH, request.url.encodedPath)
+                        respondAccountJson(
+                            body =
+                                json.encodeToString(
+                                    ErrorEnvelope(ErrorBody("invalid_refresh_token", "Refresh token expired")),
+                                ),
+                            status = HttpStatusCode.Unauthorized,
+                        )
+                    },
+                )
+            val repository = accountRepository(api, secureStore)
+
+            repository.start()
+            awaitAccountState(repository) { it is AccountState.SignedOut }
+
+            assertIs<AccountState.SignedOut>(repository.state.value)
+            assertTrue(secureStore.snapshot().isEmpty())
+            assertEquals(1, secureStore.clearCount)
+        }
+
+    @Test
+    fun restore_session_transient_refresh_failure_preserves_credentials() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val originalSecrets = secureStore.snapshot()
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        assertEquals(REFRESH_PATH, request.url.encodedPath)
+                        respondAccountJson(
+                            body =
+                                json.encodeToString(
+                                    ErrorEnvelope(ErrorBody("account_busy", "Account service is busy")),
+                                ),
+                            status = HttpStatusCode.ServiceUnavailable,
+                        )
+                    },
+                )
+            val repository = accountRepository(api, secureStore)
+
+            repository.start()
+            val failed =
+                assertIs<AccountState.RestoreFailed>(
+                    awaitAccountState(repository) { it is AccountState.RestoreFailed },
+                )
+
+            assertEquals("网络暂不可用，本机登录信息仍已安全保留。", failed.message)
+            assertEquals(originalSecrets, secureStore.snapshot())
+            assertEquals(0, secureStore.clearCount)
+        }
+
+    @Test
+    fun restore_session_sync_failure_keeps_refreshed_session_signed_in() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH ->
+                                respondAccountJson(
+                                    json.encodeToString(
+                                        authResponse(
+                                            accessToken = "refreshed-access",
+                                            refreshToken = "rotated-refresh",
+                                        ),
+                                    ),
+                                )
+                            SYNC_PATH ->
+                                respondAccountJson(
+                                    body =
+                                        json.encodeToString(
+                                            ErrorEnvelope(ErrorBody("account_busy", "Account service is busy")),
+                                        ),
+                                    status = HttpStatusCode.ServiceUnavailable,
+                                )
+                            else -> error("Unexpected path ${request.url.encodedPath}")
+                        }
+                    },
+                )
+            val repository = accountRepository(api, secureStore)
+
+            repository.start()
+            val signedIn =
+                assertIs<AccountState.SignedIn>(
+                    awaitAccountState(repository) {
+                        it is AccountState.SignedIn && it.message == "已登录，暂时无法读取云端数据"
+                    },
+                )
+
+            assertEquals("refreshed-access", signedIn.session.accessToken)
+            assertEquals(0L, signedIn.syncVersion)
+            assertFalse(signedIn.syncing)
+            assertEquals("rotated-refresh", secureStore.text(KEY_REFRESH_TOKEN))
+            assertNotNull(secureStore.get(KEY_VAULT_KEY))
+            assertEquals(0, secureStore.clearCount)
+        }
 
     private fun accountApi(engine: MockEngine): AccountApi = AccountApi(createAccountClient(engine))
 
@@ -330,30 +363,32 @@ class AccountRepositoryStateTest {
         accessToken: String = "restored-access",
         refreshToken: String = "rotated-refresh-token",
     ) = AuthResponse(
-        user = AccountUser(
-            id = "account-user-id",
-            username = "viewer_01",
-            nickname = "影友",
-            avatarId = 3,
-            createdAtEpochMs = 1_700_000_000_000,
-            updatedAtEpochMs = 1_700_000_000_000,
-        ),
+        user =
+            AccountUser(
+                id = "account-user-id",
+                username = "viewer_01",
+                nickname = "影友",
+                avatarId = 3,
+                createdAtEpochMs = 1_700_000_000_000,
+                updatedAtEpochMs = 1_700_000_000_000,
+            ),
         accessToken = accessToken,
         accessExpiresAtEpochMs = 9_000_000_000_000,
         refreshToken = refreshToken,
         refreshExpiresAtEpochMs = 9_000_000_000_000,
     )
 
-    private fun cloudSyncPayload() = EncryptedSyncPayload(
-        nonce = ByteArray(VaultCrypto.GCM_NONCE_SIZE_BYTES) { (it + 5).toByte() }.toBase64Url(),
-        ciphertext = ByteArray(64) { (it + 7).toByte() }.toBase64Url(),
-        wrappedVaultKey = ByteArray(48) { (it + 11).toByte() }.toBase64Url(),
-        wrapSalt = ByteArray(16) { (it + 13).toByte() }.toBase64Url(),
-        wrapNonce = ByteArray(VaultCrypto.GCM_NONCE_SIZE_BYTES) { (it + 17).toByte() }.toBase64Url(),
-        wrapVersion = 1,
-        wrapKdf = "PBKDF2-HMAC-SHA256",
-        wrapIterations = VaultCrypto.DEFAULT_PBKDF2_ITERATIONS,
-    )
+    private fun cloudSyncPayload() =
+        EncryptedSyncPayload(
+            nonce = ByteArray(VaultCrypto.GCM_NONCE_SIZE_BYTES) { (it + 5).toByte() }.toBase64Url(),
+            ciphertext = ByteArray(64) { (it + 7).toByte() }.toBase64Url(),
+            wrappedVaultKey = ByteArray(48) { (it + 11).toByte() }.toBase64Url(),
+            wrapSalt = ByteArray(16) { (it + 13).toByte() }.toBase64Url(),
+            wrapNonce = ByteArray(VaultCrypto.GCM_NONCE_SIZE_BYTES) { (it + 17).toByte() }.toBase64Url(),
+            wrapVersion = 1,
+            wrapKdf = "PBKDF2-HMAC-SHA256",
+            wrapIterations = VaultCrypto.DEFAULT_PBKDF2_ITERATIONS,
+        )
 
     private fun io.ktor.client.engine.mock.MockRequestHandleScope.respondAccountJson(
         body: String,
@@ -374,9 +409,10 @@ class AccountRepositoryStateTest {
 private suspend fun awaitAccountState(
     repository: AccountRepository,
     predicate: (AccountState) -> Boolean,
-): AccountState = withContext(Dispatchers.Default) {
-    withTimeout(5_000) { repository.state.first(predicate) }
-}
+): AccountState =
+    withContext(Dispatchers.Default) {
+        withTimeout(5_000) { repository.state.first(predicate) }
+    }
 
 private fun accountRepository(
     api: AccountApi,
@@ -393,11 +429,12 @@ private fun accountRepository(
         watch = WatchTogetherPreferences(settings),
         danmaku = DanmakuPreferences(settings),
         skip = SkipSegmentPreferences(settings),
-        serverSync = ServerSyncManager(
-            EmbyRepository(HttpClient(MockEngine { error("Unexpected Emby request") })),
-            registry,
-            settings,
-        ),
+        serverSync =
+            ServerSyncManager(
+                EmbyRepository(HttpClient(MockEngine { error("Unexpected Emby request") })),
+                registry,
+                settings,
+            ),
         nowEpochMs = { 1_700_000_000_000 },
     )
 }
@@ -410,15 +447,19 @@ private class RecordingAccountSecureStore : SecureStore {
 
     override fun get(key: String): ByteArray? = values[key]?.copyOf()
 
-    override fun put(key: String, value: ByteArray) {
+    override fun put(
+        key: String,
+        value: ByteArray,
+    ) {
         values[key] = value.copyOf()
         putKeys += key
     }
 
-    override fun remove(key: String): Boolean = values.remove(key)?.let {
-        it.fill(0)
-        true
-    } ?: false
+    override fun remove(key: String): Boolean =
+        values.remove(key)?.let {
+            it.fill(0)
+            true
+        } ?: false
 
     override fun clear() {
         values.values.forEach { it.fill(0) }
@@ -451,41 +492,45 @@ private class RecordingAccountSecureStore : SecureStore {
 private class FastAccountCryptoPrimitives : CryptoPrimitives {
     private var nextRandomByte = 1
 
-    override fun randomBytes(size: Int): ByteArray = ByteArray(size) {
-        (nextRandomByte++ and 0xff).toByte()
-    }
+    override fun randomBytes(size: Int): ByteArray =
+        ByteArray(size) {
+            (nextRandomByte++ and 0xff).toByte()
+        }
 
     override fun aesGcmEncrypt(
         key: ByteArray,
         nonce: ByteArray,
         plaintext: ByteArray,
         aad: ByteArray,
-    ): ByteArray = ByteArray(plaintext.size + VaultCrypto.GCM_TAG_SIZE_BYTES) { index ->
-        if (index < plaintext.size) {
-            (plaintext[index].toInt() xor key[index % key.size].toInt()).toByte()
-        } else {
-            (nonce[index % nonce.size].toInt() xor aad.size).toByte()
+    ): ByteArray =
+        ByteArray(plaintext.size + VaultCrypto.GCM_TAG_SIZE_BYTES) { index ->
+            if (index < plaintext.size) {
+                (plaintext[index].toInt() xor key[index % key.size].toInt()).toByte()
+            } else {
+                (nonce[index % nonce.size].toInt() xor aad.size).toByte()
+            }
         }
-    }
 
     override fun aesGcmDecrypt(
         key: ByteArray,
         nonce: ByteArray,
         ciphertext: ByteArray,
         aad: ByteArray,
-    ): ByteArray = ByteArray(ciphertext.size - VaultCrypto.GCM_TAG_SIZE_BYTES) { index ->
-        (ciphertext[index].toInt() xor key[index % key.size].toInt()).toByte()
-    }
+    ): ByteArray =
+        ByteArray(ciphertext.size - VaultCrypto.GCM_TAG_SIZE_BYTES) { index ->
+            (ciphertext[index].toInt() xor key[index % key.size].toInt()).toByte()
+        }
 
     override fun pbkdf2HmacSha256(
         passphrase: CharArray,
         salt: ByteArray,
         iterations: Int,
         outputSizeBytes: Int,
-    ): ByteArray = ByteArray(outputSizeBytes) { index ->
-        val passwordByte = passphrase[index % passphrase.size].code
-        (passwordByte xor salt[index % salt.size].toInt() xor iterations).toByte()
-    }
+    ): ByteArray =
+        ByteArray(outputSizeBytes) { index ->
+            val passwordByte = passphrase[index % passphrase.size].code
+            (passwordByte xor salt[index % salt.size].toInt() xor iterations).toByte()
+        }
 }
 
 private const val KEY_REFRESH_TOKEN = "refresh_token"
@@ -497,12 +542,13 @@ private const val KEY_WRAP_VERSION = "vault_wrap_version"
 private const val KEY_WRAP_KDF = "vault_wrap_kdf"
 private const val KEY_WRAP_ITERATIONS = "vault_wrap_iterations"
 
-private val ALL_LOCAL_VAULT_FIELDS = setOf(
-    KEY_VAULT_KEY,
-    KEY_WRAP_SALT,
-    KEY_WRAP_NONCE,
-    KEY_WRAPPED_VAULT,
-    KEY_WRAP_VERSION,
-    KEY_WRAP_KDF,
-    KEY_WRAP_ITERATIONS,
-)
+private val ALL_LOCAL_VAULT_FIELDS =
+    setOf(
+        KEY_VAULT_KEY,
+        KEY_WRAP_SALT,
+        KEY_WRAP_NONCE,
+        KEY_WRAPPED_VAULT,
+        KEY_WRAP_VERSION,
+        KEY_WRAP_KDF,
+        KEY_WRAP_ITERATIONS,
+    )

@@ -1,5 +1,9 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.gradle.api.GradleException
+import org.gradle.api.tasks.options.Option
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.Properties
 
 plugins {
@@ -18,62 +22,67 @@ plugins {
 val verifyDesignSystemUsage by tasks.registering {
     group = "verification"
     description = "Rejects raw UI typography, radii, and fixed functional colours."
-    val designSources = fileTree("src/commonMain/kotlin/com/yfuse") {
-        include("app/App.kt", "core/designsystem/**/*.kt", "feature/**/*.kt")
-        // These files define the low-level primitives or scale type from runtime geometry.
-        exclude(
-            "core/designsystem/ContinuousCorner.kt",
-            "core/designsystem/SemanticTypography.kt",
-            "core/designsystem/Tokens.kt",
-            "core/designsystem/WatchAvatar.kt",
-        )
-    }
+    val designSources =
+        fileTree("src/commonMain/kotlin/com/yfuse") {
+            include("app/App.kt", "core/designsystem/**/*.kt", "feature/**/*.kt")
+            // These files define the low-level primitives or scale type from runtime geometry.
+            exclude(
+                "core/designsystem/ContinuousCorner.kt",
+                "core/designsystem/SemanticTypography.kt",
+                "core/designsystem/Tokens.kt",
+                "core/designsystem/WatchAvatar.kt",
+            )
+        }
     inputs.files(designSources)
 
     doLast {
-        val sourceRules = listOf(
-            "literal raw typography" to Regex("""\b(?:sc|mr)\(\s*\d"""),
-            "legacy Type typography" to Regex("""\bType\.\w+\("""),
-            "direct continuous radius" to Regex("""continuousRounded\("""),
-            "fixed danger colour" to Regex("""Brand\.Danger"""),
-            "legacy fixed-blue shadow" to Regex("""Shadows\.primaryButton(?!\s*\()"""),
-            "literal tween duration" to Regex("""\btween\(\s*\d"""),
-            "uncontrolled content-size animation" to Regex("""animateContentSize\(\s*\)"""),
-            // Scan the source occurrence itself, not only a same-line `color =` assignment:
-            // otherwise `val tint = Brand.Primary` and multiline arguments bypass the guard.
-            "fixed interactive brand colour" to Regex("""\bBrand\.Primary\b"""),
-        )
-        val violations = buildList {
-            designSources.files.sortedBy { it.path }.forEach { source ->
-                val original = source.readText()
-                // Preserve newlines while masking comments/imports so multiline calls are
-                // checked and diagnostics still point at the original source line.
-                val scanned = Regex("""(?s)/\*.*?\*/|//[^\r\n]*|(?m)^\s*import\b[^\r\n]*""")
-                    .replace(original) { match ->
-                        buildString(match.value.length) {
-                            match.value.forEach { char ->
-                                append(if (char == '\r' || char == '\n') char else ' ')
+        val sourceRules =
+            listOf(
+                "literal raw typography" to Regex("""\b(?:sc|mr)\(\s*\d"""),
+                "legacy Type typography" to Regex("""\bType\.\w+\("""),
+                "direct continuous radius" to Regex("""continuousRounded\("""),
+                "fixed danger colour" to Regex("""Brand\.Danger"""),
+                "legacy fixed-blue shadow" to Regex("""Shadows\.primaryButton(?!\s*\()"""),
+                "literal tween duration" to Regex("""\btween\(\s*\d"""),
+                "uncontrolled content-size animation" to Regex("""animateContentSize\(\s*\)"""),
+                // Scan the source occurrence itself, not only a same-line `color =` assignment:
+                // otherwise `val tint = Brand.Primary` and multiline arguments bypass the guard.
+                "fixed interactive brand colour" to Regex("""\bBrand\.Primary\b"""),
+            )
+        val violations =
+            buildList {
+                designSources.files.sortedBy { it.path }.forEach { source ->
+                    val original = source.readText()
+                    // Preserve newlines while masking comments/imports so multiline calls are
+                    // checked and diagnostics still point at the original source line.
+                    val scanned =
+                        Regex("""(?s)/\*.*?\*/|//[^\r\n]*|(?m)^\s*import\b[^\r\n]*""")
+                            .replace(original) { match ->
+                                buildString(match.value.length) {
+                                    match.value.forEach { char ->
+                                        append(if (char == '\r' || char == '\n') char else ' ')
+                                    }
+                                }
                             }
-                        }
-                    }
-                val originalLines = original.lines()
-                sourceRules.forEach { (label, pattern) ->
-                    pattern.findAll(scanned).forEach { match ->
-                        val lineNumber = scanned
-                            .take(match.range.first)
-                            .count { it == '\n' } + 1
-                        val originalLine = originalLines.getOrElse(lineNumber - 1) { "" }
-                        val explicitlyBrandIdentity =
-                            "design-system: brand-identity" in originalLine
-                        if (
-                            !(label == "fixed interactive brand colour" && explicitlyBrandIdentity)
-                        ) {
-                            add("${source.relativeTo(projectDir)}:$lineNumber: $label")
+                    val originalLines = original.lines()
+                    sourceRules.forEach { (label, pattern) ->
+                        pattern.findAll(scanned).forEach { match ->
+                            val lineNumber =
+                                scanned
+                                    .take(match.range.first)
+                                    .count { it == '\n' } + 1
+                            val originalLine = originalLines.getOrElse(lineNumber - 1) { "" }
+                            val explicitlyBrandIdentity =
+                                "design-system: brand-identity" in originalLine
+                            if (
+                                !(label == "fixed interactive brand colour" && explicitlyBrandIdentity)
+                            ) {
+                                add("${source.relativeTo(projectDir)}:$lineNumber: $label")
+                            }
                         }
                     }
                 }
             }
-        }
         if (violations.isNotEmpty()) {
             throw GradleException(
                 "Design-system contract violations:\n" + violations.joinToString("\n"),
@@ -98,6 +107,7 @@ kotlin {
             languageSettings.optIn("kotlinx.coroutines.ExperimentalCoroutinesApi")
         }
         commonMain.dependencies {
+            implementation(project(":watchTogetherProtocol"))
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
@@ -160,68 +170,98 @@ kotlin {
 }
 
 // TMDB token comes from local.properties (gitignored) so it never lands in git.
-val tmdbToken: String = Properties().apply {
-    val file = rootProject.file("local.properties")
-    if (file.exists()) file.inputStream().use { load(it) }
-}.getProperty("tmdb.token").orEmpty()
+val tmdbToken: String =
+    Properties()
+        .apply {
+            val file = rootProject.file("local.properties")
+            if (file.exists()) file.inputStream().use { load(it) }
+        }.getProperty("tmdb.token")
+        .orEmpty()
 
-val releaseSigningPropertiesFile = providers.gradleProperty("releaseSigningPropertiesFile")
-    .orNull
-    ?.trim()
-    ?.takeIf(String::isNotEmpty)
-    ?.let { rootProject.file(it) }
-    ?: rootProject.file("keystore.properties")
-val releaseSigningProperties = Properties().apply {
-    if (releaseSigningPropertiesFile.exists()) {
-        releaseSigningPropertiesFile.inputStream().use { load(it) }
+val releaseSigningPropertiesFile =
+    providers
+        .gradleProperty("releaseSigningPropertiesFile")
+        .orNull
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?.let { rootProject.file(it) }
+        ?: rootProject.file("keystore.properties")
+val releaseSigningProperties =
+    Properties().apply {
+        if (releaseSigningPropertiesFile.exists()) {
+            releaseSigningPropertiesFile.inputStream().use { load(it) }
+        }
     }
-}
 val releaseSigningKeys = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
-val releaseStoreFile = releaseSigningProperties.getProperty("storeFile")
-    ?.trim()
-    ?.takeIf(String::isNotEmpty)
-    ?.let { rootProject.file(it) }
-val releaseSigningReady = releaseStoreFile?.isFile == true && releaseSigningKeys
-    .filterNot { it == "storeFile" }
-    .all { !releaseSigningProperties.getProperty(it).isNullOrBlank() }
-val allowDebugSigning = providers.gradleProperty("allowDebugSigning").orNull?.let { raw ->
-    when (raw.trim().lowercase()) {
-        "", "true" -> true
-        "false" -> false
-        else -> error("allowDebugSigning must be omitted, true, or false")
-    }
-} ?: false
+val releaseStoreFile =
+    releaseSigningProperties
+        .getProperty("storeFile")
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?.let { rootProject.file(it) }
+val releaseSigningReady =
+    releaseStoreFile?.isFile == true &&
+        releaseSigningKeys
+            .filterNot { it == "storeFile" }
+            .all { !releaseSigningProperties.getProperty(it).isNullOrBlank() }
+val allowDebugSigning =
+    providers.gradleProperty("allowDebugSigning").orNull?.let { raw ->
+        when (raw.trim().lowercase()) {
+            "", "true" -> true
+            "false" -> false
+            else -> error("allowDebugSigning must be omitted, true, or false")
+        }
+    } ?: false
 
 val versionFile = rootProject.file("version.properties")
-val versionProperties = Properties().apply {
-    versionFile.inputStream().use { load(it) }
-}
-val storedVersionCode = versionProperties.getProperty("VERSION_CODE", "1").toInt()
-val storedVersionName = versionProperties.getProperty("VERSION_NAME", "0.1.$storedVersionCode")
-val requestedVersionCode = providers.gradleProperty("yfuseVersionCode").orNull?.let { rawValue ->
-    require(rawValue.matches(Regex("[1-9]\\d*"))) {
-        "yfuseVersionCode must be a positive integer"
+val versionProperties =
+    Properties().apply {
+        require(versionFile.isFile) { "Missing release metadata: $versionFile" }
+        versionFile.inputStream().use { load(it) }
     }
-    rawValue.toInt()
+val versionCodePattern = Regex("[1-9]\\d*")
+val versionNamePattern = Regex("[0-9]+\\.[0-9]+\\.[0-9]+")
+val storedVersionCodeRaw =
+    versionProperties
+        .getProperty("VERSION_CODE")
+        ?.trim()
+        ?: error("VERSION_CODE is required in version.properties")
+require(storedVersionCodeRaw.matches(versionCodePattern)) {
+    "VERSION_CODE in version.properties must be a positive integer"
 }
-val requestedVersionName = providers.gradleProperty("yfuseVersionName").orNull?.let { rawValue ->
-    val normalized = rawValue.trim()
-    require(normalized.matches(Regex("""[0-9]+\.[0-9]+\.[0-9]+"""))) {
-        "yfuseVersionName must use numeric major.minor.patch format"
+val storedVersionCode =
+    storedVersionCodeRaw.toIntOrNull()
+        ?: error("VERSION_CODE in version.properties is outside the supported integer range")
+val storedVersionName =
+    versionProperties
+        .getProperty("VERSION_NAME")
+        ?.trim()
+        ?: error("VERSION_NAME is required in version.properties")
+require(storedVersionName.matches(versionNamePattern)) {
+    "VERSION_NAME in version.properties must use numeric major.minor.patch format"
+}
+val requestedVersionCode =
+    providers.gradleProperty("yfuseVersionCode").orNull?.let { rawValue ->
+        require(rawValue.matches(versionCodePattern)) {
+            "yfuseVersionCode must be a positive integer"
+        }
+        rawValue.toIntOrNull() ?: error("yfuseVersionCode is outside the supported integer range")
     }
-    normalized
-}
-val isReleaseBuild = gradle.startParameter.taskNames.any {
-    it.contains("Release", ignoreCase = true) &&
-        (it.contains("assemble", true) || it.contains("bundle", true) || it.contains("package", true))
-}
-val buildVersionCode = requestedVersionCode
-    ?: if (isReleaseBuild) storedVersionCode + 1 else storedVersionCode
+val requestedVersionName =
+    providers.gradleProperty("yfuseVersionName").orNull?.let { rawValue ->
+        val normalized = rawValue.trim()
+        require(normalized.matches(versionNamePattern)) {
+            "yfuseVersionName must use numeric major.minor.patch format"
+        }
+        normalized
+    }
+val buildVersionCode = requestedVersionCode ?: storedVersionCode
 val buildVersionName = requestedVersionName ?: storedVersionName
 
 android {
     namespace = "com.yfuse"
-    // libmpv's AAR requires minCompileSdk 36; targetSdk stays at 35.
+    // API 36 is the release baseline. Predictive back remains explicitly opted out in the
+    // manifest by product decision while the rest of the Android 16 behavior is supported.
     compileSdk = 36
 
     buildFeatures {
@@ -240,7 +280,7 @@ android {
     defaultConfig {
         applicationId = "com.yfuse"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = buildVersionCode
         versionName = buildVersionName
 
@@ -271,18 +311,19 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = if (releaseSigningReady) {
-                signingConfigs.getByName("release")
-            } else if (allowDebugSigning) {
-                logger.warn(
-                    "Release keystore is missing; explicit -PallowDebugSigning is using the debug key.",
-                )
-                signingConfigs.getByName("debug")
-            } else {
-                // The verification task below fails every release packaging path. Leaving the
-                // config unset here keeps ordinary debug/test configuration usable.
-                null
-            }
+            signingConfig =
+                if (releaseSigningReady) {
+                    signingConfigs.getByName("release")
+                } else if (allowDebugSigning) {
+                    logger.warn(
+                        "Release keystore is missing; explicit -PallowDebugSigning is using the debug key.",
+                    )
+                    signingConfigs.getByName("debug")
+                } else {
+                    // The verification task below fails every release packaging path. Leaving the
+                    // config unset here keeps ordinary debug/test configuration usable.
+                    null
+                }
         }
     }
 
@@ -304,14 +345,15 @@ android {
             pickFirsts += "**/libc++_shared.so"
         }
         resources {
-            excludes += setOf(
-                "/META-INF/{AL2.0,LGPL2.1}",
-                "/META-INF/*.version",
-                "/META-INF/*.kotlin_module",
-                "/META-INF/versions/**",
-                "DebugProbesKt.bin",
-                "kotlin-tooling-metadata.json",
-            )
+            excludes +=
+                setOf(
+                    "/META-INF/{AL2.0,LGPL2.1}",
+                    "/META-INF/*.version",
+                    "/META-INF/*.kotlin_module",
+                    "/META-INF/versions/**",
+                    "DebugProbesKt.bin",
+                    "kotlin-tooling-metadata.json",
+                )
         }
     }
 }
@@ -329,23 +371,102 @@ val verifyReleaseSigning by tasks.registering {
     }
 }
 
+abstract class BumpVersionTask : DefaultTask() {
+    @get:Internal
+    abstract val versionFile: RegularFileProperty
+
+    @get:Input
+    @get:Option(
+        option = "version-name",
+        description = "New numeric major.minor.patch version name (required).",
+    )
+    abstract val versionName: Property<String>
+
+    @get:Input
+    @get:Optional
+    @get:Option(
+        option = "version-code",
+        description = "New positive version code; defaults to the current code plus one.",
+    )
+    abstract val versionCode: Property<String>
+
+    @TaskAction
+    fun bump() {
+        val target = versionFile.asFile.get()
+        val current =
+            Properties().apply {
+                require(target.isFile) { "Missing release metadata: $target" }
+                target.inputStream().use { load(it) }
+            }
+        val currentCode =
+            current
+                .getProperty("VERSION_CODE")
+                ?.trim()
+                ?.takeIf { it.matches(Regex("[1-9]\\d*")) }
+                ?.toIntOrNull()
+                ?: throw GradleException("VERSION_CODE must be a positive integer")
+        val nextCode =
+            if (versionCode.isPresent) {
+                val raw = versionCode.get().trim()
+                if (!raw.matches(Regex("[1-9]\\d*"))) {
+                    throw GradleException("--version-code must be a positive integer")
+                }
+                raw.toIntOrNull()
+                    ?: throw GradleException("--version-code is outside the supported integer range")
+            } else {
+                try {
+                    Math.addExact(currentCode, 1)
+                } catch (_: ArithmeticException) {
+                    throw GradleException("VERSION_CODE cannot be incremented beyond Int.MAX_VALUE")
+                }
+            }
+        if (nextCode <= currentCode) {
+            throw GradleException(
+                "--version-code must be greater than the current VERSION_CODE ($currentCode)",
+            )
+        }
+        val nextName =
+            versionName.orNull?.trim()
+                ?: throw GradleException("--version-name is required")
+        if (!nextName.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+"))) {
+            throw GradleException("--version-name must use numeric major.minor.patch format")
+        }
+
+        val temporary = target.resolveSibling("${target.name}.tmp")
+        temporary.writeText(
+            "# Release metadata; changing this file triggers the production publish workflow.\n" +
+                "VERSION_CODE=$nextCode\n" +
+                "VERSION_NAME=$nextName\n",
+        )
+        try {
+            Files.move(
+                temporary.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                temporary.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
+        logger.lifecycle("Updated version.properties to $nextName ($nextCode)")
+    }
+}
+
+tasks.register<BumpVersionTask>("bumpVersion") {
+    group = "release"
+    description = "Explicitly validates and updates version.properties; never runs during assembly."
+    versionFile.set(layout.projectDirectory.file("../version.properties"))
+}
+
 tasks.configureEach {
-    val releasePackagingTask = name.contains("Release", ignoreCase = true) &&
-        listOf("assemble", "bundle", "package").any { name.startsWith(it, ignoreCase = true) }
+    val releasePackagingTask =
+        name.contains("Release", ignoreCase = true) &&
+            listOf("assemble", "bundle", "package").any { name.startsWith(it, ignoreCase = true) }
     if (releasePackagingTask) {
         dependsOn(verifyReleaseSigning)
-    }
-    if (name == "assembleRelease") {
-        doLast {
-            if (
-                requestedVersionCode == null &&
-                isReleaseBuild &&
-                storedVersionCode < buildVersionCode
-            ) {
-                versionFile.writeText(
-                    "VERSION_CODE=$buildVersionCode\nVERSION_NAME=$buildVersionName\n",
-                )
-            }
-        }
     }
 }

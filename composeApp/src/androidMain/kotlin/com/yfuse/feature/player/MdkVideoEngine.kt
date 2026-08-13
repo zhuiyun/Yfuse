@@ -7,19 +7,18 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
-import com.yfuse.core.model.PlaybackMethod
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicInteger
 
 private const val MDK_TAG = "YfuseMdk"
 private const val MDK_POLL_MS = 250L
@@ -29,7 +28,9 @@ private const val FALLBACK_SETTLE_POLLS = 12
 private const val TRACK_SEPARATOR = '\u001F'
 
 /** Thread-safe because MDK polling runs on Default while encoder cleanup resumes on Main. */
-internal class FallbackSettleWindow(private val requiredPolls: Int) {
+internal class FallbackSettleWindow(
+    private val requiredPolls: Int,
+) {
     private val polls = AtomicInteger(Int.MAX_VALUE)
 
     val ready: Boolean
@@ -58,34 +59,38 @@ class MdkVideoEngine(
     private val scope: CoroutineScope,
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
-
     private val items = items.map { it.withPlaybackQuality(quality) }
 
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
      *  rest of the season. */
-    private val transcodedIndices = items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
-        index.takeIf { item.startsWithServerTranscode(quality) }
-    }
+    private val transcodedIndices =
+        items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
+            index.takeIf { item.startsWithServerTranscode(quality) }
+        }
     private val progressiveIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private var fallbackJob: Job? = null
-    private val _state = MutableStateFlow(
-        PlaybackState(
-            currentIndex = startIndex,
-            itemCount = items.size.coerceAtLeast(1),
-            transcoding = startIndex in transcodedIndices,
-            videoHeight = items.getOrNull(startIndex)
-                ?.sourceVideoHeight(startIndex in transcodedIndices)
-                ?: 0,
-            diagnostics = initialPlaybackDiagnostics(
-                engine = "MDK",
-                decoder = decoderMode.label,
-                item = items.getOrNull(startIndex),
-                quality = quality,
+    private val _state =
+        MutableStateFlow(
+            PlaybackState(
+                currentIndex = startIndex,
+                itemCount = items.size.coerceAtLeast(1),
+                transcoding = startIndex in transcodedIndices,
+                videoHeight =
+                    items
+                        .getOrNull(startIndex)
+                        ?.sourceVideoHeight(startIndex in transcodedIndices)
+                        ?: 0,
+                diagnostics =
+                    initialPlaybackDiagnostics(
+                        engine = "MDK",
+                        decoder = decoderMode.label,
+                        item = items.getOrNull(startIndex),
+                        quality = quality,
+                    ),
             ),
-        ),
-    )
+        )
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
     @Volatile
@@ -108,12 +113,13 @@ class MdkVideoEngine(
     private var wasBuffering = true
     private val fallbackSettleWindow = FallbackSettleWindow(FALLBACK_SETTLE_POLLS)
 
-    private val pollJob: Job = scope.launch(Dispatchers.Default) {
-        while (isActive && !released) {
-            poll()
-            delay(MDK_POLL_MS)
+    private val pollJob: Job =
+        scope.launch(Dispatchers.Default) {
+            while (isActive && !released) {
+                poll()
+                delay(MDK_POLL_MS)
+            }
         }
-    }
 
     fun attach(view: SurfaceView) {
         if (released) return
@@ -178,9 +184,10 @@ class MdkVideoEngine(
         runMdk { it.setActiveTrack(MDKPlayer.MEDIA_TYPE_AUDIO, ordinal) }
         _state.update { state ->
             state.copy(
-                audioTracks = state.audioTracks.map {
-                    it.copy(selected = it.id == id)
-                },
+                audioTracks =
+                    state.audioTracks.map {
+                        it.copy(selected = it.id == id)
+                    },
             )
         }
     }
@@ -190,9 +197,10 @@ class MdkVideoEngine(
         runMdk { it.setActiveTrack(MDKPlayer.MEDIA_TYPE_SUBTITLE, ordinal) }
         _state.update { state ->
             state.copy(
-                subtitleTracks = state.subtitleTracks.map {
-                    it.copy(selected = ordinal >= 0 && it.id == id)
-                },
+                subtitleTracks =
+                    state.subtitleTracks.map {
+                        it.copy(selected = ordinal >= 0 && it.id == id)
+                    },
             )
         }
     }
@@ -220,20 +228,20 @@ class MdkVideoEngine(
                 transcoding = transcoding,
                 fallbacksExhausted = false,
                 automaticFallbackBlocked = false,
-                diagnostics = initialPlaybackDiagnostics(
-                    engine = "MDK",
-                    decoder = it.diagnostics.decoder,
-                    item = nextItem,
-                    quality = quality,
-                    transcoding = transcoding,
-                ),
+                diagnostics =
+                    initialPlaybackDiagnostics(
+                        engine = "MDK",
+                        decoder = it.diagnostics.decoder,
+                        item = nextItem,
+                        quality = quality,
+                        transcoding = transcoding,
+                    ),
             )
         }
         ensurePlayer()?.let(::loadCurrent)
     }
 
-    override fun currentPositionMs(): Long =
-        runCatching { player?.position() }.getOrNull() ?: _state.value.positionMs
+    override fun currentPositionMs(): Long = runCatching { player?.position() }.getOrNull() ?: _state.value.positionMs
 
     override fun retry() {
         pendingSeekMs = _state.value.positionMs
@@ -397,25 +405,28 @@ class MdkVideoEngine(
                     buffering = buffering,
                     positionMs = positionMs,
                     durationMs = durationMs,
-                    bufferedPositionMs = bufferedEndPositionMs(
-                        positionMs = positionMs,
-                        durationMs = durationMs,
-                        bufferedDurationMs = bufferedDurationMs,
-                    ),
+                    bufferedPositionMs =
+                        bufferedEndPositionMs(
+                            positionMs = positionMs,
+                            durationMs = durationMs,
+                            bufferedDurationMs = bufferedDurationMs,
+                        ),
                     speed = instance.playbackRate(),
                     videoHeight = instance.videoHeight().coerceAtLeast(0),
-                    error = if (invalid) {
-                        "MDK 无法播放此媒体，服务器也没有可用的转码流"
-                    } else {
-                        current.error
-                    },
+                    error =
+                        if (invalid) {
+                            "MDK 无法播放此媒体，服务器也没有可用的转码流"
+                        } else {
+                            current.error
+                        },
                     fallbacksExhausted = current.fallbacksExhausted || invalid,
                     ended = ended,
-                    diagnostics = current.diagnostics.copy(
-                        bufferedDurationMs = bufferedDurationMs,
-                        bufferEvents =
-                            current.diagnostics.bufferEvents + if (bufferEvent) 1 else 0,
-                    ),
+                    diagnostics =
+                        current.diagnostics.copy(
+                            bufferedDurationMs = bufferedDurationMs,
+                            bufferEvents =
+                                current.diagnostics.bufferEvents + if (bufferEvent) 1 else 0,
+                        ),
                 )
             }
         }.onFailure {
@@ -436,18 +447,23 @@ class MdkVideoEngine(
     }
 
     private fun refreshTracks(instance: MDKPlayer) {
-        val audio = decodeTracks(
-            rows = instance.tracks(MDKPlayer.MEDIA_TYPE_AUDIO),
-            fallback = "音轨",
-        )
-        val subtitles = decodeTracks(
-            rows = instance.tracks(MDKPlayer.MEDIA_TYPE_SUBTITLE),
-            fallback = "字幕",
-        )
+        val audio =
+            decodeTracks(
+                rows = instance.tracks(MDKPlayer.MEDIA_TYPE_AUDIO),
+                fallback = "音轨",
+            )
+        val subtitles =
+            decodeTracks(
+                rows = instance.tracks(MDKPlayer.MEDIA_TYPE_SUBTITLE),
+                fallback = "字幕",
+            )
         _state.update { it.copy(audioTracks = audio, subtitleTracks = subtitles) }
     }
 
-    private fun decodeTracks(rows: Array<String>, fallback: String): List<EngineTrack> =
+    private fun decodeTracks(
+        rows: Array<String>,
+        fallback: String,
+    ): List<EngineTrack> =
         rows.mapIndexedNotNull { index, row ->
             val fields = row.split(TRACK_SEPARATOR, limit = 4)
             val id = fields.getOrNull(0)?.takeIf(String::isNotBlank) ?: return@mapIndexedNotNull null
@@ -462,12 +478,16 @@ class MdkVideoEngine(
         }
 
     /** Whichever step of the fallback chain [index] has been pushed to so far. */
-    private fun playbackUrl(item: PlayerMediaItem, index: Int): String = when {
-        index in progressiveIndices && item.fallbackTranscodeUrl.isNotEmpty() ->
-            item.fallbackTranscodeUrl
-        index in transcodedIndices && item.transcodeUrl.isNotEmpty() -> item.transcodeUrl
-        else -> item.url
-    }
+    private fun playbackUrl(
+        item: PlayerMediaItem,
+        index: Int,
+    ): String =
+        when {
+            index in progressiveIndices && item.fallbackTranscodeUrl.isNotEmpty() ->
+                item.fallbackTranscodeUrl
+            index in transcodedIndices && item.transcodeUrl.isNotEmpty() -> item.transcodeUrl
+            else -> item.url
+        }
 
     /**
      * Steps the current entry down the chain: original file, then the server's HLS
@@ -478,13 +498,14 @@ class MdkVideoEngine(
         if (released) return false
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return false
-        val progressive = when {
-            index in progressiveIndices -> return false
-            index in progressiveTransitionIndices -> return true
-            index in transcodedIndices -> true
-            item.transcodeUrl.isEmpty() -> true
-            else -> false
-        }
+        val progressive =
+            when {
+                index in progressiveIndices -> return false
+                index in progressiveTransitionIndices -> return true
+                index in transcodedIndices -> true
+                item.transcodeUrl.isEmpty() -> true
+                else -> false
+            }
         if (progressive && item.fallbackTranscodeUrl.isEmpty()) return false
         transcodedIndices += index
         fallbackSettleWindow.restart()
@@ -498,10 +519,11 @@ class MdkVideoEngine(
             category = "player.mdk",
             event = "transcode_fallback",
             message = "Switching MDK to a server-transcoded stream",
-            attributes = mapOf(
-                "itemIndex" to index.toString(),
-                "step" to if (progressive) "Progressive" else "Transcode",
-            ),
+            attributes =
+                mapOf(
+                    "itemIndex" to index.toString(),
+                    "step" to if (progressive) "Progressive" else "Transcode",
+                ),
         )
         _state.update {
             it.copy(
@@ -512,17 +534,19 @@ class MdkVideoEngine(
                 transcoding = true,
                 fallbacksExhausted = false,
                 automaticFallbackBlocked = false,
-                diagnostics = it.diagnostics.copy(
-                    playMethod = "服务器转码",
-                    dynamicRange = "",
-                    audioFormat = "",
-                    fallbackReason = reason ?: if (progressive) {
-                        "HLS 转码不可用，已改用 MP4 转码"
-                    } else {
-                        "直放失败，已切换服务器转码"
-                    },
-                    bufferedDurationMs = 0L,
-                ),
+                diagnostics =
+                    it.diagnostics.copy(
+                        playMethod = "服务器转码",
+                        dynamicRange = "",
+                        audioFormat = "",
+                        fallbackReason =
+                            reason ?: if (progressive) {
+                                "HLS 转码不可用，已改用 MP4 转码"
+                            } else {
+                                "直放失败，已切换服务器转码"
+                            },
+                        bufferedDurationMs = 0L,
+                    ),
             )
         }
         if (!progressive) {
@@ -533,28 +557,30 @@ class MdkVideoEngine(
         progressiveTransitionIndices += index
         runMdk { it.setState(MDKPlayer.STATE_STOPPED) }
         fallbackJob?.cancel()
-        fallbackJob = scope.launch {
-            val cleaned = item.playSessionId.isBlank() ||
-                withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
-            if (released || _state.value.currentIndex != index) return@launch
-            progressiveTransitionIndices -= index
-            if (!cleaned) {
-                _state.update {
-                    it.copy(
-                        error = "无法清理旧的服务器转码，正在尝试其他播放器",
-                        buffering = false,
-                        fallbacksExhausted = true,
-                    )
+        fallbackJob =
+            scope.launch {
+                val cleaned =
+                    item.playSessionId.isBlank() ||
+                        withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
+                if (released || _state.value.currentIndex != index) return@launch
+                progressiveTransitionIndices -= index
+                if (!cleaned) {
+                    _state.update {
+                        it.copy(
+                            error = "无法清理旧的服务器转码，正在尝试其他播放器",
+                            buffering = false,
+                            fallbacksExhausted = true,
+                        )
+                    }
+                    return@launch
                 }
-                return@launch
+                progressiveIndices += index
+                // The DELETE wait is not part of the new stream's settle window. A slow cleanup can
+                // consume all twelve polls while no progressive URL is loaded, making the very next
+                // stale STATUS_INVALID tick reject the fresh stream before it gets a chance to open.
+                fallbackSettleWindow.restart()
+                ensurePlayer()?.let(::loadCurrent)
             }
-            progressiveIndices += index
-            // The DELETE wait is not part of the new stream's settle window. A slow cleanup can
-            // consume all twelve polls while no progressive URL is loaded, making the very next
-            // stale STATUS_INVALID tick reject the fresh stream before it gets a chance to open.
-            fallbackSettleWindow.restart()
-            ensurePlayer()?.let(::loadCurrent)
-        }
         return true
     }
 

@@ -78,7 +78,10 @@ data class HomeRow(
  * is the server's job: the grid used to fetch a fixed first page by name and reorder it
  * on the device, which made 「最近添加」 and 「年份」 order only whatever that page held.
  */
-enum class LibrarySort(val sortBy: String, val descending: Boolean) {
+enum class LibrarySort(
+    val sortBy: String,
+    val descending: Boolean,
+) {
     RecentlyAdded(sortBy = "DateCreated", descending = true),
     Name(sortBy = "SortName", descending = false),
 
@@ -128,6 +131,9 @@ data class HomeContent(
     val playlists: List<MediaContainer> = emptyList(),
 ) {
     val isEmpty: Boolean get() =
-        featured.isEmpty() && resume.isEmpty() && rows.isEmpty() &&
-            collections.isEmpty() && playlists.isEmpty()
+        featured.isEmpty() &&
+            resume.isEmpty() &&
+            rows.isEmpty() &&
+            collections.isEmpty() &&
+            playlists.isEmpty()
 }

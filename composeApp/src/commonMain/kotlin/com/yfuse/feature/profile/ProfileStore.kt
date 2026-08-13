@@ -23,15 +23,23 @@ sealed interface ProfileIntent {
     data object Logout : ProfileIntent
 
     /** Makes another saved server the active one. */
-    data class SwitchServer(val id: String) : ProfileIntent
+    data class SwitchServer(
+        val id: String,
+    ) : ProfileIntent
 }
 
 private sealed interface Action {
-    data class Data(val current: SavedServer?, val servers: List<SavedServer>) : Action
+    data class Data(
+        val current: SavedServer?,
+        val servers: List<SavedServer>,
+    ) : Action
 }
 
 private sealed interface Msg {
-    data class Data(val current: SavedServer?, val servers: List<SavedServer>) : Msg
+    data class Data(
+        val current: SavedServer?,
+        val servers: List<SavedServer>,
+    ) : Msg
 }
 
 class ProfileStoreFactory(
@@ -42,21 +50,21 @@ class ProfileStoreFactory(
         storeFactory.create(
             name = "ProfileStore",
             initialState = ProfileState(),
-            bootstrapper = coroutineBootstrapper<Action> {
-                registry.data
-                    .onEach { dispatch(Action.Data(it.defaultServer, it.servers)) }
-                    .launchIn(this)
-            },
+            bootstrapper =
+                coroutineBootstrapper<Action> {
+                    registry.data
+                        .onEach { dispatch(Action.Data(it.defaultServer, it.servers)) }
+                        .launchIn(this)
+                },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
         )
 
-    private inner class ExecutorImpl :
-        CoroutineExecutor<ProfileIntent, Action, ProfileState, Msg, Nothing>() {
-
-        override fun executeAction(action: Action) = when (action) {
-            is Action.Data -> dispatch(Msg.Data(action.current, action.servers))
-        }
+    private inner class ExecutorImpl : CoroutineExecutor<ProfileIntent, Action, ProfileState, Msg, Nothing>() {
+        override fun executeAction(action: Action) =
+            when (action) {
+                is Action.Data -> dispatch(Msg.Data(action.current, action.servers))
+            }
 
         override fun executeIntent(intent: ProfileIntent) {
             when (intent) {
@@ -67,8 +75,9 @@ class ProfileStoreFactory(
     }
 
     private object ReducerImpl : Reducer<ProfileState, Msg> {
-        override fun ProfileState.reduce(msg: Msg): ProfileState = when (msg) {
-            is Msg.Data -> copy(currentServer = msg.current, servers = msg.servers)
-        }
+        override fun ProfileState.reduce(msg: Msg): ProfileState =
+            when (msg) {
+                is Msg.Data -> copy(currentServer = msg.current, servers = msg.servers)
+            }
     }
 }

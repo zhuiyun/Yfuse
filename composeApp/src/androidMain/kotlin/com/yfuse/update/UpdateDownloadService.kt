@@ -51,7 +51,11 @@ class UpdateDownloadService : Service() {
         )
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         lastStartId = startId
         startForeground(NOTIFICATION_ID, notification("正在准备下载新版本", 0f, indeterminate = true))
         startProgressUpdates()
@@ -75,23 +79,24 @@ class UpdateDownloadService : Service() {
 
     private fun startProgressUpdates() {
         if (progress?.isActive == true) return
-        progress = scope.launch {
-            var lastPostedAtMs = 0L
-            manager.state.collectLatest { state ->
-                if (state !is UpdateState.Downloading) return@collectLatest
-                val now = System.currentTimeMillis()
-                if (now - lastPostedAtMs < PROGRESS_NOTIFICATION_INTERVAL_MS) return@collectLatest
-                lastPostedAtMs = now
-                getSystemService(NotificationManager::class.java).notify(
-                    NOTIFICATION_ID,
-                    notification(
-                        "正在下载 ${state.manifest.versionName}",
-                        state.progress,
-                        indeterminate = false,
-                    ),
-                )
+        progress =
+            scope.launch {
+                var lastPostedAtMs = 0L
+                manager.state.collectLatest { state ->
+                    if (state !is UpdateState.Downloading) return@collectLatest
+                    val now = System.currentTimeMillis()
+                    if (now - lastPostedAtMs < PROGRESS_NOTIFICATION_INTERVAL_MS) return@collectLatest
+                    lastPostedAtMs = now
+                    getSystemService(NotificationManager::class.java).notify(
+                        NOTIFICATION_ID,
+                        notification(
+                            "正在下载 ${state.manifest.versionName}",
+                            state.progress,
+                            indeterminate = false,
+                        ),
+                    )
+                }
             }
-        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -106,14 +111,16 @@ class UpdateDownloadService : Service() {
         progress: Float,
         indeterminate: Boolean,
     ): Notification {
-        val contentIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val contentIntent =
+            PendingIntent.getActivity(
+                this,
+                0,
+                Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
         val percent = (progress * 100f).toInt().coerceIn(0, 100)
-        return Notification.Builder(this, CHANNEL_ID)
+        return Notification
+            .Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(title)
             .setContentText(if (indeterminate) "正在连接升级服务器" else "$percent%")

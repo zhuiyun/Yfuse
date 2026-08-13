@@ -1,0 +1,1030 @@
+<?xml version="1.0" encoding="utf-8"?>
+<baseline version="1.0">
+    <file name="src/androidMain/kotlin/com/yfuse/app/AnimatedSplashApp.kt">
+        <error line="340" column="19" source="standard:property-naming" />
+        <error line="341" column="19" source="standard:property-naming" />
+        <error line="343" column="19" source="standard:property-naming" />
+        <error line="344" column="19" source="standard:property-naming" />
+        <error line="345" column="19" source="standard:property-naming" />
+        <error line="346" column="19" source="standard:property-naming" />
+        <error line="347" column="19" source="standard:property-naming" />
+        <error line="348" column="19" source="standard:property-naming" />
+        <error line="349" column="19" source="standard:property-naming" />
+        <error line="351" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/app/SplashAnimationCloudDrop.kt">
+        <error line="457" column="19" source="standard:property-naming" />
+        <error line="460" column="19" source="standard:property-naming" />
+        <error line="463" column="19" source="standard:property-naming" />
+        <error line="465" column="19" source="standard:property-naming" />
+        <error line="466" column="19" source="standard:property-naming" />
+        <error line="469" column="19" source="standard:property-naming" />
+        <error line="474" column="19" source="standard:property-naming" />
+        <error line="475" column="19" source="standard:property-naming" />
+        <error line="477" column="19" source="standard:property-naming" />
+        <error line="478" column="19" source="standard:property-naming" />
+        <error line="481" column="19" source="standard:property-naming" />
+        <error line="483" column="19" source="standard:property-naming" />
+        <error line="484" column="19" source="standard:property-naming" />
+        <error line="496" column="19" source="standard:property-naming" />
+        <error line="497" column="19" source="standard:property-naming" />
+        <error line="498" column="19" source="standard:property-naming" />
+        <error line="501" column="19" source="standard:property-naming" />
+        <error line="502" column="19" source="standard:property-naming" />
+        <error line="504" column="19" source="standard:property-naming" />
+        <error line="505" column="19" source="standard:property-naming" />
+        <error line="506" column="19" source="standard:property-naming" />
+        <error line="507" column="19" source="standard:property-naming" />
+        <error line="508" column="19" source="standard:property-naming" />
+        <error line="509" column="19" source="standard:property-naming" />
+        <error line="510" column="19" source="standard:property-naming" />
+        <error line="511" column="19" source="standard:property-naming" />
+        <error line="512" column="19" source="standard:property-naming" />
+        <error line="513" column="19" source="standard:property-naming" />
+        <error line="514" column="19" source="standard:property-naming" />
+        <error line="515" column="19" source="standard:property-naming" />
+        <error line="517" column="19" source="standard:property-naming" />
+        <error line="518" column="19" source="standard:property-naming" />
+        <error line="532" column="19" source="standard:property-naming" />
+        <error line="533" column="19" source="standard:property-naming" />
+        <error line="534" column="19" source="standard:property-naming" />
+        <error line="535" column="19" source="standard:property-naming" />
+        <error line="538" column="19" source="standard:property-naming" />
+        <error line="541" column="19" source="standard:property-naming" />
+        <error line="542" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/app/SplashAnimationCloudWell.kt">
+        <error line="598" column="19" source="standard:property-naming" />
+        <error line="599" column="19" source="standard:property-naming" />
+        <error line="600" column="19" source="standard:property-naming" />
+        <error line="601" column="19" source="standard:property-naming" />
+        <error line="602" column="19" source="standard:property-naming" />
+        <error line="603" column="19" source="standard:property-naming" />
+        <error line="626" column="19" source="standard:property-naming" />
+        <error line="627" column="19" source="standard:property-naming" />
+        <error line="629" column="19" source="standard:property-naming" />
+        <error line="630" column="19" source="standard:property-naming" />
+        <error line="633" column="19" source="standard:property-naming" />
+        <error line="635" column="19" source="standard:property-naming" />
+        <error line="636" column="19" source="standard:property-naming" />
+        <error line="637" column="19" source="standard:property-naming" />
+        <error line="638" column="19" source="standard:property-naming" />
+        <error line="640" column="19" source="standard:property-naming" />
+        <error line="641" column="19" source="standard:property-naming" />
+        <error line="642" column="19" source="standard:property-naming" />
+        <error line="643" column="19" source="standard:property-naming" />
+        <error line="644" column="19" source="standard:property-naming" />
+        <error line="645" column="19" source="standard:property-naming" />
+        <error line="646" column="19" source="standard:property-naming" />
+        <error line="655" column="19" source="standard:property-naming" />
+        <error line="656" column="19" source="standard:property-naming" />
+        <error line="657" column="19" source="standard:property-naming" />
+        <error line="658" column="19" source="standard:property-naming" />
+        <error line="660" column="19" source="standard:property-naming" />
+        <error line="661" column="19" source="standard:property-naming" />
+        <error line="662" column="19" source="standard:property-naming" />
+        <error line="663" column="19" source="standard:property-naming" />
+        <error line="664" column="19" source="standard:property-naming" />
+        <error line="665" column="19" source="standard:property-naming" />
+        <error line="666" column="19" source="standard:property-naming" />
+        <error line="668" column="19" source="standard:property-naming" />
+        <error line="669" column="19" source="standard:property-naming" />
+        <error line="686" column="19" source="standard:property-naming" />
+        <error line="687" column="19" source="standard:property-naming" />
+        <error line="688" column="19" source="standard:property-naming" />
+        <error line="689" column="19" source="standard:property-naming" />
+        <error line="691" column="19" source="standard:property-naming" />
+        <error line="692" column="19" source="standard:property-naming" />
+        <error line="693" column="19" source="standard:property-naming" />
+        <error line="694" column="19" source="standard:property-naming" />
+        <error line="695" column="19" source="standard:property-naming" />
+        <error line="696" column="19" source="standard:property-naming" />
+        <error line="697" column="19" source="standard:property-naming" />
+        <error line="700" column="19" source="standard:property-naming" />
+        <error line="702" column="19" source="standard:property-naming" />
+        <error line="703" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/app/SplashAnimationOne.kt">
+        <error line="37" column="19" source="standard:property-naming" />
+        <error line="38" column="19" source="standard:property-naming" />
+        <error line="39" column="19" source="standard:property-naming" />
+        <error line="40" column="19" source="standard:property-naming" />
+        <error line="41" column="19" source="standard:property-naming" />
+        <error line="42" column="19" source="standard:property-naming" />
+        <error line="43" column="19" source="standard:property-naming" />
+        <error line="44" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/app/SplashAnimationTwo.kt">
+        <error line="37" column="19" source="standard:property-naming" />
+        <error line="38" column="19" source="standard:property-naming" />
+        <error line="39" column="19" source="standard:property-naming" />
+        <error line="40" column="19" source="standard:property-naming" />
+        <error line="41" column="19" source="standard:property-naming" />
+        <error line="42" column="19" source="standard:property-naming" />
+        <error line="43" column="19" source="standard:property-naming" />
+        <error line="44" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/app/SplashChoreography.kt">
+        <error line="70" column="20" source="standard:property-naming" />
+        <error line="113" column="19" source="standard:property-naming" />
+        <error line="164" column="19" source="standard:property-naming" />
+        <error line="165" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/app/SplashMark.kt">
+        <error line="28" column="1" source="standard:no-consecutive-comments" />
+        <error line="29" column="19" source="standard:property-naming" />
+        <error line="32" column="19" source="standard:property-naming" />
+        <error line="34" column="19" source="standard:property-naming" />
+        <error line="35" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/core/cast/YfuseCastOptionsProvider.kt">
+        <error line="11" column="66" source="standard:multiline-expression-wrapping" />
+        <error line="11" column="66" source="standard:function-signature" />
+        <error line="11" column="77" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/core/designsystem/Fonts.android.kt">
+        <error line="27" column="44" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/core/designsystem/SplashPreview.android.kt">
+        <error line="49" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/core/logging/DiagnosticLogStore.android.kt">
+        <error line="51" column="20" source="standard:property-naming" />
+        <error line="52" column="20" source="standard:property-naming" />
+        <error line="53" column="20" source="standard:property-naming" />
+        <error line="54" column="20" source="standard:property-naming" />
+        <error line="55" column="20" source="standard:property-naming" />
+        <error line="56" column="20" source="standard:property-naming" />
+        <error line="57" column="20" source="standard:property-naming" />
+        <error line="203" column="23" source="standard:property-naming" />
+        <error line="204" column="23" source="standard:property-naming" />
+        <error line="205" column="23" source="standard:property-naming" />
+        <error line="206" column="23" source="standard:property-naming" />
+        <error line="207" column="23" source="standard:property-naming" />
+        <error line="210" column="23" source="standard:property-naming" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/core/logging/SafeLogcat.android.kt">
+        <error line="31" column="23" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/core/security/Base64Url.android.kt">
+        <error line="5" column="45" source="standard:function-signature" />
+        <error line="16" column="19" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/core/util/ImageCache.android.kt">
+        <error line="11" column="40" source="standard:multiline-expression-wrapping" />
+        <error line="11" column="40" source="standard:function-signature" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/feature/player/PlaybackKeepAliveService.kt">
+        <error line="31" column="36" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/feature/player/PlaybackPreloader.android.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="39" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="55" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="59" column="35" source="standard:multiline-expression-wrapping" />
+        <error line="59" column="56" source="standard:chain-method-continuation" />
+        <error line="72" column="34" source="standard:multiline-expression-wrapping" />
+        <error line="72" column="49" source="standard:chain-method-continuation" />
+        <error line="77" column="32" source="standard:multiline-expression-wrapping" />
+        <error line="77" column="40" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/feature/profile/AppUpdateTools.android.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="42" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="55" column="37" source="standard:multiline-expression-wrapping" />
+        <error line="85" column="20" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/feature/profile/BackgroundImageTools.android.kt">
+        <error line="19" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="26" column="25" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/feature/profile/ServerBackupTools.android.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="127" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="134" column="22" source="standard:chain-method-continuation" />
+        <error line="154" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="162" column="19" source="standard:chain-method-continuation" />
+        <error line="184" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="191" column="40" source="standard:chain-method-continuation" />
+        <error line="191" column="62" source="standard:chain-method-continuation" />
+        <error line="191" column="80" source="standard:chain-method-continuation" />
+        <error line="211" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="230" column="18" source="standard:multiline-expression-wrapping" />
+        <error line="257" column="25" source="standard:multiline-expression-wrapping" />
+        <error line="262" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="277" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="282" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="376" column="35" source="standard:multiline-expression-wrapping" />
+        <error line="380" column="32" source="standard:multiline-expression-wrapping" />
+        <error line="390" column="25" source="standard:chain-method-continuation" />
+        <error line="448" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="518" column="13" source="standard:chain-method-continuation" />
+        <error line="548" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="566" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="572" column="18" source="standard:multiline-expression-wrapping" />
+        <error line="582" column="31" source="standard:chain-method-continuation" />
+        <error line="590" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="607" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="638" column="57" source="standard:multiline-expression-wrapping" />
+        <error line="638" column="57" source="standard:function-signature" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/app/SplashTimingPolicyTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="11" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="25" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="36" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="41" column="25" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/core/logging/DiagnosticLogBoundaryTest.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="12" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="21" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="25" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="27" column="25" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/core/offline/OfflineWakeWorkTest.kt">
+        <error line="11" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/core/security/SecureStoreEnvelopeCodecTest.kt">
+        <error line="10" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="23" column="23" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/feature/player/AudioTrackMatchingTest.kt">
+        <error line="10" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="21" column="22" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/feature/player/ManifestTrackDeduplicationTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="12" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="26" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="52" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="66" column="22" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/feature/player/MdkFallbackSettleWindowTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/feature/player/MpvEndFileTrackerTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/feature/player/PlaybackDiagnosticsTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="22" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="35" column="20" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/feature/player/PlayerTaskNavigationTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="12" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="15" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="24" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="30" column="25" source="standard:multiline-expression-wrapping" />
+        <error line="35" column="35" source="standard:multiline-expression-wrapping" />
+        <error line="45" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="48" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="58" column="32" source="standard:multiline-expression-wrapping" />
+        <error line="72" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="75" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="78" column="31" source="standard:multiline-expression-wrapping" />
+        <error line="81" column="42" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/feature/profile/ServerBackupPayloadTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/update/UpdateCheckPolicyTest.kt">
+        <error line="11" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="88" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="91" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="94" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="97" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="276" column="25" source="standard:multiline-expression-wrapping" />
+        <error line="276" column="25" source="standard:function-signature" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/update/UpdateManifestPolicyTest.kt">
+        <error line="11" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="46" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/androidUnitTest/kotlin/com/yfuse/update/UpdateResumePolicyTest.kt">
+        <error line="14" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="106" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="172" column="29" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/app/AppDependencies.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/app/RootComponent.kt">
+        <error line="197" column="5" source="standard:no-consecutive-comments" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/account/AccountRepository.kt">
+        <error line="335" column="1" source="standard:indent" />
+        <error line="336" column="1" source="standard:indent" />
+        <error line="337" column="1" source="standard:indent" />
+        <error line="338" column="1" source="standard:indent" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/data/DanmakuFilter.kt">
+        <error line="23" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="38" column="20" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/data/DanmakuSource.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="65" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="81" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="122" column="55" source="standard:multiline-expression-wrapping" />
+        <error line="122" column="55" source="standard:function-signature" />
+        <error line="132" column="64" source="standard:function-signature" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/data/DiagnosticPreferences.kt">
+        <error line="15" column="34" source="standard:multiline-expression-wrapping" />
+        <error line="24" column="33" source="standard:multiline-expression-wrapping" />
+        <error line="42" column="43" source="standard:multiline-expression-wrapping" />
+        <error line="42" column="43" source="standard:function-signature" />
+        <error line="57" column="48" source="standard:function-signature" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/data/EmbyRepository.kt">
+        <error line="106" column="1" source="standard:no-consecutive-comments" />
+        <error line="1704" column="5" source="standard:no-consecutive-comments" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/data/ServerRegistry.kt">
+        <error line="865" column="121" source="standard:max-line-length" />
+        <error line="1219" column="20" source="standard:property-naming" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/data/SmartSourceSelection.kt">
+        <error line="101" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="101" column="20" source="standard:function-signature" />
+        <error line="105" column="5" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/data/TmdbHomeCache.kt">
+        <error line="37" column="31" source="standard:statement-wrapping" />
+        <error line="37" column="56" source="standard:statement-wrapping" />
+        <error line="37" column="80" source="standard:statement-wrapping" />
+        <error line="65" column="22" source="standard:chain-method-continuation" />
+        <error line="70" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="72" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="80" column="27" source="standard:multiline-expression-wrapping" />
+        <error line="98" column="53" source="standard:multiline-expression-wrapping" />
+        <error line="98" column="53" source="standard:function-signature" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/data/TmdbRepository.kt">
+        <error line="886" column="9" source="standard:no-consecutive-comments" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/Backdrop.kt">
+        <error line="169" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="171" column="27" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/BurstIcon.kt">
+        <error line="78" column="33" source="standard:multiline-expression-wrapping" />
+        <error line="107" column="24" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/Dialogs.kt">
+        <error line="89" column="20" source="standard:property-naming" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/DolbyMark.kt">
+        <error line="29" column="1" source="standard:no-consecutive-comments" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/FormControls.kt">
+        <error line="58" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="67" column="13" source="standard:chain-method-continuation" />
+        <error line="105" column="16" source="standard:multiline-expression-wrapping" />
+        <error line="110" column="18" source="standard:multiline-expression-wrapping" />
+        <error line="115" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="133" column="13" source="standard:chain-method-continuation" />
+        <error line="140" column="13" source="standard:chain-method-continuation" />
+        <error line="173" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="181" column="13" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/Hero.kt">
+        <error line="38" column="1" source="standard:no-consecutive-comments" />
+        <error line="109" column="19" source="standard:property-naming" />
+        <error line="112" column="19" source="standard:property-naming" />
+        <error line="122" column="19" source="standard:property-naming" />
+        <error line="123" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/Indicators.kt">
+        <error line="54" column="31" source="standard:multiline-expression-wrapping" />
+        <error line="69" column="21" source="standard:chain-method-continuation" />
+        <error line="73" column="21" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/LoopingCarousel.kt">
+        <error line="16" column="20" source="standard:property-naming" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="81" column="52" source="standard:multiline-expression-wrapping" />
+        <error line="81" column="52" source="standard:function-signature" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="44" column="19" source="standard:property-naming" />
+        <error line="46" column="19" source="standard:property-naming" />
+        <error line="49" column="20" source="standard:property-naming" />
+        <error line="87" column="5" source="standard:spacing-between-declarations-with-comments" />
+        <error line="104" column="25" source="standard:multiline-expression-wrapping" />
+        <error line="122" column="36" source="standard:multiline-expression-wrapping" />
+        <error line="126" column="41" source="standard:multiline-expression-wrapping" />
+        <error line="136" column="44" source="standard:multiline-expression-wrapping" />
+        <error line="199" column="16" source="standard:chain-method-continuation" />
+        <error line="199" column="24" source="standard:chain-method-continuation" />
+        <error line="199" column="39" source="standard:chain-method-continuation" />
+        <error line="199" column="56" source="standard:chain-method-continuation" />
+        <error line="225" column="27" source="standard:multiline-expression-wrapping" />
+        <error line="233" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="250" column="13" source="standard:chain-method-continuation" />
+        <error line="260" column="71" source="standard:multiline-expression-wrapping" />
+        <error line="273" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="297" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="304" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="306" column="34" source="standard:multiline-expression-wrapping" />
+        <error line="371" column="27" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/SemanticTypography.kt">
+        <error line="22" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="28" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="34" column="16" source="standard:multiline-expression-wrapping" />
+        <error line="40" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="47" column="20" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/SharedMediaTransition.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/Theme.kt">
+        <error line="167" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/Toast.kt">
+        <error line="53" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="60" column="5" source="standard:spacing-between-declarations-with-comments" />
+        <error line="75" column="34" source="standard:multiline-expression-wrapping" />
+        <error line="87" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="89" column="16" source="standard:multiline-expression-wrapping" />
+        <error line="98" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="115" column="17" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/Tokens.kt">
+        <error line="35" column="1" source="standard:no-consecutive-comments" />
+        <error line="384" column="5" source="standard:no-consecutive-comments" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/designsystem/WatchAvatar.kt">
+        <error line="19" column="33" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/logging/DiagnosticRedactor.kt">
+        <error line="3" column="19" source="standard:property-naming" />
+        <error line="4" column="19" source="standard:property-naming" />
+        <error line="5" column="19" source="standard:property-naming" />
+        <error line="6" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/model/AiringCalendar.kt">
+        <error line="53" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="61" column="17" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/model/MediaVersion.kt">
+        <error line="69" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="94" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="100" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="131" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="140" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="156" column="47" source="standard:function-signature" />
+        <error line="192" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="216" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="231" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="258" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="282" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="283" column="20" source="standard:argument-list-wrapping" />
+        <error line="283" column="35" source="standard:argument-list-wrapping" />
+        <error line="284" column="21" source="standard:argument-list-wrapping" />
+        <error line="285" column="20" source="standard:argument-list-wrapping" />
+        <error line="286" column="20" source="standard:argument-list-wrapping" />
+        <error line="287" column="20" source="standard:argument-list-wrapping" />
+        <error line="288" column="20" source="standard:argument-list-wrapping" />
+        <error line="288" column="35" source="standard:argument-list-wrapping" />
+        <error line="289" column="20" source="standard:argument-list-wrapping" />
+        <error line="289" column="35" source="standard:argument-list-wrapping" />
+        <error line="290" column="22" source="standard:argument-list-wrapping" />
+        <error line="291" column="20" source="standard:argument-list-wrapping" />
+        <error line="292" column="22" source="standard:argument-list-wrapping" />
+        <error line="293" column="22" source="standard:argument-list-wrapping" />
+        <error line="294" column="20" source="standard:argument-list-wrapping" />
+        <error line="294" column="36" source="standard:argument-list-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/model/TrickplayInfo.kt">
+        <error line="13" column="1" source="standard:no-consecutive-blank-lines" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/network/ImageCacheKey.kt">
+        <error line="15" column="22" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/security/VaultCrypto.kt">
+        <error line="113" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="176" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="179" column="27" source="standard:multiline-expression-wrapping" />
+        <error line="203" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="227" column="22" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/util/DateWindow.kt">
+        <error line="12" column="1" source="standard:no-consecutive-comments" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/core/util/Share.kt">
+        <error line="13" column="5" source="standard:blank-line-before-declaration" />
+        <error line="14" column="5" source="standard:blank-line-before-declaration" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/di/AppModule.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="67" column="27" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarComponent.kt">
+        <error line="16" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/detail/DetailFileSections.kt">
+        <error line="65" column="1" source="standard:no-consecutive-comments" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/detail/DetailScreen.kt">
+        <error line="1669" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/detail/DetailStore.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="1123" column="35" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/home/HomeComponent.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="31" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="37" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="54" column="13" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/home/TmdbInfoScreen.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="77" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="84" column="18" source="standard:multiline-expression-wrapping" />
+        <error line="92" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="95" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="124" column="36" source="standard:multiline-expression-wrapping" />
+        <error line="136" column="29" source="standard:chain-method-continuation" />
+        <error line="161" column="1" source="standard:indent" />
+        <error line="161" column="44" source="standard:multiline-expression-wrapping" />
+        <error line="162" column="1" source="standard:indent" />
+        <error line="163" column="1" source="standard:indent" />
+        <error line="164" column="1" source="standard:indent" />
+        <error line="166" column="42" source="standard:multiline-expression-wrapping" />
+        <error line="172" column="29" source="standard:chain-method-continuation" />
+        <error line="181" column="48" source="standard:multiline-expression-wrapping" />
+        <error line="186" column="44" source="standard:multiline-expression-wrapping" />
+        <error line="219" column="52" source="standard:multiline-expression-wrapping" />
+        <error line="225" column="45" source="standard:chain-method-continuation" />
+        <error line="241" column="25" source="standard:wrapping" />
+        <error line="255" column="40" source="standard:multiline-expression-wrapping" />
+        <error line="290" column="48" source="standard:multiline-expression-wrapping" />
+        <error line="308" column="52" source="standard:multiline-expression-wrapping" />
+        <error line="313" column="56" source="standard:multiline-expression-wrapping" />
+        <error line="371" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="388" column="21" source="standard:chain-method-continuation" />
+        <error line="390" column="32" source="standard:multiline-expression-wrapping" />
+        <error line="395" column="34" source="standard:multiline-expression-wrapping" />
+        <error line="401" column="21" source="standard:chain-method-continuation" />
+        <error line="451" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="458" column="13" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/home/TmdbRowPage.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="87" column="36" source="standard:multiline-expression-wrapping" />
+        <error line="108" column="38" source="standard:multiline-expression-wrapping" />
+        <error line="119" column="44" source="standard:multiline-expression-wrapping" />
+        <error line="127" column="36" source="standard:multiline-expression-wrapping" />
+        <error line="127" column="48" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/library/LibraryContainerRoute.kt">
+        <error line="27" column="70" source="standard:multiline-expression-wrapping" />
+        <error line="27" column="70" source="standard:function-signature" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/library/LibraryGridComponent.kt">
+        <error line="22" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="25" column="31" source="standard:multiline-expression-wrapping" />
+        <error line="42" column="17" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/library/LibraryGridScreen.kt">
+        <error line="296" column="121" source="standard:max-line-length" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeComponent.kt">
+        <error line="20" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="24" column="17" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/EpisodeStrip.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="44" column="74" source="standard:multiline-expression-wrapping" />
+        <error line="44" column="74" source="standard:function-signature" />
+        <error line="90" column="13" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/NativePlaybackFailure.kt">
+        <error line="20" column="47" source="standard:multiline-expression-wrapping" />
+        <error line="24" column="44" source="standard:multiline-expression-wrapping" />
+        <error line="28" column="63" source="standard:multiline-expression-wrapping" />
+        <error line="40" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="40" column="28" source="standard:function-signature" />
+        <error line="55" column="51" source="standard:function-signature" />
+        <error line="73" column="40" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/PlaybackSelection.kt">
+        <error line="25" column="24" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/PlaybackTruth.kt">
+        <error line="16" column="89" source="standard:multiline-expression-wrapping" />
+        <error line="16" column="89" source="standard:function-signature" />
+        <error line="25" column="18" source="standard:chain-method-continuation" />
+        <error line="25" column="38" source="standard:chain-method-continuation" />
+        <error line="25" column="48" source="standard:chain-method-continuation" />
+        <error line="25" column="75" source="standard:chain-method-continuation" />
+        <error line="28" column="18" source="standard:chain-method-continuation" />
+        <error line="28" column="31" source="standard:chain-method-continuation" />
+        <error line="28" column="41" source="standard:chain-method-continuation" />
+        <error line="28" column="68" source="standard:chain-method-continuation" />
+        <error line="39" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="39" column="26" source="standard:function-signature" />
+        <error line="42" column="18" source="standard:multiline-expression-wrapping" />
+        <error line="49" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="49" column="32" source="standard:chain-method-continuation" />
+        <error line="49" column="47" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/PlayerComponent.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="22" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="23" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="38" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="46" column="1" source="standard:indent" />
+        <error line="47" column="1" source="standard:indent" />
+        <error line="48" column="1" source="standard:indent" />
+        <error line="49" column="1" source="standard:indent" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt">
+        <error line="162" column="1" source="standard:no-consecutive-comments" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/PlayerPanelState.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/PlayerScreen.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="42" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="47" column="36" source="standard:multiline-expression-wrapping" />
+        <error line="54" column="41" source="standard:multiline-expression-wrapping" />
+        <error line="133" column="13" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt">
+        <error line="748" column="33" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/RemoteCastPlayback.kt">
+        <error line="10" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="10" column="20" source="standard:function-signature" />
+        <error line="11" column="15" source="standard:multiline-expression-wrapping" />
+        <error line="16" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="26" column="19" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/player/WatchStickerTray.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="80" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="83" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="94" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="102" column="43" source="standard:multiline-expression-wrapping" />
+        <error line="120" column="25" source="standard:multiline-expression-wrapping" />
+        <error line="223" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="229" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="261" column="29" source="standard:chain-method-continuation" />
+        <error line="266" column="37" source="standard:multiline-expression-wrapping" />
+        <error line="272" column="40" source="standard:multiline-expression-wrapping" />
+        <error line="275" column="44" source="standard:multiline-expression-wrapping" />
+        <error line="280" column="46" source="standard:multiline-expression-wrapping" />
+        <error line="286" column="33" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt">
+        <error line="768" column="35" source="standard:function-signature" />
+        <error line="768" column="50" source="standard:function-signature" />
+        <error line="768" column="95" source="standard:function-signature" />
+        <error line="787" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/profile/ProfileComponent.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="35" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="397" column="121" source="standard:max-line-length" />
+        <error line="1329" column="1" source="standard:no-consecutive-comments" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/servers/QuickConnectGateway.kt">
+        <error line="72" column="11" source="standard:property-naming" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/servers/ServersStore.kt">
+        <error line="955" column="19" source="standard:property-naming" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/watch/CopyableRoomCode.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="50" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="57" column="13" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonMain/kotlin/com/yfuse/feature/watch/WatchInviteResolver.kt">
+        <error line="31" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="47" column="24" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/app/AppShellLayoutContractTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="13" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="13" column="28" source="standard:chain-method-continuation" />
+        <error line="15" column="25" source="standard:multiline-expression-wrapping" />
+        <error line="15" column="31" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/app/TopLevelBackStackTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/cast/CastStateMachineTest.kt">
+        <error line="10" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="23" column="25" source="standard:multiline-expression-wrapping" />
+        <error line="45" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="58" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="71" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="83" column="23" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/AiringCalendarTest.kt">
+        <error line="11" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="14" column="44" source="standard:multiline-expression-wrapping" />
+        <error line="14" column="44" source="standard:function-signature" />
+        <error line="74" column="22" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/AiringScheduleCacheTest.kt">
+        <error line="11" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="14" column="36" source="standard:multiline-expression-wrapping" />
+        <error line="14" column="36" source="standard:function-signature" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/GenreFacetNormalizationTest.kt">
+        <error line="7" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/PlaybackRecoveryStoreTest.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="13" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="55" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="68" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="73" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="82" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="98" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="110" column="34" source="standard:multiline-expression-wrapping" />
+        <error line="119" column="29" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/PlaybackTrackRequestTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/SkipSegmentPreferencesTest.kt">
+        <error line="12" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="85" column="18" source="standard:chain-method-continuation" />
+        <error line="98" column="23" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/ThemePreferencesTest.kt">
+        <error line="17" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/TmdbHomeCacheTest.kt">
+        <error line="19" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="34" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="62" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="77" column="33" source="standard:multiline-expression-wrapping" />
+        <error line="77" column="33" source="standard:function-signature" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/dto/PlaybackSegmentsTest.kt">
+        <error line="11" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="13" column="24" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/designsystem/DesignSystemContractTest.kt">
+        <error line="13" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/designsystem/GlassTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/designsystem/LoopingCarouselTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/designsystem/MotionAccessibilityPolicyTest.kt">
+        <error line="7" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/designsystem/NavigationIdentityTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="17" column="1" source="standard:no-blank-line-before-rbrace" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/designsystem/NavigationRailPolicyTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/designsystem/SharedMediaTransitionTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/model/DolbyVisionTest.kt">
+        <error line="11" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="27" column="17" source="standard:multiline-expression-wrapping" />
+        <error line="90" column="23" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/network/EmbyAuthTest.kt">
+        <error line="7" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/network/EmbyImagesTest.kt">
+        <error line="12" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="13" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="25" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="51" column="20" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/network/ImageCacheKeyTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/offline/OfflineRetryPolicyTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="12" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="27" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="47" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="47" column="59" source="standard:multiline-expression-wrapping" />
+        <error line="59" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="70" column="21" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/security/VaultCryptoTest.kt">
+        <error line="32" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="53" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="60" column="25" source="standard:multiline-expression-wrapping" />
+        <error line="78" column="24" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/sync/CloudSyncSnapshotTest.kt">
+        <error line="19" column="31" source="standard:statement-wrapping" />
+        <error line="19" column="56" source="standard:statement-wrapping" />
+        <error line="19" column="79" source="standard:statement-wrapping" />
+        <error line="60" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="75" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="83" column="68" source="standard:multiline-expression-wrapping" />
+        <error line="83" column="68" source="standard:function-signature" />
+        <error line="84" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="111" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="117" column="42" source="standard:multiline-expression-wrapping" />
+        <error line="117" column="42" source="standard:function-signature" />
+        <error line="126" column="62" source="standard:multiline-expression-wrapping" />
+        <error line="126" column="62" source="standard:function-signature" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/sync/WatchInviteTest.kt">
+        <error line="11" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="22" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="42" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="88" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="122" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="129" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="148" column="20" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/sync/WatchStickerTest.kt">
+        <error line="9" column="41" source="standard:multiline-expression-wrapping" />
+        <error line="9" column="41" source="standard:function-signature" />
+        <error line="74" column="22" source="standard:argument-list-wrapping" />
+        <error line="74" column="29" source="standard:argument-list-wrapping" />
+        <error line="74" column="37" source="standard:argument-list-wrapping" />
+        <error line="74" column="44" source="standard:argument-list-wrapping" />
+        <error line="74" column="52" source="standard:argument-list-wrapping" />
+        <error line="74" column="60" source="standard:argument-list-wrapping" />
+        <error line="74" column="69" source="standard:argument-list-wrapping" />
+        <error line="75" column="22" source="standard:argument-list-wrapping" />
+        <error line="75" column="30" source="standard:argument-list-wrapping" />
+        <error line="75" column="38" source="standard:argument-list-wrapping" />
+        <error line="75" column="47" source="standard:argument-list-wrapping" />
+        <error line="75" column="56" source="standard:argument-list-wrapping" />
+        <error line="75" column="65" source="standard:argument-list-wrapping" />
+        <error line="75" column="74" source="standard:argument-list-wrapping" />
+        <error line="76" column="22" source="standard:argument-list-wrapping" />
+        <error line="76" column="30" source="standard:argument-list-wrapping" />
+        <error line="76" column="38" source="standard:argument-list-wrapping" />
+        <error line="76" column="48" source="standard:argument-list-wrapping" />
+        <error line="76" column="56" source="standard:argument-list-wrapping" />
+        <error line="76" column="65" source="standard:argument-list-wrapping" />
+        <error line="76" column="73" source="standard:argument-list-wrapping" />
+        <error line="77" column="24" source="standard:argument-list-wrapping" />
+        <error line="77" column="34" source="standard:argument-list-wrapping" />
+        <error line="77" column="44" source="standard:argument-list-wrapping" />
+        <error line="77" column="52" source="standard:argument-list-wrapping" />
+        <error line="77" column="60" source="standard:argument-list-wrapping" />
+        <error line="77" column="68" source="standard:argument-list-wrapping" />
+        <error line="77" column="75" source="standard:argument-list-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/sync/WatchTogetherCapabilityTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/util/DateWindowTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/calendar/CalendarStateTest.kt">
+        <error line="14" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="22" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="36" column="51" source="standard:multiline-expression-wrapping" />
+        <error line="36" column="51" source="standard:function-signature" />
+        <error line="47" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="64" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="74" column="31" source="standard:multiline-expression-wrapping" />
+        <error line="85" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="97" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="107" column="23" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/detail/DetailPlaybackSelectionTest.kt">
+        <error line="11" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="12" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="120" column="34" source="standard:multiline-expression-wrapping" />
+        <error line="120" column="34" source="standard:function-signature" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/detail/EpisodeFocusTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="11" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="22" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="33" column="24" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/detail/MediaQualitySortingTest.kt">
+        <error line="17" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="20" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="27" column="25" source="standard:multiline-expression-wrapping" />
+        <error line="46" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="75" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="77" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="85" column="31" source="standard:multiline-expression-wrapping" />
+        <error line="87" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="117" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="122" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="163" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="168" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="191" column="30" source="standard:multiline-expression-wrapping" />
+        <error line="196" column="27" source="standard:multiline-expression-wrapping" />
+        <error line="200" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="207" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="234" column="17" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/library/LibraryContainerRouteTest.kt">
+        <error line="14" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="35" column="21" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/DanmakuLayoutTest.kt">
+        <error line="9" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="22" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="23" column="22" source="standard:multiline-expression-wrapping" />
+        <error line="38" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="39" column="22" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/PlaybackPreloadTest.kt">
+        <error line="14" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="17" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="35" column="72" source="standard:multiline-expression-wrapping" />
+        <error line="35" column="72" source="standard:function-signature" />
+        <error line="37" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="38" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="86" column="53" source="standard:multiline-expression-wrapping" />
+        <error line="86" column="53" source="standard:function-signature" />
+        <error line="88" column="24" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/PlaybackTrackRestoreTest.kt">
+        <error line="8" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="11" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="18" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="29" column="23" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/PlaybackTruthTest.kt">
+        <error line="12" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="15" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="32" column="20" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/PlayerVersionMarshallingTest.kt">
+        <error line="18" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="24" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="50" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="53" column="21" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/RemoteCastPlaybackTest.kt">
+        <error line="13" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="18" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="25" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="49" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="69" column="20" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/WatchChatDanmakuOverlayTest.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+        <error line="11" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="25" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="37" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="73" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="86" column="21" source="standard:multiline-expression-wrapping" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/WatchPlaybackPolicyTest.kt">
+        <error line="10" column="1" source="standard:no-empty-first-line-in-class-body" />
+        <error line="29" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="54" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="56" column="23" source="standard:argument-list-wrapping" />
+        <error line="56" column="33" source="standard:argument-list-wrapping" />
+        <error line="56" column="46" source="standard:argument-list-wrapping" />
+        <error line="62" column="23" source="standard:argument-list-wrapping" />
+        <error line="62" column="33" source="standard:argument-list-wrapping" />
+        <error line="62" column="46" source="standard:argument-list-wrapping" />
+        <error line="82" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="84" column="25" source="standard:argument-list-wrapping" />
+        <error line="84" column="35" source="standard:argument-list-wrapping" />
+        <error line="84" column="48" source="standard:argument-list-wrapping" />
+        <error line="103" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="105" column="29" source="standard:argument-list-wrapping" />
+        <error line="105" column="39" source="standard:argument-list-wrapping" />
+        <error line="105" column="52" source="standard:argument-list-wrapping" />
+        <error line="126" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="128" column="29" source="standard:argument-list-wrapping" />
+        <error line="128" column="39" source="standard:argument-list-wrapping" />
+        <error line="128" column="52" source="standard:argument-list-wrapping" />
+        <error line="146" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="148" column="23" source="standard:argument-list-wrapping" />
+        <error line="148" column="33" source="standard:argument-list-wrapping" />
+        <error line="148" column="46" source="standard:argument-list-wrapping" />
+    </file>
+</baseline>

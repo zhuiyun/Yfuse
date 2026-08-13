@@ -14,7 +14,10 @@ import kotlinx.coroutines.flow.StateFlow
 
 /** One tab-reselection occurrence, addressed to exactly one tab. */
 @Immutable
-data class TabReselection(val tabIdentity: String, val occurrence: Long)
+data class TabReselection(
+    val tabIdentity: String,
+    val occurrence: Long,
+)
 
 internal fun TabReselection.targets(tabIdentity: String?): Boolean =
     tabIdentity != null && this.tabIdentity == tabIdentity

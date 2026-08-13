@@ -11,7 +11,7 @@ WorkingDirectory=/srv/yfuse-update
 Environment=PORT=8080
 Environment=UPDATE_ROOT=/srv/yfuse-update/yfuse
 Environment=ACCOUNT_DB_PATH=/var/lib/yfuse/account.db
-Environment=ACCOUNT_REGISTRATION_ENABLED=true
+Environment=ACCOUNT_REGISTRATION_ENABLED=false
 Environment=ACCOUNT_MAX_USERS=100
 Environment=WATCH_TRUST_PROXY_HEADERS=true
 Environment="JAVA_OPTS=-Xms32m -Xmx128m"

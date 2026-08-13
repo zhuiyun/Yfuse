@@ -14,82 +14,94 @@ import kotlin.test.assertTrue
 
 class ServerSyncManagerTest {
     @Test
-    fun backoff_survives_manager_recreation() = runTest {
-        val settings = MapSettings()
-        val secrets = TestSecureStore()
-        val registry = ServerRegistry(settings, secrets).apply { addOrUpdate(server("http://emby.test")) }
-        var requests = 0
-        val repo = testRepo {
-            requests++
-            throw IOException("offline")
+    fun backoff_survives_manager_recreation() =
+        runTest {
+            val settings = MapSettings()
+            val secrets = TestSecureStore()
+            val registry = ServerRegistry(settings, secrets).apply { addOrUpdate(server("https://emby.test")) }
+            var requests = 0
+            val repo =
+                testRepo {
+                    requests++
+                    throw IOException("offline")
+                }
+
+            ServerSyncManager(repo, registry, settings).syncAll()
+            ServerSyncManager(repo, ServerRegistry(settings, secrets), settings).syncAll()
+
+            assertEquals(1, requests)
         }
-
-        ServerSyncManager(repo, registry, settings).syncAll()
-        ServerSyncManager(repo, ServerRegistry(settings, secrets), settings).syncAll()
-
-        assertEquals(1, requests)
-    }
 
     @Test
-    fun successful_forced_retry_clears_persisted_backoff() = runTest {
-        val settings = MapSettings()
-        val secrets = TestSecureStore()
-        val registry = ServerRegistry(settings, secrets).apply { addOrUpdate(server("http://emby.test")) }
-        var requests = 0
-        var fail = true
-        val repo = testRepo {
-            requests++
-            if (fail) throw IOException("offline")
-            json("""{"Items":[],"TotalRecordCount":0}""")
+    fun successful_forced_retry_clears_persisted_backoff() =
+        runTest {
+            val settings = MapSettings()
+            val secrets = TestSecureStore()
+            val registry = ServerRegistry(settings, secrets).apply { addOrUpdate(server("https://emby.test")) }
+            var requests = 0
+            var fail = true
+            val repo =
+                testRepo {
+                    requests++
+                    if (fail) throw IOException("offline")
+                    json("""{"Items":[],"TotalRecordCount":0}""")
+                }
+
+            ServerSyncManager(repo, registry, settings).syncAll()
+            fail = false
+            ServerSyncManager(repo, ServerRegistry(settings, secrets), settings).syncAll(force = true)
+            ServerSyncManager(repo, ServerRegistry(settings, secrets), settings).syncAll()
+
+            assertEquals(3, requests)
         }
-
-        ServerSyncManager(repo, registry, settings).syncAll()
-        fail = false
-        ServerSyncManager(repo, ServerRegistry(settings, secrets), settings).syncAll(force = true)
-        ServerSyncManager(repo, ServerRegistry(settings, secrets), settings).syncAll()
-
-        assertEquals(3, requests)
-    }
 
     @Test
-    fun known_unavailable_yun_endpoint_is_skipped_even_when_forced() = runTest {
-        val settings = MapSettings()
-        val registry = ServerRegistry(settings, TestSecureStore()).apply {
-            addOrUpdate(server("http://gf.emby.yun:8096"))
+    fun known_unavailable_yun_endpoint_is_skipped_even_when_forced() =
+        runTest {
+            val settings = MapSettings()
+            val registry =
+                ServerRegistry(settings, TestSecureStore()).apply {
+                    addOrUpdate(server("https://gf.emby.yun:8096"))
+                }
+            var requests = 0
+            val manager =
+                ServerSyncManager(
+                    repo =
+                        testRepo {
+                            requests++
+                            error("Known unavailable endpoint must not reach HTTP")
+                        },
+                    registry = registry,
+                    settings = settings,
+                )
+
+            manager.syncAll(force = true)
+
+            assertEquals(0, requests)
+            val status =
+                manager.state.value.statuses
+                    .single()
+            assertEquals(false, status.online)
+            assertTrue(status.error.orEmpty().contains("编辑或移除"))
         }
-        var requests = 0
-        val manager = ServerSyncManager(
-            repo = testRepo {
-                requests++
-                error("Known unavailable endpoint must not reach HTTP")
-            },
-            registry = registry,
-            settings = settings,
-        )
-
-        manager.syncAll(force = true)
-
-        assertEquals(0, requests)
-        val status = manager.state.value.statuses.single()
-        assertEquals(false, status.online)
-        assertTrue(status.error.orEmpty().contains("编辑或移除"))
-    }
 
     @Test
     fun pending_queue_keeps_only_the_newest_distinct_operations_within_capacity() {
-        val input = listOf(
-            pending("one", desired = false),
-            pending("two", desired = false),
-            pending("three", desired = false),
-            pending("four", desired = false),
-            pending("one", desired = true),
-        )
+        val input =
+            listOf(
+                pending("one", desired = false),
+                pending("two", desired = false),
+                pending("three", desired = false),
+                pending("four", desired = false),
+                pending("one", desired = true),
+            )
 
-        val bounded = boundPendingMutations(
-            value = input,
-            maxEntries = 3,
-            maxSerializedBytes = 32 * 1024,
-        )
+        val bounded =
+            boundPendingMutations(
+                value = input,
+                maxEntries = 3,
+                maxSerializedBytes = 32 * 1024,
+            )
 
         assertEquals(listOf("three", "four", "one"), bounded.map { it.itemId })
         assertEquals(true, bounded.last().desired)
@@ -97,20 +109,25 @@ class ServerSyncManagerTest {
 
     @Test
     fun pending_queue_rejects_oversized_identity_and_bounds_display_text() {
-        val bounded = boundPendingMutations(
-            value = listOf(
-                pending("x".repeat(513)),
-                pending("valid").copy(title = "片".repeat(1_000)),
-            ),
-            maxEntries = 10,
-            maxSerializedBytes = 32 * 1024,
-        )
+        val bounded =
+            boundPendingMutations(
+                value =
+                    listOf(
+                        pending("x".repeat(513)),
+                        pending("valid").copy(title = "片".repeat(1_000)),
+                    ),
+                maxEntries = 10,
+                maxSerializedBytes = 32 * 1024,
+            )
 
         assertEquals(listOf("valid"), bounded.map { it.itemId })
         assertEquals(256, bounded.single().title.length)
     }
 
-    private fun pending(itemId: String, desired: Boolean = true) = PendingSyncMutation(
+    private fun pending(
+        itemId: String,
+        desired: Boolean = true,
+    ) = PendingSyncMutation(
         serverId = "server",
         itemId = itemId,
         title = "Title",

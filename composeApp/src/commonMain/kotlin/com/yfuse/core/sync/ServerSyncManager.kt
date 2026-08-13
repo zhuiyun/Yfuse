@@ -66,10 +66,11 @@ internal fun boundPendingMutations(
         val normalized = mutation.normalizedForPendingStorage() ?: return@forEach
         val key = Triple(normalized.serverId, normalized.itemId, normalized.kind)
         if (!seen.add(key) || newestFirst.size >= maxEntries) return@forEach
-        val entryBytes = boundedPendingJson
-            .encodeToString(PendingSyncMutation.serializer(), normalized)
-            .encodeToByteArray()
-            .size + if (newestFirst.isEmpty()) 0 else 1
+        val entryBytes =
+            boundedPendingJson
+                .encodeToString(PendingSyncMutation.serializer(), normalized)
+                .encodeToByteArray()
+                .size + if (newestFirst.isEmpty()) 0 else 1
         if (serializedBytes + entryBytes > maxSerializedBytes) return@forEach
         newestFirst += normalized
         serializedBytes += entryBytes
@@ -141,7 +142,11 @@ class ServerSyncManager(
         const val UNAUTHORIZED_BACKOFF_MS = 6 * 60 * 60 * 1000L
     }
 
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     private val pendingSerializer = ListSerializer(PendingSyncMutation.serializer())
     private val retryStateSerializer = ListSerializer(ServerRetryState.serializer())
     private val pending = MutableStateFlow(loadPending())
@@ -156,12 +161,13 @@ class ServerSyncManager(
      * budget before the servers that do work were reached.
      */
     private val retryStates = loadRetryStates()
-    private val _state = MutableStateFlow(
-        ServerSyncState(
-            pendingCount = pending.value.size,
-            pendingOperations = pending.value,
-        ),
-    )
+    private val _state =
+        MutableStateFlow(
+            ServerSyncState(
+                pendingCount = pending.value.size,
+                pendingOperations = pending.value,
+            ),
+        )
     val state: StateFlow<ServerSyncState> = _state.asStateFlow()
     val autoSync = MutableStateFlow(settings.getBoolean(AUTO_KEY, true))
     val syncMetadata = MutableStateFlow(settings.getBoolean(METADATA_KEY, true))
@@ -178,17 +184,24 @@ class ServerSyncManager(
             category = "sync",
             event = "automatic_sync_started",
             message = "Automatic server synchronization started",
-            attributes = mapOf(
-                "enabled" to autoSync.value.toString(),
-                "pendingCount" to pending.value.size.toString(),
-            ),
+            attributes =
+                mapOf(
+                    "enabled" to autoSync.value.toString(),
+                    "pendingCount" to pending.value.size.toString(),
+                ),
         )
-        automaticJob = scope.launch {
-            while (true) {
-                if (autoSync.value && registry.data.value.servers.isNotEmpty()) syncAll()
-                delay(PERIOD_MS)
+        automaticJob =
+            scope.launch {
+                while (true) {
+                    if (autoSync.value &&
+                        registry.data.value.servers
+                            .isNotEmpty()
+                    ) {
+                        syncAll()
+                    }
+                    delay(PERIOD_MS)
+                }
             }
-        }
     }
 
     fun setAutoSync(value: Boolean) {
@@ -228,7 +241,8 @@ class ServerSyncManager(
      * before HTTP, because forcing them can only repeat the same DNS failure.
      */
     suspend fun syncAll(force: Boolean = false) {
-        registry.data.value.servers.forEach { sync(it, force) }
+        registry.data.value.servers
+            .forEach { sync(it, force) }
     }
 
     suspend fun setFavorite(
@@ -245,17 +259,22 @@ class ServerSyncManager(
         value: Boolean,
     ): Result<Unit> = mutate(server, itemId, title, SyncMutationKind.Played, value)
 
-    suspend fun resolveConflict(conflict: SyncConflict, keepLocal: Boolean): Result<Unit> {
-        val server = registry.serverById(conflict.mutation.serverId)
-            ?: return Result.failure(IllegalStateException("服务器已移除"))
+    suspend fun resolveConflict(
+        conflict: SyncConflict,
+        keepLocal: Boolean,
+    ): Result<Unit> {
+        val server =
+            registry.serverById(conflict.mutation.serverId)
+                ?: return Result.failure(IllegalStateException("服务器已移除"))
         return if (keepLocal) {
             val mutation = conflict.mutation
-            val result = when (mutation.kind) {
-                SyncMutationKind.Favorite ->
-                    repo.setFavorite(server, mutation.itemId, mutation.desired)
-                SyncMutationKind.Played ->
-                    repo.setPlayed(server, mutation.itemId, mutation.desired)
-            }
+            val result =
+                when (mutation.kind) {
+                    SyncMutationKind.Favorite ->
+                        repo.setFavorite(server, mutation.itemId, mutation.desired)
+                    SyncMutationKind.Played ->
+                        repo.setPlayed(server, mutation.itemId, mutation.desired)
+                }
             result
                 .onSuccess {
                     removePending(mutation)
@@ -265,8 +284,7 @@ class ServerSyncManager(
                         message = "Synchronization conflict resolved with local value",
                         attributes = mapOf("kind" to mutation.kind.name),
                     )
-                }
-                .onFailure {
+                }.onFailure {
                     AppLog.warning(
                         category = "sync",
                         event = "conflict_resolution_failed",
@@ -294,36 +312,40 @@ class ServerSyncManager(
         kind: SyncMutationKind,
         desired: Boolean,
     ): Result<Unit> {
-        val base = snapshots[server.id]?.firstOrNull { it.id == itemId }?.let {
-            when (kind) {
-                SyncMutationKind.Favorite -> it.favorite
-                SyncMutationKind.Played -> it.played
+        val base =
+            snapshots[server.id]?.firstOrNull { it.id == itemId }?.let {
+                when (kind) {
+                    SyncMutationKind.Favorite -> it.favorite
+                    SyncMutationKind.Played -> it.played
+                }
             }
-        }
-        val mutation = PendingSyncMutation(
-            serverId = server.id,
-            itemId = itemId,
-            title = title,
-            kind = kind,
-            desired = desired,
-            baseValue = base,
-            createdAtEpochMs = System.currentTimeMillis(),
-        )
+        val mutation =
+            PendingSyncMutation(
+                serverId = server.id,
+                itemId = itemId,
+                title = title,
+                kind = kind,
+                desired = desired,
+                baseValue = base,
+                createdAtEpochMs = System.currentTimeMillis(),
+            )
         addPending(mutation)
         AppLog.info(
             category = "sync",
             event = "mutation_queued",
             message = "User state mutation queued for synchronization",
-            attributes = mapOf(
-                "serverId" to server.id,
-                "kind" to kind.name,
-                "desired" to desired.toString(),
-            ),
+            attributes =
+                mapOf(
+                    "serverId" to server.id,
+                    "kind" to kind.name,
+                    "desired" to desired.toString(),
+                ),
         )
-        val result = when (kind) {
-            SyncMutationKind.Favorite -> repo.setFavorite(server, itemId, desired)
-            SyncMutationKind.Played -> repo.setPlayed(server, itemId, desired)
-        }
+        val result =
+            when (kind) {
+                SyncMutationKind.Favorite -> repo.setFavorite(server, itemId, desired)
+                SyncMutationKind.Played -> repo.setPlayed(server, itemId, desired)
+            }
         result
             .onSuccess { removePending(mutation) }
             .onFailure {
@@ -332,16 +354,20 @@ class ServerSyncManager(
                     event = "mutation_deferred",
                     message = "User state mutation remains queued after request failure",
                     throwable = it,
-                    attributes = mapOf(
-                        "serverId" to server.id,
-                        "kind" to kind.name,
-                    ),
+                    attributes =
+                        mapOf(
+                            "serverId" to server.id,
+                            "kind" to kind.name,
+                        ),
                 )
             }
         return result
     }
 
-    private suspend fun sync(server: SavedServer, force: Boolean = false) {
+    private suspend fun sync(
+        server: SavedServer,
+        force: Boolean = false,
+    ) {
         val unavailableReason = server.knownUnavailableEndpointReason()
         if (unavailableReason != null) {
             setStatus(server) {
@@ -355,10 +381,11 @@ class ServerSyncManager(
                 category = "sync",
                 event = "server_sync_skipped_unavailable_endpoint",
                 message = "Server synchronization skipped for a known unavailable endpoint",
-                attributes = mapOf(
-                    "serverId" to server.id,
-                    "forced" to force.toString(),
-                ),
+                attributes =
+                    mapOf(
+                        "serverId" to server.id,
+                        "forced" to force.toString(),
+                    ),
             )
             return
         }
@@ -370,11 +397,12 @@ class ServerSyncManager(
                 category = "sync",
                 event = "server_sync_skipped",
                 message = "Server synchronization skipped while backing off",
-                attributes = mapOf(
-                    "serverId" to server.id,
-                    "failureStreak" to (retryState?.failureStreak ?: 0).toString(),
-                    "retryInMs" to (notBefore - now).toString(),
-                ),
+                attributes =
+                    mapOf(
+                        "serverId" to server.id,
+                        "failureStreak" to (retryState?.failureStreak ?: 0).toString(),
+                        "retryInMs" to (notBefore - now).toString(),
+                    ),
             )
             return
         }
@@ -393,43 +421,47 @@ class ServerSyncManager(
                         error = null,
                     )
                 }
-                _state.value = _state.value.copy(
-                    pendingCount = pending.value.size,
-                    pendingOperations = pending.value,
-                    conflicts = (
-                        _state.value.conflicts.filterNot {
-                            it.mutation.serverId == server.id
-                        } + conflicts
-                    ),
-                )
+                _state.value =
+                    _state.value.copy(
+                        pendingCount = pending.value.size,
+                        pendingOperations = pending.value,
+                        conflicts = (
+                            _state.value.conflicts.filterNot {
+                                it.mutation.serverId == server.id
+                            } + conflicts
+                        ),
+                    )
                 if (conflicts.isNotEmpty()) {
                     AppLog.warning(
                         category = "sync",
                         event = "conflicts_detected",
                         message = "Synchronization conflicts detected",
-                        attributes = mapOf(
-                            "serverId" to server.id,
-                            "conflictCount" to conflicts.size.toString(),
-                        ),
+                        attributes =
+                            mapOf(
+                                "serverId" to server.id,
+                                "conflictCount" to conflicts.size.toString(),
+                            ),
                     )
                 }
                 AppLog.info(
                     category = "sync",
                     event = "server_sync_completed",
                     message = "Server synchronization completed",
-                    attributes = mapOf(
-                        "serverId" to server.id,
-                        "itemCount" to remote.size.toString(),
-                        "conflictCount" to conflicts.size.toString(),
-                        "pendingCount" to pending.value.size.toString(),
-                    ),
+                    attributes =
+                        mapOf(
+                            "serverId" to server.id,
+                            "itemCount" to remote.size.toString(),
+                            "conflictCount" to conflicts.size.toString(),
+                            "pendingCount" to pending.value.size.toString(),
+                        ),
                 )
                 replayNonConflicting(server, conflicts)
             },
             onFailure = { error ->
                 val unauthorized = error.isUnauthorized()
-                val streak = ((retryStates[server.id]?.failureStreak ?: 0) + 1)
-                    .coerceAtMost(MAX_FAILURE_STREAK)
+                val streak =
+                    ((retryStates[server.id]?.failureStreak ?: 0) + 1)
+                        .coerceAtMost(MAX_FAILURE_STREAK)
                 val backoffMs = backoffFor(streak, unauthorized)
                 commitRetryState(
                     ServerRetryState(
@@ -443,25 +475,27 @@ class ServerSyncManager(
                     event = "server_sync_failed",
                     message = "Server synchronization failed",
                     throwable = error,
-                    attributes = mapOf(
-                        "serverId" to server.id,
-                        "failureStreak" to streak.toString(),
-                        "backoffMs" to backoffMs.toString(),
-                        "unauthorized" to unauthorized.toString(),
-                    ),
+                    attributes =
+                        mapOf(
+                            "serverId" to server.id,
+                            "failureStreak" to streak.toString(),
+                            "backoffMs" to backoffMs.toString(),
+                            "unauthorized" to unauthorized.toString(),
+                        ),
                 )
                 setStatus(server) {
                     it.copy(
                         syncing = false,
                         online = false,
-                        error = when {
-                            // A revoked token is not a network hiccup, and the old wording
-                            // sent the user looking at their connection instead of re-signing in.
-                            unauthorized -> "登录已失效，请重新登录该服务器"
-                            // Never expose the exception's data-class representation (for
-                            // example `AccessDenied(provider=Cloudflare)`) in the profile UI.
-                            else -> error.toUserMessage("同步失败")
-                        },
+                        error =
+                            when {
+                                // A revoked token is not a network hiccup, and the old wording
+                                // sent the user looking at their connection instead of re-signing in.
+                                unauthorized -> "登录已失效，请重新登录该服务器"
+                                // Never expose the exception's data-class representation (for
+                                // example `AccessDenied(provider=Cloudflare)`) in the profile UI.
+                                else -> error.toUserMessage("同步失败")
+                            },
                     )
                 }
             },
@@ -475,14 +509,16 @@ class ServerSyncManager(
      * it, and the user has been told what to do about it. Both are capped so that a server
      * which comes back is picked up again within an hour without the app being restarted.
      */
-    private fun backoffFor(streak: Int, unauthorized: Boolean): Long {
+    private fun backoffFor(
+        streak: Int,
+        unauthorized: Boolean,
+    ): Long {
         if (unauthorized) return UNAUTHORIZED_BACKOFF_MS
         val exponent = (streak - 1).coerceIn(0, 5)
         return (PERIOD_MS * (1L shl exponent)).coerceAtMost(MAX_BACKOFF_MS)
     }
 
-    private fun Throwable.isUnauthorized(): Boolean =
-        (this as? EmbyErrorException)?.error == EmbyError.Unauthorized
+    private fun Throwable.isUnauthorized(): Boolean = (this as? EmbyErrorException)?.error == EmbyError.Unauthorized
 
     private fun commitRetryState(value: ServerRetryState) {
         retryStates[value.serverId] = value
@@ -516,20 +552,25 @@ class ServerSyncManager(
 
     private fun loadRetryStates(): MutableMap<String, ServerRetryState> {
         val raw = settings.getStringOrNull(RETRY_STATE_KEY) ?: return mutableMapOf()
-        val knownServerIds = registry.data.value.servers.mapTo(hashSetOf()) { it.id }
+        val knownServerIds =
+            registry.data.value.servers
+                .mapTo(hashSetOf()) { it.id }
         val now = System.currentTimeMillis()
         return runCatching {
             linkedMapOf<String, ServerRetryState>().apply {
-                json.decodeFromString(retryStateSerializer, raw)
+                json
+                    .decodeFromString(retryStateSerializer, raw)
                     .filter { it.serverId in knownServerIds && it.failureStreak > 0 }
                     .forEach { state ->
-                        this[state.serverId] = state.copy(
-                            failureStreak = state.failureStreak.coerceAtMost(MAX_FAILURE_STREAK),
-                            // Protect against corrupted data or a wall clock moved far backwards.
-                            retryNotBeforeEpochMs = state.retryNotBeforeEpochMs.coerceAtMost(
-                                now + UNAUTHORIZED_BACKOFF_MS,
-                            ),
-                        )
+                        this[state.serverId] =
+                            state.copy(
+                                failureStreak = state.failureStreak.coerceAtMost(MAX_FAILURE_STREAK),
+                                // Protect against corrupted data or a wall clock moved far backwards.
+                                retryNotBeforeEpochMs =
+                                    state.retryNotBeforeEpochMs.coerceAtMost(
+                                        now + UNAUTHORIZED_BACKOFF_MS,
+                                    ),
+                            )
                     }
             }
         }.onFailure {
@@ -550,12 +591,13 @@ class ServerSyncManager(
         pending.value
             .filter { it.serverId == server.id && it !in blocked }
             .forEach { mutation ->
-                val result = when (mutation.kind) {
-                    SyncMutationKind.Favorite ->
-                        repo.setFavorite(server, mutation.itemId, mutation.desired)
-                    SyncMutationKind.Played ->
-                        repo.setPlayed(server, mutation.itemId, mutation.desired)
-                }
+                val result =
+                    when (mutation.kind) {
+                        SyncMutationKind.Favorite ->
+                            repo.setFavorite(server, mutation.itemId, mutation.desired)
+                        SyncMutationKind.Played ->
+                            repo.setPlayed(server, mutation.itemId, mutation.desired)
+                    }
                 result
                     .onSuccess { removePending(mutation) }
                     .onFailure {
@@ -564,10 +606,11 @@ class ServerSyncManager(
                             event = "pending_replay_failed",
                             message = "Queued synchronization mutation replay failed",
                             throwable = it,
-                            attributes = mapOf(
-                                "serverId" to server.id,
-                                "kind" to mutation.kind.name,
-                            ),
+                            attributes =
+                                mapOf(
+                                    "serverId" to server.id,
+                                    "kind" to mutation.kind.name,
+                                ),
                         )
                     }
             }
@@ -576,37 +619,42 @@ class ServerSyncManager(
     private fun detectConflicts(
         serverId: String,
         remote: List<SyncedUserItem>,
-    ): List<SyncConflict> = pending.value
-        .filter { it.serverId == serverId }
-        .mapNotNull { mutation ->
-            val item = remote.firstOrNull { it.id == mutation.itemId } ?: return@mapNotNull null
-            val remoteValue = when (mutation.kind) {
-                SyncMutationKind.Favorite -> item.favorite
-                SyncMutationKind.Played -> item.played
+    ): List<SyncConflict> =
+        pending.value
+            .filter { it.serverId == serverId }
+            .mapNotNull { mutation ->
+                val item = remote.firstOrNull { it.id == mutation.itemId } ?: return@mapNotNull null
+                val remoteValue =
+                    when (mutation.kind) {
+                        SyncMutationKind.Favorite -> item.favorite
+                        SyncMutationKind.Played -> item.played
+                    }
+                if (
+                    mutation.baseValue != null &&
+                    remoteValue != mutation.baseValue &&
+                    remoteValue != mutation.desired
+                ) {
+                    SyncConflict(mutation, remoteValue)
+                } else {
+                    null
+                }
             }
-            if (
-                mutation.baseValue != null &&
-                remoteValue != mutation.baseValue &&
-                remoteValue != mutation.desired
-            ) {
-                SyncConflict(mutation, remoteValue)
-            } else {
-                null
-            }
-        }
 
     private fun setStatus(
         server: SavedServer,
         transform: (ServerSyncStatus) -> ServerSyncStatus,
     ) {
-        val old = _state.value.statuses.firstOrNull { it.serverId == server.id }
-            ?: ServerSyncStatus(server.id, server.serverName)
-        _state.value = _state.value.copy(
-            statuses = _state.value.statuses.filterNot { it.serverId == server.id } +
-                transform(old),
-            pendingCount = pending.value.size,
-            pendingOperations = pending.value,
-        )
+        val old =
+            _state.value.statuses.firstOrNull { it.serverId == server.id }
+                ?: ServerSyncStatus(server.id, server.serverName)
+        _state.value =
+            _state.value.copy(
+                statuses =
+                    _state.value.statuses.filterNot { it.serverId == server.id } +
+                        transform(old),
+                pendingCount = pending.value.size,
+                pendingOperations = pending.value,
+            )
     }
 
     private fun addPending(mutation: PendingSyncMutation) {
@@ -627,11 +675,12 @@ class ServerSyncManager(
                     it.kind == mutation.kind
             },
         )
-        _state.value = _state.value.copy(
-            pendingCount = pending.value.size,
-            pendingOperations = pending.value,
-            conflicts = _state.value.conflicts.filterNot { it.mutation == mutation },
-        )
+        _state.value =
+            _state.value.copy(
+                pendingCount = pending.value.size,
+                pendingOperations = pending.value,
+                conflicts = _state.value.conflicts.filterNot { it.mutation == mutation },
+            )
     }
 
     private fun commitPending(value: List<PendingSyncMutation>) {
@@ -641,10 +690,11 @@ class ServerSyncManager(
                 category = "sync",
                 event = "pending_queue_trimmed",
                 message = "Synchronization queue reached its storage budget; oldest operations were removed",
-                attributes = mapOf(
-                    "requestedCount" to value.size.toString(),
-                    "storedCount" to bounded.size.toString(),
-                ),
+                attributes =
+                    mapOf(
+                        "requestedCount" to value.size.toString(),
+                        "storedCount" to bounded.size.toString(),
+                    ),
             )
         }
         pending.value = bounded
@@ -663,10 +713,11 @@ class ServerSyncManager(
                 attributes = mapOf("pendingCount" to bounded.size.toString()),
             )
         }
-        _state.value = _state.value.copy(
-            pendingCount = bounded.size,
-            pendingOperations = bounded,
-        )
+        _state.value =
+            _state.value.copy(
+                pendingCount = bounded.size,
+                pendingOperations = bounded,
+            )
     }
 
     private fun loadPending(): List<PendingSyncMutation> {

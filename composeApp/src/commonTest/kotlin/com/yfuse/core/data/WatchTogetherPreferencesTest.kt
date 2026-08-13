@@ -1,8 +1,11 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.network.EndpointTransportDecision
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class WatchTogetherPreferencesTest {
     @Test
@@ -13,10 +16,11 @@ class WatchTogetherPreferencesTest {
     }
 
     @Test
-    fun legacy_official_endpoint_is_migrated_only_once() {
-        val settings = MapSettings().apply {
-            putString("watchTogether.endpoint", "http://47.112.219.60")
-        }
+    fun legacy_official_endpoint_is_migrated_and_cannot_be_saved_as_public_cleartext() {
+        val settings =
+            MapSettings().apply {
+                putString("watchTogether.endpoint", "http://47.112.219.60")
+            }
 
         val migrated = WatchTogetherPreferences(settings)
         assertEquals(WatchTogetherPreferences.DEFAULT_ENDPOINT, migrated.endpoint.value)
@@ -25,18 +29,25 @@ class WatchTogetherPreferencesTest {
             settings.getString("watchTogether.endpoint", ""),
         )
 
-        migrated.setEndpoint("http://47.112.219.60")
+        val rejected =
+            migrated.setEndpoint(
+                "http://47.112.219.60",
+                localCleartextConfirmed = true,
+            )
+        assertFalse(rejected.allowed)
+        assertEquals(EndpointTransportDecision.PublicCleartextRejected, rejected.decision)
         assertEquals(
-            "http://47.112.219.60",
+            WatchTogetherPreferences.DEFAULT_ENDPOINT,
             WatchTogetherPreferences(settings).endpoint.value,
         )
     }
 
     @Test
     fun blocked_domain_endpoint_is_migrated_to_ip_https() {
-        val settings = MapSettings().apply {
-            putString("watchTogether.endpoint", "https://yfuse.zhuiyun.site")
-        }
+        val settings =
+            MapSettings().apply {
+                putString("watchTogether.endpoint", "https://yfuse.zhuiyun.site")
+            }
 
         assertEquals(
             WatchTogetherPreferences.DEFAULT_ENDPOINT,
@@ -45,13 +56,52 @@ class WatchTogetherPreferencesTest {
     }
 
     @Test
-    fun custom_http_endpoint_is_not_migrated() {
-        val settings = MapSettings().apply {
-            putString("watchTogether.endpoint", "http://47.112.219.60:8080")
-        }
+    fun persisted_cleartext_endpoint_fails_closed_without_current_explicit_consent() {
+        val settings =
+            MapSettings().apply {
+                putString("watchTogether.endpoint", "http://47.112.219.60:8080")
+            }
 
         assertEquals(
-            "http://47.112.219.60:8080",
+            WatchTogetherPreferences.DEFAULT_ENDPOINT,
+            WatchTogetherPreferences(settings).endpoint.value,
+        )
+    }
+
+    @Test
+    fun local_cleartext_can_only_be_saved_after_explicit_confirmation() {
+        val settings = MapSettings()
+        val preferences = WatchTogetherPreferences(settings)
+
+        val pending = preferences.setEndpoint("ws://192.168.1.20:8080")
+        assertFalse(pending.allowed)
+        assertTrue(pending.requiresCleartextConfirmation)
+        assertEquals(WatchTogetherPreferences.DEFAULT_ENDPOINT, preferences.endpoint.value)
+
+        val saved =
+            preferences.setEndpoint(
+                "ws://192.168.1.20:8080/",
+                localCleartextConfirmed = true,
+            )
+        assertTrue(saved.allowed)
+        assertEquals("ws://192.168.1.20:8080", preferences.endpoint.value)
+        assertEquals(
+            "ws://192.168.1.20:8080",
+            WatchTogetherPreferences(settings).endpoint.value,
+        )
+    }
+
+    @Test
+    fun secure_custom_endpoint_is_normalized_and_persisted() {
+        val settings = MapSettings()
+        val preferences = WatchTogetherPreferences(settings)
+
+        val saved = preferences.setEndpoint("  wss://watch.example.com/socket/  ")
+
+        assertTrue(saved.allowed)
+        assertEquals("wss://watch.example.com/socket", preferences.endpoint.value)
+        assertEquals(
+            "wss://watch.example.com/socket",
             WatchTogetherPreferences(settings).endpoint.value,
         )
     }

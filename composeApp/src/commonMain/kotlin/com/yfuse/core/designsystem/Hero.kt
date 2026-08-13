@@ -14,11 +14,11 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
@@ -47,11 +47,12 @@ val HeroInk = Color(0xFF121620)
  * carries its own shadow instead. It costs nothing where the artwork is already dark and
  * saves the one case that used to be unreadable: a bright sky behind a white headline.
  */
-val HeroTextShadow: Shadow = Shadow(
-    color = Color(0xFF05070D).copy(alpha = 0.58f),
-    offset = Offset(0f, 1.5f),
-    blurRadius = 12f,
-)
+val HeroTextShadow: Shadow =
+    Shadow(
+        color = Color(0xFF05070D).copy(alpha = 0.58f),
+        offset = Offset(0f, 1.5f),
+        blurRadius = 12f,
+    )
 
 /**
  * Scrim for a hero whose lower edge dissolves into the page — dark at the top, where the
@@ -60,12 +61,16 @@ val HeroTextShadow: Shadow = Shadow(
  * [topInk] is how heavy the top gets; the rest of the shape is fixed, because it is what
  * keeps the darkness clear of the dissolve.
  */
-fun heroTopScrim(topInk: Float = 0.45f, midInk: Float = 0.10f): Brush = scrim(
-    0f to Color.Transparent,
-    0.52f to Color.Transparent,
-    0.80f to HeroInk.copy(alpha = midInk),
-    1f to HeroInk.copy(alpha = topInk),
-)
+fun heroTopScrim(
+    topInk: Float = 0.45f,
+    midInk: Float = 0.10f,
+): Brush =
+    scrim(
+        0f to Color.Transparent,
+        0.52f to Color.Transparent,
+        0.80f to HeroInk.copy(alpha = midInk),
+        1f to HeroInk.copy(alpha = topInk),
+    )
 
 /**
  * Page colour under the artwork — the poster's own colour, washed into the page.
@@ -82,17 +87,23 @@ fun heroTopScrim(topInk: Float = 0.45f, midInk: Float = 0.10f): Brush = scrim(
  * as bright as the standard page, and a dark one is pushed back towards the dark page
  * until it is as deep.
  */
-fun heroSurface(accent: Color, isDark: Boolean): Color = if (isDark) {
-    accent.copy(alpha = 0.34f)
-        .compositeOver(Color(0xFF0B111C))
-        .darkenedTo(DarkHeroSurfaceLuminance, Color(0xFF0B111C))
-        .chromaBoosted(DarkHeroSurfaceChroma)
-} else {
-    accent.copy(alpha = 0.34f)
-        .compositeOver(Color.White)
-        .lightenedTo(LightHeroSurfaceLuminance, Color.White)
-        .chromaBoosted(LightHeroSurfaceChroma)
-}
+fun heroSurface(
+    accent: Color,
+    isDark: Boolean,
+): Color =
+    if (isDark) {
+        accent
+            .copy(alpha = 0.34f)
+            .compositeOver(Color(0xFF0B111C))
+            .darkenedTo(DarkHeroSurfaceLuminance, Color(0xFF0B111C))
+            .chromaBoosted(DarkHeroSurfaceChroma)
+    } else {
+        accent
+            .copy(alpha = 0.34f)
+            .compositeOver(Color.White)
+            .lightenedTo(LightHeroSurfaceLuminance, Color.White)
+            .chromaBoosted(LightHeroSurfaceChroma)
+    }
 
 /** As bright as [LightPalette]'s own `background`, where its greys were measured. */
 private const val LightHeroSurfaceLuminance = 0.87f
@@ -111,7 +122,10 @@ private const val DarkHeroSurfaceLuminance = 0.032f
 private const val LightHeroSurfaceChroma = 2.6f
 private const val DarkHeroSurfaceChroma = 2.2f
 
-private fun Color.lightenedTo(minimum: Float, towards: Color): Color {
+private fun Color.lightenedTo(
+    minimum: Float,
+    towards: Color,
+): Color {
     var result = this
     repeat(10) {
         if (result.luminance() >= minimum) return result
@@ -120,7 +134,10 @@ private fun Color.lightenedTo(minimum: Float, towards: Color): Color {
     return result
 }
 
-private fun Color.darkenedTo(maximum: Float, towards: Color): Color {
+private fun Color.darkenedTo(
+    maximum: Float,
+    towards: Color,
+): Color {
     var result = this
     repeat(10) {
         if (result.luminance() <= maximum) return result
@@ -167,12 +184,49 @@ fun pageTint(accent: Color): Color {
  * the way to mid-hero, so the artwork is only ever visible in its top third. Reaching
  * 55% by 22% confines the blend to the strip the information sheet actually sits over.
  */
-fun heroScrim(surface: Color, bottomSurface: Color = surface): Brush = scrim(
-    0.03f to bottomSurface,
-    0.22f to surface.copy(alpha = 0.55f),
-    0.62f to HeroInk.copy(alpha = 0.12f),
-    1f to HeroInk.copy(alpha = 0.42f),
-)
+fun heroScrim(
+    surface: Color,
+    bottomSurface: Color = surface,
+): Brush =
+    scrim(
+        0.03f to bottomSurface,
+        0.22f to surface.copy(alpha = 0.55f),
+        0.62f to HeroInk.copy(alpha = 0.12f),
+        1f to HeroInk.copy(alpha = 0.42f),
+    )
+
+/**
+ * How a reel ends — 首页 and 媒体库's carousels, which dissolve into the page rather than
+ * hand over to a sheet.
+ *
+ * They used to borrow [heroScrim] from 影视详情页, and the two pages want opposite things
+ * from it. The detail hero has an information sheet lifted over its lower edge, so its
+ * wash is deliberately heavy and reaches 55% by 22% of the height — there is a card about
+ * to cover that strip. A carousel has nothing over it, so the same wash read as fog laid
+ * on the picture from mid-height down. Worse, it faded through *two* colours: the artwork's
+ * lightened [heroSurface] in the middle of the ramp and the page's own [pageTint] at the
+ * very bottom, which put a grey seam between the picture and the page it was supposedly
+ * melting into.
+ *
+ * One colour and one ramp, therefore. [page] is the ground the carousel is sitting on, so
+ * the last band is that colour exactly and the join is invisible by construction rather
+ * than by matching. The picture stays untouched for its top two thirds, thins out over the
+ * bottom third, and is fully page by the time the pagination dots sit in it.
+ */
+fun heroReelScrim(page: Color): Brush =
+    scrim(
+        0f to page,
+        // A solid hem. The dots live here, in page ink on page colour.
+        0.06f to page,
+        0.14f to page.copy(alpha = 0.82f),
+        0.22f to page.copy(alpha = 0.42f),
+        0.30f to page.copy(alpha = 0.12f),
+        // Clear of the artwork well before the caption's top line, so white copy is never
+        // asked to sit on a pale wash.
+        0.40f to Color.Transparent,
+        0.68f to HeroInk.copy(alpha = 0.10f),
+        1f to HeroInk.copy(alpha = 0.42f),
+    )
 
 /**
  * Blend band drawn behind the lifted sheet, over a fixed [height] of page.
@@ -188,16 +242,18 @@ fun heroPanelBrush(
     density: Density,
     height: Dp = 170.dp,
     start: Dp = 0.dp,
-): Brush = Brush.verticalGradient(
-    colorStops = arrayOf(
-        0f to Color.Transparent,
-        0.30f to surface.copy(alpha = 0.42f),
-        0.66f to surface.copy(alpha = 0.90f),
-        1f to surface,
-    ),
-    startY = with(density) { start.toPx() },
-    endY = with(density) { (start + height).toPx() },
-)
+): Brush =
+    Brush.verticalGradient(
+        colorStops =
+            arrayOf(
+                0f to Color.Transparent,
+                0.30f to surface.copy(alpha = 0.42f),
+                0.66f to surface.copy(alpha = 0.90f),
+                1f to surface,
+            ),
+        startY = with(density) { start.toPx() },
+        endY = with(density) { (start + height).toPx() },
+    )
 
 /**
  * How much of a carousel's lower edge is spent dissolving into the page.
@@ -234,35 +290,38 @@ val HeroCaptionClearance: Dp = HeroPageFade - 12.dp
  * Apply it to the artwork layer only. Anything that must stay legible — a caption, the
  * pagination — belongs outside this node, over the band rather than inside it.
  */
-fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier = this
-    // The mask is a subtractive blend, and it can only subtract from pixels that are in a
-    // layer of their own. Without this it would punch through the whole page beneath.
-    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-    .drawWithContent {
-        drawContent()
-        val fade = height.toPx().coerceAtMost(size.height)
-        if (fade <= 0f) return@drawWithContent
-        val top = size.height - fade
-        drawRect(
-            brush = Brush.verticalGradient(
-                colorStops = arrayOf(
-                    0f to Color.Transparent,
-                    // An S-curve rather than a ramp: slow to start, so the picture stays
-                    // itself for most of the band, and fully resolved before the last
-                    // pixel, so there is never a faint edge where the page begins.
-                    0.34f to Color.Black.copy(alpha = 0.16f),
-                    0.68f to Color.Black.copy(alpha = 0.68f),
-                    0.92f to Color.Black.copy(alpha = 0.98f),
-                    1f to Color.Black,
-                ),
-                startY = top,
-                endY = size.height,
-            ),
-            topLeft = Offset(0f, top),
-            size = Size(size.width, fade),
-            blendMode = BlendMode.DstOut,
-        )
-    }
+fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier =
+    this
+        // The mask is a subtractive blend, and it can only subtract from pixels that are in a
+        // layer of their own. Without this it would punch through the whole page beneath.
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val fade = height.toPx().coerceAtMost(size.height)
+            if (fade <= 0f) return@drawWithContent
+            val top = size.height - fade
+            drawRect(
+                brush =
+                    Brush.verticalGradient(
+                        colorStops =
+                            arrayOf(
+                                0f to Color.Transparent,
+                                // An S-curve rather than a ramp: slow to start, so the picture stays
+                                // itself for most of the band, and fully resolved before the last
+                                // pixel, so there is never a faint edge where the page begins.
+                                0.34f to Color.Black.copy(alpha = 0.16f),
+                                0.68f to Color.Black.copy(alpha = 0.68f),
+                                0.92f to Color.Black.copy(alpha = 0.98f),
+                                1f to Color.Black,
+                            ),
+                        startY = top,
+                        endY = size.height,
+                    ),
+                topLeft = Offset(0f, top),
+                size = Size(size.width, fade),
+                blendMode = BlendMode.DstOut,
+            )
+        }
 
 /**
  * Pulls content up over the lower edge of the hero by [lift].
@@ -271,13 +330,14 @@ fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier = this
  * measured height behind, so the lift reappears as dead page hanging off the end of the
  * list. This shrinks the slot instead.
  */
-fun Modifier.liftOverHero(lift: Dp): Modifier = layout { measurable, constraints ->
-    val liftPx = lift.roundToPx()
-    val placeable = measurable.measure(constraints)
-    layout(placeable.width, (placeable.height - liftPx).coerceAtLeast(0)) {
-        placeable.place(0, -liftPx)
+fun Modifier.liftOverHero(lift: Dp): Modifier =
+    layout { measurable, constraints ->
+        val liftPx = lift.roundToPx()
+        val placeable = measurable.measure(constraints)
+        layout(placeable.width, (placeable.height - liftPx).coerceAtLeast(0)) {
+            placeable.place(0, -liftPx)
+        }
     }
-}
 
 /**
  * True once the page — rather than the artwork — owns the top edge, which is what

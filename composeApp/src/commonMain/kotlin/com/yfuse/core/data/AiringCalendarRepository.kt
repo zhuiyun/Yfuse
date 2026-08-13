@@ -6,7 +6,6 @@ import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.LibraryStatus
-import com.yfuse.core.model.SavedServer
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.shiftIsoDate
 
@@ -43,10 +42,12 @@ class AiringCalendarRepository(
         val window = "$from..$to"
         // Schedule from cache when it was fetched today; status is always resolved fresh
         // below, because 未入库 → 可播放 is exactly what the user is watching for.
-        val episodes = scheduleCache.read(today, window)
-            ?: tmdb.airingCalendar(fromDate = from, toDate = to)
-                .onSuccess { scheduleCache.write(today, window, it) }
-                .getOrElse { return Result.failure(it) }
+        val episodes =
+            scheduleCache.read(today, window)
+                ?: tmdb
+                    .airingCalendar(fromDate = from, toDate = to)
+                    .onSuccess { scheduleCache.write(today, window, it) }
+                    .getOrElse { return Result.failure(it) }
         val entries = resolveStatus(episodes, today)
         return Result.success(
             entries
@@ -67,37 +68,39 @@ class AiringCalendarRepository(
         episodes: List<AiringEpisode>,
         today: String,
     ): List<CalendarEntry> {
-        fun unresolved(status: (AiringEpisode) -> LibraryStatus) =
-            episodes.map { CalendarEntry(it, status(it)) }
+        fun unresolved(status: (AiringEpisode) -> LibraryStatus) = episodes.map { CalendarEntry(it, status(it)) }
 
-        val server = registry.defaultServer
-            ?: return unresolved { if (it.airDate > today) LibraryStatus.Unaired else LibraryStatus.Unknown }
+        val server =
+            registry.defaultServer
+                ?: return unresolved { if (it.airDate > today) LibraryStatus.Unaired else LibraryStatus.Unknown }
 
-        val index = emby.seriesProviderIndex(server).getOrElse { error ->
-            AppLog.warning(
-                category = "feature.calendar",
-                event = "series_index_failed",
-                message = "Library series index could not be read; calendar shows broadcasts only",
-                throwable = error,
-            )
-            return unresolved { if (it.airDate > today) LibraryStatus.Unaired else LibraryStatus.Unknown }
-        }
+        val index =
+            emby.seriesProviderIndex(server).getOrElse { error ->
+                AppLog.warning(
+                    category = "feature.calendar",
+                    event = "series_index_failed",
+                    message = "Library series index could not be read; calendar shows broadcasts only",
+                    throwable = error,
+                )
+                return unresolved { if (it.airDate > today) LibraryStatus.Unaired else LibraryStatus.Unknown }
+            }
         // Films are indexed separately and carry their own watched flag: a film *is* the
         // row, so there is no episode below it to read 已看 from. A failure here costs the
         // film rows their status and leaves the episode rows alone.
-        val filmIndex = if (episodes.none { it.isMovie }) {
-            emptyMap()
-        } else {
-            emby.movieProviderIndex(server).getOrElse { error ->
-                AppLog.warning(
-                    category = "feature.calendar",
-                    event = "movie_index_failed",
-                    message = "Library movie index could not be read; films show release dates only",
-                    throwable = error,
-                )
+        val filmIndex =
+            if (episodes.none { it.isMovie }) {
                 emptyMap()
+            } else {
+                emby.movieProviderIndex(server).getOrElse { error ->
+                    AppLog.warning(
+                        category = "feature.calendar",
+                        event = "movie_index_failed",
+                        message = "Library movie index could not be read; films show release dates only",
+                        throwable = error,
+                    )
+                    emptyMap()
+                }
             }
-        }
 
         // Episode lists are fetched once per series, not once per broadcast: a show
         // contributes its last and next episode, which are usually the same season.
@@ -107,12 +110,13 @@ class AiringCalendarRepository(
                 val hit = filmIndex["tmdb:${episode.showTmdbId}"]
                 return@map CalendarEntry(
                     episode = episode,
-                    status = when {
-                        hit != null && hit.played -> LibraryStatus.Watched
-                        hit != null -> LibraryStatus.Available
-                        episode.airDate > today -> LibraryStatus.Unaired
-                        else -> LibraryStatus.Missing
-                    },
+                    status =
+                        when {
+                            hit != null && hit.played -> LibraryStatus.Watched
+                            hit != null -> LibraryStatus.Available
+                            episode.airDate > today -> LibraryStatus.Unaired
+                            else -> LibraryStatus.Missing
+                        },
                     itemId = hit?.itemId,
                     serverId = server.id,
                     // A film is its own entry; there is no series above it to fall back to,
@@ -128,22 +132,24 @@ class AiringCalendarRepository(
                     status = classifyAiring(match = null, airDate = episode.airDate, today = today),
                 )
             }
-            val known = episodesBySeries.getOrPut(seriesId) {
-                emby.episodes(server, seriesId, seasonId = null).getOrElse { error ->
-                    AppLog.warning(
-                        category = "feature.calendar",
-                        event = "series_episodes_failed",
-                        message = "Episode list failed for a series on the calendar",
-                        throwable = error,
-                        attributes = mapOf("seriesId" to seriesId),
-                    )
-                    emptyList()
+            val known =
+                episodesBySeries.getOrPut(seriesId) {
+                    emby.episodes(server, seriesId, seasonId = null).getOrElse { error ->
+                        AppLog.warning(
+                            category = "feature.calendar",
+                            event = "series_episodes_failed",
+                            message = "Episode list failed for a series on the calendar",
+                            throwable = error,
+                            attributes = mapOf("seriesId" to seriesId),
+                        )
+                        emptyList()
+                    }
                 }
-            }
-            val match = known.firstOrNull {
-                it.indexNumber == episode.episodeNumber &&
-                    (it.seasonNumber ?: 1) == episode.seasonNumber
-            }
+            val match =
+                known.firstOrNull {
+                    it.indexNumber == episode.episodeNumber &&
+                        (it.seasonNumber ?: 1) == episode.seasonNumber
+                }
             CalendarEntry(
                 episode = episode,
                 status = classifyAiring(match, episode.airDate, today),
@@ -165,12 +171,17 @@ class AiringCalendarRepository(
  * [LibraryStatus.Missing]. After it, the same absence is exactly the thing the calendar
  * exists to point at.
  */
-internal fun classifyAiring(match: Episode?, airDate: String, today: String): LibraryStatus = when {
-    match != null && match.played -> LibraryStatus.Watched
-    match != null -> LibraryStatus.Available
-    airDate > today -> LibraryStatus.Unaired
-    else -> LibraryStatus.Missing
-}
+internal fun classifyAiring(
+    match: Episode?,
+    airDate: String,
+    today: String,
+): LibraryStatus =
+    when {
+        match != null && match.played -> LibraryStatus.Watched
+        match != null -> LibraryStatus.Available
+        airDate > today -> LibraryStatus.Unaired
+        else -> LibraryStatus.Missing
+    }
 
 /** True when the day is the one the user is standing on, which the list marks 今天. */
 fun CalendarDay.isToday(today: String = currentIsoDate()): Boolean = date == today

@@ -5,8 +5,8 @@ import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackOutboxEventKind
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
@@ -22,9 +22,26 @@ private const val NEXT_SOURCE_PRELOAD_WINDOW_MS = 90_000L
 private const val MAX_PENDING_REPORT_COMMANDS = 8
 
 internal interface PlaybackEventSink {
-    suspend fun started(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean)
-    suspend fun progress(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean)
-    suspend fun stopped(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean)
+    suspend fun started(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    )
+
+    suspend fun progress(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    )
+
+    suspend fun stopped(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    )
 
     suspend fun startedWithMethod(
         itemId: String,
@@ -58,15 +75,30 @@ internal class EmbyPlaybackEventSink(
     private val repo: EmbyRepository,
     private val server: SavedServer,
 ) : PlaybackEventSink {
-    override suspend fun started(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean) {
+    override suspend fun started(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ) {
         repo.reportPlaybackStarted(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
     }
 
-    override suspend fun progress(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean) {
+    override suspend fun progress(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ) {
         repo.reportPlaybackProgress(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
     }
 
-    override suspend fun stopped(itemId: String, sessionId: String, positionTicks: Long, isPaused: Boolean) {
+    override suspend fun stopped(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ) {
         repo.reportPlaybackStopped(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
         // Belt and braces. `Playing/Stopped` is the polite request; some server versions
         // leave the ffmpeg process running anyway, and an orphaned encoding is what makes
@@ -81,14 +113,15 @@ internal class EmbyPlaybackEventSink(
         isPaused: Boolean,
         playMethod: String,
     ) {
-        repo.reportPlaybackStarted(
-            server,
-            itemId,
-            sessionId,
-            positionTicks,
-            isPaused,
-            playMethod,
-        ).getOrThrow()
+        repo
+            .reportPlaybackStarted(
+                server,
+                itemId,
+                sessionId,
+                positionTicks,
+                isPaused,
+                playMethod,
+            ).getOrThrow()
     }
 
     override suspend fun progressWithMethod(
@@ -98,14 +131,15 @@ internal class EmbyPlaybackEventSink(
         isPaused: Boolean,
         playMethod: String,
     ) {
-        repo.reportPlaybackProgress(
-            server,
-            itemId,
-            sessionId,
-            positionTicks,
-            isPaused,
-            playMethod,
-        ).getOrThrow()
+        repo
+            .reportPlaybackProgress(
+                server,
+                itemId,
+                sessionId,
+                positionTicks,
+                isPaused,
+                playMethod,
+            ).getOrThrow()
     }
 
     override suspend fun stoppedWithMethod(
@@ -115,19 +149,19 @@ internal class EmbyPlaybackEventSink(
         isPaused: Boolean,
         playMethod: String,
     ) {
-        repo.reportPlaybackStopped(
-            server,
-            itemId,
-            sessionId,
-            positionTicks,
-            isPaused,
-            playMethod,
-        ).getOrThrow()
+        repo
+            .reportPlaybackStopped(
+                server,
+                itemId,
+                sessionId,
+                positionTicks,
+                isPaused,
+                playMethod,
+            ).getOrThrow()
         stopEncoding(sessionId)
     }
 
-    override suspend fun stopEncoding(sessionId: String): Boolean =
-        repo.stopTranscoding(server, sessionId).isSuccess
+    override suspend fun stopEncoding(sessionId: String): Boolean = repo.stopTranscoding(server, sessionId).isSuccess
 }
 
 /**
@@ -227,8 +261,7 @@ internal class ReliablePlaybackEventSink(
         playMethod,
     )
 
-    override suspend fun stopEncoding(sessionId: String): Boolean =
-        directSink.stopEncoding(sessionId)
+    override suspend fun stopEncoding(sessionId: String): Boolean = directSink.stopEncoding(sessionId)
 
     private fun submit(
         kind: PlaybackOutboxEventKind,
@@ -238,24 +271,26 @@ internal class ReliablePlaybackEventSink(
         isPaused: Boolean,
         playMethod: String,
     ) {
-        val accepted = outbox.enqueue(
-            kind = kind,
-            serverId = serverId,
-            itemId = itemId,
-            sessionId = sessionId,
-            positionTicks = positionTicks,
-            isPaused = isPaused,
-            playMethod = playMethod,
-        )
+        val accepted =
+            outbox.enqueue(
+                kind = kind,
+                serverId = serverId,
+                itemId = itemId,
+                sessionId = sessionId,
+                positionTicks = positionTicks,
+                isPaused = isPaused,
+                playMethod = playMethod,
+            )
         if (accepted == null) {
             AppLog.error(
                 category = "playback.outbox",
                 event = "event_rejected",
                 message = "Playback report could not be queued",
-                attributes = mapOf(
-                    "serverId" to serverId,
-                    "kind" to kind.name,
-                ),
+                attributes =
+                    mapOf(
+                        "serverId" to serverId,
+                        "kind" to kind.name,
+                    ),
             )
             return
         }
@@ -272,14 +307,24 @@ internal class PlaybackProgressReporter(
     items: List<PlayerMediaItem>,
     private val sink: PlaybackEventSink,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-    private val sourcePreloader: PlaybackSourcePreloader? = runCatching {
-        GlobalContext.get().get<PlaybackSourcePreloader>()
-    }.getOrNull(),
+    private val sourcePreloader: PlaybackSourcePreloader? =
+        runCatching {
+            GlobalContext.get().get<PlaybackSourcePreloader>()
+        }.getOrNull(),
 ) {
     private sealed interface Command {
-        data class Update(val state: PlaybackState) : Command
-        data class Rebind(val items: List<PlayerMediaItem>, val state: PlaybackState) : Command
-        data class Close(val state: PlaybackState) : Command
+        data class Update(
+            val state: PlaybackState,
+        ) : Command
+
+        data class Rebind(
+            val items: List<PlayerMediaItem>,
+            val state: PlaybackState,
+        ) : Command
+
+        data class Close(
+            val state: PlaybackState,
+        ) : Command
     }
 
     private var items = items
@@ -287,6 +332,7 @@ internal class PlaybackProgressReporter(
     private val commandLock = Any()
     private val pendingCommands = ArrayDeque<Command>()
     private val commandWakeups = Channel<Unit>(Channel.CONFLATED)
+
     @Volatile
     private var closed = false
     private var observedIndex = -1
@@ -296,8 +342,10 @@ internal class PlaybackProgressReporter(
     private val preloadedSources = mutableSetOf<String>()
 
     private var activeIndex = -1
+
     /** Stable identity of the reported entry; unlike [activeIndex], it survives queue reorders. */
     private var activeItemId = ""
+
     /** Session id stored on the item; may be blank even though [activeSessionId] is generated. */
     private var activeBindingSessionId = ""
     private var activeSessionId = ""
@@ -311,23 +359,25 @@ internal class PlaybackProgressReporter(
         scope.launch {
             for (ignored in commandWakeups) {
                 while (true) {
-                    val command = synchronized(commandLock) {
-                        pendingCommands.removeFirstOrNull()
-                    } ?: break
+                    val command =
+                        synchronized(commandLock) {
+                            pendingCommands.removeFirstOrNull()
+                        } ?: break
                     val closeAfterCommand = command is Command.Close
                     try {
                         when (command) {
                             is Command.Update -> handleUpdate(command.state)
                             is Command.Rebind -> handleRebind(command.items, command.state)
-                            is Command.Close -> try {
-                                if (activeIndex >= 0 || !command.state.ended) {
-                                    handleUpdate(command.state)
+                            is Command.Close ->
+                                try {
+                                    if (activeIndex >= 0 || !command.state.ended) {
+                                        handleUpdate(command.state)
+                                    }
+                                } finally {
+                                    // Even a throwing sink must not prevent the terminal report from
+                                    // being attempted or leave the actor's active binding uncleared.
+                                    stopActive()
                                 }
-                            } finally {
-                                // Even a throwing sink must not prevent the terminal report from
-                                // being attempted or leave the actor's active binding uncleared.
-                                stopActive()
-                            }
                         }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -337,13 +387,15 @@ internal class PlaybackProgressReporter(
                             event = "command_failed",
                             message = "Playback reporting command failed; actor will continue",
                             throwable = error,
-                            attributes = mapOf(
-                                "command" to when (command) {
-                                    is Command.Update -> "update"
-                                    is Command.Rebind -> "rebind"
-                                    is Command.Close -> "close"
-                                },
-                            ),
+                            attributes =
+                                mapOf(
+                                    "command" to
+                                        when (command) {
+                                            is Command.Update -> "update"
+                                            is Command.Rebind -> "rebind"
+                                            is Command.Close -> "close"
+                                        },
+                                ),
                         )
                     }
                     if (closeAfterCommand) {
@@ -362,8 +414,9 @@ internal class PlaybackProgressReporter(
         val itemChanged = state.currentIndex != observedIndex
         val playStateChanged = state.playing != observedPlaying
         val seeked = abs(state.positionMs - observedPositionMs) >= SEEK_THRESHOLD_MS
-        val periodic = enqueuedPositionMs == Long.MIN_VALUE ||
-            abs(state.positionMs - enqueuedPositionMs) >= REPORT_INTERVAL_MS
+        val periodic =
+            enqueuedPositionMs == Long.MIN_VALUE ||
+                abs(state.positionMs - enqueuedPositionMs) >= REPORT_INTERVAL_MS
 
         observedIndex = state.currentIndex
         observedPlaying = state.playing
@@ -398,7 +451,10 @@ internal class PlaybackProgressReporter(
      * grows [items], because the active `(item, session)` pair did not change and stopping
      * it would kill the healthy transcode ExoPlayer is still consuming.
      */
-    fun rebind(items: List<PlayerMediaItem>, state: PlaybackState) {
+    fun rebind(
+        items: List<PlayerMediaItem>,
+        state: PlaybackState,
+    ) {
         if (closed || items.isEmpty()) return
         val binding = items.reportingBinding()
         if (binding == observedBinding) return
@@ -421,43 +477,44 @@ internal class PlaybackProgressReporter(
      * stale progress, and becomes the next command after any request already in flight.
      */
     private fun enqueue(command: Command) {
-        val accepted = synchronized(commandLock) {
-            when (command) {
-                is Command.Update -> {
-                    if (pendingCommands.lastOrNull() is Command.Update) {
-                        pendingCommands.removeLast()
-                        pendingCommands.addLast(command)
-                        true
-                    } else if (pendingCommands.size < MAX_PENDING_REPORT_COMMANDS) {
-                        pendingCommands.addLast(command)
-                        true
-                    } else {
-                        val staleUpdate = pendingCommands.indexOfFirst { it is Command.Update }
-                        if (staleUpdate < 0) {
-                            false
-                        } else {
-                            pendingCommands.removeAt(staleUpdate)
+        val accepted =
+            synchronized(commandLock) {
+                when (command) {
+                    is Command.Update -> {
+                        if (pendingCommands.lastOrNull() is Command.Update) {
+                            pendingCommands.removeLast()
                             pendingCommands.addLast(command)
                             true
+                        } else if (pendingCommands.size < MAX_PENDING_REPORT_COMMANDS) {
+                            pendingCommands.addLast(command)
+                            true
+                        } else {
+                            val staleUpdate = pendingCommands.indexOfFirst { it is Command.Update }
+                            if (staleUpdate < 0) {
+                                false
+                            } else {
+                                pendingCommands.removeAt(staleUpdate)
+                                pendingCommands.addLast(command)
+                                true
+                            }
                         }
                     }
-                }
 
-                is Command.Rebind -> {
-                    pendingCommands.removeAll { it is Command.Update || it is Command.Rebind }
-                    pendingCommands.addLast(command)
-                    true
-                }
+                    is Command.Rebind -> {
+                        pendingCommands.removeAll { it is Command.Update || it is Command.Rebind }
+                        pendingCommands.addLast(command)
+                        true
+                    }
 
-                is Command.Close -> {
-                    val latestRebind = pendingCommands.lastOrNull { it is Command.Rebind }
-                    pendingCommands.clear()
-                    latestRebind?.let(pendingCommands::addLast)
-                    pendingCommands.addLast(command)
-                    true
+                    is Command.Close -> {
+                        val latestRebind = pendingCommands.lastOrNull { it is Command.Rebind }
+                        pendingCommands.clear()
+                        latestRebind?.let(pendingCommands::addLast)
+                        pendingCommands.addLast(command)
+                        true
+                    }
                 }
             }
-        }
         if (accepted) commandWakeups.trySend(Unit)
     }
 
@@ -505,8 +562,9 @@ internal class PlaybackProgressReporter(
         val paused = !state.playing
         activePlayMethod = state.playMethodFor(items[index])
         val pauseChanged = paused != activePaused
-        val positionDue = reportedPositionMs == Long.MIN_VALUE ||
-            abs(state.positionMs - reportedPositionMs) >= REPORT_INTERVAL_MS
+        val positionDue =
+            reportedPositionMs == Long.MIN_VALUE ||
+                abs(state.positionMs - reportedPositionMs) >= REPORT_INTERVAL_MS
         if (pauseChanged || positionDue || seeked) {
             activePaused = paused
             reportedPositionMs = state.positionMs
@@ -521,21 +579,27 @@ internal class PlaybackProgressReporter(
         }
     }
 
-    private suspend fun handleRebind(newItems: List<PlayerMediaItem>, state: PlaybackState) {
+    private suspend fun handleRebind(
+        newItems: List<PlayerMediaItem>,
+        state: PlaybackState,
+    ) {
         val oldItems = items
         val oldActive = oldItems.getOrNull(activeIndex)
         val oldActiveId = activeItemId.ifBlank { oldActive?.id.orEmpty() }
-        val oldStateItem = if (oldItems.isEmpty()) {
-            null
-        } else {
-            oldItems[state.currentIndex.coerceIn(0, oldItems.lastIndex)]
-        }
-        val stateStillNamesOldActive = oldStateItem?.let { item ->
-            item.id == oldActiveId && item.playSessionId == activeBindingSessionId
-        } == true
-        val retainedIndex = newItems.indexOfFirst { item ->
-            item.id == oldActiveId && item.playSessionId == activeBindingSessionId
-        }
+        val oldStateItem =
+            if (oldItems.isEmpty()) {
+                null
+            } else {
+                oldItems[state.currentIndex.coerceIn(0, oldItems.lastIndex)]
+            }
+        val stateStillNamesOldActive =
+            oldStateItem?.let { item ->
+                item.id == oldActiveId && item.playSessionId == activeBindingSessionId
+            } == true
+        val retainedIndex =
+            newItems.indexOfFirst { item ->
+                item.id == oldActiveId && item.playSessionId == activeBindingSessionId
+            }
 
         // Queue refresh reports the old engine's numeric index until its deliberate rebuild.
         // Follow the active (item, session) pair to its new index instead of interpreting that
@@ -548,8 +612,9 @@ internal class PlaybackProgressReporter(
 
         val newIndex = state.currentIndex.coerceIn(0, newItems.lastIndex)
         val newActive = newItems.getOrNull(newIndex)
-        val activeChanged = oldActiveId != newActive?.id ||
-            activeBindingSessionId != newActive?.playSessionId
+        val activeChanged =
+            oldActiveId != newActive?.id ||
+                activeBindingSessionId != newActive?.playSessionId
         if (activeChanged) stopActive()
         items = newItems
         if (activeChanged) {
@@ -604,8 +669,7 @@ internal class PlaybackProgressReporter(
         coerceAtLeast(0L).coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND
 }
 
-private fun List<PlayerMediaItem>.reportingBinding(): List<Pair<String, String>> =
-    map { it.id to it.playSessionId }
+private fun List<PlayerMediaItem>.reportingBinding(): List<Pair<String, String>> = map { it.id to it.playSessionId }
 
 private fun PlaybackState.playMethodFor(item: PlayerMediaItem): String =
     if (transcoding) "Transcode" else item.playMethod.embyValue

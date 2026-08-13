@@ -47,13 +47,14 @@ object AppShapes {
      * Its standard contours therefore mirror the exact semantic radii above, while custom
      * Yfuse surfaces keep using the continuous-corner originals directly.
      */
-    val material = Shapes(
-        extraSmall = RoundedCornerShape(micro.radius),
-        small = RoundedCornerShape(thumb.radius),
-        medium = RoundedCornerShape(control.radius),
-        large = RoundedCornerShape(card.radius),
-        extraLarge = RoundedCornerShape(sheet.radius),
-    )
+    val material =
+        Shapes(
+            extraSmall = RoundedCornerShape(micro.radius),
+            small = RoundedCornerShape(thumb.radius),
+            medium = RoundedCornerShape(control.radius),
+            large = RoundedCornerShape(card.radius),
+            extraLarge = RoundedCornerShape(sheet.radius),
+        )
 }
 
 /**
@@ -77,40 +78,50 @@ object GlassShapes {
 }
 
 /** Resolves a translucent semantic fill to the opaque colour it has over [background]. */
-internal fun opaqueComposite(fill: Color, background: Color): Color =
-    fill.compositeOver(background).copy(alpha = 1f)
+internal fun opaqueComposite(
+    fill: Color,
+    background: Color,
+): Color = fill.compositeOver(background).copy(alpha = 1f)
 
 /** Opaque semantic counterparts used when the user requests reduced transparency. */
 private fun reducedTransparencyFill(
     fill: Color,
     palette: Palette,
     over: Color = palette.background,
-): Color = when (fill) {
-    palette.card -> if (palette.isDark) Color(0xFF1A2437) else Color(0xFFF6F8FC)
-    palette.card2 -> if (palette.isDark) Color(0xFF151F31) else Color(0xFFEEF2F7)
-    palette.card3 -> if (palette.isDark) Color(0xFF202D43) else Color(0xFFF3F6FA)
-    palette.sheet -> if (palette.isDark) Color(0xFF131D2D) else Color(0xFFF4F7FB)
-    palette.glass -> if (palette.isDark) Color(0xFF172235) else Color(0xFFEDF2F8)
-    palette.glassStrong -> if (palette.isDark) Color(0xFF1B273B) else Color(0xFFE8EEF7)
-    else -> {
-        // White translucent controls carry white glyphs over artwork. A solid white plate
-        // would erase them, so use a dark opaque control surface in both themes.
-        val translucentWhite = fill.alpha < 0.55f &&
-            fill.red > 0.90f && fill.green > 0.90f && fill.blue > 0.90f
-        if (translucentWhite) {
-            if (palette.isDark) Color(0xFF273246) else Color(0xFF303A4D)
-        } else {
-            opaqueComposite(fill, opaqueComposite(over, palette.background))
+): Color =
+    when (fill) {
+        palette.card -> if (palette.isDark) Color(0xFF1A2437) else Color(0xFFF6F8FC)
+        palette.card2 -> if (palette.isDark) Color(0xFF151F31) else Color(0xFFEEF2F7)
+        palette.card3 -> if (palette.isDark) Color(0xFF202D43) else Color(0xFFF3F6FA)
+        palette.sheet -> if (palette.isDark) Color(0xFF131D2D) else Color(0xFFF4F7FB)
+        palette.glass -> if (palette.isDark) Color(0xFF172235) else Color(0xFFEDF2F8)
+        palette.glassStrong -> if (palette.isDark) Color(0xFF1B273B) else Color(0xFFE8EEF7)
+        else -> {
+            // White translucent controls carry white glyphs over artwork. A solid white plate
+            // would erase them, so use a dark opaque control surface in both themes.
+            val translucentWhite =
+                fill.alpha < 0.55f &&
+                    fill.red > 0.90f &&
+                    fill.green > 0.90f &&
+                    fill.blue > 0.90f
+            if (translucentWhite) {
+                if (palette.isDark) Color(0xFF273246) else Color(0xFF303A4D)
+            } else {
+                opaqueComposite(fill, opaqueComposite(over, palette.background))
+            }
         }
     }
-}
 
-private fun reducedTransparencyBorder(border: Color?, palette: Palette): Color? = when {
-    border == null -> null
-    border == palette.border || border == palette.tabbarBorder ->
-        if (palette.isDark) Color.White.copy(alpha = 0.24f) else Color(0xFFD3DBE7)
-    else -> border
-}
+private fun reducedTransparencyBorder(
+    border: Color?,
+    palette: Palette,
+): Color? =
+    when {
+        border == null -> null
+        border == palette.border || border == palette.tabbarBorder ->
+            if (palette.isDark) Color.White.copy(alpha = 0.24f) else Color(0xFFD3DBE7)
+        else -> border
+    }
 
 /**
  * A visibly diffused pane for 毛玻璃.
@@ -120,7 +131,10 @@ private fun reducedTransparencyBorder(border: Color?, palette: Palette): Color? 
  * colour but adds a restrained mist and a little more body; liquid glass keeps the clearer
  * pane and directional reflection. Reduced transparency still wins before this is consulted.
  */
-private fun frostedSurfaceFill(fill: Color, palette: Palette): Color {
+private fun frostedSurfaceFill(
+    fill: Color,
+    palette: Palette,
+): Color {
     val composited = fill.compositeOver(palette.background)
     val pale = composited.luminance() >= 0.48f
     val mist = if (pale) Color.White else Color(0xFF182235)
@@ -143,36 +157,40 @@ fun Modifier.glass(
 ): Modifier {
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
-    val resolvedFill = if (accessibility.reduceTransparency) {
-        reducedTransparencyFill(fill, palette)
-    } else {
-        fill
-    }
-    val resolvedBorder = if (accessibility.reduceTransparency) {
-        reducedTransparencyBorder(border, palette)
-    } else {
-        border
-    }
-    val sheen = if (palette.isDark) {
-        Color.White.copy(alpha = 0.13f)
-    } else {
-        Color.White.copy(alpha = 0.58f)
-    }
-    val surface = when {
-        accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
-        frostedGlass() -> {
-            val frost = frostedSurfaceFill(resolvedFill, palette)
-            Brush.linearGradient(listOf(frost, frost))
+    val resolvedFill =
+        if (accessibility.reduceTransparency) {
+            reducedTransparencyFill(fill, palette)
+        } else {
+            fill
         }
-        else ->
-        cssLinearGradient(
-            145f,
-            0f to sheen,
-            0.26f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f)),
-            0.72f to resolvedFill,
-            1f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.78f).coerceIn(0f, 1f)),
-        )
-    }
+    val resolvedBorder =
+        if (accessibility.reduceTransparency) {
+            reducedTransparencyBorder(border, palette)
+        } else {
+            border
+        }
+    val sheen =
+        if (palette.isDark) {
+            Color.White.copy(alpha = 0.13f)
+        } else {
+            Color.White.copy(alpha = 0.58f)
+        }
+    val surface =
+        when {
+            accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
+            frostedGlass() -> {
+                val frost = frostedSurfaceFill(resolvedFill, palette)
+                Brush.linearGradient(listOf(frost, frost))
+            }
+            else ->
+                cssLinearGradient(
+                    145f,
+                    0f to sheen,
+                    0.26f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f)),
+                    0.72f to resolvedFill,
+                    1f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.78f).coerceIn(0f, 1f)),
+                )
+        }
     return this
         .clip(shape)
         .background(surface)
@@ -199,35 +217,40 @@ fun Modifier.flatGlass(
 ): Modifier {
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
-    val resolvedFill = if (accessibility.reduceTransparency) {
-        reducedTransparencyFill(fill, palette)
-    } else {
-        fill
-    }
-    val resolvedBorder = if (accessibility.reduceTransparency) {
-        reducedTransparencyBorder(border, palette)
-    } else {
-        border
-    }
-    val surface = when {
-        accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
-        frostedGlass() -> {
-            val frost = frostedSurfaceFill(resolvedFill, palette)
-            Brush.linearGradient(listOf(frost, frost))
+    val resolvedFill =
+        if (accessibility.reduceTransparency) {
+            reducedTransparencyFill(fill, palette)
+        } else {
+            fill
         }
-        else ->
-        cssLinearGradient(
-            145f,
-            0f to Color.White.copy(alpha = if (palette.isDark) 0.13f else 0.58f),
-            0.26f to resolvedFill.copy(
-                alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f),
-            ),
-            0.72f to resolvedFill,
-            1f to resolvedFill.copy(
-                alpha = (resolvedFill.alpha * 0.80f).coerceIn(0f, 1f),
-            ),
-        )
-    }
+    val resolvedBorder =
+        if (accessibility.reduceTransparency) {
+            reducedTransparencyBorder(border, palette)
+        } else {
+            border
+        }
+    val surface =
+        when {
+            accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
+            frostedGlass() -> {
+                val frost = frostedSurfaceFill(resolvedFill, palette)
+                Brush.linearGradient(listOf(frost, frost))
+            }
+            else ->
+                cssLinearGradient(
+                    145f,
+                    0f to Color.White.copy(alpha = if (palette.isDark) 0.13f else 0.58f),
+                    0.26f to
+                        resolvedFill.copy(
+                            alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f),
+                        ),
+                    0.72f to resolvedFill,
+                    1f to
+                        resolvedFill.copy(
+                            alpha = (resolvedFill.alpha * 0.80f).coerceIn(0f, 1f),
+                        ),
+                )
+        }
     return this
         .clip(shape)
         .background(surface)
@@ -255,31 +278,34 @@ fun Modifier.solidGlass(
 ): Modifier {
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
-    val resolvedFill = if (accessibility.reduceTransparency) {
-        reducedTransparencyFill(fill, palette)
-    } else {
-        fill
-    }
-    val resolvedBorder = if (accessibility.reduceTransparency) {
-        reducedTransparencyBorder(border, palette)
-    } else {
-        border
-    }
-    val surface = when {
-        accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
-        frostedGlass() -> {
-            val frost = frostedSurfaceFill(resolvedFill, palette)
-            Brush.linearGradient(listOf(frost, frost))
+    val resolvedFill =
+        if (accessibility.reduceTransparency) {
+            reducedTransparencyFill(fill, palette)
+        } else {
+            fill
         }
-        else ->
-        cssLinearGradient(
-            145f,
-            0f to Color.White.copy(alpha = if (palette.isDark) 0.16f else 0.72f),
-            0.30f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f)),
-            0.72f to resolvedFill,
-            1f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.80f).coerceIn(0f, 1f)),
-        )
-    }
+    val resolvedBorder =
+        if (accessibility.reduceTransparency) {
+            reducedTransparencyBorder(border, palette)
+        } else {
+            border
+        }
+    val surface =
+        when {
+            accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
+            frostedGlass() -> {
+                val frost = frostedSurfaceFill(resolvedFill, palette)
+                Brush.linearGradient(listOf(frost, frost))
+            }
+            else ->
+                cssLinearGradient(
+                    145f,
+                    0f to Color.White.copy(alpha = if (palette.isDark) 0.16f else 0.72f),
+                    0.30f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f)),
+                    0.72f to resolvedFill,
+                    1f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.80f).coerceIn(0f, 1f)),
+                )
+        }
     return this
         .clip(shape)
         .background(surface)
@@ -344,20 +370,24 @@ fun Modifier.liquidGlass(
     // one, so that is what the ramps are keyed off.
     val pale = fill.compositeOver(over).luminance() > 0.42f
     val depth = if (pale) Color(0xFF8CA1C1) else Color(0xFF04070E)
-    val body = Brush.verticalGradient(
-        0f to lerp(fill, Color.White, if (pale) 0.38f else 0.16f)
-            .copy(alpha = (fill.alpha * 1.18f).coerceAtMost(1f)),
-        0.50f to fill,
-        1f to lerp(fill, depth, if (pale) 0.16f else 0.30f)
-            .copy(alpha = (fill.alpha * 0.96f).coerceAtMost(1f)),
-    )
-    val gloss = cssLinearGradient(
-        145f,
-        0f to Color.White.copy(alpha = (if (pale) 0.58f else 0.28f) * sheen),
-        0.20f to Color.White.copy(alpha = (if (pale) 0.14f else 0.06f) * sheen),
-        0.52f to Color.Transparent,
-        1f to Color.White.copy(alpha = (if (pale) 0.20f else 0.10f) * sheen),
-    )
+    val body =
+        Brush.verticalGradient(
+            0f to
+                lerp(fill, Color.White, if (pale) 0.38f else 0.16f)
+                    .copy(alpha = (fill.alpha * 1.18f).coerceAtMost(1f)),
+            0.50f to fill,
+            1f to
+                lerp(fill, depth, if (pale) 0.16f else 0.30f)
+                    .copy(alpha = (fill.alpha * 0.96f).coerceAtMost(1f)),
+        )
+    val gloss =
+        cssLinearGradient(
+            145f,
+            0f to Color.White.copy(alpha = (if (pale) 0.58f else 0.28f) * sheen),
+            0.20f to Color.White.copy(alpha = (if (pale) 0.14f else 0.06f) * sheen),
+            0.52f to Color.Transparent,
+            1f to Color.White.copy(alpha = (if (pale) 0.20f else 0.10f) * sheen),
+        )
     return this
         .clip(shape)
         .drawWithCache {
@@ -411,23 +441,23 @@ fun Modifier.overlayGlass(
     shape: Shape = GlassShapes.sheet,
     fill: Color = LocalPalette.current.glass,
     border: Color? = LocalPalette.current.border,
-): Modifier {
-    return glass(
+): Modifier =
+    glass(
         shape = shape,
         fill = fill,
         border = border,
     )
-}
 
 /** Same, for surfaces whose fill is a gradient (hero cards, artwork tiles). */
 fun Modifier.glass(
     shape: Shape,
     fill: Brush,
     border: Color? = null,
-): Modifier = this
-    .clip(shape)
-    .background(fill)
-    .let { if (border != null) it.border(Dimens.hairline, border, shape) else it }
+): Modifier =
+    this
+        .clip(shape)
+        .background(fill)
+        .let { if (border != null) it.border(Dimens.hairline, border, shape) else it }
 
 /**
  * Content-layer liquid glass card.
@@ -452,42 +482,47 @@ fun GlassCard(
 @ReadOnlyComposable
 fun appBackdropBrushes(): List<Brush> {
     val palette = LocalPalette.current
-    val base = if (palette.isDark) {
-        cssLinearGradient(
-            155f,
-            0f to Color(0xFF101D35),
-            0.46f to palette.background,
-            1f to Color(0xFF170F2A),
-        )
-    } else {
-        cssLinearGradient(
-            155f,
-            0f to Color(0xFFE7EFFB),
-            0.42f to palette.background,
-            0.72f to Color(0xFFF3EFF9),
-            1f to Color(0xFFEDF7F5),
-        )
-    }
-    val upperGlow = cssRadialGradient(
-        centerX = 0.15f,
-        centerY = 0.08f,
-        endStop = 0.72f,
-        inner = if (palette.isDark) {
-            Brand.PrimaryGradBottom.copy(alpha = 0.24f)
+    val base =
+        if (palette.isDark) {
+            cssLinearGradient(
+                155f,
+                0f to Color(0xFF101D35),
+                0.46f to palette.background,
+                1f to Color(0xFF170F2A),
+            )
         } else {
-            Color.White.copy(alpha = 0.76f)
-        },
-    )
-    val lowerGlow = cssRadialGradient(
-        centerX = 0.92f,
-        centerY = 0.76f,
-        endStop = 0.68f,
-        inner = if (palette.isDark) {
-            Color(0xFF704FBE).copy(alpha = 0.18f)
-        } else {
-            Color(0xFF9B7DE0).copy(alpha = 0.18f)
-        },
-    )
+            cssLinearGradient(
+                155f,
+                0f to Color(0xFFE7EFFB),
+                0.42f to palette.background,
+                0.72f to Color(0xFFF3EFF9),
+                1f to Color(0xFFEDF7F5),
+            )
+        }
+    val upperGlow =
+        cssRadialGradient(
+            centerX = 0.15f,
+            centerY = 0.08f,
+            endStop = 0.72f,
+            inner =
+                if (palette.isDark) {
+                    Brand.PrimaryGradBottom.copy(alpha = 0.24f)
+                } else {
+                    Color.White.copy(alpha = 0.76f)
+                },
+        )
+    val lowerGlow =
+        cssRadialGradient(
+            centerX = 0.92f,
+            centerY = 0.76f,
+            endStop = 0.68f,
+            inner =
+                if (palette.isDark) {
+                    Color(0xFF704FBE).copy(alpha = 0.18f)
+                } else {
+                    Color(0xFF9B7DE0).copy(alpha = 0.18f)
+                },
+        )
     return listOf(base, upperGlow, lowerGlow)
 }
 
@@ -555,8 +590,7 @@ object Shadows {
     val profileCard = CssShadow(0.dp, 8.dp, 24.dp, 0.dp, Color(0xFF5A78B4).copy(alpha = 0.12f))
 
     /** Emphasis-button lift tinted from the active semantic accent. */
-    fun primaryButton(accent: Color): CssShadow =
-        CssShadow(0.dp, 10.dp, 24.dp, 0.dp, accent.copy(alpha = 0.30f))
+    fun primaryButton(accent: Color): CssShadow = CssShadow(0.dp, 10.dp, 24.dp, 0.dp, accent.copy(alpha = 0.30f))
 
     /** 详情海报 `0 10px 24px rgba(0,0,0,.25)` */
     val detailPoster = CssShadow(0.dp, 10.dp, 24.dp, 0.dp, Color.Black.copy(alpha = 0.25f))
@@ -583,8 +617,7 @@ object Shadows {
 /** The active theme accent carried into an emphasis-button lift. */
 @Composable
 @ReadOnlyComposable
-fun semanticPrimaryButtonShadow(): CssShadow =
-    Shadows.primaryButton(LocalAccentColors.current.accent)
+fun semanticPrimaryButtonShadow(): CssShadow = Shadows.primaryButton(LocalAccentColors.current.accent)
 
 /** A single `box-shadow` declaration. */
 data class CssShadow(
@@ -595,5 +628,7 @@ data class CssShadow(
     val color: Color,
 )
 
-fun Modifier.shadow(shadow: CssShadow, shape: Shape): Modifier =
-    cssShadow(shadow.offsetX, shadow.offsetY, shadow.blur, shadow.spread, shadow.color, shape)
+fun Modifier.shadow(
+    shadow: CssShadow,
+    shape: Shape,
+): Modifier = cssShadow(shadow.offsetX, shadow.offsetY, shadow.blur, shadow.spread, shadow.color, shape)

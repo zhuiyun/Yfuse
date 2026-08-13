@@ -14,22 +14,24 @@ import androidx.compose.ui.Modifier
 fun animateExpansionAsState(
     expanded: Boolean,
     label: String = "expansion",
-): State<Float> = animateFloatAsState(
-    targetValue = if (expanded) 1f else 0f,
-    animationSpec = Motion.settle(LocalAccessibilityOptions.current.reduceMotion),
-    label = label,
-)
+): State<Float> =
+    animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = Motion.settle(LocalAccessibilityOptions.current.reduceMotion),
+        label = label,
+    )
 
 /** A shared rotation transition for chevrons and disclosure controls. */
 @Composable
 fun animateRotationAsState(
     targetDegrees: Float,
     label: String = "rotation",
-): State<Float> = animateFloatAsState(
-    targetValue = targetDegrees,
-    animationSpec = Motion.settle(LocalAccessibilityOptions.current.reduceMotion),
-    label = label,
-)
+): State<Float> =
+    animateFloatAsState(
+        targetValue = targetDegrees,
+        animationSpec = Motion.settle(LocalAccessibilityOptions.current.reduceMotion),
+        label = label,
+    )
 
 /** Layout expansion without `animateContentSize` continuing under reduced motion. */
 @Composable
@@ -59,6 +61,9 @@ suspend fun LazyGridState.motionAwareScrollToItem(
 }
 
 /** Simple scroll-container counterpart to [LazyListState.motionAwareScrollToItem]. */
-suspend fun ScrollState.motionAwareScrollTo(value: Int, reduceMotion: Boolean) {
+suspend fun ScrollState.motionAwareScrollTo(
+    value: Int,
+    reduceMotion: Boolean,
+) {
     if (reduceMotion) scrollTo(value) else animateScrollTo(value)
 }

@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -26,34 +26,35 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.data.DiagnosticPreferences
+import com.yfuse.core.designsystem.sc
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStats
 import com.yfuse.core.logging.DiagnosticLogStore
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.core.context.GlobalContext
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import com.yfuse.core.designsystem.flatGlass as glass
 
 @Composable
 actual fun DiagnosticLogTools() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val palette = LocalPalette.current
     val scope = rememberCoroutineScope()
-    val diagnosticPreferences = remember {
-        GlobalContext.get().get<DiagnosticPreferences>()
-    }
+    val diagnosticPreferences =
+        remember {
+            GlobalContext.get().get<DiagnosticPreferences>()
+        }
     val logcatEnabled by diagnosticPreferences.logcatEnabled.collectAsState()
     var revision by remember { mutableIntStateOf(0) }
     var stats by remember { mutableStateOf<DiagnosticLogStats?>(null) }
@@ -64,18 +65,18 @@ actual fun DiagnosticLogTools() {
     fun exportTo(uri: Uri) {
         scope.launch {
             exporting = true
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openOutputStream(uri)?.use(DiagnosticLogStore::export)
-                        ?: error("无法写入诊断包")
+            val result =
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use(DiagnosticLogStore::export)
+                            ?: error("无法写入诊断包")
+                    }
                 }
-            }
             result
                 .onSuccess {
                     status = "诊断日志已导出"
                     revision++
-                }
-                .onFailure { error ->
+                }.onFailure { error ->
                     status = error.message ?: "导出失败"
                     AppLog.error(
                         category = "diagnostics",
@@ -88,9 +89,10 @@ actual fun DiagnosticLogTools() {
         }
     }
 
-    val exportFile = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/zip"),
-    ) { uri -> uri?.let(::exportTo) }
+    val exportFile =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/zip"),
+        ) { uri -> uri?.let(::exportTo) }
 
     LaunchedEffect(revision) {
         stats = withContext(Dispatchers.IO) { DiagnosticLogStore.stats() }
@@ -131,11 +133,12 @@ actual fun DiagnosticLogTools() {
             checked = logcatEnabled,
             onChange = { enabled ->
                 diagnosticPreferences.setLogcatEnabled(enabled)
-                status = if (enabled) {
-                    "Logcat 实时输出已开启，将在 1 小时后自动关闭"
-                } else {
-                    "Logcat 实时输出已关闭"
-                }
+                status =
+                    if (enabled) {
+                        "Logcat 实时输出已开启，将在 1 小时后自动关闭"
+                    } else {
+                        "Logcat 实时输出已关闭"
+                    }
                 AppLog.info(
                     category = "diagnostics",
                     event = "logcat_output_changed",
@@ -173,11 +176,12 @@ actual fun DiagnosticLogTools() {
             it,
             style = mr(10.5f, 600),
             color = Brand.Primary,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
-                .background(Brand.Primary.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-                .padding(horizontal = 11.dp, vertical = 8.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .background(Brand.Primary.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 11.dp, vertical = 8.dp),
         )
     }
 
@@ -191,10 +195,11 @@ actual fun DiagnosticLogTools() {
             onConfirm = {
                 confirmClear = false
                 scope.launch {
-                    stats = withContext(Dispatchers.IO) {
-                        DiagnosticLogStore.clear()
-                        DiagnosticLogStore.stats()
-                    }
+                    stats =
+                        withContext(Dispatchers.IO) {
+                            DiagnosticLogStore.clear()
+                            DiagnosticLogStore.stats()
+                        }
                     status = "本地诊断日志已清除"
                 }
             },
@@ -251,11 +256,12 @@ private fun DiagnosticActionRow(
             Text(
                 title,
                 style = sc(12.5f, 550),
-                color = when {
-                    !enabled -> palette.sub2
-                    destructive -> Brand.Danger
-                    else -> palette.text
-                },
+                color =
+                    when {
+                        !enabled -> palette.sub2
+                        destructive -> Brand.Danger
+                        else -> palette.text
+                    },
             )
             Spacer(Modifier.height(2.dp))
             Text(subtitle, style = mr(10f, 400), color = palette.sub2)
@@ -275,10 +281,11 @@ private fun DiagnosticDivider() {
     )
 }
 
-private fun formatDiagnosticBytes(bytes: Long): String = when {
-    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
-    bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
-    else -> "$bytes B"
-}
+private fun formatDiagnosticBytes(bytes: Long): String =
+    when {
+        bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
+        bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
+        else -> "$bytes B"
+    }
 
 private val ExportFileTime = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")

@@ -6,24 +6,12 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.provider.Settings as AndroidSettings
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.FileProvider
 import com.russhwolf.settings.Settings
 import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
-import java.io.ByteArrayOutputStream
-import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
-import java.io.OutputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.security.MessageDigest
-import java.util.TimeZone
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,6 +25,17 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+import java.util.TimeZone
+import java.util.concurrent.TimeUnit
+import android.provider.Settings as AndroidSettings
 
 /** The production update origin is TLS-only; [validateForUpdateSource] also rejects downgrades. */
 private const val UPDATE_MANIFEST = "https://47.112.219.60/yfuse/update-v2.json"
@@ -197,8 +196,9 @@ internal fun UpdateManifest.validateForUpdateSource(sourceUrl: String): UpdateMa
     val source = URL(sourceUrl)
     val target = URL(apkUrl)
     require(target.userInfo == null && target.ref == null) { "安装包地址无效" }
-    require(target.protocol.equals("https", ignoreCase = true) ||
-        target.protocol.equals(source.protocol, ignoreCase = true)
+    require(
+        target.protocol.equals("https", ignoreCase = true) ||
+            target.protocol.equals(source.protocol, ignoreCase = true),
     ) {
         "安装包地址不允许降低连接安全性"
     }
@@ -206,24 +206,26 @@ internal fun UpdateManifest.validateForUpdateSource(sourceUrl: String): UpdateMa
         "安装包地址不属于升级服务器"
     }
     val sameEffectivePort = source.portOrDefault() == target.portOrDefault()
-    val standardHttpsUpgrade = source.protocol.equals("http", true) &&
-        target.protocol.equals("https", true) && target.portOrDefault() == 443
+    val standardHttpsUpgrade =
+        source.protocol.equals("http", true) &&
+            target.protocol.equals("https", true) &&
+            target.portOrDefault() == 443
     require(sameEffectivePort || standardHttpsUpgrade) {
         "安装包地址端口不属于升级服务器"
     }
     val normalizedSourcePath = source.toURI().normalize().path
     val normalizedTargetPath = target.toURI().normalize().path
-    val sourceDirectory = normalizedSourcePath.substringBeforeLast('/', missingDelimiterValue = "/")
-        .trimEnd('/') + "/"
+    val sourceDirectory =
+        normalizedSourcePath
+            .substringBeforeLast('/', missingDelimiterValue = "/")
+            .trimEnd('/') + "/"
     require(normalizedTargetPath.startsWith(sourceDirectory)) {
         "安装包地址不属于升级目录"
     }
     return this
 }
 
-internal fun InputStream.readUpdateManifestText(
-    maxBytes: Int = UPDATE_MANIFEST_MAX_BYTES,
-): String {
+internal fun InputStream.readUpdateManifestText(maxBytes: Int = UPDATE_MANIFEST_MAX_BYTES): String {
     require(maxBytes in 1 until Int.MAX_VALUE) { "升级信息大小限制无效" }
     val output = ByteArrayOutputStream(minOf(maxBytes, 8 * 1024))
     val buffer = ByteArray(8 * 1024)
@@ -290,7 +292,10 @@ internal fun missingUpdateStorageBytes(
     return (required + reserve - usable).coerceAtLeast(0L)
 }
 
-internal fun validateUpdateContentLength(contentLength: Long, expectedBytes: Long) {
+internal fun validateUpdateContentLength(
+    contentLength: Long,
+    expectedBytes: Long,
+) {
     require(expectedBytes > 0L) { "安装包大小无效" }
     if (contentLength >= 0L) {
         require(contentLength == expectedBytes) { "安装包大小与升级信息不一致" }
@@ -316,8 +321,9 @@ internal fun updateContentRangeContinues(
     val match = value?.trim()?.let(updateContentRangePattern::matchEntire) ?: return false
     val start = match.groupValues[1].toLongOrNull() ?: return false
     val end = match.groupValues[2].toLongOrNull() ?: return false
-    val total = match.groupValues[3].let { if (it == "*") expectedTotal else it.toLongOrNull() }
-        ?: return false
+    val total =
+        match.groupValues[3].let { if (it == "*") expectedTotal else it.toLongOrNull() }
+            ?: return false
     return start == expectedOffset && end == expectedTotal - 1L && total == expectedTotal
 }
 
@@ -336,10 +342,11 @@ internal fun canAppendUpdateRange(
     contentRange: String?,
     expectedValidator: String?,
     responseValidator: String?,
-): Boolean = existingBytes > 0L &&
-    statusCode == HttpURLConnection.HTTP_PARTIAL &&
-    updateContentRangeContinues(contentRange, existingBytes, expectedTotalBytes) &&
-    (expectedValidator.isNullOrBlank() || expectedValidator == responseValidator)
+): Boolean =
+    existingBytes > 0L &&
+        statusCode == HttpURLConnection.HTTP_PARTIAL &&
+        updateContentRangeContinues(contentRange, existingBytes, expectedTotalBytes) &&
+        (expectedValidator.isNullOrBlank() || expectedValidator == responseValidator)
 
 /**
  * Streams the package body, resuming at [startBytes].
@@ -388,14 +395,15 @@ internal fun appendUpdatePackage(
     require(startBytes in 0L until expectedBytes) { "续传位置无效" }
     check(startBytes == 0L || partialFile.length() == startBytes) { "续传文件已变化" }
     return FileOutputStream(partialFile, startBytes > 0L).use { output ->
-        val copied = copyUpdatePackage(
-            input = input,
-            output = output,
-            expectedBytes = expectedBytes,
-            startBytes = startBytes,
-            shouldContinue = shouldContinue,
-            onProgress = onProgress,
-        )
+        val copied =
+            copyUpdatePackage(
+                input = input,
+                output = output,
+                expectedBytes = expectedBytes,
+                startBytes = startBytes,
+                shouldContinue = shouldContinue,
+                onProgress = onProgress,
+            )
         // Written bytes have to be on disk, not in the page cache: the point of a checkpoint is
         // that it is still there after the process is killed.
         output.flush()
@@ -405,7 +413,10 @@ internal fun appendUpdatePackage(
 }
 
 /** Read-only package verification used while an asynchronous restore may become stale. */
-internal fun cachedUpdatePackageMatches(file: File, manifest: UpdateManifest): Boolean =
+internal fun cachedUpdatePackageMatches(
+    file: File,
+    manifest: UpdateManifest,
+): Boolean =
     file.isFile &&
         file.length() == manifest.size &&
         runCatching { file.sha256().equals(manifest.sha256, ignoreCase = true) }
@@ -451,15 +462,22 @@ internal fun updateDownloadOwnerStillCurrent(
     pauseRequested: Boolean,
     expectedManifest: UpdateManifest,
     currentRecord: UpdateDownloadRecord?,
-): Boolean = !pauseRequested &&
-    expectedGeneration == currentGeneration &&
-    currentRecord?.manifest?.hasSamePackageAs(expectedManifest) == true
+): Boolean =
+    !pauseRequested &&
+        expectedGeneration == currentGeneration &&
+        currentRecord?.manifest?.hasSamePackageAs(expectedManifest) == true
 
 sealed interface UpdateState {
     data object Idle : UpdateState
+
     data object Checking : UpdateState
+
     data object Current : UpdateState
-    data class Available(val manifest: UpdateManifest) : UpdateState
+
+    data class Available(
+        val manifest: UpdateManifest,
+    ) : UpdateState
+
     data class Downloading(
         val manifest: UpdateManifest,
         val downloadedBytes: Long,
@@ -478,12 +496,21 @@ sealed interface UpdateState {
         val progress: Float get() = updateProgress(downloadedBytes, totalBytes)
     }
 
-    data class Ready(val manifest: UpdateManifest, val apk: File) : UpdateState
-    data class Error(val message: String, val manifest: UpdateManifest? = null) : UpdateState
+    data class Ready(
+        val manifest: UpdateManifest,
+        val apk: File,
+    ) : UpdateState
+
+    data class Error(
+        val message: String,
+        val manifest: UpdateManifest? = null,
+    ) : UpdateState
 }
 
-internal fun updateProgress(downloadedBytes: Long, totalBytes: Long): Float =
-    if (totalBytes <= 0L) 0f else (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
+internal fun updateProgress(
+    downloadedBytes: Long,
+    totalBytes: Long,
+): Float = if (totalBytes <= 0L) 0f else (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
 
 internal enum class ActiveDownloadManifestAction {
     Keep,
@@ -502,11 +529,12 @@ internal fun activeDownloadManifestAction(
     active: UpdateManifest,
     published: UpdateManifest,
     installedVersionCode: Int,
-): ActiveDownloadManifestAction = when {
-    published.versionCode <= installedVersionCode -> ActiveDownloadManifestAction.Invalidate
-    active.hasSamePackageAs(published) -> ActiveDownloadManifestAction.Keep
-    else -> ActiveDownloadManifestAction.Replace
-}
+): ActiveDownloadManifestAction =
+    when {
+        published.versionCode <= installedVersionCode -> ActiveDownloadManifestAction.Invalidate
+        active.hasSamePackageAs(published) -> ActiveDownloadManifestAction.Keep
+        else -> ActiveDownloadManifestAction.Replace
+    }
 
 internal fun UpdateManifest.hasSamePackageAs(other: UpdateManifest): Boolean =
     versionCode == other.versionCode &&
@@ -519,12 +547,13 @@ internal fun latestManifestForFinishedDownload(
     downloaded: UpdateManifest,
     currentState: UpdateState,
 ): UpdateManifest {
-    val current = when (currentState) {
-        is UpdateState.Downloading -> currentState.manifest
-        is UpdateState.Paused -> currentState.manifest
-        is UpdateState.Ready -> currentState.manifest
-        else -> null
-    }
+    val current =
+        when (currentState) {
+            is UpdateState.Downloading -> currentState.manifest
+            is UpdateState.Paused -> currentState.manifest
+            is UpdateState.Ready -> currentState.manifest
+            else -> null
+        }
     return current?.takeIf { it.hasSamePackageAs(downloaded) } ?: downloaded
 }
 
@@ -532,18 +561,24 @@ internal fun latestManifestForFinishedDownload(
 internal fun mergeDownloadRecordValidator(
     current: UpdateDownloadRecord,
     attempted: UpdateDownloadRecord,
-): UpdateDownloadRecord? = current
-    .takeIf { it.manifest.hasSamePackageAs(attempted.manifest) }
-    ?.copy(validator = attempted.validator)
+): UpdateDownloadRecord? =
+    current
+        .takeIf { it.manifest.hasSamePackageAs(attempted.manifest) }
+        ?.copy(validator = attempted.validator)
 
 internal fun updateCheckSnapshotStillCurrent(
     startGeneration: Int,
     currentGeneration: Int,
     startedWithOwnedState: Boolean,
     currentState: UpdateState,
-): Boolean = startGeneration == currentGeneration &&
-    (startedWithOwnedState || currentState !is UpdateState.Downloading &&
-        currentState !is UpdateState.Paused && currentState !is UpdateState.Ready)
+): Boolean =
+    startGeneration == currentGeneration &&
+        (
+            startedWithOwnedState ||
+                currentState !is UpdateState.Downloading &&
+                currentState !is UpdateState.Paused &&
+                currentState !is UpdateState.Ready
+        )
 
 /**
  * Owns update checking, downloading and installing for the whole process.
@@ -558,7 +593,11 @@ class AppUpdateManager(
 ) {
     private val appContext: Context = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     private val downloadMutex = Mutex()
     private val automaticCheckGate = AutomaticUpdateCheckGate(settings)
     private val promptGate = AutomaticUpdatePromptGate(settings)
@@ -628,10 +667,20 @@ class AppUpdateManager(
                     foregroundActivities = (foregroundActivities - 1).coerceAtLeast(0)
                 }
 
-                override fun onActivityCreated(activity: Activity, saved: Bundle?) = Unit
+                override fun onActivityCreated(
+                    activity: Activity,
+                    saved: Bundle?,
+                ) = Unit
+
                 override fun onActivityStarted(activity: Activity) = Unit
+
                 override fun onActivityStopped(activity: Activity) = Unit
-                override fun onActivitySaveInstanceState(activity: Activity, out: Bundle) = Unit
+
+                override fun onActivitySaveInstanceState(
+                    activity: Activity,
+                    out: Bundle,
+                ) = Unit
+
                 override fun onActivityDestroyed(activity: Activity) = Unit
             },
         )
@@ -678,147 +727,156 @@ class AppUpdateManager(
         val checkSnapshot = snapshotUpdateCheck()
         val previous = checkSnapshot.previous
         val activeDownload = checkSnapshot.activeDownload
-        checkJob = scope.launch {
-            if (!beginUpdateCheckIfCurrent(checkSnapshot)) return@launch
-            AppLog.info(
-                category = "update",
-                event = "check_started",
-                message = "Application update check started",
-                attributes = mapOf(
-                    "automatic" to automatic.toString(),
-                    "currentVersionName" to BuildConfig.VERSION_NAME,
-                    "currentVersionCode" to BuildConfig.VERSION_CODE.toString(),
-                ),
-            )
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    val connection = (URL(UPDATE_MANIFEST).openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 8_000
-                        readTimeout = 8_000
-                        useCaches = false
-                    }
-                    try {
-                        check(connection.contentLengthLong < 0L ||
-                            connection.contentLengthLong <= UPDATE_MANIFEST_MAX_BYTES
-                        ) {
-                            "升级信息过大"
-                        }
-                        connection.inputStream.use { input ->
-                            json.decodeFromString<UpdateManifest>(input.readUpdateManifestText())
-                                .validateForUpdateSource(UPDATE_MANIFEST)
-                        }
-                    } finally {
-                        connection.disconnect()
-                    }
-                }
-            }.onSuccess { manifest ->
-                if (!isUpdateCheckSnapshotCurrent(checkSnapshot)) return@onSuccess
-                if (!isPublishedUpdateAvailable(manifest.versionCode, BuildConfig.VERSION_CODE)) {
-                    if (activeDownload == null) {
-                        if (!publishCurrentIfCheckCurrent(checkSnapshot)) return@onSuccess
-                    } else {
-                        if (!invalidateActiveDownloadAndPublishCurrent(activeDownload)) {
-                            return@onSuccess
-                        }
-                    }
-                    AppLog.info(
-                        category = "update",
-                        event = "already_current",
-                        message = "Application is already current",
-                        attributes = mapOf(
-                            "publishedVersionName" to manifest.versionName,
-                            "publishedVersionCode" to manifest.versionCode.toString(),
-                        ),
-                    )
-                    return@onSuccess
-                }
+        checkJob =
+            scope.launch {
+                if (!beginUpdateCheckIfCurrent(checkSnapshot)) return@launch
                 AppLog.info(
                     category = "update",
-                    event = "update_available",
-                    message = "Application update is available",
-                    attributes = mapOf(
-                        "targetVersionName" to manifest.versionName,
-                        "targetVersionCode" to manifest.versionCode.toString(),
-                    ),
+                    event = "check_started",
+                    message = "Application update check started",
+                    attributes =
+                        mapOf(
+                            "automatic" to automatic.toString(),
+                            "currentVersionName" to BuildConfig.VERSION_NAME,
+                            "currentVersionCode" to BuildConfig.VERSION_CODE.toString(),
+                        ),
                 )
-                if (activeDownload == null) {
-                    val available = withContext(Dispatchers.IO) { availableState(manifest) }
-                    if (!publishAvailableIfCheckCurrent(checkSnapshot, available)) {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val connection =
+                            (URL(UPDATE_MANIFEST).openConnection() as HttpURLConnection).apply {
+                                connectTimeout = 8_000
+                                readTimeout = 8_000
+                                useCaches = false
+                            }
+                        try {
+                            check(
+                                connection.contentLengthLong < 0L ||
+                                    connection.contentLengthLong <= UPDATE_MANIFEST_MAX_BYTES,
+                            ) {
+                                "升级信息过大"
+                            }
+                            connection.inputStream.use { input ->
+                                json
+                                    .decodeFromString<UpdateManifest>(input.readUpdateManifestText())
+                                    .validateForUpdateSource(UPDATE_MANIFEST)
+                            }
+                        } finally {
+                            connection.disconnect()
+                        }
+                    }
+                }.onSuccess { manifest ->
+                    if (!isUpdateCheckSnapshotCurrent(checkSnapshot)) return@onSuccess
+                    if (!isPublishedUpdateAvailable(manifest.versionCode, BuildConfig.VERSION_CODE)) {
+                        if (activeDownload == null) {
+                            if (!publishCurrentIfCheckCurrent(checkSnapshot)) return@onSuccess
+                        } else {
+                            if (!invalidateActiveDownloadAndPublishCurrent(activeDownload)) {
+                                return@onSuccess
+                            }
+                        }
+                        AppLog.info(
+                            category = "update",
+                            event = "already_current",
+                            message = "Application is already current",
+                            attributes =
+                                mapOf(
+                                    "publishedVersionName" to manifest.versionName,
+                                    "publishedVersionCode" to manifest.versionCode.toString(),
+                                ),
+                        )
                         return@onSuccess
                     }
-                } else {
-                    when (
-                        activeDownloadManifestAction(
-                            active = activeDownload.manifest,
-                            published = manifest,
-                            installedVersionCode = BuildConfig.VERSION_CODE,
-                        )
-                    ) {
-                        ActiveDownloadManifestAction.Keep -> {
-                            if (!refreshActiveDownloadManifest(activeDownload, manifest)) {
-                                return@onSuccess
-                            }
-                        }
-                        ActiveDownloadManifestAction.Replace -> {
-                            if (!invalidateActiveDownload(
-                                    activeDownload,
-                                    nextState = UpdateState.Checking,
-                                )
-                            ) {
-                                return@onSuccess
-                            }
-                            val replacementGeneration = requestGeneration
-                            val available = withContext(Dispatchers.IO) {
-                                availableState(manifest)
-                            }
-                            if (!publishAvailableIfGenerationCurrent(
-                                    replacementGeneration,
-                                    available,
-                                )
-                            ) {
-                                return@onSuccess
-                            }
-                        }
-                        ActiveDownloadManifestAction.Invalidate -> error(
-                            "Current-version manifests are handled before available updates",
-                        )
-                    }
-                }
-                if (!automatic) {
-                    _promptVisible.value = true
-                } else if (promptGate.tryAcquire(manifest.versionCode)) {
-                    _promptVisible.value = true
-                } else {
                     AppLog.info(
                         category = "update",
-                        event = "prompt_suppressed",
-                        message = "Update dialog already shown for this version today",
-                        attributes = mapOf("targetVersionCode" to manifest.versionCode.toString()),
+                        event = "update_available",
+                        message = "Application update is available",
+                        attributes =
+                            mapOf(
+                                "targetVersionName" to manifest.versionName,
+                                "targetVersionCode" to manifest.versionCode.toString(),
+                            ),
                     )
-                }
-            }.onFailure { error ->
-                // Startup remains usable when the private update host is offline.
-                AppLog.warning(
-                    category = "update",
-                    event = "check_failed",
-                    message = "Update check failed",
-                    throwable = error,
-                )
-                if (automatic) automaticCheckGate.releaseForRetry()
-                // An unreachable or invalid manifest says nothing about bytes already being
-                // downloaded, so keep their live progress rather than replacing it with Error.
-                if (activeDownload != null) {
-                    if (isActiveDownloadCurrent(activeDownload) && !automatic) {
-                        _promptVisible.value = true
+                    if (activeDownload == null) {
+                        val available = withContext(Dispatchers.IO) { availableState(manifest) }
+                        if (!publishAvailableIfCheckCurrent(checkSnapshot, available)) {
+                            return@onSuccess
+                        }
+                    } else {
+                        when (
+                            activeDownloadManifestAction(
+                                active = activeDownload.manifest,
+                                published = manifest,
+                                installedVersionCode = BuildConfig.VERSION_CODE,
+                            )
+                        ) {
+                            ActiveDownloadManifestAction.Keep -> {
+                                if (!refreshActiveDownloadManifest(activeDownload, manifest)) {
+                                    return@onSuccess
+                                }
+                            }
+                            ActiveDownloadManifestAction.Replace -> {
+                                if (!invalidateActiveDownload(
+                                        activeDownload,
+                                        nextState = UpdateState.Checking,
+                                    )
+                                ) {
+                                    return@onSuccess
+                                }
+                                val replacementGeneration = requestGeneration
+                                val available =
+                                    withContext(Dispatchers.IO) {
+                                        availableState(manifest)
+                                    }
+                                if (!publishAvailableIfGenerationCurrent(
+                                        replacementGeneration,
+                                        available,
+                                    )
+                                ) {
+                                    return@onSuccess
+                                }
+                            }
+                            ActiveDownloadManifestAction.Invalidate ->
+                                error(
+                                    "Current-version manifests are handled before available updates",
+                                )
+                        }
                     }
-                    // A resume/replacement may have advanced the generation while the manifest
-                    // request was in flight. That newer operation owns the state even when this
-                    // stale check fails, so never replace it with Error here.
-                    return@onFailure
+                    if (!automatic) {
+                        _promptVisible.value = true
+                    } else if (promptGate.tryAcquire(manifest.versionCode)) {
+                        _promptVisible.value = true
+                    } else {
+                        AppLog.info(
+                            category = "update",
+                            event = "prompt_suppressed",
+                            message = "Update dialog already shown for this version today",
+                            attributes = mapOf("targetVersionCode" to manifest.versionCode.toString()),
+                        )
+                    }
+                }.onFailure { error ->
+                    // Startup remains usable when the private update host is offline.
+                    AppLog.warning(
+                        category = "update",
+                        event = "check_failed",
+                        message = "Update check failed",
+                        throwable = error,
+                    )
+                    if (automatic) automaticCheckGate.releaseForRetry()
+                    // An unreachable or invalid manifest says nothing about bytes already being
+                    // downloaded, so keep their live progress rather than replacing it with Error.
+                    if (activeDownload != null) {
+                        if (isActiveDownloadCurrent(activeDownload) && !automatic) {
+                            _promptVisible.value = true
+                        }
+                        // A resume/replacement may have advanced the generation while the manifest
+                        // request was in flight. That newer operation owns the state even when this
+                        // stale check fails, so never replace it with Error here.
+                        return@onFailure
+                    }
+                    publishCheckFailureIfCurrent(checkSnapshot, previous)
                 }
-                publishCheckFailureIfCurrent(checkSnapshot, previous)
             }
-        }
     }
 
     @Synchronized
@@ -837,17 +895,20 @@ class AppUpdateManager(
     @Synchronized
     private fun snapshotUpdateCheck(): UpdateCheckSnapshot {
         val previous = _state.value
-        val activeDownload = when (previous) {
-            is UpdateState.Downloading -> ActiveDownloadCheck(requestGeneration, previous.manifest)
-            is UpdateState.Paused -> ActiveDownloadCheck(requestGeneration, previous.manifest)
-            else -> null
-        }
+        val activeDownload =
+            when (previous) {
+                is UpdateState.Downloading -> ActiveDownloadCheck(requestGeneration, previous.manifest)
+                is UpdateState.Paused -> ActiveDownloadCheck(requestGeneration, previous.manifest)
+                else -> null
+            }
         return UpdateCheckSnapshot(
             generation = requestGeneration,
             previous = previous,
             activeDownload = activeDownload,
-            startedWithOwnedState = previous is UpdateState.Downloading ||
-                previous is UpdateState.Paused || previous is UpdateState.Ready,
+            startedWithOwnedState =
+                previous is UpdateState.Downloading ||
+                    previous is UpdateState.Paused ||
+                    previous is UpdateState.Ready,
         )
     }
 
@@ -902,12 +963,13 @@ class AppUpdateManager(
     @Synchronized
     private fun isActiveDownloadCurrent(active: ActiveDownloadCheck): Boolean {
         if (active.generation != requestGeneration) return false
-        val currentManifest = when (val current = _state.value) {
-            is UpdateState.Downloading -> current.manifest
-            is UpdateState.Paused -> current.manifest
-            is UpdateState.Ready -> current.manifest
-            else -> return false
-        }
+        val currentManifest =
+            when (val current = _state.value) {
+                is UpdateState.Downloading -> current.manifest
+                is UpdateState.Paused -> current.manifest
+                is UpdateState.Ready -> current.manifest
+                else -> return false
+            }
         return currentManifest.hasSamePackageAs(active.manifest)
     }
 
@@ -919,22 +981,27 @@ class AppUpdateManager(
     ): Boolean {
         if (active.generation != requestGeneration) return false
         val current = _state.value
-        val refreshed = when (current) {
-            is UpdateState.Downloading -> current
-                .takeIf { it.manifest.hasSamePackageAs(active.manifest) }
-                ?.copy(manifest = published, totalBytes = published.size)
-            is UpdateState.Paused -> current
-                .takeIf { it.manifest.hasSamePackageAs(active.manifest) }
-                ?.copy(manifest = published, totalBytes = published.size)
-            is UpdateState.Ready -> current
-                .takeIf { it.manifest.hasSamePackageAs(active.manifest) }
-                ?.copy(manifest = published)
-            else -> null
-        } ?: return false
-        if (current is UpdateState.Downloading || current is UpdateState.Paused) {
-            val record = downloadRecord()?.takeIf {
-                it.manifest.hasSamePackageAs(active.manifest)
+        val refreshed =
+            when (current) {
+                is UpdateState.Downloading ->
+                    current
+                        .takeIf { it.manifest.hasSamePackageAs(active.manifest) }
+                        ?.copy(manifest = published, totalBytes = published.size)
+                is UpdateState.Paused ->
+                    current
+                        .takeIf { it.manifest.hasSamePackageAs(active.manifest) }
+                        ?.copy(manifest = published, totalBytes = published.size)
+                is UpdateState.Ready ->
+                    current
+                        .takeIf { it.manifest.hasSamePackageAs(active.manifest) }
+                        ?.copy(manifest = published)
+                else -> null
             } ?: return false
+        if (current is UpdateState.Downloading || current is UpdateState.Paused) {
+            val record =
+                downloadRecord()?.takeIf {
+                    it.manifest.hasSamePackageAs(active.manifest)
+                } ?: return false
             putDownloadRecord(record.copy(manifest = published))
         }
         _state.value = refreshed
@@ -957,9 +1024,8 @@ class AppUpdateManager(
     }
 
     @Synchronized
-    private fun invalidateActiveDownloadAndPublishCurrent(active: ActiveDownloadCheck): Boolean {
-        return invalidateActiveDownload(active, nextState = UpdateState.Current)
-    }
+    private fun invalidateActiveDownloadAndPublishCurrent(active: ActiveDownloadCheck): Boolean =
+        invalidateActiveDownload(active, nextState = UpdateState.Current)
 
     /** Starts or resumes the background download. Safe to call while one is already running. */
     @Synchronized
@@ -967,9 +1033,10 @@ class AppUpdateManager(
         if (_state.value is UpdateState.Downloading) return
         pauseRequested = false
         requestGeneration += 1
-        val matchingRecord = downloadRecord()?.takeIf {
-            it.manifest.hasSamePackageAs(manifest)
-        }
+        val matchingRecord =
+            downloadRecord()?.takeIf {
+                it.manifest.hasSamePackageAs(manifest)
+            }
         val partial = partialFile(manifest)
         if (matchingRecord == null && partial.isFile && !partial.delete()) {
             // File names only contain versionCode. A republished package can therefore collide
@@ -982,11 +1049,12 @@ class AppUpdateManager(
         putDownloadRecord(
             UpdateDownloadRecord(manifest, validator = matchingRecord?.validator),
         )
-        _state.value = UpdateState.Downloading(
-            manifest = manifest,
-            downloadedBytes = existing.coerceAtMost(manifest.size),
-            totalBytes = manifest.size,
-        )
+        _state.value =
+            UpdateState.Downloading(
+                manifest = manifest,
+                downloadedBytes = existing.coerceAtMost(manifest.size),
+                totalBytes = manifest.size,
+            )
         runCatching {
             appContext.startForegroundService(
                 Intent(appContext, UpdateDownloadService::class.java),
@@ -998,12 +1066,13 @@ class AppUpdateManager(
                 message = "Update download service could not be started",
                 throwable = error,
             )
-            _state.value = UpdateState.Paused(
-                manifest = manifest,
-                downloadedBytes = existing,
-                totalBytes = manifest.size,
-                message = "无法启动后台下载",
-            )
+            _state.value =
+                UpdateState.Paused(
+                    manifest = manifest,
+                    downloadedBytes = existing,
+                    totalBytes = manifest.size,
+                    message = "无法启动后台下载",
+                )
         }
     }
 
@@ -1012,11 +1081,12 @@ class AppUpdateManager(
     fun pauseDownload() {
         val current = _state.value as? UpdateState.Downloading ?: return
         pauseRequested = true
-        _state.value = UpdateState.Paused(
-            manifest = current.manifest,
-            downloadedBytes = current.downloadedBytes,
-            totalBytes = current.totalBytes,
-        )
+        _state.value =
+            UpdateState.Paused(
+                manifest = current.manifest,
+                downloadedBytes = current.downloadedBytes,
+                totalBytes = current.totalBytes,
+            )
         AppLog.info(
             category = "update",
             event = "download_paused",
@@ -1054,8 +1124,9 @@ class AppUpdateManager(
         while (true) {
             if (!isCurrentRequest(generation)) break
             // A completed or paused transfer is done either way; only a throw is retried.
-            val error = runCatching { downloadOnce(manifest, generation) }
-                .exceptionOrNull() ?: break
+            val error =
+                runCatching { downloadOnce(manifest, generation) }
+                    .exceptionOrNull() ?: break
             attempt += 1
             val downloaded = partialFile(manifest).takeIf(File::isFile)?.length() ?: 0L
             AppLog.warning(
@@ -1063,10 +1134,11 @@ class AppUpdateManager(
                 event = "download_attempt_failed",
                 message = "Update package download attempt failed",
                 throwable = error,
-                attributes = mapOf(
-                    "attempt" to attempt.toString(),
-                    "downloadedBytes" to downloaded.toString(),
-                ),
+                attributes =
+                    mapOf(
+                        "attempt" to attempt.toString(),
+                        "downloadedBytes" to downloaded.toString(),
+                    ),
             )
             if (attempt >= UPDATE_DOWNLOAD_RETRY_LIMIT) {
                 publishPausedIfCurrent(
@@ -1152,229 +1224,241 @@ class AppUpdateManager(
     ) {
         if (generation != requestGeneration) return
         val current = _state.value as? UpdateState.Paused ?: return
-        val manifest = downloadRecord()?.manifest
-            ?.takeIf { it.hasSamePackageAs(expected) && current.manifest.hasSamePackageAs(it) }
-            ?: return
-        _state.value = current.copy(
-            manifest = manifest,
-            downloadedBytes = downloadedBytes,
-            totalBytes = manifest.size,
-        )
+        val manifest =
+            downloadRecord()
+                ?.manifest
+                ?.takeIf { it.hasSamePackageAs(expected) && current.manifest.hasSamePackageAs(it) }
+                ?: return
+        _state.value =
+            current.copy(
+                manifest = manifest,
+                downloadedBytes = downloadedBytes,
+                totalBytes = manifest.size,
+            )
     }
 
     /** A transfer that was paused, or replaced by a newer request, may no longer write state. */
-    private fun isCurrentRequest(generation: Int): Boolean =
-        !pauseRequested && generation == requestGeneration
+    private fun isCurrentRequest(generation: Int): Boolean = !pauseRequested && generation == requestGeneration
 
     /** Returns true once the package is downloaded, verified and staged for install. */
     private suspend fun downloadOnce(
         manifest: UpdateManifest,
         generation: Int,
-    ): Boolean = withContext(Dispatchers.IO) {
-        manifest.validateForUpdateSource(UPDATE_MANIFEST)
-        val directory = updateDirectory()
-        val target = File(directory, updatePackageFileName(manifest.versionCode))
-        val partial = File(directory, "${target.name}.part")
-        // The partial file is a checkpoint, not litter: it has to survive the sweep.
-        if (!cleanupStaleFilesIfCurrent(
-                manifest,
-                generation,
-                directory,
-                keepFileNames = setOf(target.name, partial.name),
-            )
-        ) {
-            return@withContext false
-        }
-
-        if (cachedUpdatePackageMatches(target, manifest)) {
-            return@withContext finishCachedTargetIfCurrent(
-                manifest,
-                target,
-                partial,
-                generation,
-            )
-        }
-
-        val record = downloadRecord()?.takeIf { it.manifest.hasSamePackageAs(manifest) }
-        var existing = partial.takeIf(File::isFile)?.length() ?: 0L
-        var validator = record?.validator?.takeIf { existing > 0L }
-        if (existing > 0L && record == null) {
-            // Those bytes were fetched for some other package.
-            when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
-                OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
-                OwnedUpdateCacheDeleteResult.Failed -> error("无法清理旧的下载缓存")
-                OwnedUpdateCacheDeleteResult.Deleted,
-                OwnedUpdateCacheDeleteResult.Missing,
-                -> Unit
-            }
-            existing = 0L
-        }
-        if (existing >= manifest.size) {
-            // Complete but never verified — most likely killed between the last write and the
-            // digest check.
-            if (!isCurrentRequest(generation)) return@withContext false
-            if (cachedUpdatePackageMatches(partial, manifest)) {
-                return@withContext promoteAndFinishIfCurrent(
+    ): Boolean =
+        withContext(Dispatchers.IO) {
+            manifest.validateForUpdateSource(UPDATE_MANIFEST)
+            val directory = updateDirectory()
+            val target = File(directory, updatePackageFileName(manifest.versionCode))
+            val partial = File(directory, "${target.name}.part")
+            // The partial file is a checkpoint, not litter: it has to survive the sweep.
+            if (!cleanupStaleFilesIfCurrent(
                     manifest,
-                    partial,
-                    target,
                     generation,
-                )
-            }
-            when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
-                OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
-                OwnedUpdateCacheDeleteResult.Failed -> error("无法清理损坏的下载缓存")
-                OwnedUpdateCacheDeleteResult.Deleted,
-                OwnedUpdateCacheDeleteResult.Missing,
-                -> Unit
-            }
-            existing = 0L
-            validator = null
-        }
-
-        val remaining = manifest.size - existing
-        val usableSpace = directory.usableSpace
-        if (!hasSufficientUpdateStorage(usableSpace, remaining)) {
-            val missingBytes = missingUpdateStorageBytes(usableSpace, remaining).coerceAtLeast(1L)
-            val bytesPerMb = 1024L * 1024L
-            val missingMb = ((missingBytes - 1L) / bytesPerMb) + 1L
-            error("存储空间不足，至少还需 $missingMb MB 可用空间")
-        }
-
-        AppLog.info(
-            category = "update",
-            event = "download_started",
-            message = "Application update download started",
-            attributes = mapOf(
-                "targetVersionName" to manifest.versionName,
-                "targetVersionCode" to manifest.versionCode.toString(),
-                "expectedBytes" to manifest.size.toString(),
-                "resumeBytes" to existing.toString(),
-            ),
-        )
-
-        var connection: HttpURLConnection? = null
-        try {
-            var append: Boolean
-            var responseValidator: String?
-            while (true) {
-                connection = (URL(manifest.apkUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15_000
-                    readTimeout = 30_000
-                    useCaches = false
-                    if (existing > 0L) {
-                        setRequestProperty("Range", "bytes=$existing-")
-                        validator?.let { setRequestProperty("If-Range", it.validatorHeaderValue()) }
-                    }
-                }
-                val code = connection.responseCode
-                responseValidator = connection.updateResumeValidator()
-                append = canAppendUpdateRange(
-                    existingBytes = existing,
-                    expectedTotalBytes = manifest.size,
-                    statusCode = code,
-                    contentRange = connection.getHeaderField("Content-Range"),
-                    expectedValidator = validator,
-                    responseValidator = responseValidator,
-                )
-                val rejectedResume = existing > 0L && !append && (
-                    code == HTTP_RANGE_NOT_SATISFIABLE || code == HttpURLConnection.HTTP_PARTIAL
-                    )
-                if (rejectedResume) {
-                    AppLog.warning(
-                        category = "update",
-                        event = "resume_rejected",
-                        message = "Update range response did not continue the partial file",
-                        attributes = mapOf("status" to code.toString()),
-                    )
-                    connection.disconnect()
-                    connection = null
-                    when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
-                        OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
-                        OwnedUpdateCacheDeleteResult.Failed -> error("无法重置下载缓存")
-                        OwnedUpdateCacheDeleteResult.Deleted,
-                        OwnedUpdateCacheDeleteResult.Missing,
-                        -> Unit
-                    }
-                    existing = 0L
-                    validator = null
-                    continue
-                }
-                if (code !in 200..299) error("HTTP $code")
-                if (code == HttpURLConnection.HTTP_PARTIAL && existing == 0L) {
-                    error("服务器返回了无请求的分段响应")
-                }
-                if (!append && existing > 0L) {
-                    // A plain 200 to an If-Range request means the package changed.
-                    when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
-                        OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
-                        OwnedUpdateCacheDeleteResult.Failed -> error("无法重置下载缓存")
-                        OwnedUpdateCacheDeleteResult.Deleted,
-                        OwnedUpdateCacheDeleteResult.Missing,
-                        -> Unit
-                    }
-                    existing = 0L
-                }
-                break
-            }
-            val activeConnection = checkNotNull(connection) { "升级连接已关闭" }
-            validateUpdateContentLength(activeConnection.contentLengthLong, manifest.size - existing)
-            if (!putDownloadRecordIfCurrent(
-                    generation,
-                    UpdateDownloadRecord(manifest, validator = responseValidator),
+                    directory,
+                    keepFileNames = setOf(target.name, partial.name),
                 )
             ) {
                 return@withContext false
             }
-            val copied = activeConnection.inputStream.use { input ->
-                appendUpdatePackage(
-                    input = input,
-                    partialFile = partial,
-                    startBytes = existing,
-                    expectedBytes = manifest.size,
-                    shouldContinue = { isCurrentRequest(generation) },
-                ) { downloaded ->
-                    // A pause has already moved the state on; progress must not undo it.
-                    publishDownloadingIfCurrent(
-                        expected = manifest,
-                        generation = generation,
-                        downloadedBytes = downloaded,
-                        requireDownloadingState = true,
+
+            if (cachedUpdatePackageMatches(target, manifest)) {
+                return@withContext finishCachedTargetIfCurrent(
+                    manifest,
+                    target,
+                    partial,
+                    generation,
+                )
+            }
+
+            val record = downloadRecord()?.takeIf { it.manifest.hasSamePackageAs(manifest) }
+            var existing = partial.takeIf(File::isFile)?.length() ?: 0L
+            var validator = record?.validator?.takeIf { existing > 0L }
+            if (existing > 0L && record == null) {
+                // Those bytes were fetched for some other package.
+                when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
+                    OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
+                    OwnedUpdateCacheDeleteResult.Failed -> error("无法清理旧的下载缓存")
+                    OwnedUpdateCacheDeleteResult.Deleted,
+                    OwnedUpdateCacheDeleteResult.Missing,
+                    -> Unit
+                }
+                existing = 0L
+            }
+            if (existing >= manifest.size) {
+                // Complete but never verified — most likely killed between the last write and the
+                // digest check.
+                if (!isCurrentRequest(generation)) return@withContext false
+                if (cachedUpdatePackageMatches(partial, manifest)) {
+                    return@withContext promoteAndFinishIfCurrent(
+                        manifest,
+                        partial,
+                        target,
+                        generation,
                     )
                 }
-            }
-            if (copied < manifest.size) {
-                check(!isCurrentRequest(generation)) { "安装包下载不完整" }
-                // The pause was recorded before the last chunks landed; show what the resume
-                // will actually start from. A newer generation or invalidated record is ignored.
-                publishStoppedBytesIfOwned(manifest, generation, copied)
-                AppLog.info(
-                    category = "update",
-                    event = "download_interrupted",
-                    message = "Update download stopped with a resumable partial file",
-                    attributes = mapOf("downloadedBytes" to copied.toString()),
-                )
-                return@withContext false
-            }
-            if (!isCurrentRequest(generation)) return@withContext false
-            if (!cachedUpdatePackageMatches(partial, manifest)) {
                 when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
                     OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
                     OwnedUpdateCacheDeleteResult.Failed -> error("无法清理损坏的下载缓存")
                     OwnedUpdateCacheDeleteResult.Deleted,
                     OwnedUpdateCacheDeleteResult.Missing,
-                    -> error("安装包校验失败")
+                    -> Unit
                 }
+                existing = 0L
+                validator = null
             }
-            promoteAndFinishIfCurrent(manifest, partial, target, generation)
-        } finally {
-            connection?.disconnect()
+
+            val remaining = manifest.size - existing
+            val usableSpace = directory.usableSpace
+            if (!hasSufficientUpdateStorage(usableSpace, remaining)) {
+                val missingBytes = missingUpdateStorageBytes(usableSpace, remaining).coerceAtLeast(1L)
+                val bytesPerMb = 1024L * 1024L
+                val missingMb = ((missingBytes - 1L) / bytesPerMb) + 1L
+                error("存储空间不足，至少还需 $missingMb MB 可用空间")
+            }
+
+            AppLog.info(
+                category = "update",
+                event = "download_started",
+                message = "Application update download started",
+                attributes =
+                    mapOf(
+                        "targetVersionName" to manifest.versionName,
+                        "targetVersionCode" to manifest.versionCode.toString(),
+                        "expectedBytes" to manifest.size.toString(),
+                        "resumeBytes" to existing.toString(),
+                    ),
+            )
+
+            var connection: HttpURLConnection? = null
+            try {
+                var append: Boolean
+                var responseValidator: String?
+                while (true) {
+                    connection =
+                        (URL(manifest.apkUrl).openConnection() as HttpURLConnection).apply {
+                            connectTimeout = 15_000
+                            readTimeout = 30_000
+                            useCaches = false
+                            if (existing > 0L) {
+                                setRequestProperty("Range", "bytes=$existing-")
+                                validator?.let { setRequestProperty("If-Range", it.validatorHeaderValue()) }
+                            }
+                        }
+                    val code = connection.responseCode
+                    responseValidator = connection.updateResumeValidator()
+                    append =
+                        canAppendUpdateRange(
+                            existingBytes = existing,
+                            expectedTotalBytes = manifest.size,
+                            statusCode = code,
+                            contentRange = connection.getHeaderField("Content-Range"),
+                            expectedValidator = validator,
+                            responseValidator = responseValidator,
+                        )
+                    val rejectedResume =
+                        existing > 0L &&
+                            !append &&
+                            (
+                                code == HTTP_RANGE_NOT_SATISFIABLE || code == HttpURLConnection.HTTP_PARTIAL
+                            )
+                    if (rejectedResume) {
+                        AppLog.warning(
+                            category = "update",
+                            event = "resume_rejected",
+                            message = "Update range response did not continue the partial file",
+                            attributes = mapOf("status" to code.toString()),
+                        )
+                        connection.disconnect()
+                        connection = null
+                        when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
+                            OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
+                            OwnedUpdateCacheDeleteResult.Failed -> error("无法重置下载缓存")
+                            OwnedUpdateCacheDeleteResult.Deleted,
+                            OwnedUpdateCacheDeleteResult.Missing,
+                            -> Unit
+                        }
+                        existing = 0L
+                        validator = null
+                        continue
+                    }
+                    if (code !in 200..299) error("HTTP $code")
+                    if (code == HttpURLConnection.HTTP_PARTIAL && existing == 0L) {
+                        error("服务器返回了无请求的分段响应")
+                    }
+                    if (!append && existing > 0L) {
+                        // A plain 200 to an If-Range request means the package changed.
+                        when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
+                            OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
+                            OwnedUpdateCacheDeleteResult.Failed -> error("无法重置下载缓存")
+                            OwnedUpdateCacheDeleteResult.Deleted,
+                            OwnedUpdateCacheDeleteResult.Missing,
+                            -> Unit
+                        }
+                        existing = 0L
+                    }
+                    break
+                }
+                val activeConnection = checkNotNull(connection) { "升级连接已关闭" }
+                validateUpdateContentLength(activeConnection.contentLengthLong, manifest.size - existing)
+                if (!putDownloadRecordIfCurrent(
+                        generation,
+                        UpdateDownloadRecord(manifest, validator = responseValidator),
+                    )
+                ) {
+                    return@withContext false
+                }
+                val copied =
+                    activeConnection.inputStream.use { input ->
+                        appendUpdatePackage(
+                            input = input,
+                            partialFile = partial,
+                            startBytes = existing,
+                            expectedBytes = manifest.size,
+                            shouldContinue = { isCurrentRequest(generation) },
+                        ) { downloaded ->
+                            // A pause has already moved the state on; progress must not undo it.
+                            publishDownloadingIfCurrent(
+                                expected = manifest,
+                                generation = generation,
+                                downloadedBytes = downloaded,
+                                requireDownloadingState = true,
+                            )
+                        }
+                    }
+                if (copied < manifest.size) {
+                    check(!isCurrentRequest(generation)) { "安装包下载不完整" }
+                    // The pause was recorded before the last chunks landed; show what the resume
+                    // will actually start from. A newer generation or invalidated record is ignored.
+                    publishStoppedBytesIfOwned(manifest, generation, copied)
+                    AppLog.info(
+                        category = "update",
+                        event = "download_interrupted",
+                        message = "Update download stopped with a resumable partial file",
+                        attributes = mapOf("downloadedBytes" to copied.toString()),
+                    )
+                    return@withContext false
+                }
+                if (!isCurrentRequest(generation)) return@withContext false
+                if (!cachedUpdatePackageMatches(partial, manifest)) {
+                    when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
+                        OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
+                        OwnedUpdateCacheDeleteResult.Failed -> error("无法清理损坏的下载缓存")
+                        OwnedUpdateCacheDeleteResult.Deleted,
+                        OwnedUpdateCacheDeleteResult.Missing,
+                        -> error("安装包校验失败")
+                    }
+                }
+                promoteAndFinishIfCurrent(manifest, partial, target, generation)
+            } finally {
+                connection?.disconnect()
+            }
         }
-    }
 
     @Synchronized
-    private fun isDownloadOwnerCurrent(manifest: UpdateManifest, generation: Int): Boolean =
-        ownedDownloadManifest(manifest, generation) != null
+    private fun isDownloadOwnerCurrent(
+        manifest: UpdateManifest,
+        generation: Int,
+    ): Boolean = ownedDownloadManifest(manifest, generation) != null
 
     @Synchronized
     private fun cleanupStaleFilesIfCurrent(
@@ -1428,13 +1512,20 @@ class AppUpdateManager(
         return finish(manifest, target, generation)
     }
 
-    private fun promote(partial: File, target: File) {
+    private fun promote(
+        partial: File,
+        target: File,
+    ) {
         check(!target.exists() || target.delete()) { "无法替换旧的安装包" }
         check(partial.renameTo(target)) { "无法保存安装包" }
     }
 
     @Synchronized
-    private fun finish(manifest: UpdateManifest, apk: File, generation: Int): Boolean {
+    private fun finish(
+        manifest: UpdateManifest,
+        apk: File,
+        generation: Int,
+    ): Boolean {
         if (!isDownloadOwnerCurrent(manifest, generation)) return false
         val finishedManifest = latestManifestForFinishedDownload(manifest, _state.value)
         clearDownloadRecord()
@@ -1504,11 +1595,12 @@ class AppUpdateManager(
             return
         }
         runCatching {
-            val uri = FileProvider.getUriForFile(
-                appContext,
-                "${appContext.packageName}.updates",
-                apk,
-            )
+            val uri =
+                FileProvider.getUriForFile(
+                    appContext,
+                    "${appContext.packageName}.updates",
+                    apk,
+                )
             appContext.startActivity(
                 Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, "application/vnd.android.package-archive")
@@ -1560,9 +1652,10 @@ class AppUpdateManager(
             val owner = RestoreDownloadOwner(requestGeneration, record)
             scope.launch {
                 if (!isRestoreOwnerCurrent(owner)) return@launch
-                val verified = withContext(Dispatchers.IO) {
-                    cachedUpdatePackageMatches(target, record.manifest)
-                }
+                val verified =
+                    withContext(Dispatchers.IO) {
+                        cachedUpdatePackageMatches(target, record.manifest)
+                    }
                 if (verified) {
                     publishRestoredStateIfCurrent(
                         owner,
@@ -1573,37 +1666,42 @@ class AppUpdateManager(
 
                 when (withContext(Dispatchers.IO) { deleteRestoreTargetIfCurrent(owner, target) }) {
                     OwnedUpdateCacheDeleteResult.StaleOwner -> return@launch
-                    OwnedUpdateCacheDeleteResult.Failed -> AppLog.warning(
-                        category = "update",
-                        event = "cached_package_cleanup_failed",
-                        message = "Rejected cached update package could not be removed",
-                        attributes = mapOf(
-                            "targetVersionCode" to record.manifest.versionCode.toString(),
-                        ),
-                    )
+                    OwnedUpdateCacheDeleteResult.Failed ->
+                        AppLog.warning(
+                            category = "update",
+                            event = "cached_package_cleanup_failed",
+                            message = "Rejected cached update package could not be removed",
+                            attributes =
+                                mapOf(
+                                    "targetVersionCode" to record.manifest.versionCode.toString(),
+                                ),
+                        )
                     OwnedUpdateCacheDeleteResult.Deleted,
                     OwnedUpdateCacheDeleteResult.Missing,
                     -> Unit
                 }
 
-                val partialBytes = withContext(Dispatchers.IO) {
-                    partialFile(record.manifest).takeIf(File::isFile)?.length() ?: 0L
-                }
-                val restored = if (partialBytes in 1 until record.manifest.size) {
-                    UpdateState.Paused(record.manifest, partialBytes, record.manifest.size)
-                } else {
-                    UpdateState.Available(record.manifest)
-                }
+                val partialBytes =
+                    withContext(Dispatchers.IO) {
+                        partialFile(record.manifest).takeIf(File::isFile)?.length() ?: 0L
+                    }
+                val restored =
+                    if (partialBytes in 1 until record.manifest.size) {
+                        UpdateState.Paused(record.manifest, partialBytes, record.manifest.size)
+                    } else {
+                        UpdateState.Available(record.manifest)
+                    }
                 publishRestoredStateIfCurrent(owner, restored)
             }
             return
         }
         if (existing <= 0L) return
-        _state.value = UpdateState.Paused(
-            manifest = record.manifest,
-            downloadedBytes = existing.coerceAtMost(record.manifest.size),
-            totalBytes = record.manifest.size,
-        )
+        _state.value =
+            UpdateState.Paused(
+                manifest = record.manifest,
+                downloadedBytes = existing.coerceAtMost(record.manifest.size),
+                totalBytes = record.manifest.size,
+            )
         AppLog.info(
             category = "update",
             event = "download_restored",
@@ -1620,13 +1718,14 @@ class AppUpdateManager(
     private fun deleteRestoreTargetIfCurrent(
         owner: RestoreDownloadOwner,
         target: File,
-    ): OwnedUpdateCacheDeleteResult = deleteUpdateCacheFileIfOwned(
-        file = target,
-        expectedGeneration = owner.generation,
-        currentGeneration = requestGeneration,
-        expectedManifest = owner.record.manifest,
-        currentRecord = downloadRecord(),
-    )
+    ): OwnedUpdateCacheDeleteResult =
+        deleteUpdateCacheFileIfOwned(
+            file = target,
+            expectedGeneration = owner.generation,
+            currentGeneration = requestGeneration,
+            expectedManifest = owner.record.manifest,
+            currentRecord = downloadRecord(),
+        )
 
     @Synchronized
     private fun publishRestoredStateIfCurrent(
@@ -1658,9 +1757,10 @@ class AppUpdateManager(
                 attributes = mapOf("targetVersionCode" to manifest.versionCode.toString()),
             )
         }
-        val record = downloadRecord()?.takeIf {
-            it.manifest.hasSamePackageAs(manifest)
-        }
+        val record =
+            downloadRecord()?.takeIf {
+                it.manifest.hasSamePackageAs(manifest)
+            }
         val partial = File(directory, "${target.name}.part")
         val existing = partial.takeIf { record != null && it.isFile }?.length() ?: 0L
         return if (existing in 1 until manifest.size) {
@@ -1676,10 +1776,11 @@ class AppUpdateManager(
         return directory
     }
 
-    private fun partialFile(manifest: UpdateManifest): File = File(
-        File(appContext.cacheDir, "updates"),
-        "${updatePackageFileName(manifest.versionCode)}.part",
-    )
+    private fun partialFile(manifest: UpdateManifest): File =
+        File(
+            File(appContext.cacheDir, "updates"),
+            "${updatePackageFileName(manifest.versionCode)}.part",
+        )
 
     private fun downloadRecord(): UpdateDownloadRecord? {
         val raw = settings.getStringOrNull(KEY_DOWNLOAD_RECORD) ?: return null
@@ -1712,8 +1813,9 @@ class AppUpdateManager(
         record: UpdateDownloadRecord,
     ): Boolean {
         if (!isCurrentRequest(generation)) return false
-        val merged = downloadRecord()?.let { mergeDownloadRecordValidator(it, record) }
-            ?: return false
+        val merged =
+            downloadRecord()?.let { mergeDownloadRecordValidator(it, record) }
+                ?: return false
         putDownloadRecord(merged)
         return true
     }
@@ -1732,9 +1834,10 @@ class AppUpdateManager(
  * itself decides whether the partial file may be continued.
  */
 private fun HttpURLConnection.updateResumeValidator(): String? {
-    val strongEtag = getHeaderField("ETag")
-        ?.trim()
-        ?.takeIf { it.isNotBlank() && !it.startsWith("W/", ignoreCase = true) }
+    val strongEtag =
+        getHeaderField("ETag")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && !it.startsWith("W/", ignoreCase = true) }
     if (strongEtag != null) return "etag:$strongEtag"
     return getHeaderField("Last-Modified")
         ?.trim()

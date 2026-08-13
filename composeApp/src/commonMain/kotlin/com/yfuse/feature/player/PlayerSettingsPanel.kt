@@ -5,31 +5,22 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.SkipMode
-import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.PlayerTokens
-import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.shadow
 
 /**
  * The player's settings panel and the tabs inside it.
@@ -39,7 +30,9 @@ import com.yfuse.core.designsystem.shadow
  * only exists once someone has asked for it. Nothing here runs while the film plays.
  */
 
-internal enum class Tab(val label: String) {
+internal enum class Tab(
+    val label: String,
+) {
     Playback("播放"),
     Tracks("音轨"),
     Picture("画面"),
@@ -100,16 +93,17 @@ internal fun SettingsPanel(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tabs = buildList {
-        add(Tab.Playback)
-        // Keep the subtitle entry reachable even when the current file has no embedded
-        // track: online/third-party search is the recovery path in exactly that state.
-        add(Tab.Tracks)
-        add(Tab.Picture)
-        add(Tab.Danmaku)
-        add(Tab.Cast)
-        add(Tab.Advanced)
-    }
+    val tabs =
+        buildList {
+            add(Tab.Playback)
+            // Keep the subtitle entry reachable even when the current file has no embedded
+            // track: online/third-party search is the recovery path in exactly that state.
+            add(Tab.Tracks)
+            add(Tab.Picture)
+            add(Tab.Danmaku)
+            add(Tab.Cast)
+            add(Tab.Advanced)
+        }
     // The settings panel is now the same drawer as 搜索弹幕 and 房间聊天 — see
     // [PlayerSidePanel]. It is not dimmed: a list of choices about the picture must not
     // dim the picture it is describing.
@@ -125,29 +119,32 @@ internal fun SettingsPanel(
                 Text(
                     entry.label,
                     style = if (active) AppTypography.body.strong else AppTypography.body.medium,
-                    color = if (active) {
-                        Color.White
-                    } else {
-                        Color.White.copy(alpha = 0.58f)
-                    },
+                    color =
+                        if (active) {
+                            Color.White
+                        } else {
+                            Color.White.copy(alpha = 0.58f)
+                        },
                     maxLines = 1,
-                    modifier = Modifier
-                        .weight(1f)
-                        .glass(
-                            shape = GlassShapes.thumb,
-                            fill = if (active) {
-                                Color.White.copy(alpha = 0.18f)
-                            } else {
-                                Color.Transparent
-                            },
-                            border = if (active) {
-                                Color.White.copy(alpha = 0.26f)
-                            } else {
-                                null
-                            },
-                        )
-                        .noRippleClickable { onTab(entry) }
-                        .padding(vertical = 7.dp),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .glass(
+                                shape = GlassShapes.thumb,
+                                fill =
+                                    if (active) {
+                                        Color.White.copy(alpha = 0.18f)
+                                    } else {
+                                        Color.Transparent
+                                    },
+                                border =
+                                    if (active) {
+                                        Color.White.copy(alpha = 0.26f)
+                                    } else {
+                                        null
+                                    },
+                            ).noRippleClickable { onTab(entry) }
+                            .padding(vertical = 7.dp),
                     textAlign = TextAlign.Center,
                 )
             }
@@ -169,12 +166,13 @@ internal fun SettingsPanel(
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             when (tab) {
-                Tab.Danmaku -> DanmakuTab(
-                    state = danmaku,
-                    actions = danmakuActions,
-                    onOpenSearch = onOpenDanmakuSearch,
-                    onOpenSend = onOpenDanmakuSend,
-                )
+                Tab.Danmaku ->
+                    DanmakuTab(
+                        state = danmaku,
+                        actions = danmakuActions,
+                        onOpenSearch = onOpenDanmakuSearch,
+                        onOpenSend = onOpenDanmakuSend,
+                    )
 
                 Tab.Tracks -> {
                     if (state.subtitleTracks.isNotEmpty()) {
@@ -189,11 +187,12 @@ internal fun SettingsPanel(
                         }
                         GroupLabel("字幕时间偏移")
                         listOf(-5_000L, -2_000L, 0L, 2_000L, 5_000L).forEach { offset ->
-                            val label = when {
-                                offset < 0L -> "提前 ${-offset / 1000} 秒"
-                                offset > 0L -> "延后 ${offset / 1000} 秒"
-                                else -> "同步"
-                            }
+                            val label =
+                                when {
+                                    offset < 0L -> "提前 ${-offset / 1000} 秒"
+                                    offset > 0L -> "延后 ${offset / 1000} 秒"
+                                    else -> "同步"
+                                }
                             OptionRow(
                                 label,
                                 subtitleControls.offsetMs == offset,
@@ -224,9 +223,10 @@ internal fun SettingsPanel(
                     )
                     remoteSubtitles.results.forEach { result ->
                         OptionRow(
-                            label = listOf(result.label, result.detail)
-                                .filter(String::isNotBlank)
-                                .joinToString(" · "),
+                            label =
+                                listOf(result.label, result.detail)
+                                    .filter(String::isNotBlank)
+                                    .joinToString(" · "),
                             selected = remoteSubtitles.downloadingId == result.id,
                             onClick = { remoteSubtitleActions.onDownload(result.id) },
                         )
@@ -287,7 +287,6 @@ internal fun SettingsPanel(
                             color = Color.White.copy(alpha = 0.62f),
                         )
                     }
-
                 }
 
                 Tab.Advanced -> {
@@ -304,8 +303,9 @@ internal fun SettingsPanel(
                         // is how much of the episode is left — the same tap, counted
                         // from the other side. Zero when the duration is not known yet,
                         // which reads as "unset" rather than "starts at the very end".
-                        val leftFromHere = ((state.durationMs - state.positionMs) / 1000)
-                            .coerceAtLeast(0L)
+                        val leftFromHere =
+                            ((state.durationMs - state.positionMs) / 1000)
+                                .coerceAtLeast(0L)
                         OptionRow(
                             label = skipBoundaryLabel("片头开始", skip.introStartSeconds),
                             selected = skip.introStartSeconds > 0L,

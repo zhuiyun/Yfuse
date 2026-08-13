@@ -1,6 +1,7 @@
 package com.yfuse.watch.account
 
 import java.io.File
+import java.security.MessageDigest
 import java.util.Base64
 import java.util.Locale
 import java.util.UUID
@@ -14,6 +15,7 @@ internal enum class AccountProblem {
     NonceReused,
     RateLimited,
     RegistrationClosed,
+    InvitationInvalid,
     CurrentPasswordInvalid,
 }
 
@@ -58,7 +60,8 @@ class AccountBackend private constructor(
 
         /** Useful for local/test application instances; data intentionally dies with the process. */
         fun inMemory(
-            registrationPolicy: AccountRegistrationPolicy = AccountRegistrationPolicy(),
+            registrationPolicy: AccountRegistrationPolicy =
+                AccountRegistrationPolicy(enabled = true),
         ): AccountBackend = create(
             store = SqliteAccountStore.inMemory(),
             passwordHasher = Pbkdf2PasswordHasher(),
@@ -78,7 +81,8 @@ class AccountBackend private constructor(
             nonceHistoryRetentionMs: Long = 180L * 24 * 60 * 60_000L,
             nonceHistoryCleanupIntervalMs: Long = 60 * 60_000L,
             activeSessionsPerUserLimit: Int = 10,
-            registrationPolicy: AccountRegistrationPolicy = AccountRegistrationPolicy(),
+            registrationPolicy: AccountRegistrationPolicy =
+                AccountRegistrationPolicy(enabled = true),
         ): AccountBackend = create(
             store = SqliteAccountStore.inMemory(
                 nonceHistoryPerUserLimit = nonceHistoryPerUserLimit,
@@ -105,7 +109,8 @@ class AccountBackend private constructor(
             nonceHistoryRetentionMs: Long = 180L * 24 * 60 * 60_000L,
             nonceHistoryCleanupIntervalMs: Long = 60 * 60_000L,
             activeSessionsPerUserLimit: Int = 10,
-            registrationPolicy: AccountRegistrationPolicy = AccountRegistrationPolicy(),
+            registrationPolicy: AccountRegistrationPolicy =
+                AccountRegistrationPolicy(enabled = true),
         ): AccountBackend = create(
             store = SqliteAccountStore.open(
                 databaseFile,
@@ -156,19 +161,24 @@ internal class AccountService(
     private val accessTtlMs: Long = DEFAULT_ACCESS_TTL_MS,
     private val refreshTtlMs: Long = DEFAULT_REFRESH_TTL_MS,
 ) {
+    private val invitationDigests = registrationPolicy.invitationCodes.map(tokenFactory::digest)
+
     fun register(request: RegisterRequest): AuthResponse {
         if (!registrationPolicy.enabled) registrationClosed()
+        val invitationDigest = validateInvitation(request.inviteCode)
         val username = validateRegistrationUsername(request.username)
         val normalizedUsername = username.lowercase(Locale.ROOT)
-        when (
-            store.registrationAvailability(
-                normalizedUsername,
-                registrationPolicy.maxUsers,
-            )
-        ) {
-            RegistrationAvailability.Available -> Unit
-            RegistrationAvailability.UsernameUnavailable -> usernameUnavailable()
-            RegistrationAvailability.Closed -> registrationClosed()
+        if (invitationDigest == null) {
+            when (
+                store.registrationAvailability(
+                    normalizedUsername,
+                    registrationPolicy.maxUsers,
+                )
+            ) {
+                RegistrationAvailability.Available -> Unit
+                RegistrationAvailability.UsernameUnavailable -> usernameUnavailable()
+                RegistrationAvailability.Closed -> registrationClosed()
+            }
         }
         validateRegistrationPassword(request.password)
         val nickname = request.nickname?.let(::validateNickname) ?: username
@@ -195,17 +205,20 @@ internal class AccountService(
         val result = try {
             store.createUserWithSession(
                 credentials,
-                issued.asNewSession(user.id),
+                issued.asNewSession(user.id, validateDeviceName(request.deviceName)),
                 registrationPolicy.maxUsers,
+                invitationDigest,
             )
         } finally {
             digest.salt.fill(0)
             digest.hash.fill(0)
+            invitationDigest?.fill(0)
         }
         when (result) {
             RegistrationWriteResult.Created -> Unit
             RegistrationWriteResult.UsernameUnavailable -> usernameUnavailable()
             RegistrationWriteResult.Closed -> registrationClosed()
+            RegistrationWriteResult.InviteUnavailable -> invitationInvalid()
         }
         usernameFailureLimiter.clear(normalizedUsername)
         return issued.toResponse(user)
@@ -247,7 +260,9 @@ internal class AccountService(
 
         val now = clock()
         val issued = issueSession(now)
-        store.createSession(issued.asNewSession(credentials.user.id))
+        store.createSession(
+            issued.asNewSession(credentials.user.id, validateDeviceName(request.deviceName)),
+        )
         usernameFailureLimiter.clear(normalizedUsername)
         return issued.toResponse(credentials.user)
     }
@@ -259,7 +274,7 @@ internal class AccountService(
         val issued = issueSession(now)
         val session = store.rotateSessionByRefreshHash(
             currentRefreshHash = tokenFactory.digest(rawToken),
-            replacement = issued.asReplacement(),
+            replacement = issued.asReplacement(request.deviceName?.let(::validateDeviceName)),
             nowEpochMs = now,
         ) ?: unauthorized()
         return issued.toResponse(session.user)
@@ -273,6 +288,83 @@ internal class AccountService(
     }
 
     fun getProfile(accessToken: String): UserResponse = authenticate(accessToken).user.toResponse()
+
+    fun listSessions(accessToken: String): AccountSessionsResponse {
+        val authenticated = authenticate(accessToken)
+        return AccountSessionsResponse(
+            store.listActiveSessions(authenticated.user.id, clock()).map { session ->
+                AccountSessionResponse(
+                    id = session.id,
+                    deviceName = session.deviceName,
+                    createdAtEpochMs = session.createdAtEpochMs,
+                    lastSeenAtEpochMs = session.lastSeenAtEpochMs,
+                    current = session.id == authenticated.sessionId,
+                )
+            },
+        )
+    }
+
+    fun revokeSession(accessToken: String, sessionId: String) {
+        val authenticated = authenticate(accessToken)
+        if (!SESSION_ID_PATTERN.matches(sessionId)) {
+            invalidRequest("session_id_invalid", "会话编号无效")
+        }
+        if (!store.revokeSession(authenticated.user.id, sessionId, clock())) {
+            invalidRequest("session_not_found", "设备会话不存在或已退出")
+        }
+    }
+
+    fun revokeOtherSessions(accessToken: String) {
+        val authenticated = authenticate(accessToken)
+        store.revokeOtherSessions(authenticated.user.id, authenticated.sessionId, clock())
+    }
+
+    fun revokeAllSessions(accessToken: String) {
+        val authenticated = authenticate(accessToken)
+        store.revokeAllSessions(authenticated.user.id, clock())
+    }
+
+    fun exportAccount(accessToken: String): AccountExportResponse {
+        val authenticated = authenticate(accessToken)
+        return AccountExportResponse(
+            schemaVersion = 1,
+            exportedAtEpochMs = clock(),
+            user = authenticated.user.toResponse(),
+            encryptedSync = store.getSyncState(authenticated.user.id).toResponse(),
+        )
+    }
+
+    fun deleteAccount(accessToken: String, request: DeleteAccountRequest) {
+        val authenticated = authenticate(accessToken)
+        if (!isPlausiblePassword(request.password)) currentPasswordInvalid()
+        val credentials = store.findCredentialsByUserId(authenticated.user.id) ?: unauthorized()
+        val digest = PasswordDigest(
+            credentials.passwordSalt,
+            credentials.passwordHash,
+            credentials.passwordIterations,
+        )
+        val verified = passwordHasher.verify(request.password, digest)
+        if (!verified) {
+            digest.wipe()
+            currentPasswordInvalid()
+        }
+        val result = try {
+            store.deleteUser(
+                userId = authenticated.user.id,
+                expectedCurrent = digest,
+                authenticatedSessionId = authenticated.sessionId,
+                nowEpochMs = clock(),
+            )
+        } finally {
+            digest.wipe()
+        }
+        when (result) {
+            DeleteAccountWriteResult.Deleted ->
+                usernameFailureLimiter.clear(authenticated.user.normalizedUsername)
+            DeleteAccountWriteResult.CredentialsChanged -> currentPasswordInvalid()
+            DeleteAccountWriteResult.SessionInvalid -> unauthorized()
+        }
+    }
 
     fun updateProfile(accessToken: String, request: UpdateProfileRequest): UserResponse {
         if (request.nickname == null && request.avatarId == null) {
@@ -336,7 +428,10 @@ internal class AccountService(
                 replacement = replacementDigest,
                 expectedSyncVersion = request.expectedSyncVersion,
                 replacementWrap = replacementWrap,
-                replacementSession = issued.asNewSession(user.id),
+                replacementSession = issued.asNewSession(
+                    user.id,
+                    validateDeviceName(request.deviceName),
+                ),
                 updatedAtEpochMs = now,
             )
         } finally {
@@ -657,6 +752,30 @@ internal class AccountService(
         return value
     }
 
+    private fun validateDeviceName(raw: String?): String {
+        val value = raw?.trim().orEmpty().ifBlank { DEFAULT_DEVICE_NAME }
+        if (value.length > MAX_DEVICE_NAME_CHARS || value.any(Character::isISOControl)) {
+            invalidRequest("device_name_invalid", "设备名称无效")
+        }
+        return value
+    }
+
+    private fun validateInvitation(raw: String?): ByteArray? {
+        if (invitationDigests.isEmpty()) return null
+        val value = raw?.trim().orEmpty()
+        if (!INVITE_PATTERN.matches(value)) invitationInvalid()
+        val digest = tokenFactory.digest(value)
+        var matched = false
+        invitationDigests.forEach { configured ->
+            matched = MessageDigest.isEqual(configured, digest) || matched
+        }
+        if (!matched) {
+            digest.fill(0)
+            invitationInvalid()
+        }
+        return digest
+    }
+
     private fun enforceRateLimit(decision: RateLimitDecision) {
         if (decision is RateLimitDecision.Limited) {
             throw AccountServiceException(
@@ -691,6 +810,12 @@ internal class AccountService(
         safeMessage = "暂不开放新账号注册",
     )
 
+    private fun invitationInvalid(): Nothing = throw AccountServiceException(
+        problem = AccountProblem.InvitationInvalid,
+        safeCode = "invite_invalid",
+        safeMessage = "邀请码无效或已使用",
+    )
+
     private fun currentPasswordInvalid(): Nothing = throw AccountServiceException(
         problem = AccountProblem.CurrentPasswordInvalid,
         safeCode = "current_password_invalid",
@@ -717,7 +842,7 @@ internal class AccountService(
         val refreshExpiresAtEpochMs: Long,
         val createdAtEpochMs: Long,
     ) {
-        fun asNewSession(userId: String): NewSession = NewSession(
+        fun asNewSession(userId: String, deviceName: String): NewSession = NewSession(
             id = id,
             userId = userId,
             accessTokenHash = access.hash,
@@ -725,15 +850,17 @@ internal class AccountService(
             accessExpiresAtEpochMs = accessExpiresAtEpochMs,
             refreshExpiresAtEpochMs = refreshExpiresAtEpochMs,
             createdAtEpochMs = createdAtEpochMs,
+            deviceName = deviceName,
         )
 
-        fun asReplacement(): SessionReplacement = SessionReplacement(
+        fun asReplacement(deviceName: String?): SessionReplacement = SessionReplacement(
             id = id,
             accessTokenHash = access.hash,
             refreshTokenHash = refresh.hash,
             accessExpiresAtEpochMs = accessExpiresAtEpochMs,
             refreshExpiresAtEpochMs = refreshExpiresAtEpochMs,
             createdAtEpochMs = createdAtEpochMs,
+            deviceName = deviceName,
         )
 
         fun toResponse(user: StoredUser): AuthResponse = AuthResponse(
@@ -767,6 +894,8 @@ internal class AccountService(
         private const val MAX_PASSWORD_BYTES = 512
         private const val MAX_NICKNAME_GRAPHEMES = 24
         private const val MAX_NICKNAME_BYTES = 128
+        private const val MAX_DEVICE_NAME_CHARS = 64
+        private const val DEFAULT_DEVICE_NAME = "Yfuse 设备"
         private const val AVATAR_COUNT = 8
         private const val SYNC_SCHEMA_VERSION = 1
         private const val SYNC_ALGORITHM = "AES-256-GCM"
@@ -780,6 +909,8 @@ internal class AccountService(
         private const val MIN_WRAP_ITERATIONS = 100_000
         private const val MAX_WRAP_ITERATIONS = 2_000_000
         private val USERNAME_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9_.-]{2,39}")
+        private val INVITE_PATTERN = Regex("[A-Za-z0-9_-]{12,128}")
+        private val SESSION_ID_PATTERN = Regex("[0-9a-fA-F-]{36}")
         private val GRAPHEME_REGEX = Regex("\\X")
         private val BASE64_URL_PATTERN = Regex("[A-Za-z0-9_-]+")
         private val base64Decoder = Base64.getUrlDecoder()

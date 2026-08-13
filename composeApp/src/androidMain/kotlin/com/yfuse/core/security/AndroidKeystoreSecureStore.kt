@@ -32,111 +32,123 @@ class AndroidKeystoreSecureStore(
     private val namespace = validateNamespace(namespace)
     private val entryPrefix = "$SETTINGS_PREFIX${this.namespace}."
     private val keyAlias = "$KEY_ALIAS_PREFIX${sha256Hex(this.namespace)}"
+
     // All instances share a lock so clear() cannot rotate a namespace key between another
     // instance encrypting a value and persisting its ciphertext.
     private val lock = STORE_LOCK
 
-    override fun get(key: String): ByteArray? = synchronized(lock) {
-        val normalizedKey = validateEntryKey(key)
-        val encoded = settings.getStringOrNull(storageKey(normalizedKey)) ?: return@synchronized null
-        val envelope = try {
-            require(encoded.length <= MAX_STORED_BASE64_CHARS) {
-                "Secure-store value is too large"
+    override fun get(key: String): ByteArray? =
+        synchronized(lock) {
+            val normalizedKey = validateEntryKey(key)
+            val encoded = settings.getStringOrNull(storageKey(normalizedKey)) ?: return@synchronized null
+            val envelope =
+                try {
+                    require(encoded.length <= MAX_STORED_BASE64_CHARS) {
+                        "Secure-store value is too large"
+                    }
+                    SecureStoreEnvelopeCodec.decode(Base64.getDecoder().decode(encoded))
+                } catch (error: IllegalArgumentException) {
+                    throw SecureStoreCorruptedException("Secure-store value is malformed", error)
+                }
+            try {
+                Cipher.getInstance(TRANSFORMATION).run {
+                    init(
+                        Cipher.DECRYPT_MODE,
+                        getOrCreateMasterKey(),
+                        GCMParameterSpec(GCM_TAG_SIZE_BITS, envelope.nonce),
+                    )
+                    updateAAD(entryAad(normalizedKey))
+                    doFinal(envelope.ciphertext)
+                }
+            } catch (error: AEADBadTagException) {
+                throw SecureStoreCorruptedException(cause = error)
+            } catch (error: BadPaddingException) {
+                throw SecureStoreCorruptedException(cause = error)
+            } catch (error: GeneralSecurityException) {
+                throw SecureStoreException("Secure-store decryption failed", error)
             }
-            SecureStoreEnvelopeCodec.decode(Base64.getDecoder().decode(encoded))
-        } catch (error: IllegalArgumentException) {
-            throw SecureStoreCorruptedException("Secure-store value is malformed", error)
         }
-        try {
-            Cipher.getInstance(TRANSFORMATION).run {
-                init(
-                    Cipher.DECRYPT_MODE,
-                    getOrCreateMasterKey(),
-                    GCMParameterSpec(GCM_TAG_SIZE_BITS, envelope.nonce),
-                )
-                updateAAD(entryAad(normalizedKey))
-                doFinal(envelope.ciphertext)
-            }
-        } catch (error: AEADBadTagException) {
-            throw SecureStoreCorruptedException(cause = error)
-        } catch (error: BadPaddingException) {
-            throw SecureStoreCorruptedException(cause = error)
-        } catch (error: GeneralSecurityException) {
-            throw SecureStoreException("Secure-store decryption failed", error)
-        }
-    }
 
-    override fun put(key: String, value: ByteArray) = synchronized(lock) {
+    override fun put(
+        key: String,
+        value: ByteArray,
+    ) = synchronized(lock) {
         val normalizedKey = validateEntryKey(key)
         require(value.size <= MAX_PLAINTEXT_SIZE_BYTES) {
             "Secure-store values are limited to $MAX_PLAINTEXT_SIZE_BYTES bytes"
         }
-        val envelope = try {
-            Cipher.getInstance(TRANSFORMATION).run {
-                init(Cipher.ENCRYPT_MODE, getOrCreateMasterKey())
-                updateAAD(entryAad(normalizedKey))
-                val encrypted = doFinal(value)
-                SecureStoreEnvelope(nonce = iv, ciphertext = encrypted)
+        val envelope =
+            try {
+                Cipher.getInstance(TRANSFORMATION).run {
+                    init(Cipher.ENCRYPT_MODE, getOrCreateMasterKey())
+                    updateAAD(entryAad(normalizedKey))
+                    val encrypted = doFinal(value)
+                    SecureStoreEnvelope(nonce = iv, ciphertext = encrypted)
+                }
+            } catch (error: GeneralSecurityException) {
+                throw SecureStoreException("Secure-store encryption failed", error)
             }
-        } catch (error: GeneralSecurityException) {
-            throw SecureStoreException("Secure-store encryption failed", error)
-        }
         val encoded = Base64.getEncoder().encodeToString(SecureStoreEnvelopeCodec.encode(envelope))
         settings.putString(storageKey(normalizedKey), encoded)
     }
 
-    override fun remove(key: String): Boolean = synchronized(lock) {
-        val storedKey = storageKey(validateEntryKey(key))
-        val existed = storedKey in settings.keys
-        settings.remove(storedKey)
-        existed
-    }
-
-    override fun clear() = synchronized(lock) {
-        settings.keys
-            .filter { it.startsWith(entryPrefix) }
-            .forEach(settings::remove)
-        try {
-            synchronized(KEYSTORE_LOCK) {
-                androidKeyStore().run {
-                    if (containsAlias(keyAlias)) deleteEntry(keyAlias)
-                }
-            }
-        } catch (error: GeneralSecurityException) {
-            throw SecureStoreException("Secure-store key could not be deleted", error)
+    override fun remove(key: String): Boolean =
+        synchronized(lock) {
+            val storedKey = storageKey(validateEntryKey(key))
+            val existed = storedKey in settings.keys
+            settings.remove(storedKey)
+            existed
         }
-    }
+
+    override fun clear() =
+        synchronized(lock) {
+            settings.keys
+                .filter { it.startsWith(entryPrefix) }
+                .forEach(settings::remove)
+            try {
+                synchronized(KEYSTORE_LOCK) {
+                    androidKeyStore().run {
+                        if (containsAlias(keyAlias)) deleteEntry(keyAlias)
+                    }
+                }
+            } catch (error: GeneralSecurityException) {
+                throw SecureStoreException("Secure-store key could not be deleted", error)
+            }
+        }
 
     private fun storageKey(key: String): String = entryPrefix + sha256Hex(key)
 
     private fun entryAad(key: String): ByteArray =
         "$AAD_PREFIX\u0000$namespace\u0000$key".toByteArray(StandardCharsets.UTF_8)
 
-    private fun getOrCreateMasterKey(): SecretKey = synchronized(KEYSTORE_LOCK) {
-        val keyStore = androidKeyStore()
-        (keyStore.getKey(keyAlias, null) as? SecretKey) ?: run {
-            val generator = KeyGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_AES,
-                ANDROID_KEYSTORE,
-            )
-            generator.init(
-                KeyGenParameterSpec.Builder(
-                    keyAlias,
-                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+    private fun getOrCreateMasterKey(): SecretKey =
+        synchronized(KEYSTORE_LOCK) {
+            val keyStore = androidKeyStore()
+            (keyStore.getKey(keyAlias, null) as? SecretKey) ?: run {
+                val generator =
+                    KeyGenerator.getInstance(
+                        KeyProperties.KEY_ALGORITHM_AES,
+                        ANDROID_KEYSTORE,
+                    )
+                generator.init(
+                    KeyGenParameterSpec
+                        .Builder(
+                            keyAlias,
+                            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                        ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .setKeySize(VaultCrypto.AES_KEY_SIZE_BYTES * Byte.SIZE_BITS)
+                        .setRandomizedEncryptionRequired(true)
+                        .build(),
                 )
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .setKeySize(VaultCrypto.AES_KEY_SIZE_BYTES * Byte.SIZE_BITS)
-                    .setRandomizedEncryptionRequired(true)
-                    .build(),
-            )
-            generator.generateKey()
+                generator.generateKey()
+            }
         }
-    }
 
-    private fun androidKeyStore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply {
-        load(null)
-    }
+    private fun androidKeyStore(): KeyStore =
+        KeyStore.getInstance(ANDROID_KEYSTORE).apply {
+            load(null)
+        }
 
     companion object {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
@@ -151,21 +163,24 @@ class AndroidKeystoreSecureStore(
         private val STORE_LOCK = Any()
         private val KEYSTORE_LOCK = Any()
 
-        private fun validateNamespace(value: String): String = value.also {
-            require(VALID_NAMESPACE.matches(it)) {
-                "Secure-store namespace must match ${VALID_NAMESPACE.pattern}"
+        private fun validateNamespace(value: String): String =
+            value.also {
+                require(VALID_NAMESPACE.matches(it)) {
+                    "Secure-store namespace must match ${VALID_NAMESPACE.pattern}"
+                }
             }
-        }
 
-        private fun validateEntryKey(value: String): String = value.also {
-            val size = it.toByteArray(StandardCharsets.UTF_8).size
-            require(it.isNotBlank() && size <= 256) {
-                "Secure-store key must contain 1..256 UTF-8 bytes"
+        private fun validateEntryKey(value: String): String =
+            value.also {
+                val size = it.toByteArray(StandardCharsets.UTF_8).size
+                require(it.isNotBlank() && size <= 256) {
+                    "Secure-store key must contain 1..256 UTF-8 bytes"
+                }
             }
-        }
 
         private fun sha256Hex(value: String): String =
-            MessageDigest.getInstance("SHA-256")
+            MessageDigest
+                .getInstance("SHA-256")
                 .digest(value.toByteArray(StandardCharsets.UTF_8))
                 .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
     }
@@ -189,7 +204,8 @@ internal object SecureStoreEnvelopeCodec {
         require(value.ciphertext.size in TAG_SIZE_BYTES..MAX_CIPHERTEXT_SIZE_BYTES) {
             "Invalid secure-store ciphertext size"
         }
-        return ByteBuffer.allocate(HEADER_SIZE_BYTES + value.nonce.size + value.ciphertext.size)
+        return ByteBuffer
+            .allocate(HEADER_SIZE_BYTES + value.nonce.size + value.ciphertext.size)
             .put(MAGIC)
             .put(VERSION)
             .put(value.nonce.size.toByte())

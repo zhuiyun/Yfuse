@@ -7,6 +7,15 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!--
+      Android 16's opt-in local-network protection, and the future enforced model, gate
+      Emby UDP broadcast discovery plus DLNA/SSDP behind the Nearby devices permission.
+      Discovery code checks this permission before opening a socket so denial never breaks
+      ordinary HTTPS playback or manual server entry.
+    -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -18,6 +27,7 @@
         android:name="android.hardware.camera"
         android:required="false" />
 
+    <!-- Product decision: retain the classic back behaviour; predictive animations are off. -->
     <application
         android:name="com.yfuse.YfuseApp"
         android:allowBackup="false"

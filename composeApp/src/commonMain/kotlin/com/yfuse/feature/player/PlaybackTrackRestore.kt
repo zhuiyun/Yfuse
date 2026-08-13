@@ -7,22 +7,23 @@ internal data class TrackRestorePreference(
     val codec: String?,
 )
 
-internal fun EngineTrack.toRestorePreference(): TrackRestorePreference = TrackRestorePreference(
-    language = language?.trim()?.takeIf(String::isNotEmpty),
-    label = label.trim(),
-    codec = codec?.trim()?.takeIf(String::isNotEmpty),
-)
+internal fun EngineTrack.toRestorePreference(): TrackRestorePreference =
+    TrackRestorePreference(
+        language = language?.trim()?.takeIf(String::isNotEmpty),
+        label = label.trim(),
+        codec = codec?.trim()?.takeIf(String::isNotEmpty),
+    )
 
 /**
  * Track ids are engine- and version-local. Prefer language, then narrow equal-language
  * candidates with label/codec; fall back to exact metadata only when language is absent.
  */
-internal fun List<EngineTrack>.bestRestoreMatch(
-    preference: TrackRestorePreference,
-): EngineTrack? {
-    val languageMatches = preference.language?.let { language ->
-        filter { it.language.equals(language, ignoreCase = true) }
-    }.orEmpty()
+internal fun List<EngineTrack>.bestRestoreMatch(preference: TrackRestorePreference): EngineTrack? {
+    val languageMatches =
+        preference.language
+            ?.let { language ->
+                filter { it.language.equals(language, ignoreCase = true) }
+            }.orEmpty()
     if (languageMatches.isEmpty()) {
         return firstOrNull { it.label.equals(preference.label, ignoreCase = true) }
     }

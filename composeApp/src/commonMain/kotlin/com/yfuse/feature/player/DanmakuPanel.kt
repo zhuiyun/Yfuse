@@ -1,25 +1,19 @@
 package com.yfuse.feature.player
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -55,7 +49,6 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
 
 /**
@@ -151,11 +144,12 @@ private data class DanmakuDisplayPreset(
     val opacityIndex: Int,
 )
 
-private val DanmakuDisplayPresets = listOf(
-    DanmakuDisplayPreset("轻量", "1/4 · 小 · 慢 · 50%", 0, 0, 0, 0),
-    DanmakuDisplayPreset("标准", "1/2 · 标准 · 标准 · 75%", 1, 1, 1, 1),
-    DanmakuDisplayPreset("热闹", "3/4 · 大 · 快 · 100%", 2, 2, 2, 2),
-)
+private val DanmakuDisplayPresets =
+    listOf(
+        DanmakuDisplayPreset("轻量", "1/4 · 小 · 慢 · 50%", 0, 0, 0, 0),
+        DanmakuDisplayPreset("标准", "1/2 · 标准 · 标准 · 75%", 1, 1, 1, 1),
+        DanmakuDisplayPreset("热闹", "3/4 · 大 · 快 · 100%", 2, 2, 2, 2),
+    )
 
 private fun DanmakuDisplayPreset.isSelected(state: DanmakuPanelState): Boolean =
     state.areaOptions.getOrNull(areaIndex)?.second == true &&
@@ -361,74 +355,79 @@ internal fun DanmakuSearchPanel(
         }
 
         when {
-            search.running -> Box(
-                Modifier.fillMaxWidth().padding(vertical = 30.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(
-                    Modifier.size(22.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                )
-            }
+            search.running ->
+                Box(
+                    Modifier.fillMaxWidth().padding(vertical = 30.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        Modifier.size(22.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                    )
+                }
 
             search.error != null -> PanelNote(search.error, DarkPalette.error)
 
-            search.openResult != null -> if (search.episodes.isEmpty()) {
-                PanelNote("这个作品下没有可用的集", Color.White.copy(alpha = 0.5f))
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(search.episodes, key = { it.episodeId }) { episode ->
+            search.openResult != null ->
+                if (search.episodes.isEmpty()) {
+                    PanelNote("这个作品下没有可用的集", Color.White.copy(alpha = 0.5f))
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(search.episodes, key = { it.episodeId }) { episode ->
+                            SearchRow(
+                                title = episode.title,
+                                subtitle = null,
+                                onClick = { actions.onPickEpisode(episode) },
+                            )
+                        }
+                    }
+                }
+
+            search.results.isNotEmpty() ->
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(search.results, key = { it.animeId }) { result ->
                         SearchRow(
-                            title = episode.title,
-                            subtitle = null,
-                            onClick = { actions.onPickEpisode(episode) },
+                            title = result.title,
+                            subtitle = result.subtitle.takeIf { it.isNotBlank() },
+                            onClick = { actions.onOpenResult(result) },
                         )
                     }
                 }
-            }
-
-            search.results.isNotEmpty() -> LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                items(search.results, key = { it.animeId }) { result ->
-                    SearchRow(
-                        title = result.title,
-                        subtitle = result.subtitle.takeIf { it.isNotBlank() },
-                        onClick = { actions.onOpenResult(result) },
-                    )
-                }
-            }
 
             search.searched -> PanelNote("没有搜到这个名字", Color.White.copy(alpha = 0.5f))
 
-            search.recent.isNotEmpty() -> Column(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                // The same show, next episode, tomorrow night. Retyping a title on a
-                // landscape keyboard is the sort of chore a list of eight strings removes.
-                Text(
-                    "最近搜索",
-                    style = AppTypography.caption.medium,
-                    color = Color.White.copy(alpha = 0.42f),
-                    modifier = Modifier.padding(vertical = 2.dp),
-                )
-                search.recent.forEach { keyword ->
-                    SearchRow(
-                        title = keyword,
-                        subtitle = null,
-                        onClick = {
-                            actions.onQueryChange(keyword)
-                            actions.onSubmitSearch()
-                        },
+            search.recent.isNotEmpty() ->
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    // The same show, next episode, tomorrow night. Retyping a title on a
+                    // landscape keyboard is the sort of chore a list of eight strings removes.
+                    Text(
+                        "最近搜索",
+                        style = AppTypography.caption.medium,
+                        color = Color.White.copy(alpha = 0.42f),
+                        modifier = Modifier.padding(vertical = 2.dp),
                     )
+                    search.recent.forEach { keyword ->
+                        SearchRow(
+                            title = keyword,
+                            subtitle = null,
+                            onClick = {
+                                actions.onQueryChange(keyword)
+                                actions.onSubmitSearch()
+                            },
+                        )
+                    }
                 }
-            }
 
-            else -> PanelNote(
-                "输入片名后搜索，选中的集会记住，下次进入这一集直接用。",
-                Color.White.copy(alpha = 0.5f),
-            )
+            else ->
+                PanelNote(
+                    "输入片名后搜索，选中的集会记住，下次进入这一集直接用。",
+                    Color.White.copy(alpha = 0.5f),
+                )
         }
     }
 }
@@ -508,8 +507,7 @@ private fun SearchField(
                 shape = AppShapes.control,
                 fill = Color.White.copy(alpha = 0.08f),
                 border = Color.White.copy(alpha = 0.20f),
-            )
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            ).padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -545,25 +543,33 @@ private fun SearchField(
 }
 
 @Composable
-private fun SourceChip(label: String, active: Boolean, onClick: () -> Unit) {
+private fun SourceChip(
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
     Text(
         label,
         style = if (active) AppTypography.caption.strong else AppTypography.caption.medium,
         color = if (active) Color.White else Color.White.copy(alpha = 0.62f),
         maxLines = 1,
-        modifier = Modifier
-            .glass(
-                shape = CircleShape,
-                fill = if (active) Color.White.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.06f),
-                border = Color.White.copy(alpha = if (active) 0.30f else 0.12f),
-            )
-            .noRippleClickable(onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier =
+            Modifier
+                .glass(
+                    shape = CircleShape,
+                    fill = if (active) Color.White.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.06f),
+                    border = Color.White.copy(alpha = if (active) 0.30f else 0.12f),
+                ).noRippleClickable(onClick)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
 
 @Composable
-private fun SearchRow(title: String, subtitle: String?, onClick: () -> Unit) {
+private fun SearchRow(
+    title: String,
+    subtitle: String?,
+    onClick: () -> Unit,
+) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -571,8 +577,7 @@ private fun SearchRow(title: String, subtitle: String?, onClick: () -> Unit) {
                 shape = GlassShapes.thumb,
                 fill = Color.White.copy(alpha = 0.06f),
                 border = Color.White.copy(alpha = 0.12f),
-            )
-            .noRippleClickable(onClick)
+            ).noRippleClickable(onClick)
             .padding(horizontal = 10.dp, vertical = 9.dp),
     ) {
         Text(
@@ -590,7 +595,10 @@ private fun SearchRow(title: String, subtitle: String?, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PanelNote(text: String, color: Color) {
+private fun PanelNote(
+    text: String,
+    color: Color,
+) {
     Text(
         text,
         style = AppTypography.caption.medium,

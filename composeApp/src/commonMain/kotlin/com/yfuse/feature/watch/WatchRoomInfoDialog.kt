@@ -28,12 +28,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
@@ -71,9 +71,10 @@ fun WatchRoomInfoDialog(
     }
     LaunchedEffect(mediaKey) {
         val key = mediaKey ?: return@LaunchedEffect
-        resolution = resolver.resolve(
-            WatchInvite(roomCode = state.roomCode.orEmpty(), mediaKey = key),
-        )
+        resolution =
+            resolver.resolve(
+                WatchInvite(roomCode = state.roomCode.orEmpty(), mediaKey = key),
+            )
     }
 
     GlassDialog(onDismiss = onDismiss) {
@@ -126,16 +127,16 @@ fun WatchRoomInfoDialog(
                     style = AppTypography.body.strong,
                     color = accent.accent,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pressable(onClickLabel = "进入房间") {
-                            onDismiss()
-                            onEnter()
-                        }
-                        .touchTarget()
-                        .clip(GlassShapes.chip)
-                        .background(accent.container)
-                        .padding(vertical = 11.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .pressable(onClickLabel = "进入房间") {
+                                onDismiss()
+                                onEnter()
+                            }.touchTarget()
+                            .clip(GlassShapes.chip)
+                            .background(accent.container)
+                            .padding(vertical = 11.dp),
                 )
             }
         }
@@ -143,28 +144,35 @@ fun WatchRoomInfoDialog(
 }
 
 @Composable
-private fun NowWatching(mediaKey: String?, resolution: InviteResolution) {
+private fun NowWatching(
+    mediaKey: String?,
+    resolution: InviteResolution,
+) {
     val palette = LocalPalette.current
     val coordinate = mediaKey?.let(::parseEpisodeWatchKey)
     // What can be said from the key alone, for every case the lookup cannot improve on.
-    val fromKey = when {
-        mediaKey == null -> "房间还没有开始播放"
-        coordinate != null -> "第 ${coordinate.seasonNumber} 季 第 ${coordinate.episodeNumber} 集"
-        else -> mediaKey
-    }
-    val title = when (resolution) {
-        is InviteResolution.Found -> resolution.title
-        is InviteResolution.Missing -> resolution.title ?: "本机的服务器没有这个片子"
-        is InviteResolution.Failed -> fromKey
-        InviteResolution.Resolving -> if (mediaKey == null) fromKey else "正在识别…"
-    }
-    val subtitle = when (resolution) {
-        is InviteResolution.Found -> listOfNotNull(
-            resolution.subtitle,
-            resolution.serverName,
-        ).joinToString(" · ")
-        else -> fromKey
-    }
+    val fromKey =
+        when {
+            mediaKey == null -> "房间还没有开始播放"
+            coordinate != null -> "第 ${coordinate.seasonNumber} 季 第 ${coordinate.episodeNumber} 集"
+            else -> mediaKey
+        }
+    val title =
+        when (resolution) {
+            is InviteResolution.Found -> resolution.title
+            is InviteResolution.Missing -> resolution.title ?: "本机的服务器没有这个片子"
+            is InviteResolution.Failed -> fromKey
+            InviteResolution.Resolving -> if (mediaKey == null) fromKey else "正在识别…"
+        }
+    val subtitle =
+        when (resolution) {
+            is InviteResolution.Found ->
+                listOfNotNull(
+                    resolution.subtitle,
+                    resolution.serverName,
+                ).joinToString(" · ")
+            else -> fromKey
+        }
     val poster = (resolution as? InviteResolution.Found)?.posterUrl
 
     Row(
@@ -254,7 +262,10 @@ private fun ParticipantRow(participant: WatchParticipant) {
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
+private fun InfoRow(
+    label: String,
+    value: String,
+) {
     val palette = LocalPalette.current
     Row(
         Modifier.fillMaxWidth(),
@@ -276,5 +287,4 @@ private fun InfoRow(label: String, value: String) {
 }
 
 /** 共同控制 says nothing about *this* device, and whether it holds control is the useful half. */
-private fun WatchControlMode.describe(canControl: Boolean): String =
-    label + if (canControl) " · 我可控制" else " · 我不可控制"
+private fun WatchControlMode.describe(canControl: Boolean): String = label + if (canControl) " · 我可控制" else " · 我不可控制"

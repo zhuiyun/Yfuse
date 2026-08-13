@@ -8,12 +8,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,12 +27,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,23 +58,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.app.TabBarInset
+import com.yfuse.app.floatingNavigationContentInset
+import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ThemePreferences
-import com.yfuse.core.data.ServerHealth
-import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
+import com.yfuse.core.designsystem.AccentColor
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.AccentColor
-import com.yfuse.core.designsystem.Brand
-import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
@@ -86,28 +82,26 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
-import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
-import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayOptionSpacing
-import com.yfuse.core.designsystem.SettingTint
-import com.yfuse.core.designsystem.shadow
-import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.ReportOverlayVisible
+import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.SplashPreview
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.ThemeMode
-import com.yfuse.core.designsystem.flatGlass as glass
-import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.serverBadgeColor
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.WindowWidthTier
+import com.yfuse.core.designsystem.defaultAnimation
+import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.sync.ServerSyncManager
@@ -115,6 +109,7 @@ import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
 import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.flatGlass as glass
 
 /** Which option sheet is open — the prototype's `settingsSheetTab`. */
 private enum class Sheet {
@@ -122,7 +117,6 @@ private enum class Sheet {
     // and [AccentPickerRow] — so they no longer have sheets of their own.
     StartupTab,
     Background,
-    AppIcon,
     Engine,
     Decoder,
     DanmakuSource,
@@ -133,7 +127,10 @@ private enum class Sheet {
     WatchProfile,
     WatchEndpoint,
     VideoCache,
+    WifiQuality,
+    CellularQuality,
 }
+
 private enum class ProfilePage {
     Root,
     Account,
@@ -170,6 +167,14 @@ fun ProfileScreen(component: ProfileComponent) {
     // is the truth, and it survives a reinstall of the app's own settings.
     var appIcon by remember { mutableStateOf(currentAppIconVariant()) }
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
+    val smartCrossServerSource by
+        component.playbackPreferences.smartCrossServerSource.collectAsState()
+    val wifiQualityCap by component.playbackPreferences.wifiQualityCap.collectAsState()
+    val cellularQualityCap by component.playbackPreferences.cellularQualityCap.collectAsState()
+    val autoQualityDowngrade by
+        component.playbackPreferences.autoQualityDowngrade.collectAsState()
+    val qualityLocked by component.playbackPreferences.qualityLocked.collectAsState()
+    val resumePrompt by component.playbackPreferences.resumePrompt.collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
@@ -197,8 +202,10 @@ fun ProfileScreen(component: ProfileComponent) {
     }
     val palette = LocalPalette.current
     val mainListState = rememberLazyListState()
+    val rootBottomContentInset = floatingNavigationContentInset()
     ScrollToTopOnReselect(mainListState)
     val screenScope = rememberCoroutineScope()
+
     fun openPage(target: ProfilePage) {
         pageStack = pageStack + target.name
     }
@@ -211,9 +218,10 @@ fun ProfileScreen(component: ProfileComponent) {
     ReportOverlayVisible(enabled = pageStack.isNotEmpty())
 
     Box(Modifier.fillMaxSize()) {
-        val navigationBackStack = remember(pageStack) {
-            listOf(ProfilePage.Root) + pageStack.map(ProfilePage::valueOf)
-        }
+        val navigationBackStack =
+            remember(pageStack) {
+                listOf(ProfilePage.Root) + pageStack.map(ProfilePage::valueOf)
+            }
         OfficialNavDisplay(
             backStack = navigationBackStack,
             onBack = ::closePage,
@@ -221,32 +229,51 @@ fun ProfileScreen(component: ProfileComponent) {
             modifier = Modifier.fillMaxSize(),
         ) { activePage ->
             when (activePage) {
-                        ProfilePage.Account -> AccountSettingsScreen(
-                            account = component.account,
-                            onBack = ::closePage,
-                        )
+                ProfilePage.Account ->
+                    AccountSettingsScreen(
+                        account = component.account,
+                        onBack = ::closePage,
+                    )
 
-                        ProfilePage.Playback -> PlaybackSettingsScreen(
-                            onBack = ::closePage,
-                            engine = engine,
-                            decoder = decoder,
-                            autoNext = autoNext,
-                            videoCacheSize = videoCacheSize,
-                            skipSegments = if (skipTimesBySeries.isEmpty()) {
+                ProfilePage.Playback ->
+                    PlaybackSettingsScreen(
+                        onBack = ::closePage,
+                        engine = engine,
+                        decoder = decoder,
+                        autoNext = autoNext,
+                        smartCrossServerSource = smartCrossServerSource,
+                        wifiQualityCap = wifiQualityCap,
+                        cellularQualityCap = cellularQualityCap,
+                        autoQualityDowngrade = autoQualityDowngrade,
+                        qualityLocked = qualityLocked,
+                        resumePrompt = resumePrompt,
+                        videoCacheSize = videoCacheSize,
+                        skipSegments =
+                            if (skipTimesBySeries.isEmpty()) {
                                 "${skipMode.label} · 跟随服务器 ›"
                             } else {
                                 "${skipMode.label} ›"
                             },
-                            onEngine = { sheet = Sheet.Engine },
-                            onDecoder = { sheet = Sheet.Decoder },
-                            onAutoNext = prefs::setAutoNext,
-                            onVideoCache = { sheet = Sheet.VideoCache },
-                            onSkipSegments = { sheet = Sheet.SkipSegments },
-                        )
+                        onEngine = { sheet = Sheet.Engine },
+                        onDecoder = { sheet = Sheet.Decoder },
+                        onAutoNext = prefs::setAutoNext,
+                        onSmartCrossServerSource =
+                            component.playbackPreferences::setSmartCrossServerSource,
+                        onWifiQuality = { sheet = Sheet.WifiQuality },
+                        onCellularQuality = { sheet = Sheet.CellularQuality },
+                        onAutoQualityDowngrade =
+                            component.playbackPreferences::setAutoQualityDowngrade,
+                        onQualityLocked = component.playbackPreferences::setQualityLocked,
+                        onResumePrompt = component.playbackPreferences::setResumePrompt,
+                        onVideoCache = { sheet = Sheet.VideoCache },
+                        onSkipSegments = { sheet = Sheet.SkipSegments },
+                    )
 
-                        ProfilePage.Danmaku -> DanmakuSettingsScreen(
-                            onBack = ::closePage,
-                            sourceSummary = when (danmakuSources.size) {
+                ProfilePage.Danmaku ->
+                    DanmakuSettingsScreen(
+                        onBack = ::closePage,
+                        sourceSummary =
+                            when (danmakuSources.size) {
                                 0 -> "未配置 ›"
                                 1 -> "${danmakuSources.first().name} ›"
                                 else -> {
@@ -254,202 +281,224 @@ fun ProfileScreen(component: ProfileComponent) {
                                     "${danmakuSources.size} 个 · ${active?.name.orEmpty()} ›"
                                 }
                             },
-                            blockedSummary = if (danmakuBlocked.isEmpty()) {
+                        blockedSummary =
+                            if (danmakuBlocked.isEmpty()) {
                                 "未设置 ›"
                             } else {
                                 "${danmakuBlocked.size} 个 ›"
                             },
-                            onSources = { sheet = Sheet.DanmakuSource },
-                            onBlockedWords = { sheet = Sheet.DanmakuBlocked },
-                        )
+                        onSources = { sheet = Sheet.DanmakuSource },
+                        onBlockedWords = { sheet = Sheet.DanmakuBlocked },
+                    )
 
-                        ProfilePage.WatchTogether -> WatchTogetherSettingsScreen(
-                            onBack = ::closePage,
-                            connected = watchState.connected,
-                            roomCode = watchState.roomCode,
-                            nickname = watchNickname,
-                            chatDanmaku = watchChatDanmaku,
-                            chatPreview = watchChatPreview,
-                            onJoin = { sheet = Sheet.WatchTogether },
-                            onProfile = { sheet = Sheet.WatchProfile },
-                            onChatDanmaku = component.watchTogetherPreferences::setChatDanmakuEnabled,
-                            onChatPreview = component.watchTogetherPreferences::setChatPreviewEnabled,
-                        )
+                ProfilePage.WatchTogether ->
+                    WatchTogetherSettingsScreen(
+                        onBack = ::closePage,
+                        connected = watchState.connected,
+                        roomCode = watchState.roomCode,
+                        nickname = watchNickname,
+                        chatDanmaku = watchChatDanmaku,
+                        chatPreview = watchChatPreview,
+                        onJoin = { sheet = Sheet.WatchTogether },
+                        onProfile = { sheet = Sheet.WatchProfile },
+                        onChatDanmaku = component.watchTogetherPreferences::setChatDanmakuEnabled,
+                        onChatPreview = component.watchTogetherPreferences::setChatPreviewEnabled,
+                    )
 
-                        ProfilePage.Appearance -> AppearanceSettingsScreen(
-                            onBack = ::closePage,
-                            mode = mode,
-                            accent = accent,
-                            glassStyle = glassStyle,
-                            appIconSummary = "${appIcon.label} ›",
-                            backgroundSummary = if (backgroundImage == null) {
+                ProfilePage.Appearance ->
+                    AppearanceSettingsScreen(
+                        onBack = ::closePage,
+                        mode = mode,
+                        accent = accent,
+                        glassStyle = glassStyle,
+                        brandSummary =
+                            if (splashAnimation) {
+                                "${appIcon.label} · ${splashVariant.label} ›"
+                            } else {
+                                "${appIcon.label} · 开屏已关闭 ›"
+                            },
+                        backgroundSummary =
+                            if (backgroundImage == null) {
                                 "未设置 ›"
                             } else {
                                 "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩 ›"
                             },
-                            splashSummary = if (splashAnimation) "${splashVariant.label} ›" else "已关闭 ›",
-                            startupSummary = "${startupTab.label} ›",
-                            reduceTransparency = reduceTransparency,
-                            largeText = largeText,
-                            reduceMotion = reduceMotion,
-                            onThemeMode = prefs::setMode,
-                            onAccent = prefs::setAccent,
-                            onGlassStyle = prefs::setGlassStyle,
-                            onAppIcon = { sheet = Sheet.AppIcon },
-                            onBackground = { sheet = Sheet.Background },
-                            onSplash = { openPage(ProfilePage.Splash) },
-                            onStartupTab = { sheet = Sheet.StartupTab },
-                            onReduceTransparency = prefs::setReduceTransparency,
-                            onLargeText = prefs::setLargeText,
-                            onReduceMotion = prefs::setReduceMotion,
-                        )
+                        startupSummary = "${startupTab.label} ›",
+                        reduceTransparency = reduceTransparency,
+                        largeText = largeText,
+                        reduceMotion = reduceMotion,
+                        onThemeMode = prefs::setMode,
+                        onAccent = prefs::setAccent,
+                        onGlassStyle = prefs::setGlassStyle,
+                        onBackground = { sheet = Sheet.Background },
+                        onBrand = { openPage(ProfilePage.Splash) },
+                        onStartupTab = { sheet = Sheet.StartupTab },
+                        onReduceTransparency = prefs::setReduceTransparency,
+                        onLargeText = prefs::setLargeText,
+                        onReduceMotion = prefs::setReduceMotion,
+                    )
 
-                        ProfilePage.DataAndDiagnostics -> {
-                            DataAndDiagnosticsScreen(
-                                onBack = ::closePage,
-                                serverCount = state.servers.size,
-                                customUserAgent = customUserAgent,
-                                watchEndpoint = watchEndpoint,
-                                onExport = component::exportServers,
-                                onImport = component::importServers,
-                                onUserAgent = { sheet = Sheet.UserAgent },
-                                onWatchEndpoint = { sheet = Sheet.WatchEndpoint },
-                                onClearCache = { confirmClearCache = true },
-                            )
-                        }
+                ProfilePage.DataAndDiagnostics -> {
+                    DataAndDiagnosticsScreen(
+                        onBack = ::closePage,
+                        serverCount = state.servers.size,
+                        customUserAgent = customUserAgent,
+                        watchEndpoint = watchEndpoint,
+                        onExport = component::exportServers,
+                        onImport = component::importServers,
+                        onUserAgent = { sheet = Sheet.UserAgent },
+                        onWatchEndpoint = { sheet = Sheet.WatchEndpoint },
+                        onClearCache = { confirmClearCache = true },
+                    )
+                }
 
-                        ProfilePage.Downloads -> DownloadsScreen(
-                            onBack = ::closePage,
-                            manager = component.offlineMedia,
-                            onPlay = { offlineToPlay = it },
-                        )
+                ProfilePage.Downloads ->
+                    DownloadsScreen(
+                        onBack = ::closePage,
+                        manager = component.offlineMedia,
+                        onPlay = { offlineToPlay = it },
+                    )
 
-                        ProfilePage.Recovery,
-                        ProfilePage.Splash,
-                        -> ProfileUtilityScreen(
-                            page = activePage,
-                            onBack = ::closePage,
-                            syncManager = component.syncManager,
-                            playbackRecovery = component.playbackRecovery,
-                            themePreferences = prefs,
-                            onResumePlayback = { snapshot ->
-                                component.recoveryItem(snapshot)?.let { recoveryToPlay = it to snapshot }
-                            },
-                        )
+                ProfilePage.Recovery,
+                ProfilePage.Splash,
+                ->
+                    ProfileUtilityScreen(
+                        page = activePage,
+                        onBack = ::closePage,
+                        syncManager = component.syncManager,
+                        playbackRecovery = component.playbackRecovery,
+                        themePreferences = prefs,
+                        appIcon = appIcon,
+                        onAppIcon = { chosen ->
+                            setAppIconVariant(chosen)
+                            appIcon = chosen
+                        },
+                        onResumePlayback = { snapshot ->
+                            component.recoveryItem(snapshot)?.let { recoveryToPlay = it to snapshot }
+                        },
+                    )
                 ProfilePage.Root -> {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize().statusBarsPadding(),
-                            state = mainListState,
-                            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
-                            verticalArrangement = Arrangement.spacedBy(18.dp),
-                        ) {
-                            item {
-                                Section(title = "Yfuse 账号") {
-                                    SettingsCard {
-                                        SettingRow(
-                                            icon = AppIcons.User,
-                                            iconTint = SettingTint.account,
-                                            title = "账号与同步",
-                                            value = when (val account = accountState) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().statusBarsPadding(),
+                        state = mainListState,
+                        contentPadding =
+                            PaddingValues(
+                                top = Dimens.contentTop,
+                                bottom = rootBottomContentInset,
+                            ),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        item {
+                            Section(title = "Yfuse 账号") {
+                                SettingsCard {
+                                    SettingRow(
+                                        icon = AppIcons.User,
+                                        iconTint = SettingTint.account,
+                                        title = "账号与同步",
+                                        value =
+                                            when (val account = accountState) {
                                                 AccountState.Restoring -> "正在恢复 ›"
                                                 is AccountState.RestoreFailed -> "连接失败 · 点此重试 ›"
                                                 AccountState.SignedOut -> "未登录 ›"
-                                                is AccountState.SignedIn -> "${account.session.user.nickname} · 手动加密同步 ›"
+                                                is AccountState.SignedIn ->
+                                                    "${account.session.user.nickname} · 手动加密同步 ›"
                                             },
-                                            embedded = true,
-                                            onClick = { openPage(ProfilePage.Account) },
-                                        )
-                                    }
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.Account) },
+                                    )
                                 }
                             }
+                        }
 
-                            item {
-                                // The list itself lives in the 服务器 tab now. What belongs
-                                // here is the one line that says how many there are and
-                                // which one is live — the rest of this page reads from it.
-                                Section(title = "我的服务器") {
-                                    SettingsCard {
-                                        SettingRow(
-                                            icon = AppIcons.Server,
-                                            iconTint = SettingTint.servers,
-                                            title = "服务器",
-                                            value = if (state.servers.isEmpty()) {
+                        item {
+                            // The list itself lives in the 服务器 tab now. What belongs
+                            // here is the one line that says how many there are and
+                            // which one is live — the rest of this page reads from it.
+                            Section(title = "我的服务器") {
+                                SettingsCard {
+                                    SettingRow(
+                                        icon = AppIcons.Server,
+                                        iconTint = SettingTint.servers,
+                                        title = "服务器",
+                                        value =
+                                            if (state.servers.isEmpty()) {
                                                 "尚未连接 ›"
                                             } else {
                                                 val current = state.currentServer?.serverName
                                                 "${state.servers.size} 台 · ${current ?: "未选择"} ›"
                                             },
-                                            embedded = true,
-                                            onClick = component.onOpenServers,
-                                        )
-                                    }
+                                        embedded = true,
+                                        onClick = component.onOpenServers,
+                                    )
                                 }
                             }
+                        }
 
-                            item {
-                                Section(title = "设置") {
-                                    SettingsCard {
-                                        SettingRow(
-                                            "播放",
-                                            "${playbackSettingsSummary(engine, decoder)} ›",
-                                            embedded = true,
-                                            onClick = { openPage(ProfilePage.Playback) },
-                                            icon = AppIcons.Play,
-                                            iconTint = SettingTint.playback,
-                                        )
-                                        SettingsDivider()
-                                        SettingRow(
-                                            "弹幕",
-                                            when (danmakuSources.size) {
-                                                0 -> "未配置 ›"
-                                                1 -> "1 个来源 ›"
-                                                else -> "${danmakuSources.size} 个来源 ›"
-                                            },
-                                            embedded = true,
-                                            onClick = { openPage(ProfilePage.Danmaku) },
-                                            icon = AppIcons.Danmaku,
-                                            iconTint = SettingTint.danmaku,
-                                        )
-                                        SettingsDivider()
-                                        SettingRow(
-                                            "一起看",
-                                            if (watchState.connected) {
-                                                "房间 ${watchState.roomCode.orEmpty()} ›"
-                                            } else {
-                                                "$watchNickname ›"
-                                            },
-                                            embedded = true,
-                                            onClick = { openPage(ProfilePage.WatchTogether) },
-                                            icon = AppIcons.Chat,
-                                            iconTint = SettingTint.watchTogether,
-                                        )
-                                        SettingsDivider()
-                                        SettingRow(
-                                            "外观与辅助",
-                                            "${mode.label} · ${accent.label}色 ›",
-                                            embedded = true,
-                                            onClick = { openPage(ProfilePage.Appearance) },
-                                            icon = AppIcons.Cloud,
-                                            iconTint = SettingTint.appearance,
-                                        )
-                                    }
+                        item {
+                            Section(title = "设置") {
+                                SettingsCard {
+                                    SettingRow(
+                                        "播放",
+                                        "${playbackSettingsSummary(engine, decoder)} ›",
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.Playback) },
+                                        icon = AppIcons.Play,
+                                        iconTint = SettingTint.playback,
+                                    )
+                                    SettingsDivider()
+                                    SettingRow(
+                                        "弹幕",
+                                        when (danmakuSources.size) {
+                                            0 -> "未配置 ›"
+                                            1 -> "1 个来源 ›"
+                                            else -> "${danmakuSources.size} 个来源 ›"
+                                        },
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.Danmaku) },
+                                        icon = AppIcons.Danmaku,
+                                        iconTint = SettingTint.danmaku,
+                                    )
+                                    SettingsDivider()
+                                    SettingRow(
+                                        "一起看",
+                                        if (watchState.connected) {
+                                            "房间 ${watchState.roomCode.orEmpty()} ›"
+                                        } else {
+                                            "$watchNickname ›"
+                                        },
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.WatchTogether) },
+                                        icon = AppIcons.Chat,
+                                        iconTint = SettingTint.watchTogether,
+                                    )
+                                    SettingsDivider()
+                                    SettingRow(
+                                        "外观与辅助",
+                                        "${mode.label} · ${accent.label}色 ›",
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.Appearance) },
+                                        icon = AppIcons.Cloud,
+                                        iconTint = SettingTint.appearance,
+                                    )
                                 }
                             }
+                        }
 
-                            item {
-                                Section(title = "我的内容") {
-                                    SettingsCard {
-                                        DownloadRow(
-                                            value = "${offlineItems.size} 项 ›",
-                                            embedded = true,
-                                            onClick = { openPage(ProfilePage.Downloads) },
-                                        )
-                                        SettingsDivider()
-                                        SettingRow(
-                                            icon = AppIcons.Refresh,
-                                            iconTint = SettingTint.sync,
-                                            title = "播放恢复与同步",
-                                            value = when {
+                        item {
+                            Section(title = "我的内容") {
+                                SettingsCard {
+                                    DownloadRow(
+                                        value = "${offlineItems.size} 项 ›",
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.Downloads) },
+                                    )
+                                    SettingsDivider()
+                                    SettingRow(
+                                        icon = AppIcons.Refresh,
+                                        iconTint = SettingTint.sync,
+                                        title = "播放恢复与同步",
+                                        value =
+                                            when {
                                                 syncState.conflicts.isNotEmpty() ->
                                                     "${syncState.conflicts.size} 个冲突 ›"
                                                 syncState.pendingCount > 0 ->
@@ -457,25 +506,25 @@ fun ProfileScreen(component: ProfileComponent) {
                                                 recoverySnapshot != null -> "可继续播放 ›"
                                                 else -> "状态正常 ›"
                                             },
-                                            embedded = true,
-                                            onClick = { openPage(ProfilePage.Recovery) },
-                                        )
-                                        SettingsDivider()
-                                        SettingRow(
-                                            "高级设置",
-                                            "网络兼容 · 备份 · 缓存 · 诊断 ›",
-                                            embedded = true,
-                                            onClick = { openPage(ProfilePage.DataAndDiagnostics) },
-                                            icon = AppIcons.Server,
-                                            iconTint = SettingTint.advanced,
-                                        )
-                                    }
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.Recovery) },
+                                    )
+                                    SettingsDivider()
+                                    SettingRow(
+                                        "高级设置",
+                                        "网络兼容 · 备份 · 缓存 · 诊断 ›",
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.DataAndDiagnostics) },
+                                        icon = AppIcons.Server,
+                                        iconTint = SettingTint.advanced,
+                                    )
                                 }
                             }
-
-                            item { AppUpdateTools() }
-                            item { AppVersionFooter() }
                         }
+
+                        item { AppUpdateTools() }
+                        item { AppVersionFooter() }
+                    }
                 }
             }
         }
@@ -483,15 +532,18 @@ fun ProfileScreen(component: ProfileComponent) {
         offlineToPlay?.takeIf { it.playable }?.let { offline ->
             val path = offline.localPath ?: return@let
             PlayerLauncher(
-                items = listOf(
-                    PlayerMediaItem(
-                        id = offline.itemId,
-                        url = "file://$path",
-                        transcodeUrl = "file://$path",
-                        title = offline.title,
-                        serverId = offline.serverId,
+                items =
+                    listOf(
+                        PlayerMediaItem(
+                            id = offline.itemId,
+                            url = "file://$path",
+                            transcodeUrl = "file://$path",
+                            title = offline.title,
+                            serverId = offline.serverId,
+                            externalSubtitleUri = offline.subtitlePath?.let { "file://$it" },
+                            externalSubtitleLanguage = offline.subtitleLanguage,
+                        ),
                     ),
-                ),
                 startIndex = 0,
                 startPositionMs = 0L,
                 onLaunched = { offlineToPlay = null },
@@ -508,164 +560,193 @@ fun ProfileScreen(component: ProfileComponent) {
         }
 
         when (sheet) {
-Sheet.AppIcon -> AppIconSheet(
-    current = appIcon,
-    onSelect = { chosen ->
-        setAppIconVariant(chosen)
-        appIcon = chosen
-        prefs.setSplashVariant(
-            if (chosen == AppIconVariant.CloudPlayer) SplashAnimation.One else SplashAnimation.Two,
-        )
-        sheet = null
-    },
-    onDismiss = { sheet = null },
-)
+            Sheet.Background ->
+                BackgroundImageSheet(
+                    current = backgroundImage,
+                    dim = backgroundDim,
+                    onPick = prefs::setBackgroundImage,
+                    onDim = prefs::setBackgroundDim,
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.Background -> BackgroundImageSheet(
-                current = backgroundImage,
-                dim = backgroundDim,
-                onPick = prefs::setBackgroundImage,
-                onDim = prefs::setBackgroundDim,
-                onDismiss = { sheet = null },
-            )
+            Sheet.StartupTab ->
+                OptionSheet(
+                    title = "启动进入",
+                    subtitle = "下次冷启动时打开的页面",
+                    options = StartupTab.entries.map { it.label to (it == startupTab) },
+                    descriptions = StartupTab.entries.map { it.description },
+                    onSelect = { index ->
+                        prefs.setStartupTab(StartupTab.entries[index])
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.StartupTab -> OptionSheet(
-                title = "启动进入",
-                subtitle = "下次冷启动时打开的页面",
-                options = StartupTab.entries.map { it.label to (it == startupTab) },
-                descriptions = StartupTab.entries.map { it.description },
-                onSelect = { index ->
-                    prefs.setStartupTab(StartupTab.entries[index])
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
+            Sheet.Engine ->
+                OptionSheet(
+                    title = "播放内核",
+                    subtitle = "用于新播放；播放时的临时切换不会改变此默认值",
+                    options = PlayerEngine.selectable.map { it.playbackOptionCopy().label to (it == engine) },
+                    descriptions = PlayerEngine.selectable.map { it.playbackOptionCopy().description },
+                    onSelect = { index ->
+                        prefs.setEngine(PlayerEngine.selectable[index])
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.Engine -> OptionSheet(
-                title = "播放内核",
-                subtitle = "用于新播放；播放时的临时切换不会改变此默认值",
-                options = PlayerEngine.selectable.map { it.playbackOptionCopy().label to (it == engine) },
-                descriptions = PlayerEngine.selectable.map { it.playbackOptionCopy().description },
-                onSelect = { index ->
-                    prefs.setEngine(PlayerEngine.selectable[index])
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
+            Sheet.Decoder ->
+                OptionSheet(
+                    title = "解码方式",
+                    subtitle = "解码选择会同时影响兼容性、性能与耗电",
+                    options = DecoderMode.entries.map { it.playbackOptionCopy().label to (it == decoder) },
+                    descriptions = DecoderMode.entries.map { it.playbackOptionCopy().description },
+                    onSelect = { index ->
+                        prefs.setDecoder(DecoderMode.entries[index])
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.Decoder -> OptionSheet(
-                title = "解码方式",
-                subtitle = "解码选择会同时影响兼容性、性能与耗电",
-                options = DecoderMode.entries.map { it.playbackOptionCopy().label to (it == decoder) },
-                descriptions = DecoderMode.entries.map { it.playbackOptionCopy().description },
-                onSelect = { index ->
-                    prefs.setDecoder(DecoderMode.entries[index])
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
+            Sheet.VideoCache ->
+                OptionSheet(
+                    title = "视频缓存大小",
+                    subtitle = "缓存已播放的数据，减少回看与网络抖动造成的卡顿",
+                    options = VideoCacheSize.entries.map { it.label to (it == videoCacheSize) },
+                    onSelect = { index ->
+                        component.playbackPreferences.setVideoCacheSize(VideoCacheSize.entries[index])
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.VideoCache -> OptionSheet(
-                title = "视频缓存大小",
-                subtitle = "缓存已播放的数据，减少回看与网络抖动造成的卡顿",
-                options = VideoCacheSize.entries.map { it.label to (it == videoCacheSize) },
-                onSelect = { index ->
-                    component.playbackPreferences.setVideoCacheSize(VideoCacheSize.entries[index])
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
+            Sheet.WifiQuality ->
+                OptionSheet(
+                    title = "Wi-Fi 画质上限",
+                    subtitle = "新播放会在保留每服务器偏好的同时遵守此上限",
+                    options = PlaybackQuality.entries.map { it.label to (it == wifiQualityCap) },
+                    onSelect = { index ->
+                        component.playbackPreferences.setWifiQualityCap(PlaybackQuality.entries[index])
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.DanmakuSource -> DanmakuSourceDialog(
-                sources = danmakuSources,
-                activeSourceId = danmakuActiveSourceId,
-                onSelect = { component.danmakuPreferences.selectSource(it) },
-                onAdd = { name, url -> component.danmakuPreferences.addSource(name, url) },
-                onUpdate = component.danmakuPreferences::updateSource,
-                onRemove = component.danmakuPreferences::removeSource,
-                onDismiss = { sheet = null },
-            )
+            Sheet.CellularQuality ->
+                OptionSheet(
+                    title = "蜂窝网络画质上限",
+                    subtitle = "移动网络与其他计费网络使用此上限",
+                    options = PlaybackQuality.entries.map { it.label to (it == cellularQualityCap) },
+                    onSelect = { index ->
+                        component.playbackPreferences.setCellularQualityCap(
+                            PlaybackQuality.entries[index],
+                        )
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.DanmakuBlocked -> DanmakuBlockedDialog(
-                words = danmakuBlocked,
-                onAdd = component.danmakuPreferences::addBlockedWord,
-                onRemove = component.danmakuPreferences::removeBlockedWord,
-                onDismiss = { sheet = null },
-            )
+            Sheet.DanmakuSource ->
+                DanmakuSourceDialog(
+                    sources = danmakuSources,
+                    activeSourceId = danmakuActiveSourceId,
+                    onSelect = { component.danmakuPreferences.selectSource(it) },
+                    onAdd = { name, url -> component.danmakuPreferences.addSource(name, url) },
+                    onUpdate = component.danmakuPreferences::updateSource,
+                    onRemove = component.danmakuPreferences::removeSource,
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.SkipSegments -> SkipSegmentDialog(
-                skipMode = skipMode,
-                onSelectSkipMode = component.skipSegmentPreferences::setSkipMode,
-                onDismiss = { sheet = null },
-            )
+            Sheet.DanmakuBlocked ->
+                DanmakuBlockedDialog(
+                    words = danmakuBlocked,
+                    onAdd = component.danmakuPreferences::addBlockedWord,
+                    onRemove = component.danmakuPreferences::removeBlockedWord,
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.UserAgent -> UserAgentDialog(
-                current = customUserAgent,
-                onSave = {
-                    component.userAgentPreferences.setUserAgent(it)
-                    sheet = null
-                },
-                onClear = {
-                    component.userAgentPreferences.setUserAgent("")
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
+            Sheet.SkipSegments ->
+                SkipSegmentDialog(
+                    skipMode = skipMode,
+                    onSelectSkipMode = component.skipSegmentPreferences::setSkipMode,
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.WatchTogether -> WatchJoinDialog(
-                connected = watchState.connected,
-                connecting = watchState.connecting,
-                roomCode = watchState.roomCode,
-                participantCount = watchState.participantCount,
-                error = watchState.error ?: watchState.syncWarning,
-                onJoin = { code ->
-                    // Joining from here has no media context, so the room is entered without
-                    // a mediaKey — the room's own timeline names the title, which the shell
-                    // resolves and opens (see App.kt). The dialog deliberately stays up
-                    // rather than closing on tap: dismissing it immediately was the whole of
-                    // what "加入" appeared to do, whether the join worked, failed, or landed
-                    // on something this library doesn't have.
-                    watchTogether.joinRoom(watchEndpoint, code, mediaKey = "")
-                },
-                // Same reason the dialog stays up for 加入: a successful entry navigates to
-                // another tab and takes this screen with it, and a failed one has a message
-                // to show that needs somewhere to appear.
-                onEnter = component.onEnterWatchRoom,
-                onLeave = {
-                    watchTogether.leave()
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
+            Sheet.UserAgent ->
+                UserAgentDialog(
+                    current = customUserAgent,
+                    onSave = {
+                        component.userAgentPreferences.setUserAgent(it)
+                        sheet = null
+                    },
+                    onClear = {
+                        component.userAgentPreferences.setUserAgent("")
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.WatchEndpoint -> WatchEndpointDialog(
-                current = watchEndpoint,
-                onSave = {
-                    component.watchTogetherPreferences.setEndpoint(it)
-                    sheet = null
-                },
-                onReset = {
-                    component.watchTogetherPreferences.setEndpoint(
-                        WatchTogetherPreferences.DEFAULT_ENDPOINT,
-                    )
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
+            Sheet.WatchTogether ->
+                WatchJoinDialog(
+                    connected = watchState.connected,
+                    connecting = watchState.connecting,
+                    roomCode = watchState.roomCode,
+                    participantCount = watchState.participantCount,
+                    error = watchState.error ?: watchState.syncWarning,
+                    onJoin = { code ->
+                        // Joining from here has no media context, so the room is entered without
+                        // a mediaKey — the room's own timeline names the title, which the shell
+                        // resolves and opens (see App.kt). The dialog deliberately stays up
+                        // rather than closing on tap: dismissing it immediately was the whole of
+                        // what "加入" appeared to do, whether the join worked, failed, or landed
+                        // on something this library doesn't have.
+                        watchTogether.joinRoom(watchEndpoint, code, mediaKey = "")
+                    },
+                    // Same reason the dialog stays up for 加入: a successful entry navigates to
+                    // another tab and takes this screen with it, and a failed one has a message
+                    // to show that needs somewhere to appear.
+                    onEnter = component.onEnterWatchRoom,
+                    onLeave = {
+                        watchTogether.leave()
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
 
-            Sheet.WatchProfile -> WatchProfileDialog(
-                currentName = watchNickname,
-                currentAvatarId = watchAvatarId,
-                onSave = { name, avatarId ->
-                    component.watchTogetherPreferences.setProfile(name, avatarId)
-                    watchTogether.updateProfile(
-                        component.watchTogetherPreferences.nickname.value,
-                        component.watchTogetherPreferences.avatarId.value,
-                    )
-                    sheet = null
-                },
-                onDismiss = { sheet = null },
-            )
+            Sheet.WatchEndpoint ->
+                WatchEndpointDialog(
+                    current = watchEndpoint,
+                    onSave = { endpoint, localCleartextConfirmed ->
+                        val result =
+                            component.watchTogetherPreferences.setEndpoint(
+                                endpoint,
+                                localCleartextConfirmed,
+                            )
+                        if (result.allowed) sheet = null
+                    },
+                    onReset = {
+                        component.watchTogetherPreferences.setEndpoint(
+                            WatchTogetherPreferences.DEFAULT_ENDPOINT,
+                        )
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
+            Sheet.WatchProfile ->
+                WatchProfileDialog(
+                    currentName = watchNickname,
+                    currentAvatarId = watchAvatarId,
+                    onSave = { name, avatarId ->
+                        component.watchTogetherPreferences.setProfile(name, avatarId)
+                        watchTogether.updateProfile(
+                            component.watchTogetherPreferences.nickname.value,
+                            component.watchTogetherPreferences.avatarId.value,
+                        )
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
 
             null -> Unit
         }
@@ -673,8 +754,9 @@ Sheet.AppIcon -> AppIconSheet(
         if (confirmClearCache) {
             ConfirmDialog(
                 title = "清除图片缓存",
-                message = "将清除图片缓存，下次浏览时重新下载。" +
-                    "离线下载的影片不受影响。",
+                message =
+                    "将清除图片缓存，下次浏览时重新下载。" +
+                        "离线下载的影片不受影响。",
                 confirmLabel = "清除",
                 destructive = true,
                 onConfirm = {
@@ -716,7 +798,13 @@ private fun DataAndDiagnosticsScreen(
                     SettingsDivider()
                     SettingRow(
                         "一起看服务地址",
-                        if (watchEndpoint.trimEnd('/') == WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')) "默认 ›" else "自定义 ›",
+                        if (watchEndpoint.trimEnd('/') ==
+                            WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
+                        ) {
+                            "默认 ›"
+                        } else {
+                            "自定义 ›"
+                        },
                         true,
                         onWatchEndpoint,
                     )
@@ -759,9 +847,10 @@ internal fun SettingsPage(
     onBack: () -> Unit,
     content: LazyListScope.() -> Unit,
 ) {
+    val bottomContentInset = systemNavigationContentInset()
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
+        contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = bottomContentInset),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item {
@@ -779,25 +868,11 @@ private fun SettingsPageHeader(
 ) {
     val palette = LocalPalette.current
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+        Modifier.fillMaxWidth().padding(start = SettingsBackInset, end = Dimens.pageHorizontal),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .pressable(onClickLabel = "返回", onClick = onBack)
-                .touchTarget()
-                .size(34.dp)
-                .glass(AppShapes.thumb, palette.card3, palette.border),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                AppIcons.ChevronLeft,
-                "返回",
-                tint = palette.text,
-                modifier = Modifier.size(17.dp),
-            )
-        }
-        Column(Modifier.padding(start = 12.dp)) {
+        SettingsBackButton(onBack)
+        Column(Modifier.padding(start = 10.dp)) {
             Text(title, style = AppTypography.section.strong, color = palette.text)
             subtitle?.let {
                 Text(it, style = AppTypography.caption.regular, color = palette.sub2)
@@ -805,6 +880,43 @@ private fun SettingsPageHeader(
         }
     }
 }
+
+/**
+ * 返回 on a second-level page.
+ *
+ * It was a 34dp square inset 18dp from the edge and 20dp below the status bar — the smallest
+ * visible control in the app, sitting where nothing else is, in the corner a thumb reaches
+ * least comfortably on a tall phone. The hit area was already 48dp via [touchTarget]; what
+ * was missing was something to aim at. 44dp of glass, pushed into the corner it belongs in.
+ */
+@Composable
+internal fun SettingsBackButton(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    Box(
+        modifier
+            .pressable(onClickLabel = "返回", onClick = onBack)
+            .touchTarget()
+            .size(44.dp)
+            .glass(AppShapes.control, palette.card3, palette.border),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            AppIcons.ChevronLeft,
+            "返回",
+            tint = palette.text,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+/** How far a second-level page's 返回 key sits from the left edge. */
+internal val SettingsBackInset = 6.dp
+
+/** …and from the status bar. Content below keeps [Dimens.contentTop]'s breathing room. */
+internal val SettingsHeaderTop = 8.dp
 
 @Composable
 internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
@@ -847,15 +959,15 @@ internal fun Section(
                     action,
                     style = AppTypography.caption.strong,
                     color = accent.accent,
-                    modifier = Modifier
-                        .pressable(onClick = onAction)
-                        .touchTarget()
-                        .glass(
-                            shape = GlassShapes.chip,
-                            fill = palette.card2,
-                            border = palette.border,
-                        )
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    modifier =
+                        Modifier
+                            .pressable(onClick = onAction)
+                            .touchTarget()
+                            .glass(
+                                shape = GlassShapes.chip,
+                                fill = palette.card2,
+                                border = palette.border,
+                            ).padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
         }
@@ -873,7 +985,10 @@ internal fun Section(
  * it is read.
  */
 @Composable
-private fun SettingIconTile(icon: ImageVector, tint: Color) {
+private fun SettingIconTile(
+    icon: ImageVector,
+    tint: Color,
+) {
     Box(
         Modifier
             .size(28.dp)
@@ -901,16 +1016,18 @@ internal fun SettingRow(
 ) {
     val palette = LocalPalette.current
     val largeText = LocalDensity.current.fontScale >= 1.3f
-    val rowModifier = Modifier
-        .fillMaxWidth()
-        .let {
-            if (embedded) it else {
-                it.glass(AppShapes.control, palette.card2, palette.border)
-            }
-        }
-        .let { if (onClick != null) it.pressable(onClick = onClick) else it }
-        .heightIn(min = MinTouchTarget)
-        .padding(horizontal = 16.dp, vertical = 13.dp)
+    val rowModifier =
+        Modifier
+            .fillMaxWidth()
+            .let {
+                if (embedded) {
+                    it
+                } else {
+                    it.glass(AppShapes.control, palette.card2, palette.border)
+                }
+            }.let { if (onClick != null) it.pressable(onClick = onClick) else it }
+            .heightIn(min = MinTouchTarget)
+            .padding(horizontal = 16.dp, vertical = 13.dp)
     BoxWithConstraints(rowModifier) {
         val stacked = largeText || windowWidthTier(maxWidth) == WindowWidthTier.Compact
         Row(
@@ -948,7 +1065,11 @@ internal fun SettingRow(
 }
 
 @Composable
-private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () -> Unit) {
+private fun DownloadRow(
+    value: String,
+    embedded: Boolean = false,
+    onClick: () -> Unit,
+) {
     SettingRow(
         title = "下载与离线库",
         value = value,
@@ -960,61 +1081,85 @@ private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () ->
 }
 
 /**
- * Second-level page for the launch animation.
+ * Second-level page for the logo and the launch that assembles it.
  *
- * Every card runs the real choreography on a loop rather than showing a still: the whole
- * difference between the variants is in the motion, so a static thumbnail would say nothing.
- * They are stacked full width rather than sat side by side because the squash is what you are
- * here to judge, and it does not read at thumbnail size.
+ * These used to be two entries — an APP 图标 sheet and an 开屏动画 page — and nothing joined
+ * them, so the app could sit on the home screen as a cloud and then unfold a water-fire
+ * ribbon on launch. They are one page and one decision now: each mark owns its own pair of
+ * choreographies, and choosing either end moves the other (see [SplashMark.appIconFor]).
+ *
+ * Every animation card runs the real choreography on a loop rather than showing a still: the
+ * whole difference between the variants is in the motion, so a static thumbnail would say
+ * nothing. They are stacked full width rather than sat side by side because the squash is
+ * what you are here to judge, and it does not read at thumbnail size.
  */
 @Composable
-private fun SplashSettingsScreen(
+private fun BrandAndSplashScreen(
     onBack: () -> Unit,
     prefs: ThemePreferences,
+    appIcon: AppIconVariant,
+    onAppIcon: (AppIconVariant) -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val enabled by prefs.splashAnimation.collectAsState()
     val selected by prefs.splashVariant.collectAsState()
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(
-            top = Dimens.contentTop,
-            bottom = TabBarInset,
-            start = Dimens.pageHorizontal,
-            end = Dimens.pageHorizontal,
-        ),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+    // A pair that drifted apart — an upgrade from a build that mapped logo and launch
+    // differently — is repaired once, on entry, so what is ticked here is also what the next
+    // launch plays. The splash resolves the same way; see AnimatedSplashApp.
+    //
+    // On entry and not on every change: the selections below write both halves in the same
+    // click, and a repair that re-ran on either of them would race the state that has not
+    // recomposed yet and pull a chosen 水漾成键 back to 水滴入云.
+    LaunchedEffect(Unit) {
+        val stored = prefs.splashVariant.value
+        if (stored.mark != appIcon.splashMark) {
+            prefs.setSplashVariant(appIcon.splashMark.defaultAnimation)
+        }
+    }
+
+    // Selecting a logo keeps the animation if it already belongs to that mark, so switching
+    // 当前 Logo → 石墨 does not throw away a chosen 水火交接.
+    fun selectIcon(variant: AppIconVariant) {
+        onAppIcon(variant)
+        if (selected.mark != variant.splashMark) {
+            prefs.setSplashVariant(variant.splashMark.defaultAnimation)
+        }
+    }
+
+    fun selectAnimation(variant: SplashAnimation) {
+        prefs.setSplashVariant(variant)
+        val icon = variant.mark.appIconFor(appIcon)
+        if (icon != appIcon) onAppIcon(icon)
+    }
+
+    SettingsPage(
+        title = "Logo 与开屏动画",
+        subtitle = "更换 Logo 会带上它自己的开屏；启动器可能需要几秒刷新",
+        onBack = onBack,
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .pressable(onClickLabel = "返回", onClick = onBack)
-                        .touchTarget()
-                        .size(34.dp)
-                        .glass(AppShapes.thumb, palette.card3, palette.border),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        AppIcons.ChevronLeft,
-                        "返回",
-                        tint = palette.text,
-                        modifier = Modifier.size(17.dp),
-                    )
+            Section(title = "APP 图标") {
+                SettingsCard {
+                    AppIconVariant.entries.forEachIndexed { index, variant ->
+                        if (index > 0) SettingsDivider()
+                        AppIconRow(
+                            variant = variant,
+                            selected = variant == appIcon,
+                            onClick = { selectIcon(variant) },
+                        )
+                    }
                 }
-                Text(
-                    "开屏动画",
-                    style = AppTypography.section.strong,
-                    color = palette.text,
-                    modifier = Modifier.padding(start = 12.dp),
-                )
             }
         }
 
         item {
-            SwitchRow("启动时播放", enabled) { prefs.setSplashAnimation(it) }
+            Section(title = "开屏动画") {
+                SettingsCard {
+                    SwitchRow("启动时播放", enabled, true) { prefs.setSplashAnimation(it) }
+                }
+            }
         }
 
         if (enabled) {
@@ -1022,8 +1167,9 @@ private fun SplashSettingsScreen(
                 val active = variant == selected
                 Column(
                     Modifier
+                        .padding(horizontal = Dimens.pageHorizontal)
                         .fillMaxWidth()
-                        .pressable(role = Role.RadioButton) { prefs.setSplashVariant(variant) }
+                        .pressable(role = Role.RadioButton) { selectAnimation(variant) }
                         .semantics { this.selected = active }
                         .clip(AppShapes.card)
                         .background(palette.card2)
@@ -1031,8 +1177,7 @@ private fun SplashSettingsScreen(
                             width = if (active) 2.dp else 1.dp,
                             color = if (active) accent.border else palette.border,
                             shape = AppShapes.card,
-                        )
-                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                        ).padding(horizontal = 14.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     SplashPreview(
@@ -1063,7 +1208,72 @@ private fun SplashSettingsScreen(
                         color = palette.sub2,
                         textAlign = TextAlign.Center,
                     )
+                    Spacer(Modifier.height(4.dp))
+                    // Which logo this launch belongs to, on the card itself: picking it also
+                    // changes the icon on the home screen, and that should not be a surprise.
+                    Text(
+                        "配${variant.mark.label}",
+                        style = AppTypography.caption.regular,
+                        color = palette.hint,
+                        textAlign = TextAlign.Center,
+                    )
                 }
+            }
+        }
+    }
+}
+
+/** One launcher icon, its artwork on its own ground beside the name. */
+@Composable
+private fun AppIconRow(
+    variant: AppIconVariant,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressable(
+                haptic = HapticSignal.Select,
+                role = Role.RadioButton,
+                onClickLabel = variant.label,
+                onClick = onClick,
+            ).semantics { this.selected = selected }
+            .heightIn(min = MinTouchTarget)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AppIconPreview(variant, Modifier.size(46.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                variant.label,
+                style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
+                color = if (selected) accent.accent else palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                variant.description,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (selected) {
+            Box(
+                Modifier.size(22.dp).clip(CircleShape).background(accent.accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AppIcons.Check,
+                    contentDescription = null,
+                    tint = accent.onAccent,
+                    modifier = Modifier.size(13.dp),
+                )
             }
         }
     }
@@ -1087,18 +1297,18 @@ internal fun SwitchRow(
         Modifier
             .fillMaxWidth()
             .let {
-                if (embedded) it else {
+                if (embedded) {
+                    it
+                } else {
                     it.glass(AppShapes.control, palette.card2, palette.border)
                 }
-            }
-            .toggleable(
+            }.toggleable(
                 value = checked,
                 interactionSource = interactionSource,
                 indication = null,
                 role = Role.Switch,
                 onValueChange = onChange,
-            )
-            .heightIn(min = MinTouchTarget)
+            ).heightIn(min = MinTouchTarget)
             .padding(horizontal = 16.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1116,14 +1326,6 @@ internal fun SwitchRow(
 }
 
 /**
- * A choice small enough to answer in place.
- *
- * 主题模式 and 视觉效果 have two or three options each and no explanation to give, so sending
- * them to a modal cost three taps to change something the user is looking straight at — and
- * a modal hides the page whose appearance it is changing, which is exactly the feedback the
- * choice is judged by.
- */
-/**
  * 背景图 — pick a picture, decide how much of it shows through, or take it away again.
  *
  * The dim slider is not decoration: every text colour in the app was chosen against a flat
@@ -1140,14 +1342,15 @@ private fun BackgroundImageSheet(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val pick = rememberBackgroundImagePicker { uri ->
-        if (uri != null) {
-            // Release the previous grant before adopting the new one, or the app accumulates
-            // read access to every photo the user has ever tried.
-            current?.takeIf { it != uri }?.let(::releaseBackgroundImage)
-            onPick(uri)
+    val pick =
+        rememberBackgroundImagePicker { uri ->
+            if (uri != null) {
+                // Release the previous grant before adopting the new one, or the app accumulates
+                // read access to every photo the user has ever tried.
+                current?.takeIf { it != uri }?.let(::releaseBackgroundImage)
+                onPick(uri)
+            }
         }
-    }
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "背景图",
@@ -1248,7 +1451,12 @@ internal fun SettingSegmentRow(
                     Modifier
                         .heightIn(min = 30.dp)
                         .clip(GlassShapes.chip)
-                        .background(if (selected) accent.container else Color.Transparent)
+                        // The selected cell is filled with the accent itself rather than the
+                        // 8% container it used to carry. This is the control that answers 主题
+                        // and 视觉效果, and it sits two rows under the swatches — with a fill
+                        // that pale, changing 主题色 repainted nothing the eye could find on
+                        // the page where the choice is made, which reads as a dead setting.
+                        .background(if (selected) accent.accent else Color.Transparent)
                         .pressable(
                             pressedScale = 0.97f,
                             haptic = HapticSignal.Select,
@@ -1256,19 +1464,19 @@ internal fun SettingSegmentRow(
                             focusShape = GlassShapes.chip,
                             onClickLabel = label,
                             onClick = { onSelect(index) },
-                        )
-                        .semantics { this.selected = selected }
+                        ).semantics { this.selected = selected }
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         label,
-                        style = if (selected) {
-                            AppTypography.caption.strong
-                        } else {
-                            AppTypography.caption.medium
-                        },
-                        color = if (selected) accent.accent else palette.sub2,
+                        style =
+                            if (selected) {
+                                AppTypography.caption.strong
+                            } else {
+                                AppTypography.caption.medium
+                            },
+                        color = if (selected) accent.onAccent else palette.sub2,
                         maxLines = 1,
                     )
                 }
@@ -1276,6 +1484,20 @@ internal fun SettingSegmentRow(
         }
     }
 }
+
+/** The spectrum that stands in for 跟随封面, which has no colour until a page supplies one. */
+private val ArtworkSwatchBrush =
+    Brush.sweepGradient(
+        listOf(
+            Color(0xFF3D64C9),
+            Color(0xFF8B6FAE),
+            Color(0xFFC2564C),
+            Color(0xFFC0982F),
+            Color(0xFF5F9F6F),
+            Color(0xFF3FA89A),
+            Color(0xFF3D64C9),
+        ),
+    )
 
 /**
  * Every accent at once, rather than a list of colour names behind a modal.
@@ -1285,7 +1507,10 @@ internal fun SettingSegmentRow(
  * another, and the swatches fit in the space the row already occupied.
  */
 @Composable
-internal fun AccentPickerRow(selected: AccentColor, onSelect: (AccentColor) -> Unit) {
+internal fun AccentPickerRow(
+    selected: AccentColor,
+    onSelect: (AccentColor) -> Unit,
+) {
     val palette = LocalPalette.current
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp),
@@ -1303,19 +1528,21 @@ internal fun AccentPickerRow(selected: AccentColor, onSelect: (AccentColor) -> U
                 modifier = Modifier.weight(1f),
             )
             Text(
-                "${selected.label}色",
+                if (selected.followsArtwork) selected.label else "${selected.label}色",
                 style = AppTypography.body.regular,
                 color = palette.sub2,
                 maxLines = 1,
             )
         }
-        // Two rows of five on a phone; the swatches keep their size and wrap rather than
-        // shrinking to fit ten across a narrow screen.
+        // Six to a row on a phone; the swatches keep their size and wrap rather than
+        // shrinking to fit the whole set across a narrow screen. Six rather than five so
+        // 墨 — the "no accent" choice — shares a row instead of hanging alone under two
+        // full ones, where it would read as an afterthought rather than an option.
         Column(
             Modifier.selectableGroup(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            AccentColor.entries.chunked(5).forEach { row ->
+            AccentColor.entries.chunked(6).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { option ->
                         val isSelected = option == selected
@@ -1325,14 +1552,26 @@ internal fun AccentPickerRow(selected: AccentColor, onSelect: (AccentColor) -> U
                                 .pressable(
                                     haptic = HapticSignal.Select,
                                     role = Role.RadioButton,
+                                    onClickLabel =
+                                        if (option.followsArtwork) {
+                                            option.label
+                                        } else {
+                                            "${option.label}色"
+                                        },
                                     focusShape = CircleShape,
-                                    onClickLabel = "${option.label}色",
                                     onClick = { onSelect(option) },
-                                )
-                                .semantics { this.selected = isSelected }
+                                ).semantics { this.selected = isSelected }
                                 .clip(CircleShape)
-                                .background(option.color)
+                                // 跟随封面 has no colour of its own to show, so its swatch is
+                                // the whole set at once — a spectrum reads as "it depends"
+                                // where any single fill would read as one more hue on offer.
                                 .then(
+                                    if (option.followsArtwork) {
+                                        Modifier.background(ArtworkSwatchBrush)
+                                    } else {
+                                        Modifier.background(option.color)
+                                    },
+                                ).then(
                                     if (isSelected) {
                                         Modifier.border(2.dp, palette.text, CircleShape)
                                     } else {
@@ -1389,8 +1628,7 @@ private fun DescribedSwitchRow(
                 indication = null,
                 role = Role.Switch,
                 onValueChange = onChange,
-            )
-            .heightIn(min = MinTouchTarget)
+            ).heightIn(min = MinTouchTarget)
             .glass(AppShapes.control, palette.card2, palette.border)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1417,10 +1655,17 @@ private fun ProfileUtilityScreen(
     syncManager: ServerSyncManager,
     playbackRecovery: PlaybackRecoveryStore,
     themePreferences: ThemePreferences,
+    appIcon: AppIconVariant,
+    onAppIcon: (AppIconVariant) -> Unit,
     onResumePlayback: (PlaybackRecoverySnapshot) -> Unit,
 ) {
     if (page == ProfilePage.Splash) {
-        SplashSettingsScreen(onBack = onBack, prefs = themePreferences)
+        BrandAndSplashScreen(
+            onBack = onBack,
+            prefs = themePreferences,
+            appIcon = appIcon,
+            onAppIcon = onAppIcon,
+        )
         return
     }
     if (page == ProfilePage.Recovery) {
@@ -1447,6 +1692,7 @@ private fun RecoveryCenterScreen(
     val sync by syncManager.state.collectAsState()
     val snapshot by playbackRecovery.snapshot.collectAsState()
     val scope = rememberCoroutineScope()
+    val bottomContentInset = systemNavigationContentInset()
 
     LaunchedEffect(syncManager) {
         syncManager.syncAll()
@@ -1454,35 +1700,26 @@ private fun RecoveryCenterScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(
-            top = Dimens.contentTop,
-            bottom = TabBarInset,
-            start = Dimens.pageHorizontal,
-            end = Dimens.pageHorizontal,
-        ),
+        contentPadding =
+            PaddingValues(
+                top = SettingsHeaderTop,
+                bottom = bottomContentInset,
+                start = Dimens.pageHorizontal,
+                end = Dimens.pageHorizontal,
+            ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             Row(
-                Modifier.fillMaxWidth(),
+                // Out past the list's own inset, so 返回 sits in the corner on every
+                // second-level page rather than only on the ones built from [SettingsPage].
+                Modifier
+                    .fillMaxWidth()
+                    .offset(x = SettingsBackInset - Dimens.pageHorizontal),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    Modifier
-                        .pressable(onClickLabel = "返回", onClick = onBack)
-                        .touchTarget()
-                        .size(34.dp)
-                        .glass(AppShapes.thumb, palette.card3, palette.border),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        AppIcons.ChevronLeft,
-                        "返回",
-                        tint = palette.text,
-                        modifier = Modifier.size(17.dp),
-                    )
-                }
-                Column(Modifier.padding(start = 12.dp)) {
+                SettingsBackButton(onBack)
+                Column(Modifier.padding(start = 10.dp)) {
                     Text("播放恢复中心", style = AppTypography.section.strong, color = palette.text)
                     Text(
                         "本地断点、服务器同步与冲突处理",
@@ -1651,18 +1888,22 @@ private fun RecoverySectionCard(
 }
 
 @Composable
-private fun RecoveryAction(label: String, onClick: () -> Unit) {
+private fun RecoveryAction(
+    label: String,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     Text(
         label,
         style = AppTypography.caption.strong,
         color = accent.accent,
-        modifier = Modifier
-            .pressable(onClick = onClick)
-            .touchTarget()
-            .glass(GlassShapes.chip, palette.card2, palette.border)
-            .padding(horizontal = 11.dp, vertical = 7.dp),
+        modifier =
+            Modifier
+                .pressable(onClick = onClick)
+                .touchTarget()
+                .glass(GlassShapes.chip, palette.card2, palette.border)
+                .padding(horizontal = 11.dp, vertical = 7.dp),
     )
 }
 
@@ -1690,11 +1931,12 @@ private fun PillSwitch(checked: Boolean) {
         label = "switchKnob",
     )
     val track by animateColorAsState(
-        targetValue = if (checked) {
-            accent.accent
-        } else {
-            palette.sub2.copy(alpha = if (palette.isDark) 0.30f else 0.28f)
-        },
+        targetValue =
+            if (checked) {
+                accent.accent
+            } else {
+                palette.sub2.copy(alpha = if (palette.isDark) 0.30f else 0.28f)
+            },
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "switchTrack",
     )

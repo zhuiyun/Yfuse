@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
@@ -30,10 +29,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.ConfirmDialog
+import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
@@ -41,6 +39,7 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
@@ -89,11 +88,12 @@ internal fun WatchTogetherDialog(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "一起看",
-            subtitle = if (connected) {
-                "房主控制播放、暂停与进度，其他成员自动跟随。"
-            } else {
-                "视频仍由每个人自己的媒体服务器播放，房间服务只同步状态。"
-            },
+            subtitle =
+                if (connected) {
+                    "房主控制播放、暂停与进度，其他成员自动跟随。"
+                } else {
+                    "视频仍由每个人自己的媒体服务器播放，房间服务只同步状态。"
+                },
             onClose = onDismiss,
         )
         if (connected) {
@@ -111,7 +111,13 @@ internal fun WatchTogetherDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "${if (isHost) "房主" else if (canControl) "可控制" else "成员"} · " +
+                    "${if (isHost) {
+                        "房主"
+                    } else if (canControl) {
+                        "可控制"
+                    } else {
+                        "成员"
+                    }} · " +
                         "$participantCount 人在线 · ${participants.count { it.ready }} 人就绪",
                     style = AppTypography.caption.medium,
                     color = palette.sub2,
@@ -172,23 +178,25 @@ internal fun WatchTogetherDialog(
                             Text(
                                 participant.playbackStatusLabel,
                                 style = AppTypography.caption.medium,
-                                color = when {
-                                    !participant.mediaAvailable -> DarkPalette.error
-                                    participant.buffering -> Color(0xFFFFC857)
-                                    participant.ready -> accent.accent
-                                    else -> palette.sub2
-                                },
+                                color =
+                                    when {
+                                        !participant.mediaAvailable -> DarkPalette.error
+                                        participant.buffering -> Color(0xFFFFC857)
+                                        participant.ready -> accent.accent
+                                        else -> palette.sub2
+                                    },
                                 maxLines = 1,
                             )
                             Text(
                                 participant.networkStatusLabel,
                                 style = AppTypography.caption.medium,
-                                color = when (participant.networkQuality) {
-                                    WatchNetworkQuality.Excellent -> accent.accent
-                                    WatchNetworkQuality.Fair -> Color(0xFFFFC857)
-                                    WatchNetworkQuality.Poor -> DarkPalette.error
-                                    WatchNetworkQuality.Unknown -> palette.sub2
-                                },
+                                color =
+                                    when (participant.networkQuality) {
+                                        WatchNetworkQuality.Excellent -> accent.accent
+                                        WatchNetworkQuality.Fair -> Color(0xFFFFC857)
+                                        WatchNetworkQuality.Poor -> DarkPalette.error
+                                        WatchNetworkQuality.Unknown -> palette.sub2
+                                    },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -198,21 +206,25 @@ internal fun WatchTogetherDialog(
                                         if (participant.isModerator) "取消管理员" else "设为管理员",
                                         style = AppTypography.caption.medium,
                                         color = accent.accent,
-                                        modifier = Modifier.pressable {
-                                            onSetModerator(
-                                                participant.clientId,
-                                                !participant.isModerator,
-                                            )
-                                        }.touchTarget(),
+                                        modifier =
+                                            Modifier
+                                                .pressable {
+                                                    onSetModerator(
+                                                        participant.clientId,
+                                                        !participant.isModerator,
+                                                    )
+                                                }.touchTarget(),
                                     )
                                 }
                                 Text(
                                     "移出房间",
                                     style = AppTypography.caption.medium,
                                     color = DarkPalette.error,
-                                    modifier = Modifier.pressable {
-                                        kickCandidate = participant
-                                    }.touchTarget(),
+                                    modifier =
+                                        Modifier
+                                            .pressable {
+                                                kickCandidate = participant
+                                            }.touchTarget(),
                                 )
                             }
                         }

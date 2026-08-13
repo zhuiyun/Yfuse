@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -33,24 +35,23 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.ServerSource
-import androidx.compose.material3.Icon
-import androidx.compose.foundation.layout.size
 
 internal fun playbackVersionSummary(
     serverName: String?,
     version: MediaVersion?,
     audioLanguage: String?,
     subtitleLanguage: String?,
-): String = listOfNotNull(
-    serverName?.takeIf { it.isNotBlank() },
-    version?.qualityLabel,
-    audioLanguage?.takeIf { it.isNotBlank() }?.let { "$it 音轨" },
-    when (subtitleLanguage) {
-        PlaybackTrackRequest.SUBTITLES_OFF -> "字幕关闭"
-        null -> null
-        else -> "$subtitleLanguage 字幕"
-    },
-).joinToString(" · ").ifBlank { "自动选择最佳播放版本" }
+): String =
+    listOfNotNull(
+        serverName?.takeIf { it.isNotBlank() },
+        version?.qualityLabel,
+        audioLanguage?.takeIf { it.isNotBlank() }?.let { "$it 音轨" },
+        when (subtitleLanguage) {
+            PlaybackTrackRequest.SUBTITLES_OFF -> "字幕关闭"
+            null -> null
+            else -> "$subtitleLanguage 字幕"
+        },
+    ).joinToString(" · ").ifBlank { "自动选择最佳播放版本" }
 
 @Composable
 internal fun PlaybackVersionSection(
@@ -126,11 +127,12 @@ internal fun PlaybackVersionDialog(
             subtitle = if (switching) "正在解析所选资源" else title,
             onClose = onDismiss,
         )
-        val selectableSources = sources
-            .filter { it.reachable && it.itemId != null && it.source != null }
-            .bestThenSelectedFirst {
-                it.serverId == selectedServerId && it.itemId == selectedItemId
-            }
+        val selectableSources =
+            sources
+                .filter { it.reachable && it.itemId != null && it.source != null }
+                .bestThenSelectedFirst {
+                    it.serverId == selectedServerId && it.itemId == selectedItemId
+                }
         // Drawn for a single source too. The rail used to need two before it appeared,
         // which is right for a *comparison* and wrong for this dialog: most titles live on
         // one server with one file, so the commonest case was 「版本与来源」 opening with
@@ -147,19 +149,21 @@ internal fun PlaybackVersionDialog(
                 ComparisonCardBody(
                     name = source.serverName,
                     headline = info?.quality.orEmpty().ifBlank { "未知清晰度" },
-                    facts = listOfNotNull(
-                        info?.size?.let { "体积" to it },
-                        info?.bitrate?.let { "码率" to it },
-                        info?.frameRate?.let { "帧率" to it },
-                        info?.audioTrackCount?.takeIf { it > 0 }?.let { "音轨" to "$it 条" },
-                        info?.subtitleTrackCount?.takeIf { it > 0 }?.let { "字幕" to "$it 条" },
-                    ),
-                    tags = listOfNotNull(
-                        info?.rangeLabel?.takeIf { it.isNotBlank() },
-                        "Dolby Vision".takeIf { info?.dolbyVision == true },
-                        "Atmos".takeIf { info?.dolbyAtmos == true },
-                        "无损".takeIf { info?.losslessAudio == true },
-                    ),
+                    facts =
+                        listOfNotNull(
+                            info?.size?.let { "体积" to it },
+                            info?.bitrate?.let { "码率" to it },
+                            info?.frameRate?.let { "帧率" to it },
+                            info?.audioTrackCount?.takeIf { it > 0 }?.let { "音轨" to "$it 条" },
+                            info?.subtitleTrackCount?.takeIf { it > 0 }?.let { "字幕" to "$it 条" },
+                        ),
+                    tags =
+                        listOfNotNull(
+                            info?.rangeLabel?.takeIf { it.isNotBlank() },
+                            "Dolby Vision".takeIf { info?.dolbyVision == true },
+                            "Atmos".takeIf { info?.dolbyAtmos == true },
+                            "无损".takeIf { info?.losslessAudio == true },
+                        ),
                 )
             }
         }
@@ -176,18 +180,24 @@ internal fun PlaybackVersionDialog(
                 ComparisonCardBody(
                     name = version.name.ifBlank { version.container?.uppercase() ?: "未命名版本" },
                     headline = version.qualityLabel,
-                    facts = listOfNotNull(
-                        version.sizeLabel?.let { "体积" to it },
-                        version.bitrateLabel?.let { "码率" to it },
-                        version.videoCodec?.takeIf { it.isNotBlank() }?.let { "编码" to it.uppercase() },
-                        version.container?.takeIf { it.isNotBlank() }?.let { "封装" to it.uppercase() },
-                        version.audioTracks.size.takeIf { it > 0 }?.let { "音轨" to "$it 条" },
-                        version.subtitleTracks.size.takeIf { it > 0 }?.let { "字幕" to "$it 条" },
-                    ),
-                    tags = listOfNotNull(
-                        version.rangeLabel,
-                        "Atmos".takeIf { version.hasDolbyAtmos },
-                    ),
+                    facts =
+                        listOfNotNull(
+                            version.sizeLabel?.let { "体积" to it },
+                            version.bitrateLabel?.let { "码率" to it },
+                            version.videoCodec?.takeIf { it.isNotBlank() }?.let { "编码" to it.uppercase() },
+                            version.container?.takeIf { it.isNotBlank() }?.let { "封装" to it.uppercase() },
+                            version.audioTracks.size
+                                .takeIf { it > 0 }
+                                ?.let { "音轨" to "$it 条" },
+                            version.subtitleTracks.size
+                                .takeIf { it > 0 }
+                                ?.let { "字幕" to "$it 条" },
+                        ),
+                    tags =
+                        listOfNotNull(
+                            version.rangeLabel,
+                            "Atmos".takeIf { version.hasDolbyAtmos },
+                        ),
                 )
             }
         }
@@ -198,7 +208,11 @@ internal fun PlaybackVersionDialog(
             Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
                 OverlayOptionRow("文件默认", selectedAudioLanguage == null, onClick = { onSelectAudio(null) })
                 tracks.forEach { track ->
-                    OverlayOptionRow(track.label, track.language == selectedAudioLanguage, onClick = { onSelectAudio(track.language) })
+                    OverlayOptionRow(
+                        track.label,
+                        track.language == selectedAudioLanguage,
+                        onClick = { onSelectAudio(track.language) },
+                    )
                 }
             }
         }
@@ -206,9 +220,13 @@ internal fun PlaybackVersionDialog(
             GroupLabel("字幕")
             Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
                 OverlayOptionRow("文件默认", selectedSubtitleLanguage == null, onClick = { onSelectSubtitle(null) })
-                OverlayOptionRow("关闭字幕", selectedSubtitleLanguage == PlaybackTrackRequest.SUBTITLES_OFF, onClick = { onSelectSubtitle(PlaybackTrackRequest.SUBTITLES_OFF) })
+                OverlayOptionRow("关闭字幕", selectedSubtitleLanguage == PlaybackTrackRequest.SUBTITLES_OFF, onClick = {
+                    onSelectSubtitle(PlaybackTrackRequest.SUBTITLES_OFF)
+                })
                 tracks.forEach { track ->
-                    OverlayOptionRow(track.label, track.language == selectedSubtitleLanguage, onClick = { onSelectSubtitle(track.language) })
+                    OverlayOptionRow(track.label, track.language == selectedSubtitleLanguage, onClick = {
+                        onSelectSubtitle(track.language)
+                    })
                 }
             }
         }
@@ -271,8 +289,7 @@ private fun ComparisonCard(
                 shape = GlassShapes.card,
                 fill = if (selected) accent.container else palette.card2,
                 border = if (selected) accent.border else palette.border,
-            )
-            .padding(12.dp),
+            ).padding(12.dp),
     ) {
         Row(
             Modifier.fillMaxWidth().height(20.dp),
@@ -349,16 +366,22 @@ private fun ComparisonCardBody(
 }
 
 @Composable
-private fun CardBadge(label: String, ink: Color, fill: Color, border: Color) {
+private fun CardBadge(
+    label: String,
+    ink: Color,
+    fill: Color,
+    border: Color,
+) {
     Text(
         label,
         style = AppTypography.caption.strong,
         color = ink,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier
-            .glass(GlassShapes.chip, fill, border)
-            .padding(horizontal = 7.dp, vertical = 2.dp),
+        modifier =
+            Modifier
+                .glass(GlassShapes.chip, fill, border)
+                .padding(horizontal = 7.dp, vertical = 2.dp),
     )
 }
 

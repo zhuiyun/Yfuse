@@ -1,26 +1,120 @@
 #!/usr/bin/env bash
-# Fetches the native player-engine binaries into composeApp/libs/.
-# They are gitignored (≈115 MB) so the repo stays small.
+# Fetches and verifies the native player-engine binaries in composeApp/libs/.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIBS="$ROOT/composeApp/libs"
+CHECKSUMS="$ROOT/scripts/engine-checksums.sha256"
+
+MPV_FILE="libmpv-release.aar"
+MDK_FILE="mdk-sdk-android.7z"
+MPV_URL="https://github.com/jarnedemeulemeester/libmpv-android/releases/download/v1.0.0/$MPV_FILE"
+MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/$MDK_FILE"
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+checksum_for() {
+  local name="$1"
+  local checksum
+  checksum="$(awk -v file="$name" '$2 == file { print $1 }' "$CHECKSUMS")"
+  [[ "$checksum" =~ ^[0-9a-fA-F]{64}$ ]] ||
+    die "missing or invalid SHA-256 for $name in $CHECKSUMS"
+  printf '%s\n' "${checksum,,}"
+}
+
+sha256_of() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{ print tolower($1) }'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{ print tolower($1) }'
+  else
+    die "sha256sum or shasum is required"
+  fi
+}
+
+verify_file() {
+  local file="$1"
+  local expected="$2"
+  local actual
+  actual="$(sha256_of "$file")"
+  [[ "$actual" == "$expected" ]] ||
+    die "SHA-256 mismatch for $(basename "$file"): expected $expected, got $actual"
+}
+
+fetch_verified() {
+  local name="$1"
+  local url="$2"
+  local expected="$3"
+  local destination="$LIBS/$name"
+  local temporary
+
+  if [[ -f "$destination" ]]; then
+    verify_file "$destination" "$expected"
+    printf '==> %s already verified\n' "$name"
+    return
+  fi
+
+  temporary="$(mktemp "$LIBS/.${name}.download.XXXXXX")"
+  trap 'rm -f "${temporary:-}"' RETURN
+  printf '==> downloading %s\n' "$name"
+  curl \
+    --fail \
+    --location \
+    --proto '=https' \
+    --proto-redir '=https' \
+    --retry 5 \
+    --retry-all-errors \
+    --retry-delay 2 \
+    --connect-timeout 20 \
+    --output "$temporary" \
+    "$url"
+  verify_file "$temporary" "$expected"
+  mv -f "$temporary" "$destination"
+  trap - RETURN
+}
+
+extract_mdk() {
+  local archive="$LIBS/$MDK_FILE"
+  local seven_zip=""
+  local staging
+  local previous=""
+
+  if command -v 7z >/dev/null 2>&1; then
+    seven_zip="$(command -v 7z)"
+  elif [[ -x "/c/Program Files/7-Zip/7z.exe" ]]; then
+    seven_zip="/c/Program Files/7-Zip/7z.exe"
+  else
+    die "7z is required to extract $MDK_FILE"
+  fi
+
+  staging="$(mktemp -d "$LIBS/.mdk-sdk.extract.XXXXXX")"
+  trap 'rm -rf "${staging:-}"' RETURN
+  "$seven_zip" x -y "-o$staging" "$archive" >/dev/null
+  [[ -f "$staging/mdk-sdk/lib/cmake/FindMDK.cmake" ]] ||
+    die "the verified MDK archive does not contain the expected SDK layout"
+  if [[ -d "$LIBS/mdk-sdk" ]]; then
+    previous="$(mktemp -d "$LIBS/.mdk-sdk.previous.XXXXXX")"
+    rmdir "$previous"
+    mv "$LIBS/mdk-sdk" "$previous"
+  fi
+  if ! mv "$staging/mdk-sdk" "$LIBS/mdk-sdk"; then
+    [[ -z "$previous" || ! -d "$previous" ]] || mv "$previous" "$LIBS/mdk-sdk"
+    die "failed to install the verified MDK SDK"
+  fi
+  [[ -z "$previous" || ! -d "$previous" ]] || rm -rf "$previous"
+  rm -rf "$staging"
+  trap - RETURN
+}
+
+[[ -r "$CHECKSUMS" ]] || die "checksum manifest not found: $CHECKSUMS"
 mkdir -p "$LIBS"
 
-MPV_URL="https://github.com/jarnedemeulemeester/libmpv-android/releases/download/v1.0.0/libmpv-release.aar"
-MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/mdk-sdk-android.7z"
+fetch_verified "$MPV_FILE" "$MPV_URL" "$(checksum_for "$MPV_FILE")"
+fetch_verified "$MDK_FILE" "$MDK_URL" "$(checksum_for "$MDK_FILE")"
+extract_mdk
 
-echo "==> libmpv"
-curl -fL --retry 3 -o "$LIBS/libmpv-release.aar" "$MPV_URL"
-
-echo "==> mdk"
-curl -fL --retry 3 -o "$LIBS/mdk-sdk-android.7z" "$MDK_URL"
-if command -v 7z >/dev/null 2>&1; then
-  (cd "$LIBS" && 7z x -y mdk-sdk-android.7z >/dev/null)
-elif [ -x "/c/Program Files/7-Zip/7z.exe" ]; then
-  (cd "$LIBS" && "/c/Program Files/7-Zip/7z.exe" x -y mdk-sdk-android.7z >/dev/null)
-else
-  echo "!! 7z not found — extract mdk-sdk-android.7z manually" >&2
-fi
-
-echo "done: $LIBS"
+printf 'done: verified native engines in %s\n' "$LIBS"

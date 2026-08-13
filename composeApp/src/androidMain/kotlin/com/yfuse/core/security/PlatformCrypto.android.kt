@@ -25,33 +25,35 @@ private object AndroidCryptoPrimitives : CryptoPrimitives {
         nonce: ByteArray,
         plaintext: ByteArray,
         aad: ByteArray,
-    ): ByteArray = try {
-        aesCipher(Cipher.ENCRYPT_MODE, key, nonce).run {
-            if (aad.isNotEmpty()) updateAAD(aad)
-            doFinal(plaintext)
+    ): ByteArray =
+        try {
+            aesCipher(Cipher.ENCRYPT_MODE, key, nonce).run {
+                if (aad.isNotEmpty()) updateAAD(aad)
+                doFinal(plaintext)
+            }
+        } catch (error: GeneralSecurityException) {
+            throw SecurityPrimitiveException("AES-GCM encryption failed", error)
         }
-    } catch (error: GeneralSecurityException) {
-        throw SecurityPrimitiveException("AES-GCM encryption failed", error)
-    }
 
     override fun aesGcmDecrypt(
         key: ByteArray,
         nonce: ByteArray,
         ciphertext: ByteArray,
         aad: ByteArray,
-    ): ByteArray = try {
-        aesCipher(Cipher.DECRYPT_MODE, key, nonce).run {
-            if (aad.isNotEmpty()) updateAAD(aad)
-            doFinal(ciphertext)
+    ): ByteArray =
+        try {
+            aesCipher(Cipher.DECRYPT_MODE, key, nonce).run {
+                if (aad.isNotEmpty()) updateAAD(aad)
+                doFinal(ciphertext)
+            }
+        } catch (error: AEADBadTagException) {
+            throw VaultAuthenticationException(cause = error)
+        } catch (error: BadPaddingException) {
+            // Some Android providers report a failed GCM tag as BadPaddingException.
+            throw VaultAuthenticationException(cause = error)
+        } catch (error: GeneralSecurityException) {
+            throw SecurityPrimitiveException("AES-GCM decryption failed", error)
         }
-    } catch (error: AEADBadTagException) {
-        throw VaultAuthenticationException(cause = error)
-    } catch (error: BadPaddingException) {
-        // Some Android providers report a failed GCM tag as BadPaddingException.
-        throw VaultAuthenticationException(cause = error)
-    } catch (error: GeneralSecurityException) {
-        throw SecurityPrimitiveException("AES-GCM decryption failed", error)
-    }
 
     override fun pbkdf2HmacSha256(
         passphrase: CharArray,
@@ -61,7 +63,8 @@ private object AndroidCryptoPrimitives : CryptoPrimitives {
     ): ByteArray {
         val spec = PBEKeySpec(passphrase, salt, iterations, outputSizeBytes * Byte.SIZE_BITS)
         return try {
-            SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            SecretKeyFactory
+                .getInstance("PBKDF2WithHmacSHA256")
                 .generateSecret(spec)
                 .encoded
         } catch (error: GeneralSecurityException) {
@@ -71,7 +74,11 @@ private object AndroidCryptoPrimitives : CryptoPrimitives {
         }
     }
 
-    private fun aesCipher(mode: Int, key: ByteArray, nonce: ByteArray): Cipher =
+    private fun aesCipher(
+        mode: Int,
+        key: ByteArray,
+        nonce: ByteArray,
+    ): Cipher =
         Cipher.getInstance("AES/GCM/NoPadding").apply {
             init(
                 mode,

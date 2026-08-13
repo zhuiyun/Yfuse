@@ -1,14 +1,15 @@
 package com.yfuse.feature.profile
 
 import androidx.compose.runtime.Composable
-import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.SettingTint
+import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.PlaybackQuality
 
 internal data class PlaybackOptionCopy(
     val label: String,
@@ -16,44 +17,54 @@ internal data class PlaybackOptionCopy(
     val description: String,
 )
 
-internal fun PlayerEngine.playbackOptionCopy(): PlaybackOptionCopy = when (this) {
-    PlayerEngine.Exo -> PlaybackOptionCopy(
-        label = "兼容优先（ExoPlayer）",
-        summary = "兼容优先",
-        description = "使用 Android Media3，适合作为默认选择",
-    )
-    PlayerEngine.Mpv -> PlaybackOptionCopy(
-        label = "格式优先（MPV）",
-        summary = "格式优先",
-        description = "使用 libmpv，覆盖更多封装、编码与字幕格式",
-    )
-    PlayerEngine.Mdk -> PlaybackOptionCopy(
-        label = "原生内核（MDK）",
-        summary = "原生内核",
-        description = "使用 MDK 原生播放栈，供高级兼容性选择",
-    )
-}
+internal fun PlayerEngine.playbackOptionCopy(): PlaybackOptionCopy =
+    when (this) {
+        PlayerEngine.Exo ->
+            PlaybackOptionCopy(
+                label = "兼容优先（ExoPlayer）",
+                summary = "兼容优先",
+                description = "使用 Android Media3，适合作为默认选择",
+            )
+        PlayerEngine.Mpv ->
+            PlaybackOptionCopy(
+                label = "格式优先（MPV）",
+                summary = "格式优先",
+                description = "使用 libmpv，覆盖更多封装、编码与字幕格式",
+            )
+        PlayerEngine.Mdk ->
+            PlaybackOptionCopy(
+                label = "原生内核（MDK）",
+                summary = "原生内核",
+                description = "使用 MDK 原生播放栈，供高级兼容性选择",
+            )
+    }
 
-internal fun DecoderMode.playbackOptionCopy(): PlaybackOptionCopy = when (this) {
-    DecoderMode.Hardware -> PlaybackOptionCopy(
-        label = "硬件优先",
-        summary = "硬件优先",
-        description = "优先使用设备硬件解码，通常更省电",
-    )
-    DecoderMode.Software -> PlaybackOptionCopy(
-        label = "软件兼容（FFmpeg）",
-        summary = "软件兼容",
-        description = "使用软件解码，更耗电，但可兼容部分硬件不支持的编码",
-    )
-    DecoderMode.Auto -> PlaybackOptionCopy(
-        label = "自动选择",
-        summary = "自动选择",
-        description = "由当前播放内核根据媒体与设备自行选择",
-    )
-}
+internal fun DecoderMode.playbackOptionCopy(): PlaybackOptionCopy =
+    when (this) {
+        DecoderMode.Hardware ->
+            PlaybackOptionCopy(
+                label = "硬件优先",
+                summary = "硬件优先",
+                description = "优先使用设备硬件解码，通常更省电",
+            )
+        DecoderMode.Software ->
+            PlaybackOptionCopy(
+                label = "软件兼容（FFmpeg）",
+                summary = "软件兼容",
+                description = "使用软件解码，更耗电，但可兼容部分硬件不支持的编码",
+            )
+        DecoderMode.Auto ->
+            PlaybackOptionCopy(
+                label = "自动选择",
+                summary = "自动选择",
+                description = "由当前播放内核根据媒体与设备自行选择",
+            )
+    }
 
-internal fun playbackSettingsSummary(engine: PlayerEngine, decoder: DecoderMode): String =
-    "${engine.playbackOptionCopy().summary} · ${decoder.playbackOptionCopy().summary}"
+internal fun playbackSettingsSummary(
+    engine: PlayerEngine,
+    decoder: DecoderMode,
+): String = "${engine.playbackOptionCopy().summary} · ${decoder.playbackOptionCopy().summary}"
 
 @Composable
 internal fun PlaybackSettingsScreen(
@@ -61,11 +72,23 @@ internal fun PlaybackSettingsScreen(
     engine: PlayerEngine,
     decoder: DecoderMode,
     autoNext: Boolean,
+    smartCrossServerSource: Boolean,
+    wifiQualityCap: PlaybackQuality,
+    cellularQualityCap: PlaybackQuality,
+    autoQualityDowngrade: Boolean,
+    qualityLocked: Boolean,
+    resumePrompt: Boolean,
     videoCacheSize: VideoCacheSize,
     skipSegments: String,
     onEngine: () -> Unit,
     onDecoder: () -> Unit,
     onAutoNext: (Boolean) -> Unit,
+    onSmartCrossServerSource: (Boolean) -> Unit,
+    onWifiQuality: () -> Unit,
+    onCellularQuality: () -> Unit,
+    onAutoQualityDowngrade: (Boolean) -> Unit,
+    onQualityLocked: (Boolean) -> Unit,
+    onResumePrompt: (Boolean) -> Unit,
     onVideoCache: () -> Unit,
     onSkipSegments: () -> Unit,
 ) {
@@ -79,9 +102,49 @@ internal fun PlaybackSettingsScreen(
                 SettingsCard {
                     SwitchRow("自动播放下一集", autoNext, true, onChange = onAutoNext)
                     SettingsDivider()
+                    SwitchRow(
+                        "智能跨服选源",
+                        smartCrossServerSource,
+                        true,
+                        onChange = onSmartCrossServerSource,
+                    )
+                    SettingsDivider()
+                    // The 「继续上次播放？」 dialog a cold start opens when the previous process
+                    // died mid-film. Off still records the checkpoint — 我的 → 播放恢复与同步
+                    // keeps it — it only stops the app opening on a question.
+                    SwitchRow("启动时询问继续播放", resumePrompt, true, onChange = onResumePrompt)
+                    SettingsDivider()
                     SettingRow("视频缓存大小", "${videoCacheSize.label} ›", true, onVideoCache)
                     SettingsDivider()
                     SettingRow("片头片尾", skipSegments, true, onSkipSegments)
+                }
+            }
+        }
+        item {
+            Section(title = "网络感知画质") {
+                SettingsCard {
+                    SettingRow("Wi-Fi 画质上限", "${wifiQualityCap.label} ›", true, onWifiQuality)
+                    SettingsDivider()
+                    SettingRow(
+                        "蜂窝网络画质上限",
+                        "${cellularQualityCap.label} ›",
+                        true,
+                        onCellularQuality,
+                    )
+                    SettingsDivider()
+                    SwitchRow(
+                        "卡顿后自动降档",
+                        autoQualityDowngrade,
+                        true,
+                        onChange = onAutoQualityDowngrade,
+                    )
+                    SettingsDivider()
+                    SwitchRow(
+                        "锁定手动画质",
+                        qualityLocked,
+                        true,
+                        onChange = onQualityLocked,
+                    )
                 }
             }
         }
@@ -182,9 +245,8 @@ internal fun AppearanceSettingsScreen(
     mode: ThemeMode,
     accent: AccentColor,
     glassStyle: GlassStyle,
-    appIconSummary: String,
+    brandSummary: String,
     backgroundSummary: String,
-    splashSummary: String,
     startupSummary: String,
     reduceTransparency: Boolean,
     largeText: Boolean,
@@ -192,9 +254,8 @@ internal fun AppearanceSettingsScreen(
     onThemeMode: (ThemeMode) -> Unit,
     onAccent: (AccentColor) -> Unit,
     onGlassStyle: (GlassStyle) -> Unit,
-    onAppIcon: () -> Unit,
     onBackground: () -> Unit,
-    onSplash: () -> Unit,
+    onBrand: () -> Unit,
     onStartupTab: () -> Unit,
     onReduceTransparency: (Boolean) -> Unit,
     onLargeText: (Boolean) -> Unit,
@@ -231,11 +292,14 @@ internal fun AppearanceSettingsScreen(
                         iconTint = SettingTint.components,
                     )
                     SettingsDivider()
+                    // One row, because it is one decision: the launcher icon and the launch
+                    // animation are two halves of the same brand, and choosing them on
+                    // separate pages let them end up describing different logos.
                     SettingRow(
-                        "APP 图标",
-                        appIconSummary,
+                        "Logo 与开屏动画",
+                        brandSummary,
                         true,
-                        onAppIcon,
+                        onBrand,
                         icon = AppIcons.Bookmark,
                         iconTint = SettingTint.components,
                     )
@@ -247,15 +311,6 @@ internal fun AppearanceSettingsScreen(
                         onBackground,
                         icon = AppIcons.Download,
                         iconTint = SettingTint.library,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "开屏动画",
-                        splashSummary,
-                        true,
-                        onSplash,
-                        icon = AppIcons.Play,
-                        iconTint = SettingTint.playback,
                     )
                     SettingsDivider()
                     // Which tab a cold start lands on. It sits under 外观 rather than in a

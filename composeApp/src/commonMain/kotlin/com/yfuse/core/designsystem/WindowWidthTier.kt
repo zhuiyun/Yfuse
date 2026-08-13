@@ -16,11 +16,12 @@ object WindowWidthBreakpoints {
 }
 
 /** Compact below 600dp, Medium from 600dp through 839.999dp, Expanded from 840dp. */
-fun windowWidthTier(width: Dp): WindowWidthTier = when {
-    width < WindowWidthBreakpoints.medium -> WindowWidthTier.Compact
-    width < WindowWidthBreakpoints.expanded -> WindowWidthTier.Medium
-    else -> WindowWidthTier.Expanded
-}
+fun windowWidthTier(width: Dp): WindowWidthTier =
+    when {
+        width < WindowWidthBreakpoints.medium -> WindowWidthTier.Compact
+        width < WindowWidthBreakpoints.expanded -> WindowWidthTier.Medium
+        else -> WindowWidthTier.Expanded
+    }
 
 /**
  * Whether navigation belongs at the side rather than along the bottom.
@@ -31,5 +32,7 @@ fun windowWidthTier(width: Dp): WindowWidthTier = when {
  * height to spare and its bottom edge is exactly where a thumb sits, so it was getting a side
  * rail in both orientations and a bottom bar in neither.
  */
-fun useNavigationRail(width: Dp, height: Dp): Boolean =
-    windowWidthTier(width) == WindowWidthTier.Expanded && width > height
+fun useNavigationRail(
+    width: Dp,
+    height: Dp,
+): Boolean = windowWidthTier(width) == WindowWidthTier.Expanded && width > height

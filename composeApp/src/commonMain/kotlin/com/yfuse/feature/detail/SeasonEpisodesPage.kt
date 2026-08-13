@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
@@ -43,7 +44,6 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
-import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.motionAwareScrollToItem
@@ -83,9 +83,10 @@ internal fun SeasonEpisodesPage(
     val palette = LocalPalette.current
     val listState = rememberLazyListState()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val focusedEpisodeIndex = remember(episodes, currentEpisodeId) {
-        episodeFocusIndex(episodes, currentEpisodeId)
-    }
+    val focusedEpisodeIndex =
+        remember(episodes, currentEpisodeId) {
+            episodeFocusIndex(episodes, currentEpisodeId)
+        }
     var initialSelectionConsumed by remember { mutableStateOf(false) }
     LaunchedEffect(currentEpisodeId, focusedEpisodeIndex, reduceMotion) {
         if (focusedEpisodeIndex < 0) return@LaunchedEffect
@@ -159,10 +160,11 @@ internal fun SeasonEpisodesPage(
                         accent = accent,
                         current = episode.id == currentEpisodeId,
                         onPlay = { onPlayEpisode(episode) },
-                        modifier = Modifier.padding(
-                            horizontal = Dimens.pageHorizontal,
-                            vertical = 7.dp,
-                        ),
+                        modifier =
+                            Modifier.padding(
+                                horizontal = Dimens.pageHorizontal,
+                                vertical = 7.dp,
+                            ),
                     )
                 }
             }
@@ -212,20 +214,20 @@ private fun EpisodeRow(
                     Modifier.border(1.5.dp, accent, GlassShapes.card)
                 } else {
                     Modifier
-                }
-            )
-            .padding(7.dp),
+                },
+            ).padding(7.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(Modifier.width(148.dp).height(84.dp)) {
             Poster(
-                url = EmbyImages.primary(
-                    baseUrl,
-                    episode.id,
-                    episode.primaryTag,
-                    maxHeight = 240,
-                    accessToken = accessToken,
-                ),
+                url =
+                    EmbyImages.primary(
+                        baseUrl,
+                        episode.id,
+                        episode.primaryTag,
+                        maxHeight = 240,
+                        accessToken = accessToken,
+                    ),
                 fallbackUrls = listOfNotNull(seriesPosterUrl),
                 shape = GlassShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
@@ -276,10 +278,11 @@ private fun EpisodeRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val facts = listOfNotNull(
-                episode.runtimeMinutes?.let { "$it 分钟" },
-                episode.premiereDate,
-            )
+            val facts =
+                listOfNotNull(
+                    episode.runtimeMinutes?.let { "$it 分钟" },
+                    episode.premiereDate,
+                )
             if (facts.isNotEmpty()) {
                 Spacer(Modifier.height(3.dp))
                 Text(
@@ -306,15 +309,21 @@ private fun EpisodeRow(
 }
 
 /** The selected episode wins; progress is a safe fallback while selection is still loading. */
-internal fun episodeFocusIndex(episodes: List<Episode>, currentEpisodeId: String?): Int {
-    val selectedIndex = currentEpisodeId
-        ?.let { id -> episodes.indexOfFirst { it.id == id } }
-        ?: -1
+internal fun episodeFocusIndex(
+    episodes: List<Episode>,
+    currentEpisodeId: String?,
+): Int {
+    val selectedIndex =
+        currentEpisodeId
+            ?.let { id -> episodes.indexOfFirst { it.id == id } }
+            ?: -1
     if (selectedIndex >= 0) return selectedIndex
     return episodes.indexOfFirst { episode ->
         !episode.played &&
-            ((episode.resumePositionTicks ?: 0L) > 0L ||
-                (episode.playedPercentage ?: 0.0) > 0.0)
+            (
+                (episode.resumePositionTicks ?: 0L) > 0L ||
+                    (episode.playedPercentage ?: 0.0) > 0.0
+            )
     }
 }
 

@@ -12,28 +12,29 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LibraryCacheTest {
-
-    private fun item(id: String) = MediaItem(
-        id = id,
-        title = "Title $id",
-        subtitle = null,
-        type = "Movie",
-        posterItemId = id,
-        posterTag = "tag$id",
-        backdropItemId = null,
-        backdropTag = null,
-        playedPercentage = null,
-    )
+    private fun item(id: String) =
+        MediaItem(
+            id = id,
+            title = "Title $id",
+            subtitle = null,
+            type = "Movie",
+            posterItemId = id,
+            posterTag = "tag$id",
+            backdropItemId = null,
+            backdropTag = null,
+            playedPercentage = null,
+        )
 
     @Test
     fun round_trips_content_per_server() {
         val cache = LibraryCache(MapSettings())
-        val content = HomeContent(
-            featured = listOf(item("a")),
-            resume = listOf(item("b")),
-            rows = listOf(HomeRow("lib1", "电影", listOf(item("c")), totalCount = 99)),
-            counts = LibraryCounts(movieCount = 42, seriesCount = 7),
-        )
+        val content =
+            HomeContent(
+                featured = listOf(item("a")),
+                resume = listOf(item("b")),
+                rows = listOf(HomeRow("lib1", "电影", listOf(item("c")), totalCount = 99)),
+                counts = LibraryCounts(movieCount = 42, seriesCount = 7),
+            )
 
         cache.write("server1", content, updatedAtEpochMs = 1_700_000_000_000L)
         cache.write(
@@ -47,7 +48,12 @@ class LibraryCacheTest {
         assertEquals(1_700_000_000_000L, restored.updatedAtEpochMs)
         // Servers do not share either a shelf or its freshness timestamp.
         val other = requireNotNull(cache.readSnapshot("server2"))
-        assertEquals("other", other.content.featured.single().id)
+        assertEquals(
+            "other",
+            other.content.featured
+                .single()
+                .id,
+        )
         assertEquals(1_700_000_000_001L, other.updatedAtEpochMs)
     }
 
@@ -78,7 +84,12 @@ class LibraryCacheTest {
 
         val restored = requireNotNull(LibraryCache(settings).readSnapshot("server1"))
 
-        assertEquals("old", restored.content.rows.single().libraryId)
+        assertEquals(
+            "old",
+            restored.content.rows
+                .single()
+                .libraryId,
+        )
         assertTrue(restored.content.collections.isEmpty())
         assertTrue(restored.content.playlists.isEmpty())
     }

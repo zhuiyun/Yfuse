@@ -8,9 +8,9 @@ import com.arkivanov.decompose.router.stack.pop
 import com.arkivanov.decompose.router.stack.popTo
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
+import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
-import com.yfuse.app.AppDependencies
 import kotlinx.serialization.Serializable
 
 /**
@@ -29,17 +29,17 @@ class ProfileTabComponent(
     private val onOpenServers: () -> Unit,
     private val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
-
     private val navigation = StackNavigation<Config>()
 
-    val stack: Value<ChildStack<Config, Child>> = childStack(
-        source = navigation,
-        serializer = Config.serializer(),
-        initialConfiguration = Config.Home,
-        // The Compose shell owns system back so only the visible tab can pop.
-        handleBackButton = false,
-        childFactory = ::child,
-    )
+    val stack: Value<ChildStack<Config, Child>> =
+        childStack(
+            source = navigation,
+            serializer = Config.serializer(),
+            initialConfiguration = Config.Home,
+            // The Compose shell owns system back so only the visible tab can pop.
+            handleBackButton = false,
+            childFactory = ::child,
+        )
 
     @Serializable
     sealed interface Config {
@@ -47,7 +47,9 @@ class ProfileTabComponent(
     }
 
     sealed interface Child {
-        class Home(val component: ProfileComponent) : Child
+        class Home(
+            val component: ProfileComponent,
+        ) : Child
     }
 
     fun navigateBack() {
@@ -64,17 +66,22 @@ class ProfileTabComponent(
         navigation.popTo(index = 0)
     }
 
-    private fun child(config: Config, context: ComponentContext): Child = when (config) {
-        Config.Home -> Child.Home(
-            ProfileComponent(
-                componentContext = context,
-                storeFactory = storeFactory,
-                registry = registry,
-                themePreferences = themePreferences,
-                onEnterWatchRoom = onEnterWatchRoom,
-                onOpenServers = onOpenServers,
-                dependencies = dependencies,
-            ),
-        )
-    }
+    private fun child(
+        config: Config,
+        context: ComponentContext,
+    ): Child =
+        when (config) {
+            Config.Home ->
+                Child.Home(
+                    ProfileComponent(
+                        componentContext = context,
+                        storeFactory = storeFactory,
+                        registry = registry,
+                        themePreferences = themePreferences,
+                        onEnterWatchRoom = onEnterWatchRoom,
+                        onOpenServers = onOpenServers,
+                        dependencies = dependencies,
+                    ),
+                )
+        }
 }

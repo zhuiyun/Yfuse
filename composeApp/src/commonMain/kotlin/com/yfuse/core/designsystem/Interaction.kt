@@ -66,15 +66,16 @@ val MinTouchTarget: Dp = 48.dp
  * glyph that answers to a 44dp region has to own that region, or it steals taps from its
  * neighbours instead.
  */
-fun Modifier.touchTarget(minSize: Dp = MinTouchTarget): Modifier = layout { measurable, constraints ->
-    val placeable = measurable.measure(constraints)
-    val floor = minSize.roundToPx()
-    val width = maxOf(placeable.width, floor)
-    val height = maxOf(placeable.height, floor)
-    layout(width, height) {
-        placeable.place((width - placeable.width) / 2, (height - placeable.height) / 2)
+fun Modifier.touchTarget(minSize: Dp = MinTouchTarget): Modifier =
+    layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        val floor = minSize.roundToPx()
+        val width = maxOf(placeable.width, floor)
+        val height = maxOf(placeable.height, floor)
+        layout(width, height) {
+            placeable.place((width - placeable.width) / 2, (height - placeable.height) / 2)
+        }
     }
-}
 
 /**
  * Press feedback for liquid-glass controls.
@@ -133,17 +134,19 @@ fun Modifier.pressable(
     val hovered by interactionSource.collectIsHoveredAsState()
     val down = pressed && enabled
     val highlighted = enabled && (focused || hovered)
-    val targetScale = pressScaleTarget(
-        reduceMotion = reduceMotion,
-        pressed = down,
-        highlighted = highlighted,
-        pressedScale = pressedScale,
-    )
-    val scaleSpec: AnimationSpec<Float> = when {
-        reduceMotion -> snap()
-        down -> Motion.pressSpec(pressed = true, reduceMotion = false)
-        else -> Motion.settle()
-    }
+    val targetScale =
+        pressScaleTarget(
+            reduceMotion = reduceMotion,
+            pressed = down,
+            highlighted = highlighted,
+            pressedScale = pressedScale,
+        )
+    val scaleSpec: AnimationSpec<Float> =
+        when {
+            reduceMotion -> snap()
+            down -> Motion.pressSpec(pressed = true, reduceMotion = false)
+            else -> Motion.settle()
+        }
     val scale by animateFloatAsState(
         targetValue = targetScale,
         animationSpec = scaleSpec,
@@ -178,12 +181,13 @@ fun Modifier.pressable(
         haptic?.let(haptics::play)
         onClick()
     }
-    val onLongClickWithHaptic: (() -> Unit)? = onLongClick?.let { action ->
-        {
-            haptics.play(HapticSignal.Confirm)
-            action()
+    val onLongClickWithHaptic: (() -> Unit)? =
+        onLongClick?.let { action ->
+            {
+                haptics.play(HapticSignal.Confirm)
+                action()
+            }
         }
-    }
 
     return this
         .graphicsLayer {
@@ -198,8 +202,7 @@ fun Modifier.pressable(
                 rotationY = horizontal * TILT_DEGREES * lean
                 rotationX = -vertical * TILT_DEGREES * lean
             }
-        }
-        .then(
+        }.then(
             if (ringAlpha > 0f) {
                 Modifier.border(
                     width = 2.dp,
@@ -209,8 +212,7 @@ fun Modifier.pressable(
             } else {
                 Modifier
             },
-        )
-        .let { modifier ->
+        ).let { modifier ->
             if (onLongClickWithHaptic != null) {
                 modifier.combinedClickable(
                     interactionSource = interactionSource,
@@ -240,20 +242,26 @@ internal fun pressScaleTarget(
     pressed: Boolean,
     highlighted: Boolean,
     pressedScale: Float,
-): Float = when {
-    // A snapped scale is still motion. Reduce Motion keeps the persistent focus ring but
-    // removes every geometric response, including press and hover.
-    reduceMotion -> 1f
-    pressed -> pressedScale
-    highlighted -> FOCUS_SCALE
-    else -> 1f
-}
+): Float =
+    when {
+        // A snapped scale is still motion. Reduce Motion keeps the persistent focus ring but
+        // removes every geometric response, including press and hover.
+        reduceMotion -> 1f
+        pressed -> pressedScale
+        highlighted -> FOCUS_SCALE
+        else -> 1f
+    }
 
-internal fun focusRingTargetAlpha(enabled: Boolean, focused: Boolean, hovered: Boolean): Float = when {
-    focused && enabled -> 1f
-    hovered && enabled -> HOVER_RING_ALPHA
-    else -> 0f
-}
+internal fun focusRingTargetAlpha(
+    enabled: Boolean,
+    focused: Boolean,
+    hovered: Boolean,
+): Float =
+    when {
+        focused && enabled -> 1f
+        hovered && enabled -> HOVER_RING_ALPHA
+        else -> 0f
+    }
 
 /**
  * `animateItem`, silenced under 减弱动态效果.

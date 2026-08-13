@@ -35,11 +35,12 @@ private const val StreakHeight = 0.033f
 private const val StreakGap = 0.042f
 
 /** 54 / 34 / 22 of 240, with B's own three colours — two fire, one water. */
-private val StreakBars = listOf(
-    0.225f to Color(0xFF2F5BEA),
-    0.142f to Color(0xFFF0714A),
-    0.092f to Color(0xFFF6A15E),
-)
+private val StreakBars =
+    listOf(
+        0.225f to Color(0xFF2F5BEA),
+        0.142f to Color(0xFFF0714A),
+        0.092f to Color(0xFFF6A15E),
+    )
 
 /**
  * Draws the mark in the row's right-hand 70%, unfolding about its left edge.
@@ -113,7 +114,10 @@ internal fun DrawScope.drawStreak(progress: Float) {
  * lands on the mark and the streak and nowhere else; over the page it would be a white
  * smear across the screen.
  */
-internal fun DrawScope.withSheen(progress: Float, content: DrawScope.() -> Unit) {
+internal fun DrawScope.withSheen(
+    progress: Float,
+    content: DrawScope.() -> Unit,
+) {
     val bounds = Rect(Offset.Zero, size)
     drawContext.canvas.saveLayer(bounds, Paint())
     content()
@@ -121,16 +125,18 @@ internal fun DrawScope.withSheen(progress: Float, content: DrawScope.() -> Unit)
         val travel = (-0.4f + 1.8f * progress) * size.width
         val width = size.width * 0.3f
         drawRect(
-            brush = Brush.linearGradient(
-                colorStops = arrayOf(
-                    0f to Color.Transparent,
-                    0.5f to Color.White.copy(alpha = 0.7f * bell(progress)),
-                    1f to Color.Transparent,
+            brush =
+                Brush.linearGradient(
+                    colorStops =
+                        arrayOf(
+                            0f to Color.Transparent,
+                            0.5f to Color.White.copy(alpha = 0.7f * bell(progress)),
+                            1f to Color.Transparent,
+                        ),
+                    // 108° in the design; the offsets below are that slope.
+                    start = Offset(travel - width, travel + width * 0.9f),
+                    end = Offset(travel + width, travel - width * 0.9f),
                 ),
-                // 108° in the design; the offsets below are that slope.
-                start = Offset(travel - width, travel + width * 0.9f),
-                end = Offset(travel + width, travel - width * 0.9f),
-            ),
             blendMode = BlendMode.SrcAtop,
         )
     }
@@ -143,15 +149,17 @@ internal fun DrawScope.drawWaterFireBloom(strength: Float) {
     val centre = Offset(size.width * 0.6f, size.height / 2f)
     val radius = size.width * 0.62f
     drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                Color(0xFF22D3EE).copy(alpha = 0.30f * strength),
-                Color(0xFFF97316).copy(alpha = 0.20f * strength),
-                Color.Transparent,
+        brush =
+            Brush.radialGradient(
+                colors =
+                    listOf(
+                        Color(0xFF22D3EE).copy(alpha = 0.30f * strength),
+                        Color(0xFFF97316).copy(alpha = 0.20f * strength),
+                        Color.Transparent,
+                    ),
+                center = centre,
+                radius = radius,
             ),
-            center = centre,
-            radius = radius,
-        ),
         radius = radius,
         center = centre,
     )
@@ -168,16 +176,18 @@ internal fun DrawScope.drawSeam(progress: Float) {
     val travel = lerp(-0.72f, 0.72f, progress) * markSide
     val width = markSide * 0.5f
     drawRect(
-        brush = Brush.horizontalGradient(
-            colorStops = arrayOf(
-                0f to Color.Transparent,
-                0.4f to Color.White,
-                0.7f to Color(0xFFFFECBE),
-                1f to Color.Transparent,
+        brush =
+            Brush.horizontalGradient(
+                colorStops =
+                    arrayOf(
+                        0f to Color.Transparent,
+                        0.4f to Color.White,
+                        0.7f to Color(0xFFFFECBE),
+                        1f to Color.Transparent,
+                    ),
+                startX = left + travel - width,
+                endX = left + travel + width,
             ),
-            startX = left + travel - width,
-            endX = left + travel + width,
-        ),
         topLeft = Offset(left + travel - width, y - markSide * 0.012f),
         size = Size(width * 2f, markSide * 0.024f),
         alpha = bell(progress),
@@ -185,7 +195,11 @@ internal fun DrawScope.drawSeam(progress: Float) {
 }
 
 /** Centres the mark in the row for the variants that do not use B's streak column. */
-internal fun DrawScope.drawCentredMark(mark: ImageBitmap, scale: Float, alpha: Float) {
+internal fun DrawScope.drawCentredMark(
+    mark: ImageBitmap,
+    scale: Float,
+    alpha: Float,
+) {
     if (alpha <= 0.001f || scale <= 0.001f) return
     val side = size.minDimension * 0.82f * scale
     val left = (size.width - side) / 2f

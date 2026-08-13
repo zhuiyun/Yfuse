@@ -10,11 +10,11 @@ import com.arkivanov.decompose.router.stack.popTo
 import com.arkivanov.decompose.router.stack.push
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
+import com.yfuse.app.AppDependencies
+import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.TmdbRepository
-import com.yfuse.app.AppDependencies
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.feature.calendar.CalendarComponent
 import com.yfuse.feature.detail.DetailComponent
@@ -39,22 +39,27 @@ class HomeTabComponent(
     private val onOpenLibrary: () -> Unit,
     private val onOpenProfile: () -> Unit,
 ) : ComponentContext by componentContext {
-
     private val navigation = StackNavigation<Config>()
 
-    val stack: Value<ChildStack<Config, Child>> = childStack(
-        source = navigation,
-        serializer = Config.serializer(),
-        initialConfiguration = Config.Home,
-        // The Compose shell owns system back so only the visible tab can pop.
-        handleBackButton = false,
-        childFactory = ::child,
-    )
+    val stack: Value<ChildStack<Config, Child>> =
+        childStack(
+            source = navigation,
+            serializer = Config.serializer(),
+            initialConfiguration = Config.Home,
+            // The Compose shell owns system back so only the visible tab can pop.
+            handleBackButton = false,
+            childFactory = ::child,
+        )
 
     @Serializable
     sealed interface Config {
         @Serializable data object Home : Config
-        @Serializable data class Detail(val serverId: String?, val itemId: String) : Config
+
+        @Serializable data class Detail(
+            val serverId: String?,
+            val itemId: String,
+        ) : Config
+
         @Serializable
         data class Player(
             val serverId: String?,
@@ -63,16 +68,35 @@ class HomeTabComponent(
             /** Names one file when the item has several; null takes the server's first. */
             val mediaSourceId: String? = null,
         ) : Config
-        @Serializable data class Info(val item: TmdbItem, val embyItemId: String?) : Config
+
+        @Serializable data class Info(
+            val item: TmdbItem,
+            val embyItemId: String?,
+        ) : Config
+
         @Serializable data object Calendar : Config
     }
 
     sealed interface Child {
-        class Home(val component: HomeComponent) : Child
-        class Detail(val component: DetailComponent) : Child
-        class Player(val component: PlayerComponent) : Child
-        class Info(val component: TmdbInfoComponent) : Child
-        class Calendar(val component: CalendarComponent) : Child
+        class Home(
+            val component: HomeComponent,
+        ) : Child
+
+        class Detail(
+            val component: DetailComponent,
+        ) : Child
+
+        class Player(
+            val component: PlayerComponent,
+        ) : Child
+
+        class Info(
+            val component: TmdbInfoComponent,
+        ) : Child
+
+        class Calendar(
+            val component: CalendarComponent,
+        ) : Child
     }
 
     fun navigateBack() {
@@ -89,85 +113,94 @@ class HomeTabComponent(
         navigation.popTo(index = 0)
     }
 
-    private fun child(config: Config, context: ComponentContext): Child = when (config) {
-        Config.Home -> Child.Home(
-            HomeComponent(
-                componentContext = context,
-                storeFactory = storeFactory,
-                tmdb = tmdb,
-                emby = repo,
-                registry = registry,
-                cache = dependencies.tmdbHomeCache,
-                onOpenEmbyItem = { serverId, itemId ->
-                    navigation.push(Config.Detail(serverId, itemId))
-                },
-                onOpenTmdbItem = { item, embyItemId ->
-                    navigation.push(Config.Info(item, embyItemId))
-                },
-                onOpenSearch = onOpenSearch,
-                onOpenLibrary = onOpenLibrary,
-                onOpenProfile = onOpenProfile,
-                onOpenCalendar = { navigation.push(Config.Calendar) },
-            ),
-        )
-        is Config.Detail -> Child.Detail(
-            DetailComponent(
-                componentContext = context,
-                storeFactory = storeFactory,
-                repo = repo,
-                registry = registry,
-                itemId = config.itemId,
-                serverId = config.serverId,
-                dependencies = dependencies,
-                onBack = { navigation.pop() },
-                onOpenRelated = { serverId, itemId ->
-                    navigation.push(Config.Detail(serverId, itemId))
-                },
-                onPlay = { serverId, id, ticks, mediaSourceId ->
-                    navigation.push(Config.Player(serverId, id, ticks, mediaSourceId))
-                },
-            ),
-        )
-        is Config.Player -> Child.Player(
-            PlayerComponent(
-                componentContext = context,
-                storeFactory = storeFactory,
-                repo = repo,
-                registry = registry,
-                itemId = config.itemId,
-                startPositionTicks = config.startPositionTicks,
-                serverId = config.serverId,
-                mediaSourceId = config.mediaSourceId,
-                dependencies = dependencies,
-                onBack = { navigation.pop() },
-            ),
-        )
-        Config.Calendar -> Child.Calendar(
-            CalendarComponent(
-                componentContext = context,
-                storeFactory = storeFactory,
-                repository = calendarRepository,
-                onBack = { navigation.pop() },
-                onOpenItem = { serverId, itemId ->
-                    navigation.push(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
-                },
-            ),
-        )
-        is Config.Info -> Child.Info(
-            TmdbInfoComponent(
-                componentContext = context,
-                tmdb = tmdb,
-                emby = repo,
-                registry = registry,
-                item = config.item,
-                embyItemId = config.embyItemId,
-                onBack = { navigation.pop() },
-                onPlayTarget = { serverId, id, ticks ->
-                    navigation.push(
-                        Config.Player(serverId, id, ticks),
-                    )
-                },
-            ),
-        )
-    }
+    private fun child(
+        config: Config,
+        context: ComponentContext,
+    ): Child =
+        when (config) {
+            Config.Home ->
+                Child.Home(
+                    HomeComponent(
+                        componentContext = context,
+                        storeFactory = storeFactory,
+                        tmdb = tmdb,
+                        emby = repo,
+                        registry = registry,
+                        cache = dependencies.tmdbHomeCache,
+                        onOpenEmbyItem = { serverId, itemId ->
+                            navigation.push(Config.Detail(serverId, itemId))
+                        },
+                        onOpenTmdbItem = { item, embyItemId ->
+                            navigation.push(Config.Info(item, embyItemId))
+                        },
+                        onOpenSearch = onOpenSearch,
+                        onOpenLibrary = onOpenLibrary,
+                        onOpenProfile = onOpenProfile,
+                        onOpenCalendar = { navigation.push(Config.Calendar) },
+                    ),
+                )
+            is Config.Detail ->
+                Child.Detail(
+                    DetailComponent(
+                        componentContext = context,
+                        storeFactory = storeFactory,
+                        repo = repo,
+                        registry = registry,
+                        itemId = config.itemId,
+                        serverId = config.serverId,
+                        dependencies = dependencies,
+                        onBack = { navigation.pop() },
+                        onOpenRelated = { serverId, itemId ->
+                            navigation.push(Config.Detail(serverId, itemId))
+                        },
+                        onPlay = { serverId, id, ticks, mediaSourceId ->
+                            navigation.push(Config.Player(serverId, id, ticks, mediaSourceId))
+                        },
+                    ),
+                )
+            is Config.Player ->
+                Child.Player(
+                    PlayerComponent(
+                        componentContext = context,
+                        storeFactory = storeFactory,
+                        repo = repo,
+                        registry = registry,
+                        itemId = config.itemId,
+                        startPositionTicks = config.startPositionTicks,
+                        serverId = config.serverId,
+                        mediaSourceId = config.mediaSourceId,
+                        dependencies = dependencies,
+                        onBack = { navigation.pop() },
+                    ),
+                )
+            Config.Calendar ->
+                Child.Calendar(
+                    CalendarComponent(
+                        componentContext = context,
+                        storeFactory = storeFactory,
+                        repository = calendarRepository,
+                        onBack = { navigation.pop() },
+                        onOpenItem = { serverId, itemId ->
+                            navigation.push(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
+                        },
+                    ),
+                )
+            is Config.Info ->
+                Child.Info(
+                    TmdbInfoComponent(
+                        componentContext = context,
+                        tmdb = tmdb,
+                        emby = repo,
+                        registry = registry,
+                        item = config.item,
+                        embyItemId = config.embyItemId,
+                        onBack = { navigation.pop() },
+                        onPlayTarget = { serverId, id, ticks ->
+                            navigation.push(
+                                Config.Player(serverId, id, ticks),
+                            )
+                        },
+                    ),
+                )
+        }
 }

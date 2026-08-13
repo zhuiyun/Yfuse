@@ -27,7 +27,9 @@ import kotlinx.coroutines.launch
  * daily and a foreign one weekly — and because a combined list ordered by popularity buries
  * whichever of the two the user came for.
  */
-enum class CalendarFilter(val label: String) {
+enum class CalendarFilter(
+    val label: String,
+) {
     Today("今天"),
     Upcoming("即将更新"),
     Unwatched("待观看"),
@@ -37,16 +39,20 @@ enum class CalendarFilter(val label: String) {
     Foreign("国外"),
     ;
 
-    fun accepts(entry: CalendarEntry): Boolean = when (this) {
-        Today, Upcoming, All -> true
-        Unwatched -> entry.inLibrary && entry.status in setOf(
-            com.yfuse.core.model.LibraryStatus.Available,
-            com.yfuse.core.model.LibraryStatus.Missing,
-        )
-        Mine -> entry.inLibrary
-        Domestic -> entry.episode.origin == ShowOrigin.Domestic
-        Foreign -> entry.episode.origin == ShowOrigin.Foreign
-    }
+    fun accepts(entry: CalendarEntry): Boolean =
+        when (this) {
+            Today, Upcoming, All -> true
+            Unwatched ->
+                entry.inLibrary &&
+                    entry.status in
+                    setOf(
+                        com.yfuse.core.model.LibraryStatus.Available,
+                        com.yfuse.core.model.LibraryStatus.Missing,
+                    )
+            Mine -> entry.inLibrary
+            Domestic -> entry.episode.origin == ShowOrigin.Domestic
+            Foreign -> entry.episode.origin == ShowOrigin.Foreign
+        }
 }
 
 data class CalendarState(
@@ -58,15 +64,20 @@ data class CalendarState(
 ) {
     /** The days the current filter leaves, with days it empties dropped entirely. */
     val visibleDays: List<CalendarDay>
-        get() = days.mapNotNull { day ->
-            val dateAccepted = when (filter) {
-                CalendarFilter.Today -> day.date == today
-                CalendarFilter.Upcoming -> day.date >= today
-                else -> true
+        get() =
+            days.mapNotNull { day ->
+                val dateAccepted =
+                    when (filter) {
+                        CalendarFilter.Today -> day.date == today
+                        CalendarFilter.Upcoming -> day.date >= today
+                        else -> true
+                    }
+                if (!dateAccepted) return@mapNotNull null
+                day.entries
+                    .filter(filter::accepts)
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { day.copy(entries = it) }
             }
-            if (!dateAccepted) return@mapNotNull null
-            day.entries.filter(filter::accepts).takeIf { it.isNotEmpty() }?.let { day.copy(entries = it) }
-        }
 
     /**
      * Where today sits in [visibleDays], or the first day after it when today has no
@@ -77,8 +88,9 @@ data class CalendarState(
      * "what have I missed" one gesture away while answering "what's on now" immediately.
      */
     val todayIndex: Int
-        get() = visibleDays.indexOfFirst { it.date >= today }.takeIf { it >= 0 }
-            ?: (visibleDays.size - 1).coerceAtLeast(0)
+        get() =
+            visibleDays.indexOfFirst { it.date >= today }.takeIf { it >= 0 }
+                ?: (visibleDays.size - 1).coerceAtLeast(0)
 
     /** True once the schedule has arrived but the filter leaves nothing — 我的, usually. */
     val filteredToNothing: Boolean get() = days.isNotEmpty() && visibleDays.isEmpty()
@@ -86,7 +98,10 @@ data class CalendarState(
 
 sealed interface CalendarIntent {
     data object Refresh : CalendarIntent
-    data class SelectFilter(val filter: CalendarFilter) : CalendarIntent
+
+    data class SelectFilter(
+        val filter: CalendarFilter,
+    ) : CalendarIntent
 }
 
 private sealed interface Action {
@@ -95,9 +110,18 @@ private sealed interface Action {
 
 private sealed interface Msg {
     data object Loading : Msg
-    data class Loaded(val days: List<CalendarDay>) : Msg
-    data class Failed(val message: String) : Msg
-    data class FilterChanged(val filter: CalendarFilter) : Msg
+
+    data class Loaded(
+        val days: List<CalendarDay>,
+    ) : Msg
+
+    data class Failed(
+        val message: String,
+    ) : Msg
+
+    data class FilterChanged(
+        val filter: CalendarFilter,
+    ) : Msg
 }
 
 class CalendarStoreFactory(
@@ -115,7 +139,6 @@ class CalendarStoreFactory(
 
     private inner class ExecutorImpl :
         CoroutineExecutor<CalendarIntent, Action, CalendarState, Msg, Nothing>() {
-
         override fun executeAction(action: Action) {
             when (action) {
                 Action.Load -> load()
@@ -132,7 +155,8 @@ class CalendarStoreFactory(
         private fun load() {
             dispatch(Msg.Loading)
             scope.launch {
-                repository.calendar()
+                repository
+                    .calendar()
                     .onSuccess { dispatch(Msg.Loaded(it)) }
                     .onFailure {
                         AppLog.warning(
@@ -148,18 +172,20 @@ class CalendarStoreFactory(
     }
 
     private object ReducerImpl : Reducer<CalendarState, Msg> {
-        override fun CalendarState.reduce(msg: Msg): CalendarState = when (msg) {
-            Msg.Loading -> copy(loading = true, error = null)
-            is Msg.Loaded -> copy(
-                loading = false,
-                days = msg.days,
-                error = null,
-                // Recomputed on every load: the app can outlive midnight, and a stale
-                // "today" would mark the wrong row and misjudge what has aired.
-                today = currentIsoDate(),
-            )
-            is Msg.Failed -> copy(loading = false, error = msg.message)
-            is Msg.FilterChanged -> copy(filter = msg.filter)
-        }
+        override fun CalendarState.reduce(msg: Msg): CalendarState =
+            when (msg) {
+                Msg.Loading -> copy(loading = true, error = null)
+                is Msg.Loaded ->
+                    copy(
+                        loading = false,
+                        days = msg.days,
+                        error = null,
+                        // Recomputed on every load: the app can outlive midnight, and a stale
+                        // "today" would mark the wrong row and misjudge what has aired.
+                        today = currentIsoDate(),
+                    )
+                is Msg.Failed -> copy(loading = false, error = msg.message)
+                is Msg.FilterChanged -> copy(filter = msg.filter)
+            }
     }
 }

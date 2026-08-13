@@ -20,13 +20,27 @@ internal data class RegisterRequest(
     val password: String,
     val nickname: String? = null,
     val avatarId: Int? = null,
+    val inviteCode: String? = null,
+    val deviceName: String? = null,
 )
 
 @Serializable
-internal data class LoginRequest(val username: String, val password: String)
+internal data class LoginRequest(
+    val username: String,
+    val password: String,
+    val deviceName: String? = null,
+)
 
 @Serializable
-internal data class RefreshRequest(val refreshToken: String)
+internal data class RefreshRequest(
+    val refreshToken: String,
+    val deviceName: String? = null,
+)
+
+@Serializable
+internal data class DeleteAccountRequest(
+    val password: String,
+)
 
 @Serializable
 internal data class UpdateProfileRequest(
@@ -46,6 +60,7 @@ data class ChangePasswordRequest(
     val wrapVersion: Int,
     val wrapKdf: String,
     val wrapIterations: Int,
+    val deviceName: String? = null,
 )
 
 @Serializable
@@ -81,6 +96,28 @@ data class SyncResponse(
 )
 
 @Serializable
+data class AccountDeviceSession(
+    val id: String,
+    val deviceName: String,
+    val createdAtEpochMs: Long,
+    val lastSeenAtEpochMs: Long,
+    val current: Boolean,
+)
+
+@Serializable
+internal data class AccountSessionsResponse(
+    val sessions: List<AccountDeviceSession>,
+)
+
+@Serializable
+data class AccountExport(
+    val schemaVersion: Int,
+    val exportedAtEpochMs: Long,
+    val user: AccountUser,
+    val encryptedSync: SyncResponse,
+)
+
+@Serializable
 internal data class PutSyncRequest(
     val baseVersion: Long,
     val payload: EncryptedSyncPayload,
@@ -94,7 +131,9 @@ internal data class ErrorBody(
 )
 
 @Serializable
-internal data class ErrorEnvelope(val error: ErrorBody)
+internal data class ErrorEnvelope(
+    val error: ErrorBody,
+)
 
 data class AccountSession(
     val user: AccountUser,
@@ -105,8 +144,13 @@ data class AccountSession(
 
 sealed interface AccountState {
     data object SignedOut : AccountState
+
     data object Restoring : AccountState
-    data class RestoreFailed(val message: String) : AccountState
+
+    data class RestoreFailed(
+        val message: String,
+    ) : AccountState
+
     data class SignedIn(
         val session: AccountSession,
         val syncVersion: Long = 0,

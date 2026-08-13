@@ -1,17 +1,14 @@
 package com.yfuse.feature.player
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -40,17 +36,16 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
-import com.yfuse.core.designsystem.rememberAccentColorsForSurface
-import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.sync.ChatDeliveryState
 import com.yfuse.core.sync.WatchChatMessage
@@ -124,15 +119,18 @@ internal fun WatchChatPanel(
     }
 
     LaunchedEffect(listState, messages.lastIndex) {
-        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
-            .collect { lastVisibleIndex ->
-                if (
-                    messages.isNotEmpty() &&
-                    lastVisibleIndex >= messages.lastIndex - 1
-                ) {
-                    showJumpToLatest = false
-                }
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo
+                .lastOrNull()
+                ?.index ?: -1
+        }.collect { lastVisibleIndex ->
+            if (
+                messages.isNotEmpty() &&
+                lastVisibleIndex >= messages.lastIndex - 1
+            ) {
+                showJumpToLatest = false
             }
+        }
     }
 
     fun submit() {
@@ -164,19 +162,19 @@ internal fun WatchChatPanel(
                     if (danmakuEnabled) "弹幕开" else "弹幕关",
                     style = AppTypography.caption.strong,
                     color = if (danmakuEnabled) accent.accent else Color.White.copy(alpha = 0.48f),
-                    modifier = Modifier
-                        .pressable(onClick = onToggleDanmaku)
-                        .touchTarget()
-                        .glass(
-                            AppShapes.thumb,
-                            if (danmakuEnabled) {
-                                accent.container
-                            } else {
-                                Color.White.copy(alpha = 0.08f)
-                            },
-                            if (danmakuEnabled) accent.border else Color.White.copy(alpha = 0.16f),
-                        )
-                        .padding(horizontal = 9.dp, vertical = 6.dp),
+                    modifier =
+                        Modifier
+                            .pressable(onClick = onToggleDanmaku)
+                            .touchTarget()
+                            .glass(
+                                AppShapes.thumb,
+                                if (danmakuEnabled) {
+                                    accent.container
+                                } else {
+                                    Color.White.copy(alpha = 0.08f)
+                                },
+                                if (danmakuEnabled) accent.border else Color.White.copy(alpha = 0.16f),
+                            ).padding(horizontal = 9.dp, vertical = 6.dp),
                 )
                 Box(
                     Modifier
@@ -226,12 +224,13 @@ internal fun WatchChatPanel(
                         Text(
                             participant.playbackStatusLabel,
                             style = AppTypography.caption.medium,
-                            color = when {
-                                !participant.mediaAvailable -> DarkPalette.error
-                                participant.buffering -> Color(0xFFFFC857)
-                                participant.ready -> accent.accent
-                                else -> Color.White.copy(alpha = 0.42f)
-                            },
+                            color =
+                                when {
+                                    !participant.mediaAvailable -> DarkPalette.error
+                                    participant.buffering -> Color(0xFFFFC857)
+                                    participant.ready -> accent.accent
+                                    else -> Color.White.copy(alpha = 0.42f)
+                                },
                             maxLines = 1,
                         )
                     }
@@ -284,29 +283,28 @@ internal fun WatchChatPanel(
                     "有新消息 · 回到最新",
                     style = AppTypography.caption.strong,
                     color = accent.onAccent,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 8.dp)
-                        .pressable(
-                            onClickLabel = "回到最新消息",
-                            onClick = {
-                                scope.launch {
-                                    if (reduceMotion) {
-                                        listState.scrollToItem(messages.lastIndex)
-                                    } else {
-                                        listState.animateScrollToItem(messages.lastIndex)
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 8.dp)
+                            .pressable(
+                                onClickLabel = "回到最新消息",
+                                onClick = {
+                                    scope.launch {
+                                        if (reduceMotion) {
+                                            listState.scrollToItem(messages.lastIndex)
+                                        } else {
+                                            listState.animateScrollToItem(messages.lastIndex)
+                                        }
+                                        showJumpToLatest = false
                                     }
-                                    showJumpToLatest = false
-                                }
-                            },
-                        )
-                        .touchTarget()
-                        .glass(
-                            AppShapes.control,
-                            accent.accent,
-                            accent.border,
-                        )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                },
+                            ).touchTarget()
+                            .glass(
+                                AppShapes.control,
+                                accent.accent,
+                                accent.border,
+                            ).padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
         }
@@ -332,8 +330,7 @@ internal fun WatchChatPanel(
                         AppShapes.control,
                         Color.White.copy(alpha = 0.1f),
                         Color.White.copy(alpha = 0.18f),
-                    )
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ).padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (draft.isEmpty()) {
@@ -346,11 +343,13 @@ internal fun WatchChatPanel(
                     BasicTextField(
                         value = draft,
                         onValueChange = { value ->
-                            draft = value.replace('\r', ' ')
-                                .replace('\n', ' ')
-                                .withoutControlCharacters()
-                                .takeGraphemes(MAX_CHAT_GRAPHEMES)
-                                .takeGraphemesWithinUtf8Bytes(MAX_CHAT_BYTES)
+                            draft =
+                                value
+                                    .replace('\r', ' ')
+                                    .replace('\n', ' ')
+                                    .withoutControlCharacters()
+                                    .takeGraphemes(MAX_CHAT_GRAPHEMES)
+                                    .takeGraphemesWithinUtf8Bytes(MAX_CHAT_BYTES)
                             onClearError()
                         },
                         singleLine = true,
@@ -372,20 +371,21 @@ internal fun WatchChatPanel(
             Text(
                 "发送",
                 style = AppTypography.caption.strong,
-                color = if (draft.isBlank() || !sendingEnabled) {
-                    Color.White.copy(alpha = 0.3f)
-                } else {
-                    accent.onAccent
-                },
-                modifier = Modifier
-                    .pressable(enabled = draft.isNotBlank() && sendingEnabled, onClick = ::submit)
-                    .touchTarget()
-                    .glass(
-                        AppShapes.control,
-                        if (draft.isBlank() || !sendingEnabled) accent.container else accent.accent,
-                        accent.border.copy(alpha = if (draft.isBlank() || !sendingEnabled) 0.38f else 1f),
-                    )
-                    .padding(horizontal = 13.dp, vertical = 13.dp),
+                color =
+                    if (draft.isBlank() || !sendingEnabled) {
+                        Color.White.copy(alpha = 0.3f)
+                    } else {
+                        accent.onAccent
+                    },
+                modifier =
+                    Modifier
+                        .pressable(enabled = draft.isNotBlank() && sendingEnabled, onClick = ::submit)
+                        .touchTarget()
+                        .glass(
+                            AppShapes.control,
+                            if (draft.isBlank() || !sendingEnabled) accent.container else accent.accent,
+                            accent.border.copy(alpha = if (draft.isBlank() || !sendingEnabled) 0.38f else 1f),
+                        ).padding(horizontal = 13.dp, vertical = 13.dp),
             )
         }
     }
@@ -428,17 +428,17 @@ private fun WatchChatBubble(
                         message.text,
                         style = AppTypography.caption.medium,
                         color = if (message.isMine) accent.accent else Color.White.copy(alpha = 0.94f),
-                        modifier = Modifier
-                            .glass(
-                                AppShapes.thumb,
-                                if (message.isMine) {
-                                    accent.container
-                                } else {
-                                    Color.White.copy(alpha = 0.1f)
-                                },
-                                if (message.isMine) accent.border else Color.White.copy(alpha = 0.16f),
-                            )
-                            .padding(horizontal = 11.dp, vertical = 8.dp),
+                        modifier =
+                            Modifier
+                                .glass(
+                                    AppShapes.thumb,
+                                    if (message.isMine) {
+                                        accent.container
+                                    } else {
+                                        Color.White.copy(alpha = 0.1f)
+                                    },
+                                    if (message.isMine) accent.border else Color.White.copy(alpha = 0.16f),
+                                ).padding(horizontal = 11.dp, vertical = 8.dp),
                     )
                 }
                 if (message.deliveryState != ChatDeliveryState.Sent) {
@@ -449,18 +449,20 @@ private fun WatchChatBubble(
                             "发送失败 · 点击重试"
                         },
                         style = AppTypography.caption.medium,
-                        color = if (message.deliveryState == ChatDeliveryState.Failed) {
-                            DarkPalette.error
-                        } else {
-                            Color.White.copy(alpha = 0.42f)
-                        },
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp, vertical = 2.dp)
-                            .noRippleClickable {
-                                if (message.deliveryState == ChatDeliveryState.Failed) {
-                                    message.clientMessageId?.let(onRetry)
-                                }
+                        color =
+                            if (message.deliveryState == ChatDeliveryState.Failed) {
+                                DarkPalette.error
+                            } else {
+                                Color.White.copy(alpha = 0.42f)
                             },
+                        modifier =
+                            Modifier
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                .noRippleClickable {
+                                    if (message.deliveryState == ChatDeliveryState.Failed) {
+                                        message.clientMessageId?.let(onRetry)
+                                    }
+                                },
                     )
                 }
             }
@@ -481,8 +483,7 @@ internal fun WatchChatPreview(
                 AppShapes.card,
                 Color.Black.copy(alpha = 0.58f),
                 Color.White.copy(alpha = 0.2f),
-            )
-            .noRippleClickable(onOpen)
+            ).noRippleClickable(onOpen)
             .padding(horizontal = 11.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {

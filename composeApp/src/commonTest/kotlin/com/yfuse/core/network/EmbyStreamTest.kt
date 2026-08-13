@@ -3,9 +3,68 @@ package com.yfuse.core.network
 import com.yfuse.core.model.PlaybackQuality
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EmbyStreamTest {
+    @Test
+    fun negotiated_public_http_url_is_rejected_before_credentials_are_added() {
+        val result =
+            EmbyStream.negotiatedUrl(
+                baseUrl = "https://emby.example",
+                rawUrl = "http://media.example/video",
+                token = "secret-token",
+                playSessionId = "session",
+                localCleartextConfirmed = true,
+            )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun negotiated_local_http_url_requires_the_servers_local_confirmation() {
+        val raw = "http://192.168.1.20/video"
+
+        assertNull(
+            EmbyStream.negotiatedUrl(
+                baseUrl = "https://emby.example",
+                rawUrl = raw,
+                token = "secret-token",
+                playSessionId = "session",
+            ),
+        )
+        val confirmed =
+            EmbyStream.negotiatedUrl(
+                baseUrl = "https://emby.example",
+                rawUrl = raw,
+                token = "secret-token",
+                playSessionId = "session",
+                localCleartextConfirmed = true,
+            )
+        assertTrue(confirmed?.startsWith(raw) == true, confirmed.orEmpty())
+        assertTrue("api_key=secret-token" in confirmed.orEmpty(), confirmed.orEmpty())
+    }
+
+    @Test
+    fun negotiated_https_and_relative_urls_remain_usable() {
+        val https =
+            EmbyStream.negotiatedUrl(
+                baseUrl = "https://emby.example",
+                rawUrl = "https://cdn.example/video",
+                token = "token",
+                playSessionId = "session",
+            )
+        val relative =
+            EmbyStream.negotiatedUrl(
+                baseUrl = "http://emby.local",
+                rawUrl = "/Videos/item/stream",
+                token = "token",
+                playSessionId = "session",
+            )
+
+        assertTrue(https?.startsWith("https://cdn.example/video") == true, https.orEmpty())
+        assertTrue(relative?.startsWith("http://emby.local/Videos/item/stream") == true, relative.orEmpty())
+    }
 
     @Test
     fun selected_quality_rewrites_transcode_limits() {
@@ -62,12 +121,13 @@ class EmbyStreamTest {
 
     @Test
     fun credentials_and_media_source_are_query_encoded() {
-        val url = EmbyStream.transcode(
-            baseUrl = "http://emby",
-            itemId = "movie",
-            token = "token+/= value",
-            mediaSourceId = "source one+two",
-        )
+        val url =
+            EmbyStream.transcode(
+                baseUrl = "http://emby",
+                itemId = "movie",
+                token = "token+/= value",
+                mediaSourceId = "source one+two",
+            )
 
         assertTrue("api_key=token%2B%2F%3D%20value" in url, url)
         assertTrue("MediaSourceId=source%20one%2Btwo" in url, url)
@@ -135,13 +195,14 @@ class EmbyStreamTest {
 
     @Test
     fun a_transcode_ladder_follows_the_source_through_stream_urls() {
-        val urls = EmbyStream.streamUrls(
-            baseUrl = "http://emby",
-            itemId = "movie",
-            token = "token",
-            sourceWidth = 3840,
-            sourceBitrateBps = 80_000_000,
-        )
+        val urls =
+            EmbyStream.streamUrls(
+                baseUrl = "http://emby",
+                itemId = "movie",
+                token = "token",
+                sourceWidth = 3840,
+                sourceBitrateBps = 80_000_000,
+            )
 
         // The episode-polling path used to build these with the bare 1080p/6 Mbps defaults.
         assertTrue("MaxWidth=3840" in urls.transcode, urls.transcode)

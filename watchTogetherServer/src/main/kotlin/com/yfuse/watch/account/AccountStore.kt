@@ -16,6 +16,7 @@ internal interface AccountStore : AutoCloseable {
         credentials: StoredCredentials,
         session: NewSession,
         maxUsers: Int,
+        invitationDigest: ByteArray? = null,
     ): RegistrationWriteResult
 
     fun findUserByNormalizedUsername(normalizedUsername: String): StoredCredentials?
@@ -33,6 +34,21 @@ internal interface AccountStore : AutoCloseable {
     ): AuthenticatedSession?
 
     fun revokeSessionByAccessHash(tokenHash: ByteArray, nowEpochMs: Long): Boolean
+
+    fun listActiveSessions(userId: String, nowEpochMs: Long): List<StoredSession>
+
+    fun revokeSession(userId: String, sessionId: String, nowEpochMs: Long): Boolean
+
+    fun revokeOtherSessions(userId: String, currentSessionId: String, nowEpochMs: Long): Int
+
+    fun revokeAllSessions(userId: String, nowEpochMs: Long): Int
+
+    fun deleteUser(
+        userId: String,
+        expectedCurrent: PasswordDigest,
+        authenticatedSessionId: String,
+        nowEpochMs: Long,
+    ): DeleteAccountWriteResult
 
     fun updateProfile(
         userId: String,
@@ -74,6 +90,7 @@ internal interface AccountStore : AutoCloseable {
  */
 internal class SqliteAccountStore private constructor(
     private val connection: Connection,
+    private val fileBacked: Boolean,
     private val nonceHistoryPerUserLimit: Int,
     private val nonceHistoryRetentionMs: Long,
     private val nonceHistoryCleanupIntervalMs: Long,
@@ -92,6 +109,13 @@ internal class SqliteAccountStore private constructor(
             connection.createStatement().use { statement ->
                 statement.execute("PRAGMA foreign_keys = ON")
                 statement.execute("PRAGMA busy_timeout = 5000")
+                if (fileBacked) {
+                    // WAL lets readers proceed while the serialized account writer commits and
+                    // is also the format expected by the production snapshot/backup procedure.
+                    statement.execute("PRAGMA journal_mode = WAL")
+                    statement.execute("PRAGMA synchronous = FULL")
+                    statement.execute("PRAGMA wal_autocheckpoint = 1000")
+                }
                 statement.execute(
                     """
                     CREATE TABLE IF NOT EXISTS users (
@@ -110,6 +134,15 @@ internal class SqliteAccountStore private constructor(
                 )
                 statement.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS account_invite_redemptions (
+                        invite_hash BLOB PRIMARY KEY CHECK(length(invite_hash) = 32),
+                        user_id TEXT NOT NULL,
+                        redeemed_at_ms INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                statement.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS sessions (
                         id TEXT PRIMARY KEY,
                         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -118,7 +151,9 @@ internal class SqliteAccountStore private constructor(
                         access_expires_at_ms INTEGER NOT NULL,
                         refresh_expires_at_ms INTEGER NOT NULL,
                         revoked_at_ms INTEGER,
-                        created_at_ms INTEGER NOT NULL
+                        created_at_ms INTEGER NOT NULL,
+                        device_name TEXT NOT NULL DEFAULT '未知设备',
+                        last_seen_at_ms INTEGER NOT NULL DEFAULT 0
                     )
                     """.trimIndent(),
                 )
@@ -177,6 +212,13 @@ internal class SqliteAccountStore private constructor(
                 "recorded_at_ms",
                 "INTEGER NOT NULL DEFAULT 0",
             )
+            ensureColumnLocked("sessions", "device_name", "TEXT NOT NULL DEFAULT '未知设备'")
+            ensureColumnLocked("sessions", "last_seen_at_ms", "INTEGER NOT NULL DEFAULT 0")
+            connection.createStatement().use { statement ->
+                statement.executeUpdate(
+                    "UPDATE sessions SET last_seen_at_ms = created_at_ms WHERE last_seen_at_ms = 0",
+                )
+            }
             val migrationNowEpochMs = System.currentTimeMillis()
             connection.prepareStatement(
                 """
@@ -236,16 +278,42 @@ internal class SqliteAccountStore private constructor(
         credentials: StoredCredentials,
         session: NewSession,
         maxUsers: Int,
+        invitationDigest: ByteArray?,
     ): RegistrationWriteResult =
         synchronized(lock) {
             val user = credentials.user
-            if (userCountLocked() >= maxUsers) {
-                return@synchronized RegistrationWriteResult.Closed
-            }
-            if (findUserByNormalizedUsernameLocked(user.normalizedUsername) != null) {
-                return@synchronized RegistrationWriteResult.UsernameUnavailable
-            }
             transaction {
+                if (invitationDigest != null) {
+                    val alreadyRedeemed = connection.prepareStatement(
+                        "SELECT 1 FROM account_invite_redemptions WHERE invite_hash = ? LIMIT 1",
+                    ).use { statement ->
+                        statement.setBytes(1, invitationDigest)
+                        statement.executeQuery().use(ResultSet::next)
+                    }
+                    if (alreadyRedeemed) {
+                        return@transaction RegistrationWriteResult.InviteUnavailable
+                    }
+                }
+                if (userCountLocked() >= maxUsers) {
+                    return@transaction RegistrationWriteResult.Closed
+                }
+                if (findUserByNormalizedUsernameLocked(user.normalizedUsername) != null) {
+                    return@transaction RegistrationWriteResult.UsernameUnavailable
+                }
+                if (invitationDigest != null) {
+                    connection.prepareStatement(
+                        """
+                        INSERT INTO account_invite_redemptions(
+                            invite_hash, user_id, redeemed_at_ms
+                        ) VALUES (?, ?, ?)
+                        """.trimIndent(),
+                    ).use { statement ->
+                        statement.setBytes(1, invitationDigest)
+                        statement.setString(2, user.id)
+                        statement.setLong(3, user.createdAtEpochMs)
+                        check(statement.executeUpdate() == 1)
+                    }
+                }
                 connection.prepareStatement(
                     """
                     INSERT INTO users (
@@ -271,8 +339,8 @@ internal class SqliteAccountStore private constructor(
                     session.userId,
                     session.createdAtEpochMs,
                 )
+                RegistrationWriteResult.Created
             }
-            RegistrationWriteResult.Created
         }
 
     override fun findUserByNormalizedUsername(normalizedUsername: String): StoredCredentials? =
@@ -316,7 +384,15 @@ internal class SqliteAccountStore private constructor(
                 if (!result.next()) null else AuthenticatedSession(
                     sessionId = result.getString("session_id"),
                     user = result.readUser(),
-                )
+                ).also {
+                    connection.prepareStatement(
+                        "UPDATE sessions SET last_seen_at_ms = ? WHERE id = ?",
+                    ).use { touch ->
+                        touch.setLong(1, nowEpochMs)
+                        touch.setString(2, it.sessionId)
+                        touch.executeUpdate()
+                    }
+                }
             }
         }
     }
@@ -352,7 +428,8 @@ internal class SqliteAccountStore private constructor(
                 """
                 UPDATE sessions
                 SET id = ?, access_token_hash = ?, refresh_token_hash = ?,
-                    access_expires_at_ms = ?, refresh_expires_at_ms = ?, created_at_ms = ?
+                    access_expires_at_ms = ?, refresh_expires_at_ms = ?, created_at_ms = ?,
+                    device_name = COALESCE(?, device_name), last_seen_at_ms = ?
                 WHERE id = ? AND refresh_token_hash = ? AND revoked_at_ms IS NULL
                 """.trimIndent(),
             ).use { statement ->
@@ -362,8 +439,10 @@ internal class SqliteAccountStore private constructor(
                 statement.setLong(4, replacement.accessExpiresAtEpochMs)
                 statement.setLong(5, replacement.refreshExpiresAtEpochMs)
                 statement.setLong(6, replacement.createdAtEpochMs)
-                statement.setString(7, current.sessionId)
-                statement.setBytes(8, currentRefreshHash)
+                statement.setString(7, replacement.deviceName)
+                statement.setLong(8, nowEpochMs)
+                statement.setString(9, current.sessionId)
+                statement.setBytes(10, currentRefreshHash)
                 statement.executeUpdate()
             }
             if (changed != 1) null else current.copy(sessionId = replacement.id)
@@ -384,6 +463,107 @@ internal class SqliteAccountStore private constructor(
                 statement.executeUpdate() == 1
             }
         }
+
+    override fun listActiveSessions(userId: String, nowEpochMs: Long): List<StoredSession> =
+        synchronized(lock) {
+            connection.prepareStatement(
+                """
+                SELECT id, device_name, created_at_ms, last_seen_at_ms
+                FROM sessions
+                WHERE user_id = ? AND revoked_at_ms IS NULL AND refresh_expires_at_ms > ?
+                ORDER BY last_seen_at_ms DESC, created_at_ms DESC
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.setLong(2, nowEpochMs)
+                statement.executeQuery().use { result ->
+                    buildList {
+                        while (result.next()) {
+                            add(
+                                StoredSession(
+                                    id = result.getString("id"),
+                                    deviceName = result.getString("device_name"),
+                                    createdAtEpochMs = result.getLong("created_at_ms"),
+                                    lastSeenAtEpochMs = result.getLong("last_seen_at_ms"),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+    override fun revokeSession(userId: String, sessionId: String, nowEpochMs: Long): Boolean =
+        synchronized(lock) {
+            connection.prepareStatement(
+                """
+                UPDATE sessions SET revoked_at_ms = ?
+                WHERE user_id = ? AND id = ? AND revoked_at_ms IS NULL
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setLong(1, nowEpochMs)
+                statement.setString(2, userId)
+                statement.setString(3, sessionId)
+                statement.executeUpdate() == 1
+            }
+        }
+
+    override fun revokeOtherSessions(
+        userId: String,
+        currentSessionId: String,
+        nowEpochMs: Long,
+    ): Int = synchronized(lock) {
+        connection.prepareStatement(
+            """
+            UPDATE sessions SET revoked_at_ms = ?
+            WHERE user_id = ? AND id <> ? AND revoked_at_ms IS NULL
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, nowEpochMs)
+            statement.setString(2, userId)
+            statement.setString(3, currentSessionId)
+            statement.executeUpdate()
+        }
+    }
+
+    override fun revokeAllSessions(userId: String, nowEpochMs: Long): Int = synchronized(lock) {
+        connection.prepareStatement(
+            "UPDATE sessions SET revoked_at_ms = ? WHERE user_id = ? AND revoked_at_ms IS NULL",
+        ).use { statement ->
+            statement.setLong(1, nowEpochMs)
+            statement.setString(2, userId)
+            statement.executeUpdate()
+        }
+    }
+
+    override fun deleteUser(
+        userId: String,
+        expectedCurrent: PasswordDigest,
+        authenticatedSessionId: String,
+        nowEpochMs: Long,
+    ): DeleteAccountWriteResult = synchronized(lock) {
+        transaction {
+            if (!isActiveSessionLocked(authenticatedSessionId, userId, nowEpochMs)) {
+                return@transaction DeleteAccountWriteResult.SessionInvalid
+            }
+            val current = findCredentialsByUserIdLocked(userId)
+                ?: return@transaction DeleteAccountWriteResult.SessionInvalid
+            val credentialsMatch = try {
+                current.passwordIterations == expectedCurrent.iterations &&
+                    current.passwordSalt.contentEquals(expectedCurrent.salt) &&
+                    current.passwordHash.contentEquals(expectedCurrent.hash)
+            } finally {
+                current.passwordSalt.fill(0)
+                current.passwordHash.fill(0)
+            }
+            if (!credentialsMatch) return@transaction DeleteAccountWriteResult.CredentialsChanged
+            connection.prepareStatement("DELETE FROM users WHERE id = ?").use { statement ->
+                statement.setString(1, userId)
+                check(statement.executeUpdate() == 1)
+            }
+            DeleteAccountWriteResult.Deleted
+        }
+    }
 
     override fun updateProfile(
         userId: String,
@@ -665,8 +845,9 @@ internal class SqliteAccountStore private constructor(
             """
             INSERT INTO sessions (
                 id, user_id, access_token_hash, refresh_token_hash,
-                access_expires_at_ms, refresh_expires_at_ms, created_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                access_expires_at_ms, refresh_expires_at_ms, created_at_ms,
+                device_name, last_seen_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
         ).use { statement ->
             statement.setString(1, session.id)
@@ -676,6 +857,8 @@ internal class SqliteAccountStore private constructor(
             statement.setLong(5, session.accessExpiresAtEpochMs)
             statement.setLong(6, session.refreshExpiresAtEpochMs)
             statement.setLong(7, session.createdAtEpochMs)
+            statement.setString(8, session.deviceName)
+            statement.setLong(9, session.createdAtEpochMs)
             statement.executeUpdate()
         }
     }
@@ -963,6 +1146,7 @@ internal class SqliteAccountStore private constructor(
             }
             return openUrl(
                 url = "jdbc:sqlite:${absoluteFile.path}",
+                fileBacked = true,
                 nonceHistoryPerUserLimit = nonceHistoryPerUserLimit,
                 nonceHistoryRetentionMs = nonceHistoryRetentionMs,
                 nonceHistoryCleanupIntervalMs = nonceHistoryCleanupIntervalMs,
@@ -977,6 +1161,7 @@ internal class SqliteAccountStore private constructor(
             activeSessionsPerUserLimit: Int = DEFAULT_ACTIVE_SESSIONS_PER_USER_LIMIT,
         ): SqliteAccountStore = openUrl(
             url = "jdbc:sqlite::memory:",
+            fileBacked = false,
             nonceHistoryPerUserLimit = nonceHistoryPerUserLimit,
             nonceHistoryRetentionMs = nonceHistoryRetentionMs,
             nonceHistoryCleanupIntervalMs = nonceHistoryCleanupIntervalMs,
@@ -985,6 +1170,7 @@ internal class SqliteAccountStore private constructor(
 
         private fun openUrl(
             url: String,
+            fileBacked: Boolean,
             nonceHistoryPerUserLimit: Int,
             nonceHistoryRetentionMs: Long,
             nonceHistoryCleanupIntervalMs: Long,
@@ -993,6 +1179,7 @@ internal class SqliteAccountStore private constructor(
             Class.forName("org.sqlite.JDBC")
             return SqliteAccountStore(
                 connection = DriverManager.getConnection(url),
+                fileBacked = fileBacked,
                 nonceHistoryPerUserLimit = nonceHistoryPerUserLimit,
                 nonceHistoryRetentionMs = nonceHistoryRetentionMs,
                 nonceHistoryCleanupIntervalMs = nonceHistoryCleanupIntervalMs,

@@ -25,7 +25,10 @@ class AppShellLayoutContractTest {
     @Test
     fun search_is_a_control_beside_the_bar_rather_than_a_cell_in_it() {
         val source = projectFile("src/commonMain/kotlin/com/yfuse/app/App.kt").readText()
-        val tabList = source.substringAfter("private val tabs = listOf(").substringBefore(")\n")
+        val tabList =
+            source
+                .substringAfter("private val tabs =")
+                .substringBefore("val TabBarInset")
 
         // The pill is sized as equal cells and the indicator is positioned by index, so a
         // fifth entry here silently narrows every target and re-points the pill.
@@ -40,8 +43,10 @@ class AppShellLayoutContractTest {
     @Test
     fun the_bar_collapses_under_scroll_and_can_always_be_brought_back() {
         val source = projectFile("src/commonMain/kotlin/com/yfuse/app/App.kt").readText()
-        val dock = source.substringAfter("private fun BottomNavigationDock(")
-            .substringBefore("private fun CollapsedNavButton(")
+        val dock =
+            source
+                .substringAfter("private fun BottomNavigationDock(")
+                .substringBefore("private fun CollapsedNavButton(")
 
         assertTrue("private fun rememberNavCollapseConnection(" in source)
         assertTrue(".nestedScroll(navScroll)" in source)
@@ -54,9 +59,10 @@ class AppShellLayoutContractTest {
         assertTrue("GlassTabBar(" in collapseBranch)
     }
 
-    private fun projectFile(moduleRelativePath: String): File = sequenceOf(
-        File(moduleRelativePath),
-        File("composeApp", moduleRelativePath),
-    ).firstOrNull(File::isFile)
-        ?: error("Cannot locate $moduleRelativePath from ${File(".").absolutePath}")
+    private fun projectFile(moduleRelativePath: String): File =
+        sequenceOf(
+            File(moduleRelativePath),
+            File("composeApp", moduleRelativePath),
+        ).firstOrNull(File::isFile)
+            ?: error("Cannot locate $moduleRelativePath from ${File(".").absolutePath}")
 }

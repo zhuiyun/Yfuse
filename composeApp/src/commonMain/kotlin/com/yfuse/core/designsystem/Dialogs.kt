@@ -36,11 +36,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -159,10 +159,11 @@ fun GlassDialog(
         // Back, scrim taps and explicit close buttons all keep the window alive until the
         // same exit transition has finished. Calling [onDismiss] here tears it down at once.
         onDismissRequest = requestDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-        ),
+        properties =
+            DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
     ) {
         ReportOverlayVisible()
         val palette = LocalPalette.current
@@ -204,8 +205,7 @@ fun GlassDialog(
                             val entered = progress()
                             alpha = entered
                             translationY = modalOffset * (1f - entered)
-                        }
-                        .shadow(Shadows.sheet, OverlayShape)
+                        }.shadow(Shadows.sheet, OverlayShape)
                         // 液态玻璃, like everything else that floats.
                         //
                         // This was an opaque `Color.White` / `#111A29` slab — the one surface
@@ -217,11 +217,12 @@ fun GlassDialog(
                         // keeps the copy legible without an opaque fill.
                         .liquidGlass(
                             shape = OverlayShape,
-                            fill = if (palette.isDark) {
-                                Color(0xFF111A29).copy(alpha = 0.94f)
-                            } else {
-                                Color.White.copy(alpha = 0.94f)
-                            },
+                            fill =
+                                if (palette.isDark) {
+                                    Color(0xFF111A29).copy(alpha = 0.94f)
+                                } else {
+                                    Color.White.copy(alpha = 0.94f)
+                                },
                             border = palette.border,
                             over = ScrimColor,
                         )
@@ -278,17 +279,21 @@ fun overlayDismiss(fallback: () -> Unit): () -> Unit = LocalOverlayDismiss.curre
  * the next frame.
  */
 @Composable
-private fun rememberOverlayTransition(leaving: Boolean, onLeft: () -> Unit): () -> Float {
+private fun rememberOverlayTransition(
+    leaving: Boolean,
+    onLeft: () -> Unit,
+): () -> Float {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
     val target = if (shown && !leaving) 1f else 0f
     val progress by animateFloatAsState(
         targetValue = target,
-        animationSpec = tween(
-            durationMillis = overlayDurationMillis(leaving, reduceMotion),
-            easing = Motion.Curve,
-        ),
+        animationSpec =
+            tween(
+                durationMillis = overlayDurationMillis(leaving, reduceMotion),
+                easing = Motion.Curve,
+            ),
         // Fired by the animation itself rather than by a parallel delay, so the window is
         // torn down on the frame the panel finishes leaving — never before it, and never a
         // few frames after it.
@@ -298,11 +303,15 @@ private fun rememberOverlayTransition(leaving: Boolean, onLeft: () -> Unit): () 
     return { progress }
 }
 
-internal fun overlayDurationMillis(leaving: Boolean, reduceMotion: Boolean): Int = when {
-    reduceMotion -> 0
-    leaving -> OverlayExitDurationMs
-    else -> Motion.MODAL
-}
+internal fun overlayDurationMillis(
+    leaving: Boolean,
+    reduceMotion: Boolean,
+): Int =
+    when {
+        reduceMotion -> 0
+        leaving -> OverlayExitDurationMs
+        else -> Motion.MODAL
+    }
 
 /** Title row with an optional subtitle and a close affordance. */
 @Composable
@@ -335,13 +344,14 @@ fun OverlayHeader(
                 AppIcons.Close,
                 contentDescription = "关闭",
                 tint = palette.sub2,
-                modifier = Modifier
-                    .pressable(onClick = close)
-                    // The chip stays 28dp; the region that answers to it is 44.
-                    .touchTarget()
-                    .size(28.dp)
-                    .flatGlass(CircleShape, palette.card2, palette.border)
-                    .padding(8.dp),
+                modifier =
+                    Modifier
+                        .pressable(onClick = close)
+                        // The chip stays 28dp; the region that answers to it is 44.
+                        .touchTarget()
+                        .size(28.dp)
+                        .flatGlass(CircleShape, palette.card2, palette.border)
+                        .padding(8.dp),
             )
         }
     }
@@ -363,22 +373,25 @@ fun OverlayButton(
     val accent = LocalAccentColors.current
     // Same 中 radius it always had; continuous now, like every other control.
     val shape = GlassShapes.chip
-    val fill = when {
-        tone == OverlayButtonTone.Primary && enabled -> accent.accent
-        tone == OverlayButtonTone.Primary -> accent.container
-        tone == OverlayButtonTone.Destructive -> palette.errorContainer
-        else -> palette.card2
-    }
-    val border = when (tone) {
-        OverlayButtonTone.Primary -> accent.border.copy(alpha = if (enabled) 1f else 0.38f)
-        OverlayButtonTone.Destructive -> palette.error
-        OverlayButtonTone.Plain -> palette.border
-    }
-    val ink = when (tone) {
-        OverlayButtonTone.Primary -> if (enabled) accent.onAccent else accent.accent
-        OverlayButtonTone.Destructive -> palette.error
-        OverlayButtonTone.Plain -> palette.text
-    }
+    val fill =
+        when {
+            tone == OverlayButtonTone.Primary && enabled -> accent.accent
+            tone == OverlayButtonTone.Primary -> accent.container
+            tone == OverlayButtonTone.Destructive -> palette.errorContainer
+            else -> palette.card2
+        }
+    val border =
+        when (tone) {
+            OverlayButtonTone.Primary -> accent.border.copy(alpha = if (enabled) 1f else 0.38f)
+            OverlayButtonTone.Destructive -> palette.error
+            OverlayButtonTone.Plain -> palette.border
+        }
+    val ink =
+        when (tone) {
+            OverlayButtonTone.Primary -> if (enabled) accent.onAccent else accent.accent
+            OverlayButtonTone.Destructive -> palette.error
+            OverlayButtonTone.Plain -> palette.text
+        }
     Box(
         modifier
             .height(46.dp)
@@ -388,8 +401,7 @@ fun OverlayButton(
                 // out of a dialog is not an event worth a buzz.
                 haptic = if (tone == OverlayButtonTone.Plain) null else HapticSignal.Confirm,
                 onClick = onClick,
-            )
-            .flatGlass(shape, fill, border),
+            ).flatGlass(shape, fill, border),
         contentAlignment = Alignment.Center,
     ) {
         if (loading) {
@@ -462,11 +474,12 @@ fun ConfirmDialog(
             confirmLabel = confirmLabel,
             onDismiss = onDismiss,
             onConfirm = onConfirm,
-            confirmTone = if (destructive) {
-                OverlayButtonTone.Destructive
-            } else {
-                OverlayButtonTone.Primary
-            },
+            confirmTone =
+                if (destructive) {
+                    OverlayButtonTone.Destructive
+                } else {
+                    OverlayButtonTone.Primary
+                },
         )
     }
 }
@@ -498,21 +511,24 @@ fun OverlayOptionRow(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val fill = when {
-        destructive -> palette.errorContainer
-        selected -> accent.container
-        else -> palette.card2
-    }
-    val border = when {
-        destructive -> palette.error.copy(alpha = 0.42f)
-        selected -> accent.border
-        else -> palette.border
-    }
-    val ink = when {
-        destructive -> palette.error
-        selected -> accent.accent
-        else -> palette.text
-    }
+    val fill =
+        when {
+            destructive -> palette.errorContainer
+            selected -> accent.container
+            else -> palette.card2
+        }
+    val border =
+        when {
+            destructive -> palette.error.copy(alpha = 0.42f)
+            selected -> accent.border
+            else -> palette.border
+        }
+    val ink =
+        when {
+            destructive -> palette.error
+            selected -> accent.accent
+            else -> palette.text
+        }
     Row(
         modifier
             .fillMaxWidth()
@@ -524,8 +540,7 @@ fun OverlayOptionRow(
                 role = Role.RadioButton,
                 focusShape = GlassShapes.chip,
                 onClick = onClick,
-            )
-            .semantics { this.selected = selected }
+            ).semantics { this.selected = selected }
             // 11dp of padding around a 12.5sp line came to roughly 39dp — under the floor,
             // and these rows are stacked, so a miss lands on the neighbouring choice rather
             // than on nothing.
@@ -538,11 +553,12 @@ fun OverlayOptionRow(
         Column(Modifier.weight(1f)) {
             Text(
                 label,
-                style = if (selected || destructive) {
-                    AppTypography.body.strong
-                } else {
-                    AppTypography.body.medium
-                },
+                style =
+                    if (selected || destructive) {
+                        AppTypography.body.strong
+                    } else {
+                        AppTypography.body.medium
+                    },
                 color = ink,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

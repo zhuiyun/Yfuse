@@ -20,22 +20,24 @@ data class WatchInvite(
     val endpoint: String? = null,
 ) {
     /** The deep link half of a share — paired with human-readable text by [shareText]. */
-    fun toUri(): String = buildString {
-        append(SCHEME)
-        append("://")
-        append(HOST)
-        append('/')
-        append(roomCode)
-        val params = buildList {
-            mediaKey?.let { add("k=" + encodeComponent(it)) }
-            title?.let { add("t=" + encodeComponent(it)) }
-            endpoint?.let { add("e=" + encodeComponent(it)) }
+    fun toUri(): String =
+        buildString {
+            append(SCHEME)
+            append("://")
+            append(HOST)
+            append('/')
+            append(roomCode)
+            val params =
+                buildList {
+                    mediaKey?.let { add("k=" + encodeComponent(it)) }
+                    title?.let { add("t=" + encodeComponent(it)) }
+                    endpoint?.let { add("e=" + encodeComponent(it)) }
+                }
+            if (params.isNotEmpty()) {
+                append('?')
+                append(params.joinToString("&"))
+            }
         }
-        if (params.isNotEmpty()) {
-            append('?')
-            append(params.joinToString("&"))
-        }
-    }
 
     /**
      * What actually gets pasted into a chat app. The link carries the one-tap path; the
@@ -43,14 +45,15 @@ data class WatchInvite(
      * scheme, or who doesn't have the app installed yet (there's no domain to hang an
      * Android App Link off, so the scheme is all we have).
      */
-    fun shareText(): String = buildString {
-        append("用 Yfuse 一起看")
-        title?.let { append("《$it》") }
-        append("\n房间码 ")
-        append(roomCode)
-        append('\n')
-        append(toUri())
-    }
+    fun shareText(): String =
+        buildString {
+            append("用 Yfuse 一起看")
+            title?.let { append("《$it》") }
+            append("\n房间码 ")
+            append(roomCode)
+            append('\n')
+            append(toUri())
+        }
 
     companion object {
         const val SCHEME = "yfuse"
@@ -62,8 +65,7 @@ data class WatchInvite(
         /** Normalizes user-typed input: strips separators, upper-cases, drops characters
          *  that aren't in the server's room-code alphabet (so `O`/`0` confusion fails fast
          *  and visibly rather than silently joining nothing). */
-        fun normalizeCode(raw: String): String =
-            raw.uppercase().filter { it in CODE_ALPHABET }.take(CODE_LENGTH)
+        fun normalizeCode(raw: String): String = raw.uppercase().filter { it in CODE_ALPHABET }.take(CODE_LENGTH)
 
         fun isCompleteCode(raw: String): Boolean = normalizeCode(raw).length == CODE_LENGTH
 
@@ -83,14 +85,15 @@ data class WatchInvite(
             val code = normalizeCode(body.substringBefore('?'))
             if (code.length != CODE_LENGTH) return null
 
-            val params = query.split('&')
-                .filter { it.isNotBlank() }
-                .mapNotNull { pair ->
-                    val key = pair.substringBefore('=')
-                    val value = pair.substringAfter('=', "")
-                    if (key.isBlank()) null else key to decodeComponent(value)
-                }
-                .toMap()
+            val params =
+                query
+                    .split('&')
+                    .filter { it.isNotBlank() }
+                    .mapNotNull { pair ->
+                        val key = pair.substringBefore('=')
+                        val value = pair.substringAfter('=', "")
+                        if (key.isBlank()) null else key to decodeComponent(value)
+                    }.toMap()
 
             return WatchInvite(
                 roomCode = code,
@@ -116,7 +119,8 @@ data class WatchInvite(
             }
 
             // A bare code, possibly surrounded by other words ("房间码 ABC123").
-            trimmed.split(' ', '\n', '\t', '\r', '：', ':')
+            trimmed
+                .split(' ', '\n', '\t', '\r', '：', ':')
                 .map { normalizeCode(it) }
                 .firstOrNull { it.length == CODE_LENGTH }
                 ?.let { return WatchInvite(roomCode = it) }
@@ -193,7 +197,8 @@ private val WATCH_PROVIDERS = listOf("Tmdb", "Tvdb", "Imdb")
  */
 fun Map<String, String>.watchKeys(): List<String> =
     WATCH_PROVIDERS.mapNotNull { provider ->
-        entries.firstOrNull { it.key.equals(provider, ignoreCase = true) }
+        entries
+            .firstOrNull { it.key.equals(provider, ignoreCase = true) }
             ?.value
             ?.takeIf { it.isNotBlank() }
             ?.let { "${provider.lowercase()}:$it" }
@@ -206,8 +211,7 @@ fun Map<String, String>.watchKeys(): List<String> =
  * still be recognised as watching the same thing; falls back to `emby:<id>`, which only
  * matches on the server it came from.
  */
-fun Map<String, String>.watchKey(fallbackId: String): String =
-    watchKeys().firstOrNull() ?: "emby:$fallbackId"
+fun Map<String, String>.watchKey(fallbackId: String): String = watchKeys().firstOrNull() ?: "emby:$fallbackId"
 
 /** Separates a series key from the episode coordinate within it: `tmdb:1399/s2e5`. */
 const val EPISODE_KEY_SEPARATOR = '/'
@@ -275,17 +279,22 @@ fun watchMatchKeys(
     seasonNumber: Int? = null,
     episodeNumber: Int? = null,
     fallbackId: String,
-): List<String> = buildList {
-    if (episodeNumber != null) {
-        val coordinate = "$EPISODE_KEY_SEPARATOR" + "s${seasonNumber ?: 0}e$episodeNumber"
-        seriesProviderIds.watchKeys().forEach { add(it + coordinate) }
-    }
-    addAll(ownProviderIds.watchKeys())
-    add("emby:$fallbackId")
-}.distinct()
+): List<String> =
+    buildList {
+        if (episodeNumber != null) {
+            val coordinate = "$EPISODE_KEY_SEPARATOR" + "s${seasonNumber ?: 0}e$episodeNumber"
+            seriesProviderIds.watchKeys().forEach { add(it + coordinate) }
+        }
+        addAll(ownProviderIds.watchKeys())
+        add("emby:$fallbackId")
+    }.distinct()
 
 /** The `<provider>:<value>` and `season to episode` halves of an [episodeWatchKey]. */
-data class EpisodeCoordinate(val seriesKey: String, val seasonNumber: Int, val episodeNumber: Int)
+data class EpisodeCoordinate(
+    val seriesKey: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+)
 
 /** Reads back what [episodeWatchKey] wrote, or null for a plain title key. */
 fun parseEpisodeWatchKey(mediaKey: String): EpisodeCoordinate? {

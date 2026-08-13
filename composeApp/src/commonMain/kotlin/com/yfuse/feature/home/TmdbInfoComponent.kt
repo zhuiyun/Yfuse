@@ -43,19 +43,20 @@ class TmdbInfoComponent(
         startPositionTicks: Long,
     ) -> Unit,
 ) : ComponentContext by componentContext {
-
     private val scope = componentScope(lifecycle)
-    private val _state = MutableStateFlow(
-        TmdbInfoState(
-            detail = TmdbDetail(item),
-            playable = embyItemId != null,
-        ),
-    )
+    private val _state =
+        MutableStateFlow(
+            TmdbInfoState(
+                detail = TmdbDetail(item),
+                playable = embyItemId != null,
+            ),
+        )
     val state: StateFlow<TmdbInfoState> = _state.asStateFlow()
 
     init {
         scope.launch {
-            tmdb.detail(item)
+            tmdb
+                .detail(item)
                 .onSuccess { detail -> _state.update { it.copy(detail = detail, loading = false) } }
                 .onFailure {
                     AppLog.warning(
@@ -69,56 +70,64 @@ class TmdbInfoComponent(
                 }
         }
         scope.launch {
-            val sources = emby.compareSources(
-                servers = registry.data.value.servers,
-                currentServerId = registry.defaultServer?.id,
-                title = item.title,
-                tmdbId = item.id,
-                mediaType = item.mediaType,
-                year = item.year?.toIntOrNull(),
-            )
+            val sources =
+                emby.compareSources(
+                    servers = registry.data.value.servers,
+                    currentServerId = registry.defaultServer?.id,
+                    title = item.title,
+                    tmdbId = item.id,
+                    mediaType = item.mediaType,
+                    year = item.year?.toIntOrNull(),
+                )
             _state.update {
                 it.copy(
                     sources = sources,
-                    playable = sources.any { source ->
-                        source.reachable && source.source != null && source.itemId != null
-                    },
+                    playable =
+                        sources.any { source ->
+                            source.reachable && source.source != null && source.itemId != null
+                        },
                 )
             }
         }
     }
 
     fun play() {
-        val source = _state.value.sources.firstOrNull { it.isCurrent && it.itemId != null }
-            ?: _state.value.sources.firstOrNull { it.itemId != null && it.source != null }
-        val id = source?.itemId ?: embyItemId ?: run {
-            _state.update { it.copy(error = "此内容尚未加入你的 Emby 媒体库") }
-            return
-        }
-        val server = source?.serverId?.let(registry::serverById) ?: registry.defaultServer ?: run {
-            _state.update { it.copy(error = "没有可用的服务器") }
-            return
-        }
+        val source =
+            _state.value.sources.firstOrNull { it.isCurrent && it.itemId != null }
+                ?: _state.value.sources.firstOrNull { it.itemId != null && it.source != null }
+        val id =
+            source?.itemId ?: embyItemId ?: run {
+                _state.update { it.copy(error = "此内容尚未加入你的 Emby 媒体库") }
+                return
+            }
+        val server =
+            source?.serverId?.let(registry::serverById) ?: registry.defaultServer ?: run {
+                _state.update { it.copy(error = "没有可用的服务器") }
+                return
+            }
         playSource(server.id, id)
     }
 
-    fun playSource(serverId: String, itemId: String) {
-        val server = registry.serverById(serverId) ?: run {
-            _state.update { it.copy(error = "服务器已不可用") }
-            return
-        }
+    fun playSource(
+        serverId: String,
+        itemId: String,
+    ) {
+        val server =
+            registry.serverById(serverId) ?: run {
+                _state.update { it.copy(error = "服务器已不可用") }
+                return
+            }
         if (_state.value.resolvingPlay) return
         _state.update { it.copy(resolvingPlay = true, error = null) }
         scope.launch {
-            emby.itemDetail(server, itemId)
+            emby
+                .itemDetail(server, itemId)
                 .mapCatching { detail ->
                     emby.resolvePlayTarget(server, detail).getOrThrow()
-                }
-                .onSuccess { target ->
+                }.onSuccess { target ->
                     _state.update { it.copy(resolvingPlay = false) }
                     onPlayTarget(server.id, target.itemId, target.startPositionTicks)
-                }
-                .onFailure { error ->
+                }.onFailure { error ->
                     AppLog.error(
                         category = "feature.tmdb_detail",
                         event = "play_target_failed",

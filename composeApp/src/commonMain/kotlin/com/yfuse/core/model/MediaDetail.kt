@@ -101,4 +101,7 @@ data class MediaDetail(
 )
 
 /** A concrete, playable target resolved from a detail item. */
-data class PlayTarget(val itemId: String, val startPositionTicks: Long)
+data class PlayTarget(
+    val itemId: String,
+    val startPositionTicks: Long,
+)

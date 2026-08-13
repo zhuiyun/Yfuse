@@ -44,8 +44,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -56,7 +56,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.app.TabBarInset
+import com.yfuse.core.data.LatencySeverity
 import com.yfuse.core.data.RouteHealth
 import com.yfuse.core.data.ServerHealth
 import com.yfuse.core.data.ServerHealthStatus
@@ -76,17 +76,20 @@ import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.ServerIconTints
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glass
@@ -98,6 +101,8 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.ServerRoute
+import com.yfuse.core.network.EndpointTransportDecision
+import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.profile.AddServerDialog
 import kotlinx.coroutines.delay
@@ -127,6 +132,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
     val lastWatched by component.activity.lastWatched.collectAsState()
     val serverStats by component.stats.stats.collectAsState()
     val layout by component.layout.collectAsState()
+    val listFilter by component.listFilter.collectAsState()
     val gridState = rememberLazyGridState()
     val share = rememberShareHandler()
 
@@ -151,6 +157,8 @@ fun ServersTabScreen(component: ServersTabComponent) {
     var confirmRemove by remember { mutableStateOf<SavedServer?>(null) }
     var routesFor by remember { mutableStateOf<SavedServer?>(null) }
     var iconFor by remember { mutableStateOf<SavedServer?>(null) }
+    var filterVisible by remember { mutableStateOf(false) }
+    var diagnosticsFor by remember { mutableStateOf<SavedServer?>(null) }
     // The refresh round now has a real completion signal — it awaits both the probes and the
     // count requests — so the spinner tracks the work instead of a fixed delay.
     val refreshing by component.refreshing.collectAsState()
@@ -161,6 +169,10 @@ fun ServersTabScreen(component: ServersTabComponent) {
         if (refreshing) return@LaunchedEffect
         nowEpochMs = System.currentTimeMillis()
     }
+    val visibleServers =
+        remember(state.servers, health, lastWatched, listFilter) {
+            filterAndSortServers(state.servers, health, lastWatched, listFilter)
+        }
 
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
@@ -173,19 +185,21 @@ fun ServersTabScreen(component: ServersTabComponent) {
                 // 列表 is one column of the same card, not a second card design: everything
                 // the grid card shows is worth showing in a row too, and two implementations
                 // of the same thing drift apart on the next change to either.
-                columns = if (layout == ServerLayout.List) {
-                    GridCells.Fixed(1)
-                } else {
-                    GridCells.Adaptive(ServerCardMinWidth)
-                },
+                columns =
+                    if (layout == ServerLayout.List) {
+                        GridCells.Fixed(1)
+                    } else {
+                        GridCells.Adaptive(ServerCardMinWidth)
+                    },
                 state = gridState,
                 modifier = Modifier.fillMaxSize().statusBarsPadding(),
-                contentPadding = PaddingValues(
-                    start = Dimens.pageHorizontal,
-                    end = Dimens.pageHorizontal,
-                    top = Dimens.contentTop,
-                    bottom = TabBarInset,
-                ),
+                contentPadding =
+                    PaddingValues(
+                        start = Dimens.pageHorizontal,
+                        end = Dimens.pageHorizontal,
+                        top = Dimens.contentTop,
+                        bottom = TabBarInset,
+                    ),
                 // The cards carry their own shadow, so the air between them has to be
                 // wider than the shadow or the grid reads as one slab of tiles.
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -194,17 +208,25 @@ fun ServersTabScreen(component: ServersTabComponent) {
                 item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
                     ServersHeader(
                         serverCount = state.servers.size,
-                        onlineCount = state.servers.count {
-                            health[it.id]?.status == ServerHealthStatus.Healthy
-                        },
-                        currentName = state.servers
-                            .firstOrNull { it.id == state.defaultServerId }
-                            ?.serverName,
+                        onlineCount =
+                            state.servers.count {
+                                health[it.id]?.status in
+                                    setOf(
+                                        ServerHealthStatus.Healthy,
+                                        ServerHealthStatus.Degraded,
+                                    )
+                            },
+                        currentName =
+                            state.servers
+                                .firstOrNull { it.id == state.defaultServerId }
+                                ?.serverName,
                         onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
                         refreshing = refreshing,
                         onRefreshAll = { component.refreshAll() },
                         layout = layout,
                         onLayout = component::setLayout,
+                        filter = listFilter,
+                        onFilter = { filterVisible = true },
                     )
                 }
 
@@ -216,7 +238,18 @@ fun ServersTabScreen(component: ServersTabComponent) {
                     }
                 }
 
-                items(state.servers, key = { it.id }) { server ->
+                if (state.servers.isNotEmpty() && visibleServers.isEmpty()) {
+                    item(key = "filtered-empty", span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            "没有符合当前账号筛选的服务器",
+                            style = AppTypography.body.medium,
+                            color = palette.sub2,
+                            modifier = Modifier.padding(vertical = 24.dp),
+                        )
+                    }
+                }
+
+                items(visibleServers, key = { it.id }) { server ->
                     ServerCard(
                         server = server,
                         isCurrent = server.id == state.defaultServerId,
@@ -261,6 +294,10 @@ fun ServersTabScreen(component: ServersTabComponent) {
                 routesFor = server
                 actionsFor = null
             },
+            onDiagnostics = {
+                diagnosticsFor = server
+                actionsFor = null
+            },
             onIcon = {
                 iconFor = server
                 actionsFor = null
@@ -281,11 +318,12 @@ fun ServersTabScreen(component: ServersTabComponent) {
         val isCurrent = server.id == state.defaultServerId
         ConfirmDialog(
             title = "移除服务器",
-            message = if (isCurrent) {
-                "将退出「${server.serverName}」并从列表中移除，已下载的离线内容会保留。"
-            } else {
-                "将从列表中移除「${server.serverName}」，之后可以重新登录。"
-            },
+            message =
+                if (isCurrent) {
+                    "将退出「${server.serverName}」并从列表中移除，已下载的离线内容会保留。"
+                } else {
+                    "将从列表中移除「${server.serverName}」，之后可以重新登录。"
+                },
             confirmLabel = "移除",
             destructive = true,
             onConfirm = {
@@ -306,7 +344,10 @@ fun ServersTabScreen(component: ServersTabComponent) {
                 server = live,
                 health = health[live.id],
                 onActivate = { component.activateRoute(live.id, it) },
-                onSave = { component.setRoutes(live.id, it) },
+                onSave = { routes, cleartextConfirmed ->
+                    component.setRoutes(live.id, routes, cleartextConfirmed)
+                },
+                onProbe = { component.refreshHealth(live) },
                 onDismiss = { routesFor = null },
             )
         }
@@ -335,15 +376,44 @@ fun ServersTabScreen(component: ServersTabComponent) {
             onDismiss = { component.store.accept(ServersIntent.DismissDialog) },
         )
     }
+
+    if (filterVisible) {
+        ServerFilterDialog(
+            servers = state.servers,
+            filter = listFilter,
+            onSort = component::setSortOrder,
+            onAccount = component::setAccountFilter,
+            onLatency = component::setLatencyFilter,
+            onDismiss = { filterVisible = false },
+        )
+    }
+
+    diagnosticsFor?.let { opened ->
+        val live = state.servers.firstOrNull { it.id == opened.id }
+        if (live == null) {
+            diagnosticsFor = null
+        } else {
+            ServerTransportDiagnosticsDialog(
+                server = live,
+                onProbe = { component.refreshHealth(live) },
+                onDismiss = { diagnosticsFor = null },
+            )
+        }
+    }
 }
 
 /** 「3 条线路 · 2 条可用」, or the single address when there is nothing to choose between. */
-private fun routesSummary(server: SavedServer, health: ServerHealth?): String {
+private fun routesSummary(
+    server: SavedServer,
+    health: ServerHealth?,
+): String {
     val routes = server.effectiveRoutes
     if (routes.size <= 1) return "只有主线路，可添加备用地址"
-    val reachable = health?.routes
-        ?.takeIf { it.isNotEmpty() }
-        ?.let { probed -> routes.count { probed[it.id]?.reachable == true } }
+    val reachable =
+        health
+            ?.routes
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { probed -> routes.count { probed[it.id]?.reachable == true } }
     val availability = reachable?.let { "$it 条可用" } ?: "正在检查"
     return "${routes.size} 条线路 · $availability · 当前${server.activeRoute.name}"
 }
@@ -358,6 +428,8 @@ private fun ServersHeader(
     onRefreshAll: () -> Unit,
     layout: ServerLayout,
     onLayout: (ServerLayout) -> Unit,
+    filter: ServerListFilter,
+    onFilter: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -366,9 +438,10 @@ private fun ServersHeader(
     val spin by rememberInfiniteTransition(label = "servers-refresh").animateFloat(
         initialValue = 0f,
         targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(Motion.REFRESH_SPIN, easing = LinearEasing),
-        ),
+        animationSpec =
+            infiniteRepeatable(
+                animation = tween(Motion.REFRESH_SPIN, easing = LinearEasing),
+            ),
         label = "servers-refresh-angle",
     )
     Column(
@@ -390,6 +463,62 @@ private fun ServersHeader(
                 )
             }
             Row(
+                Modifier
+                    .pressable(onClickLabel = "添加服务器", onClick = onAdd)
+                    .touchTarget()
+                    .shadow(GlassLift.control, GlassShapes.chip)
+                    .liquidGlass(
+                        shape = GlassShapes.chip,
+                        fill = accent.container,
+                        border = accent.border.copy(alpha = 0.42f),
+                        sheen = 0.75f,
+                    ).padding(horizontal = 14.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(AppIcons.Add, null, tint = accent.accent, modifier = Modifier.size(13.dp))
+                Text("添加", style = AppTypography.body.strong, color = accent.accent)
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val filterActive =
+                filter.sort != ServerSortOrder.Saved ||
+                    filter.account != null ||
+                    filter.latency != ServerLatencyFilter.All
+            Row(
+                Modifier
+                    .weight(1f)
+                    .pressable(onClickLabel = "打开排序与筛选", onClick = onFilter)
+                    .touchTarget()
+                    .shadow(GlassLift.control, GlassShapes.chip)
+                    .liquidGlass(
+                        shape = GlassShapes.chip,
+                        fill = if (filterActive) accent.container else palette.card2,
+                        border = if (filterActive) accent.border else palette.border,
+                        sheen = 0.9f,
+                    ).padding(horizontal = 12.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    AppIcons.Menu,
+                    contentDescription = null,
+                    tint = if (filterActive) accent.accent else palette.sub2,
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    filter.displayLabel(),
+                    style = AppTypography.caption.strong,
+                    color = if (filterActive) accent.accent else palette.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -397,11 +526,12 @@ private fun ServersHeader(
                     Modifier
                         .pressable(
                             haptic = HapticSignal.Select,
-                            onClickLabel = if (layout == ServerLayout.Grid) {
-                                "改为列表展示"
-                            } else {
-                                "改为网格展示"
-                            },
+                            onClickLabel =
+                                if (layout == ServerLayout.Grid) {
+                                    "改为列表展示"
+                                } else {
+                                    "改为网格展示"
+                                },
                             onClick = {
                                 onLayout(
                                     if (layout == ServerLayout.Grid) {
@@ -411,16 +541,14 @@ private fun ServersHeader(
                                     },
                                 )
                             },
-                        )
-                        .touchTarget()
+                        ).touchTarget()
                         .shadow(GlassLift.control, CircleShape)
                         .liquidGlass(
                             shape = CircleShape,
                             fill = palette.card2,
                             border = palette.border,
                             sheen = 0.9f,
-                        )
-                        .size(ServerHeaderCircleSize),
+                        ).size(ServerHeaderCircleSize),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -436,44 +564,25 @@ private fun ServersHeader(
                             enabled = !refreshing,
                             onClickLabel = "刷新全部服务器",
                             onClick = onRefreshAll,
-                        )
-                        .touchTarget()
+                        ).touchTarget()
                         .shadow(GlassLift.control, CircleShape)
                         .liquidGlass(
                             shape = CircleShape,
                             fill = palette.card2,
                             border = palette.border,
                             sheen = 0.9f,
-                        )
-                        .size(ServerHeaderCircleSize),
+                        ).size(ServerHeaderCircleSize),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         AppIcons.Refresh,
                         contentDescription = null,
                         tint = if (refreshing) accent.accent else palette.sub2,
-                        modifier = Modifier
-                            .size(15.dp)
-                            .graphicsLayer { rotationZ = if (refreshing) spin else 0f },
+                        modifier =
+                            Modifier
+                                .size(15.dp)
+                                .graphicsLayer { rotationZ = if (refreshing) spin else 0f },
                     )
-                }
-                Row(
-                    Modifier
-                        .pressable(onClickLabel = "添加服务器", onClick = onAdd)
-                        .touchTarget()
-                        .shadow(GlassLift.control, GlassShapes.chip)
-                        .liquidGlass(
-                            shape = GlassShapes.chip,
-                            fill = accent.container,
-                            border = accent.border.copy(alpha = 0.42f),
-                            sheen = 0.75f,
-                        )
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(AppIcons.Add, null, tint = accent.accent, modifier = Modifier.size(13.dp))
-                    Text("添加", style = AppTypography.body.strong, color = accent.accent)
                 }
             }
         }
@@ -485,8 +594,7 @@ private fun ServersHeader(
                     fill = palette.card,
                     border = palette.border,
                     sheen = 0.55f,
-                )
-                .padding(horizontal = 14.dp, vertical = 11.dp),
+                ).padding(horizontal = 14.dp, vertical = 11.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -508,7 +616,7 @@ private fun ServersHeader(
                     currentName ?: if (serverCount == 0) "等待添加" else "未选择",
                     style = AppTypography.body.strong,
                     color = palette.text,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -517,7 +625,11 @@ private fun ServersHeader(
 }
 
 @Composable
-private fun ServerSummaryValue(value: String, label: String, color: Color) {
+private fun ServerSummaryValue(
+    value: String,
+    label: String,
+    color: Color,
+) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -554,143 +666,169 @@ private fun ServerCard(
     val status = health?.status ?: ServerHealthStatus.Unknown
     val statusColor = serverStatusColor(status)
     val badgeColor = serverTintColor(server.id, server.iconTint)
-    val surfaceModifier = if (isCurrent) {
-        Modifier
-            .shadow(Shadows.primaryButton(accent.accent.copy(alpha = 0.55f)), GlassShapes.card)
-            .glass(
-                shape = GlassShapes.card,
-                fill = Brush.linearGradient(
-                    0f to lerp(accent.container, Color.White, if (palette.isDark) 0.04f else 0.18f),
-                    1f to palette.card,
-                ),
-                border = accent.border.copy(alpha = 0.72f),
-            )
-    } else if (server.iconTint != null) {
-        // A tint the user chose is theirs to see. It washes the card from the badge corner
-        // and fades out well before the numbers, so the figures keep the page's own contrast
-        // rather than being read through a colour.
-        Modifier
-            .shadow(GlassLift.control, GlassShapes.card)
-            .liquidGlass(
-                shape = GlassShapes.card,
-                // One tinted colour, not a gradient: liquidGlass draws its own body ramp
-                // over whatever fill it is given, and it takes a Color.
-                fill = lerp(palette.card, badgeColor, if (palette.isDark) 0.20f else 0.16f),
-                border = lerp(palette.border, badgeColor, 0.28f),
-                sheen = 0.52f,
-            )
-    } else {
-        Modifier
-            .shadow(GlassLift.control, GlassShapes.card)
-            .liquidGlass(
-                shape = GlassShapes.card,
-                fill = palette.card,
-                border = palette.border,
-                sheen = 0.52f,
-            )
-    }
+    val surfaceModifier =
+        if (isCurrent) {
+            Modifier
+                .shadow(Shadows.primaryButton(accent.accent.copy(alpha = 0.55f)), GlassShapes.card)
+                .glass(
+                    shape = GlassShapes.card,
+                    fill =
+                        Brush.linearGradient(
+                            0f to lerp(accent.container, Color.White, if (palette.isDark) 0.04f else 0.18f),
+                            1f to palette.card,
+                        ),
+                    border = accent.border.copy(alpha = 0.72f),
+                )
+        } else if (server.iconTint != null) {
+            // A tint the user chose is theirs to see. It washes the card from the badge corner
+            // and fades out well before the numbers, so the figures keep the page's own contrast
+            // rather than being read through a colour.
+            Modifier
+                .shadow(GlassLift.control, GlassShapes.card)
+                .liquidGlass(
+                    shape = GlassShapes.card,
+                    // One tinted colour, not a gradient: liquidGlass draws its own body ramp
+                    // over whatever fill it is given, and it takes a Color.
+                    fill = lerp(palette.card, badgeColor, if (palette.isDark) 0.20f else 0.16f),
+                    border = lerp(palette.border, badgeColor, 0.28f),
+                    sheen = 0.52f,
+                )
+        } else {
+            Modifier
+                .shadow(GlassLift.control, GlassShapes.card)
+                .liquidGlass(
+                    shape = GlassShapes.card,
+                    fill = palette.card,
+                    border = palette.border,
+                    sheen = 0.52f,
+                )
+        }
     Box(
         Modifier
             .fillMaxWidth()
             .semantics { selected = isCurrent }
             .pressable(
-                onClickLabel = if (isCurrent) "打开媒体库" else "切换到${server.serverName}",
+                onClickLabel =
+                    if (isCurrent) {
+                        "打开${server.serverName}媒体库"
+                    } else {
+                        "切换到${server.serverName}"
+                    },
                 onLongClick = onMore,
-                onLongClickLabel = "服务器操作",
+                onLongClickLabel = "打开${server.serverName}操作",
                 onClick = onClick,
-            )
-            .then(surfaceModifier),
+            ).then(surfaceModifier),
     ) {
-      Column(Modifier.padding(12.dp)) {
-        // The header keeps clear of the corner button's 44dp target, so a tap meant for
-        // the card cannot land on the menu and vice versa.
-        Row(
-            Modifier.padding(end = 30.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(30.dp)
-                    .clip(AppShapes.thumb)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(lerp(badgeColor, Color.White, 0.14f), badgeColor),
-                        ),
-                    ),
-                contentAlignment = Alignment.Center,
+        Column(Modifier.padding(12.dp)) {
+            // The header keeps clear of the corner button's 44dp target, so a tap meant for
+            // the card cannot land on the menu and vice versa.
+            Row(
+                Modifier.padding(end = 30.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                // An emoji is the picture the server does not have. It is drawn as-is rather
-                // than tinted white, because a colour-blocked emoji is no longer the glyph
-                // the user picked.
-                Text(
-                    server.iconEmoji ?: server.serverName.take(1).uppercase(),
-                    style = AppTypography.body.strong,
-                    color = if (server.iconEmoji == null) Color.White else Color.Unspecified,
-                )
-            }
-            Spacer(Modifier.width(9.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(AppShapes.thumb)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(lerp(badgeColor, Color.White, 0.14f), badgeColor),
+                            ),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // An emoji is the picture the server does not have. It is drawn as-is rather
+                    // than tinted white, because a colour-blocked emoji is no longer the glyph
+                    // the user picked.
                     Text(
-                        server.serverName,
+                        server.iconEmoji ?: server.serverName.take(1).uppercase(),
                         style = AppTypography.body.strong,
-                        color = palette.text,
+                        color = if (server.iconEmoji == null) Color.White else Color.Unspecified,
+                    )
+                }
+                Spacer(Modifier.width(9.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            server.serverName,
+                            style = AppTypography.body.strong,
+                            color = palette.text,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (isCurrent) {
+                            Spacer(Modifier.width(5.dp))
+                            Icon(
+                                AppIcons.Check,
+                                contentDescription = "当前服务器",
+                                tint = accent.accent,
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
+                    // Which address the card is currently talking to, once there is more than
+                    // one to choose between. A single-route server would only ever read 主线路,
+                    // which says nothing the card does not already imply, so it keeps the account
+                    // in that slot instead.
+                    Text(
+                        if (server.hasBackupRoutes) {
+                            server.activeRoute.name
+                        } else {
+                            server.userName.ifBlank { "未记录账号" }
+                        },
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    if (isCurrent) {
-                        Spacer(Modifier.width(5.dp))
-                        Icon(
-                            AppIcons.Check,
-                            contentDescription = "当前服务器",
-                            tint = accent.accent,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    }
                 }
-                // Which address the card is currently talking to, once there is more than
-                // one to choose between. A single-route server would only ever read 主线路,
-                // which says nothing the card does not already imply, so it keeps the account
-                // in that slot instead.
+            }
+            Spacer(Modifier.height(9.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(6.dp).clip(CircleShape).background(statusColor))
                 Text(
-                    if (server.hasBackupRoutes) {
-                        server.activeRoute.name
-                    } else {
-                        server.userName.ifBlank { "未记录账号" }
-                    },
+                    connectionLabel(health),
+                    style = AppTypography.caption.medium,
+                    color = if (status == ServerHealthStatus.Unknown) palette.sub2 else statusColor,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    lastWatchedLabel,
                     style = AppTypography.caption.regular,
                     color = palette.sub2,
+                    maxLines = 1,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val latencySeverity = health?.latencySeverity ?: LatencySeverity.Unknown
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(latencySeverityColor(latencySeverity)),
+                )
+                Text(
+                    latencyLabel(health),
+                    style = AppTypography.caption.medium,
+                    color = latencySeverityColor(latencySeverity),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            Spacer(Modifier.height(8.dp))
+            ServerCountsRow(stats)
         }
-        Spacer(Modifier.height(9.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.size(6.dp).clip(CircleShape).background(statusColor))
-            Text(
-                latencyLabel(health),
-                style = AppTypography.caption.medium,
-                color = if (status == ServerHealthStatus.Unknown) palette.sub2 else statusColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                lastWatchedLabel,
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
-                maxLines = 1,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        ServerCountsRow(stats)
-      }
 
         // Its own control in the corner rather than a glyph in the header row. Inline, it
         // was a bare 13dp mark that read as decoration and sat wherever the name left it;
@@ -699,7 +837,7 @@ private fun ServerCard(
         Box(
             Modifier
                 .align(Alignment.TopEnd)
-                .pressable(onClickLabel = "服务器操作", onClick = onMore)
+                .pressable(onClickLabel = "打开${server.serverName}操作", onClick = onMore)
                 .touchTarget(),
             contentAlignment = Alignment.Center,
         ) {
@@ -777,12 +915,30 @@ private fun ServerCount(
     }
 }
 
-private fun serverStatusColor(status: ServerHealthStatus): Color = when (status) {
-    ServerHealthStatus.Healthy -> Semantic.Success
-    ServerHealthStatus.Degraded -> Semantic.Warning
-    ServerHealthStatus.AuthRequired -> Semantic.Error
-    else -> Semantic.Offline
-}
+private fun serverStatusColor(status: ServerHealthStatus): Color =
+    when (status) {
+        ServerHealthStatus.Healthy -> Semantic.Success
+        ServerHealthStatus.Degraded -> Semantic.Warning
+        ServerHealthStatus.AuthRequired -> Semantic.Error
+        else -> Semantic.Offline
+    }
+
+internal fun latencySeverityColor(severity: LatencySeverity): Color =
+    when (severity) {
+        LatencySeverity.Stable -> Semantic.Success
+        LatencySeverity.Slow -> Semantic.Warning
+        LatencySeverity.Unstable -> Semantic.Error
+        LatencySeverity.Unknown -> Semantic.Offline
+    }
+
+internal fun connectionLabel(health: ServerHealth?): String =
+    when (health?.status) {
+        ServerHealthStatus.Healthy -> "在线"
+        ServerHealthStatus.Degraded -> "服务异常"
+        ServerHealthStatus.Offline -> "无法连接"
+        ServerHealthStatus.AuthRequired -> "需重新登录"
+        else -> "正在检查"
+    }
 
 /**
  * The number when there is one, and the reason when there is not.
@@ -790,13 +946,8 @@ private fun serverStatusColor(status: ServerHealthStatus): Color = when (status)
  * [ServerHealth.summary] already says both, but it leads with 在线 — the word the coloured
  * dot beside it has just said — and buries the milliseconds behind a separator.
  */
-internal fun latencyLabel(health: ServerHealth?): String = when (health?.status) {
-    ServerHealthStatus.Healthy -> health.latencyMs?.let { "$it ms" } ?: "在线"
-    ServerHealthStatus.Degraded -> "不稳定"
-    ServerHealthStatus.Offline -> "无法连接"
-    ServerHealthStatus.AuthRequired -> "需重新登录"
-    else -> "正在检查"
-}
+internal fun latencyLabel(health: ServerHealth?): String =
+    health?.latencyMs?.let { "${health.latencySeverity.label} · $it ms" } ?: "延迟 · 未测速"
 
 @Composable
 private fun EmptyServers(onAdd: () -> Unit) {
@@ -823,11 +974,12 @@ private fun EmptyServers(onAdd: () -> Unit) {
             "添加服务器",
             style = AppTypography.body.strong,
             color = accent.onAccent,
-            modifier = Modifier
-                .pressable(onClick = onAdd)
-                .heightIn(min = MinTouchTarget)
-                .glass(GlassShapes.chip, accent.accent, accent.border)
-                .padding(horizontal = 22.dp, vertical = 13.dp),
+            modifier =
+                Modifier
+                    .pressable(onClick = onAdd)
+                    .heightIn(min = MinTouchTarget)
+                    .glass(GlassShapes.chip, accent.accent, accent.border)
+                    .padding(horizontal = 22.dp, vertical = 13.dp),
         )
     }
 }
@@ -852,6 +1004,7 @@ private fun ServerActionsDialog(
     onCopyAddress: () -> Unit,
     onSetDefault: () -> Unit,
     onRoutes: () -> Unit,
+    onDiagnostics: () -> Unit,
     onIcon: () -> Unit,
     onEdit: () -> Unit,
     onRemove: () -> Unit,
@@ -887,18 +1040,19 @@ private fun ServerActionsDialog(
                         server.serverName,
                         style = AppTypography.section.strong,
                         color = palette.text,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                     if (isCurrent) {
                         Text(
                             "当前",
                             style = AppTypography.caption.strong,
                             color = accent.accent,
-                            modifier = Modifier
-                                .glass(GlassShapes.chip, accent.container, accent.border)
-                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                            modifier =
+                                Modifier
+                                    .glass(GlassShapes.chip, accent.container, accent.border)
+                                    .padding(horizontal = 7.dp, vertical = 2.dp),
                         )
                     }
                 }
@@ -937,9 +1091,25 @@ private fun ServerActionsDialog(
                     ),
             )
             Text(
-                latencyLabel(health),
+                connectionLabel(health),
                 style = AppTypography.caption.medium,
                 color = palette.sub,
+                maxLines = 1,
+            )
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(
+                        latencySeverityColor(
+                            health?.latencySeverity ?: LatencySeverity.Unknown,
+                        ),
+                    ),
+            )
+            Text(
+                latencyLabel(health),
+                style = AppTypography.caption.medium,
+                color = latencySeverityColor(health?.latencySeverity ?: LatencySeverity.Unknown),
                 maxLines = 1,
             )
             Spacer(Modifier.weight(1f))
@@ -977,11 +1147,12 @@ private fun ServerActionsDialog(
         ServerActionRow(
             icon = AppIcons.Check,
             label = if (isCurrent) "已是当前服务器" else "设为当前服务器",
-            description = if (isCurrent) {
-                "库、搜索和播放都在读取这一台"
-            } else {
-                "库、搜索和播放都会切到这一台"
-            },
+            description =
+                if (isCurrent) {
+                    "库、搜索和播放都在读取这一台"
+                } else {
+                    "库、搜索和播放都会切到这一台"
+                },
             enabled = !isCurrent,
             onClick = onSetDefault,
         )
@@ -991,6 +1162,13 @@ private fun ServerActionsDialog(
             label = "线路",
             description = routesSummary(server, health),
             onClick = onRoutes,
+        )
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Lock,
+            label = "HTTPS 诊断",
+            description = "检查主线路与备用地址的传输安全",
+            onClick = onDiagnostics,
         )
         Spacer(Modifier.height(8.dp))
         ServerActionRow(
@@ -1030,11 +1208,12 @@ private fun ServerActionRow(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val ink = when {
-        destructive -> palette.error
-        !enabled -> palette.sub2
-        else -> palette.text
-    }
+    val ink =
+        when {
+            destructive -> palette.error
+            !enabled -> palette.sub2
+            else -> palette.text
+        }
     Row(
         Modifier
             .fillMaxWidth()
@@ -1043,18 +1222,19 @@ private fun ServerActionRow(
                 shape = GlassShapes.chip,
                 // The destructive fill stays inside the row's own rounded shape instead of
                 // bleeding to the panel's edges the way the old option row's band did.
-                fill = when {
-                    destructive -> palette.errorContainer
-                    prominent -> accent.container
-                    else -> palette.card2
-                },
-                border = when {
-                    destructive -> palette.error.copy(alpha = 0.34f)
-                    prominent -> accent.border.copy(alpha = 0.38f)
-                    else -> palette.border
-                },
-            )
-            .padding(horizontal = 12.dp, vertical = 11.dp),
+                fill =
+                    when {
+                        destructive -> palette.errorContainer
+                        prominent -> accent.container
+                        else -> palette.card2
+                    },
+                border =
+                    when {
+                        destructive -> palette.error.copy(alpha = 0.34f)
+                        prominent -> accent.border.copy(alpha = 0.38f)
+                        else -> palette.border
+                    },
+            ).padding(horizontal = 12.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1074,11 +1254,12 @@ private fun ServerActionRow(
             Icon(
                 icon,
                 contentDescription = null,
-                tint = when {
-                    destructive -> palette.error
-                    prominent -> accent.onAccent
-                    else -> accent.accent
-                },
+                tint =
+                    when {
+                        destructive -> palette.error
+                        prominent -> accent.onAccent
+                        else -> accent.accent
+                    },
                 modifier = Modifier.size(14.dp),
             )
         }
@@ -1113,13 +1294,15 @@ private fun ServerRoutesDialog(
     server: SavedServer,
     health: ServerHealth?,
     onActivate: (String) -> Unit,
-    onSave: (List<ServerRoute>) -> Unit,
+    onSave: (List<ServerRoute>, Boolean) -> Unit,
+    onProbe: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val routes = server.effectiveRoutes
     var draftName by remember(server.id) { mutableStateOf("") }
     var draftUrl by remember(server.id) { mutableStateOf("") }
+    var localCleartextConfirmed by remember(server.id) { mutableStateOf(false) }
     var error by remember(server.id) { mutableStateOf<String?>(null) }
     val atCapacity = routes.size >= ServerRoute.MAX_ROUTES
 
@@ -1137,10 +1320,17 @@ private fun ServerRoutesDialog(
                     isActive = route.id == server.activeRoute.id,
                     isPrimary = route.id == ServerRoute.PRIMARY_ID,
                     onActivate = { onActivate(route.id) },
-                    onRemove = { onSave(routes.filterNot { it.id == route.id }) },
+                    onRemove = { onSave(routes.filterNot { it.id == route.id }, false) },
                 )
             }
         }
+
+        Spacer(Modifier.height(10.dp))
+        OverlayButton(
+            label = "测速全部线路",
+            onClick = onProbe,
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         Spacer(Modifier.height(14.dp))
         if (atCapacity) {
@@ -1154,13 +1344,20 @@ private fun ServerRoutesDialog(
             Spacer(Modifier.height(8.dp))
             YfFormField(
                 value = draftName,
-                onValueChange = { draftName = it.take(ServerRoute.MAX_NAME_CHARS); error = null },
+                onValueChange = {
+                    draftName = it.take(ServerRoute.MAX_NAME_CHARS)
+                    error = null
+                },
                 label = "名称，例如 内网 / 家里",
             )
             Spacer(Modifier.height(8.dp))
             YfFormField(
                 value = draftUrl,
-                onValueChange = { draftUrl = it.trim(); error = null },
+                onValueChange = {
+                    draftUrl = it.trim()
+                    localCleartextConfirmed = false
+                    error = null
+                },
                 label = "地址，例如 http://192.168.1.10:8096",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             )
@@ -1168,21 +1365,50 @@ private fun ServerRoutesDialog(
                 Spacer(Modifier.height(8.dp))
                 Text(error.orEmpty(), style = AppTypography.caption.medium, color = palette.error)
             }
+            val endpoint = validateEmbyServerEndpoint(draftUrl, localCleartextConfirmed)
+            if (draftUrl.isNotBlank() && endpoint.message != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    endpoint.message,
+                    style = AppTypography.caption.medium,
+                    color = palette.error,
+                )
+            }
+            if (endpoint.decision == EndpointTransportDecision.LocalCleartextConfirmationRequired ||
+                endpoint.decision == EndpointTransportDecision.LocalCleartextConfirmed
+            ) {
+                Spacer(Modifier.height(8.dp))
+                OverlayButton(
+                    label = if (localCleartextConfirmed) "已确认局域网 HTTP 风险" else "确认局域网 HTTP 风险",
+                    onClick = { localCleartextConfirmed = !localCleartextConfirmed },
+                    modifier = Modifier.fillMaxWidth(),
+                    tone =
+                        if (localCleartextConfirmed) {
+                            OverlayButtonTone.Primary
+                        } else {
+                            OverlayButtonTone.Destructive
+                        },
+                )
+            }
             Spacer(Modifier.height(10.dp))
             OverlayButton(
                 label = "添加线路",
                 onClick = {
-                    val url = ServerRoute.sanitizeUrl(draftUrl)
+                    val url = endpoint.normalizedEndpoint?.takeIf { endpoint.allowed }
                     when {
-                        url == null -> error = "请填写以 http:// 或 https:// 开头的完整地址"
+                        url == null ->
+                            error = endpoint.message
+                                ?: "请填写以 http:// 或 https:// 开头的完整地址"
                         routes.any { it.url == url } -> error = "这个地址已经在列表里了"
                         else -> {
                             onSave(
-                                routes + ServerRoute(
-                                    id = ServerRoute.nextId(routes.map { it.id }),
-                                    name = ServerRoute.sanitizeName(draftName, "备用线路"),
-                                    url = url,
-                                ),
+                                routes +
+                                    ServerRoute(
+                                        id = ServerRoute.nextId(routes.map { it.id }),
+                                        name = ServerRoute.sanitizeName(draftName, "备用线路"),
+                                        url = url,
+                                    ),
+                                localCleartextConfirmed,
                             )
                             draftName = ""
                             draftUrl = ""
@@ -1192,7 +1418,7 @@ private fun ServerRoutesDialog(
                 },
                 modifier = Modifier.fillMaxWidth(),
                 tone = OverlayButtonTone.Primary,
-                enabled = draftUrl.isNotBlank(),
+                enabled = endpoint.allowed,
             )
         }
     }
@@ -1210,13 +1436,14 @@ private fun ServerRouteRow(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val dotColor = when (health?.status) {
-        ServerHealthStatus.Healthy -> Semantic.Success
-        ServerHealthStatus.Degraded -> Semantic.Warning
-        ServerHealthStatus.AuthRequired -> Semantic.Error
-        null, ServerHealthStatus.Unknown -> Semantic.Offline
-        else -> Semantic.Offline
-    }
+    val dotColor =
+        when (health?.status) {
+            ServerHealthStatus.Healthy -> Semantic.Success
+            ServerHealthStatus.Degraded -> Semantic.Warning
+            ServerHealthStatus.AuthRequired -> Semantic.Error
+            null, ServerHealthStatus.Unknown -> Semantic.Offline
+            else -> Semantic.Offline
+        }
     Row(
         Modifier
             .fillMaxWidth()
@@ -1225,15 +1452,13 @@ private fun ServerRouteRow(
                 role = Role.RadioButton,
                 onClickLabel = "切换到${route.name}",
                 onClick = onActivate,
-            )
-            .semantics { selected = isActive }
+            ).semantics { selected = isActive }
             .heightIn(min = MinTouchTarget)
             .flatGlass(
                 shape = GlassShapes.chip,
                 fill = if (isActive) accent.container else palette.card2,
                 border = if (isActive) accent.border else palette.border,
-            )
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            ).padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1252,9 +1477,14 @@ private fun ServerRouteRow(
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Text(
-                    health?.latencyMs?.let { "$it ms" } ?: routeStatusLabel(health),
+                    routeLatencyLabel(health),
                     style = AppTypography.caption.medium,
-                    color = if (health?.reachable == true) dotColor else palette.sub2,
+                    color =
+                        if (health?.latencyMs != null) {
+                            latencySeverityColor(health.latencySeverity)
+                        } else {
+                            palette.sub2
+                        },
                     maxLines = 1,
                 )
             }
@@ -1274,23 +1504,157 @@ private fun ServerRouteRow(
                 AppIcons.Close,
                 contentDescription = "删除${route.name}",
                 tint = palette.sub2,
-                modifier = Modifier
-                    .pressable(onClickLabel = "删除${route.name}", onClick = onRemove)
-                    .touchTarget()
-                    .size(24.dp)
-                    .flatGlass(CircleShape, palette.card, palette.border)
-                    .padding(7.dp),
+                modifier =
+                    Modifier
+                        .pressable(onClickLabel = "删除${route.name}", onClick = onRemove)
+                        .touchTarget()
+                        .size(24.dp)
+                        .flatGlass(CircleShape, palette.card, palette.border)
+                        .padding(7.dp),
             )
         }
     }
 }
 
-private fun routeStatusLabel(health: RouteHealth?): String = when (health?.status) {
-    ServerHealthStatus.Healthy -> "在线"
-    ServerHealthStatus.Degraded -> "不稳定"
-    ServerHealthStatus.Offline -> "无法连接"
-    ServerHealthStatus.AuthRequired -> "需重新登录"
-    else -> "未检查"
+private fun routeStatusLabel(health: RouteHealth?): String =
+    when (health?.status) {
+        ServerHealthStatus.Healthy -> "在线"
+        ServerHealthStatus.Degraded -> "服务异常"
+        ServerHealthStatus.Offline -> "无法连接"
+        ServerHealthStatus.AuthRequired -> "需重新登录"
+        else -> "未检查"
+    }
+
+private fun routeLatencyLabel(health: RouteHealth?): String =
+    health?.latencyMs?.let { "${health.latencySeverity.label} · $it ms" }
+        ?: routeStatusLabel(health)
+
+@Composable
+private fun ServerFilterDialog(
+    servers: List<SavedServer>,
+    filter: ServerListFilter,
+    onSort: (ServerSortOrder) -> Unit,
+    onAccount: (String?) -> Unit,
+    onLatency: (ServerLatencyFilter) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val accounts =
+        remember(servers) {
+            servers
+                .map { it.userName }
+                .filter(String::isNotBlank)
+                .distinct()
+                .sorted()
+        }
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "排序与筛选",
+            subtitle = "按在线、延迟、最近使用或账号整理服务器",
+            onClose = onDismiss,
+        )
+        Text("排序", style = AppTypography.caption.strong, color = LocalPalette.current.sub2)
+        Spacer(Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+            ServerSortOrder.entries.forEach { value ->
+                OverlayOptionRow(
+                    label = value.label,
+                    selected = value == filter.sort,
+                    onClick = { onSort(value) },
+                )
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("延迟体验", style = AppTypography.caption.strong, color = LocalPalette.current.sub2)
+        Spacer(Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+            ServerLatencyFilter.entries.forEach { value ->
+                OverlayOptionRow(
+                    label = value.label,
+                    selected = value == filter.latency,
+                    onClick = { onLatency(value) },
+                )
+            }
+        }
+        if (accounts.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Text("账号", style = AppTypography.caption.strong, color = LocalPalette.current.sub2)
+            Spacer(Modifier.height(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                OverlayOptionRow(
+                    label = "全部账号",
+                    selected = filter.account == null,
+                    onClick = { onAccount(null) },
+                )
+                accounts.forEach { account ->
+                    OverlayOptionRow(
+                        label = account,
+                        selected = filter.account == account,
+                        onClick = { onAccount(account) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerTransportDiagnosticsDialog(
+    server: SavedServer,
+    onProbe: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val diagnostics = remember(server) { diagnoseServerTransport(server) }
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "HTTPS 诊断",
+            subtitle = server.serverName,
+            onClose = onDismiss,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            diagnostics.forEach { item ->
+                val color =
+                    when (item.severity) {
+                        TransportDiagnosticSeverity.Secure -> Semantic.Success
+                        TransportDiagnosticSeverity.LocalCleartext -> Semantic.Warning
+                        TransportDiagnosticSeverity.Blocked -> Semantic.Error
+                    }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .flatGlass(GlassShapes.chip, palette.card2, palette.border)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "${item.routeName} · ${item.summary}",
+                            style = AppTypography.body.medium,
+                            color = palette.text,
+                            maxLines = 2,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            item.address,
+                            style = AppTypography.caption.regular,
+                            color = palette.sub2,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        OverlayButton(
+            label = "同时测试连接与延迟",
+            onClick = onProbe,
+            modifier = Modifier.fillMaxWidth(),
+            tone = OverlayButtonTone.Primary,
+        )
+    }
 }
 
 /**
@@ -1378,8 +1742,7 @@ private fun ServerIconDialog(
                                     role = Role.RadioButton,
                                     onClickLabel = "选择颜色",
                                     onClick = { tint = value },
-                                )
-                                .semantics { this.selected = selected }
+                                ).semantics { this.selected = selected }
                                 .clip(AppShapes.control)
                                 .background(swatch)
                                 .then(
@@ -1414,10 +1777,11 @@ private fun ServerIconDialog(
             "自动配色",
             style = AppTypography.caption.medium,
             color = if (tint == null) accent.accent else palette.sub2,
-            modifier = Modifier
-                .pressable(onClickLabel = "恢复自动配色", onClick = { tint = null })
-                .touchTarget()
-                .padding(vertical = 4.dp),
+            modifier =
+                Modifier
+                    .pressable(onClickLabel = "恢复自动配色", onClick = { tint = null })
+                    .touchTarget()
+                    .padding(vertical = 4.dp),
         )
 
         OverlayButtonRow(

@@ -15,22 +15,25 @@ plugins {
  * Applied to every subproject from here so a new module is covered the day it is created —
  * the one thing a per-module `apply` reliably gets wrong.
  *
- * The rule set is deliberately narrow. ktlint's defaults include opinions this codebase has
- * already decided against on purpose, and a linter that has to be argued with gets turned
- * off. What is kept is the mechanical half: indentation, import order, trailing commas,
- * blank lines — the things that produce diff noise when they drift and that nobody should
- * be spending review attention on.
+ * Existing debt is recorded in config/ktlint/<module>-baseline.xml. Checks therefore fail
+ * only when a change introduces a new violation; `ktlintGenerateBaseline` is an explicit
+ * debt-reset operation and must never run automatically in CI.
  */
 val ktlintVersion = libs.versions.ktlint.asProvider()
 
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
 
+    dependencyLocking {
+        // Refresh intentionally with `./gradlew dependencies --write-locks` whenever
+        // dependency versions change.
+        lockAllConfigurations()
+    }
+
     extensions.configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
         version.set(ktlintVersion)
-        // Reports, don't fail the build. Formatting is worth knowing about and never worth
-        // blocking a release for; `ktlintFormat` fixes what it finds.
-        ignoreFailures.set(true)
+        ignoreFailures.set(false)
+        baseline.set(rootProject.layout.projectDirectory.file("config/ktlint/$name-baseline.xml"))
         filter {
             // Generated sources are nobody's to format.
             exclude { it.file.path.contains("/build/") }

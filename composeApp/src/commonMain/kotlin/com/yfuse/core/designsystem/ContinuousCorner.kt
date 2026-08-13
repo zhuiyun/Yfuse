@@ -72,16 +72,21 @@ private fun Float.toRadians(): Float = this * (PI.toFloat() / 180f)
  * that is already nearly a pill has no straight edge left to ease into, and shrinking its
  * radius to buy run-out would change the silhouette rather than refine it.
  */
-private fun continuousCornerPath(size: Size, requestedRadius: Float, requestedSmoothing: Float): Path {
+private fun continuousCornerPath(
+    size: Size,
+    requestedRadius: Float,
+    requestedSmoothing: Float,
+): Path {
     val w = size.width
     val h = size.height
     val budget = min(w, h) / 2f
     val r = requestedRadius.coerceIn(0f, budget)
-    val smoothing = when {
-        r <= 0f -> 0f
-        (1f + requestedSmoothing) * r > budget -> (budget / r - 1f).coerceIn(0f, requestedSmoothing)
-        else -> requestedSmoothing.coerceIn(0f, 1f)
-    }
+    val smoothing =
+        when {
+            r <= 0f -> 0f
+            (1f + requestedSmoothing) * r > budget -> (budget / r - 1f).coerceIn(0f, requestedSmoothing)
+            else -> requestedSmoothing.coerceIn(0f, 1f)
+        }
 
     // Run-out along the edge, and how much of the 90° turn the true arc still carries.
     val p = (1f + smoothing) * r
@@ -135,7 +140,9 @@ private fun continuousCornerPath(size: Size, requestedRadius: Float, requestedSm
  * read as an icon rather than as a cropped photo — the home header's app mark.
  */
 @Immutable
-data class ContinuousIconShape(val fraction: Float = APP_ICON_CORNER_FRACTION) : Shape {
+data class ContinuousIconShape(
+    val fraction: Float = APP_ICON_CORNER_FRACTION,
+) : Shape {
     override fun createOutline(
         size: Size,
         layoutDirection: LayoutDirection,

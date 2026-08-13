@@ -14,10 +14,11 @@ import kotlinx.serialization.json.Json
 class ServerMigrationCrypto(
     private val crypto: VaultCrypto = VaultCrypto(),
 ) {
-    private val json = Json {
-        ignoreUnknownKeys = false
-        explicitNulls = false
-    }
+    private val json =
+        Json {
+            ignoreUnknownKeys = false
+            explicitNulls = false
+        }
 
     fun protect(
         plaintext: ByteArray,
@@ -41,16 +42,18 @@ class ServerMigrationCrypto(
         val iterations = VaultCrypto.DEFAULT_PBKDF2_ITERATIONS
         val key = crypto.deriveRecoveryKey(passphrase, salt, iterations)
         return try {
-            val encrypted = crypto.encrypt(
-                key = key,
-                plaintext = plaintext,
-                aad = packageAad(
-                    iterations = iterations,
-                    createdAtEpochSeconds = createdAtEpochSeconds,
-                    expiresAtEpochSeconds = expiresAtEpochSeconds,
-                    salt = salt,
-                ),
-            )
+            val encrypted =
+                crypto.encrypt(
+                    key = key,
+                    plaintext = plaintext,
+                    aad =
+                        packageAad(
+                            iterations = iterations,
+                            createdAtEpochSeconds = createdAtEpochSeconds,
+                            expiresAtEpochSeconds = expiresAtEpochSeconds,
+                            salt = salt,
+                        ),
+                )
             json.encodeToString(
                 ProtectedServerMigrationPackage.serializer(),
                 ProtectedServerMigrationPackage(
@@ -81,14 +84,15 @@ class ServerMigrationCrypto(
         require(nowEpochSeconds >= 0) { "当前时间无效" }
         val trimmed = encoded.trim()
         require(trimmed.length in 1..MAX_ENCODED_SIZE_CHARS) { "迁移包大小无效" }
-        val envelope = try {
-            json.decodeFromString(ProtectedServerMigrationPackage.serializer(), trimmed)
-        } catch (error: Exception) {
-            throw IllegalArgumentException(
-                "不支持明文或旧版迁移包，请在原设备上重新生成受保护迁移包",
-                error,
-            )
-        }
+        val envelope =
+            try {
+                json.decodeFromString(ProtectedServerMigrationPackage.serializer(), trimmed)
+            } catch (error: Exception) {
+                throw IllegalArgumentException(
+                    "不支持明文或旧版迁移包，请在原设备上重新生成受保护迁移包",
+                    error,
+                )
+            }
         require(envelope.type == PACKAGE_TYPE && envelope.version == CURRENT_VERSION) {
             "不支持的受保护迁移包版本"
         }
@@ -98,9 +102,10 @@ class ServerMigrationCrypto(
         require(envelope.iterations == VaultCrypto.DEFAULT_PBKDF2_ITERATIONS) {
             "迁移包密钥派生参数无效"
         }
-        require(envelope.createdAtEpochSeconds >= 0 &&
-            envelope.expiresAtEpochSeconds > envelope.createdAtEpochSeconds &&
-            envelope.expiresAtEpochSeconds - envelope.createdAtEpochSeconds <= MAX_TTL_SECONDS
+        require(
+            envelope.createdAtEpochSeconds >= 0 &&
+                envelope.expiresAtEpochSeconds > envelope.createdAtEpochSeconds &&
+                envelope.expiresAtEpochSeconds - envelope.createdAtEpochSeconds <= MAX_TTL_SECONDS,
         ) { "迁移包有效期无效" }
         require(envelope.createdAtEpochSeconds <= nowEpochSeconds + ALLOWED_CLOCK_SKEW_SECONDS) {
             "迁移包创建时间晚于当前设备时间"
@@ -132,12 +137,13 @@ class ServerMigrationCrypto(
             crypto.decrypt(
                 key = key,
                 payload = AesGcmPayload(nonce, ciphertext),
-                aad = packageAad(
-                    iterations = envelope.iterations,
-                    createdAtEpochSeconds = envelope.createdAtEpochSeconds,
-                    expiresAtEpochSeconds = envelope.expiresAtEpochSeconds,
-                    salt = salt,
-                ),
+                aad =
+                    packageAad(
+                        iterations = envelope.iterations,
+                        createdAtEpochSeconds = envelope.createdAtEpochSeconds,
+                        expiresAtEpochSeconds = envelope.expiresAtEpochSeconds,
+                        salt = salt,
+                    ),
             )
         } catch (error: Exception) {
             throw IllegalArgumentException("口令错误或迁移包已损坏", error)
@@ -154,23 +160,24 @@ class ServerMigrationCrypto(
         createdAtEpochSeconds: Long,
         expiresAtEpochSeconds: Long,
         salt: ByteArray,
-    ): ByteArray = buildString {
-        append(PACKAGE_TYPE)
-        append('\n')
-        append(CURRENT_VERSION)
-        append('\n')
-        append(ALGORITHM)
-        append('\n')
-        append(KDF)
-        append('\n')
-        append(iterations)
-        append('\n')
-        append(createdAtEpochSeconds)
-        append('\n')
-        append(expiresAtEpochSeconds)
-        append('\n')
-        append(salt.toBase64Url())
-    }.encodeToByteArray()
+    ): ByteArray =
+        buildString {
+            append(PACKAGE_TYPE)
+            append('\n')
+            append(CURRENT_VERSION)
+            append('\n')
+            append(ALGORITHM)
+            append('\n')
+            append(KDF)
+            append('\n')
+            append(iterations)
+            append('\n')
+            append(createdAtEpochSeconds)
+            append('\n')
+            append(expiresAtEpochSeconds)
+            append('\n')
+            append(salt.toBase64Url())
+        }.encodeToByteArray()
 
     companion object {
         const val CURRENT_VERSION = 2

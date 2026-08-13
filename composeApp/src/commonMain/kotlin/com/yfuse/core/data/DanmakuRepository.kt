@@ -56,9 +56,7 @@ internal class DanmakuResponseTooLargeException(
  * Reads at most one byte beyond [maximumBytes], then cancels the remaining stream.
  * This keeps a compressed response from expanding into an unbounded in-memory String.
  */
-internal suspend fun ByteReadChannel.readBoundedDanmakuText(
-    maximumBytes: Int = MAX_DANMAKU_RESPONSE_BYTES,
-): String {
+internal suspend fun ByteReadChannel.readBoundedDanmakuText(maximumBytes: Int = MAX_DANMAKU_RESPONSE_BYTES): String {
     require(maximumBytes > 0) { "maximumBytes must be positive" }
     val bytes = readRemaining(maximumBytes.toLong() + 1L).readByteArray()
     if (bytes.size > maximumBytes) {
@@ -103,21 +101,26 @@ data class DanmakuMedia(
  * [match] talk to. That is the whole reason 搜索弹幕 can exist: a template answers "give me
  * the file for this entry" and nothing else, while a root can be asked what it holds.
  */
-class DanmakuRepository(private val client: HttpClient) {
-
-    suspend fun load(template: String, media: DanmakuMedia): Result<List<DanmakuComment>> =
+class DanmakuRepository(
+    private val client: HttpClient,
+) {
+    suspend fun load(
+        template: String,
+        media: DanmakuMedia,
+    ): Result<List<DanmakuComment>> =
         withContext(Dispatchers.Default) {
-            val url = try {
-                resolveUrl(template, media)
-            } catch (error: IllegalArgumentException) {
-                AppLog.warning(
-                    category = "danmaku",
-                    event = "template_invalid",
-                    message = "Danmaku URL template is invalid",
-                    throwable = error,
-                )
-                return@withContext Result.failure(error)
-            }
+            val url =
+                try {
+                    resolveUrl(template, media)
+                } catch (error: IllegalArgumentException) {
+                    AppLog.warning(
+                        category = "danmaku",
+                        event = "template_invalid",
+                        message = "Danmaku URL template is invalid",
+                        throwable = error,
+                    )
+                    return@withContext Result.failure(error)
+                }
             fetchComments(url)
         }
 
@@ -131,29 +134,33 @@ class DanmakuRepository(private val client: HttpClient) {
     suspend fun search(
         source: DanmakuSource,
         keyword: String,
-    ): Result<List<DanmakuSearchResult>> = withContext(Dispatchers.Default) {
-        val trimmed = keyword.trim()
-        if (trimmed.isEmpty()) return@withContext Result.success(emptyList())
-        val root = source.apiRoot()
-            ?: return@withContext Result.failure(
-                IllegalArgumentException("这个弹幕源不支持搜索，请填写弹幕服务器地址"),
-            )
-        fetch("$root/api/v2/search/anime?keyword=${encodeUrlComponent(trimmed)}")
-            .map { body -> DanmakuApi.parseSearch(body) }
-    }
+    ): Result<List<DanmakuSearchResult>> =
+        withContext(Dispatchers.Default) {
+            val trimmed = keyword.trim()
+            if (trimmed.isEmpty()) return@withContext Result.success(emptyList())
+            val root =
+                source.apiRoot()
+                    ?: return@withContext Result.failure(
+                        IllegalArgumentException("这个弹幕源不支持搜索，请填写弹幕服务器地址"),
+                    )
+            fetch("$root/api/v2/search/anime?keyword=${encodeUrlComponent(trimmed)}")
+                .map { body -> DanmakuApi.parseSearch(body) }
+        }
 
     /** The 集 list for one search result. */
     suspend fun episodes(
         source: DanmakuSource,
         result: DanmakuSearchResult,
-    ): Result<List<DanmakuEpisode>> = withContext(Dispatchers.Default) {
-        val root = source.apiRoot()
-            ?: return@withContext Result.failure(
-                IllegalArgumentException("这个弹幕源不支持搜索，请填写弹幕服务器地址"),
-            )
-        fetch("$root/api/v2/bangumi/${encodeUrlComponent(result.animeId)}")
-            .map { body -> DanmakuApi.parseEpisodes(body, result.title) }
-    }
+    ): Result<List<DanmakuEpisode>> =
+        withContext(Dispatchers.Default) {
+            val root =
+                source.apiRoot()
+                    ?: return@withContext Result.failure(
+                        IllegalArgumentException("这个弹幕源不支持搜索，请填写弹幕服务器地址"),
+                    )
+            fetch("$root/api/v2/bangumi/${encodeUrlComponent(result.animeId)}")
+                .map { body -> DanmakuApi.parseEpisodes(body, result.title) }
+        }
 
     /**
      * The server's own guess for what is playing, so most entries need no search at all.
@@ -164,31 +171,35 @@ class DanmakuRepository(private val client: HttpClient) {
     suspend fun match(
         source: DanmakuSource,
         media: DanmakuMedia,
-    ): Result<DanmakuEpisode?> = withContext(Dispatchers.Default) {
-        val root = source.apiRoot() ?: return@withContext Result.success(null)
-        val title = media.title.trim()
-        if (title.isEmpty()) return@withContext Result.success(null)
-        val query = buildString {
-            append("$root/api/v2/search/episodes?anime=")
-            append(encodeUrlComponent(title))
-            media.episode?.let { append("&episode=$it") }
+    ): Result<DanmakuEpisode?> =
+        withContext(Dispatchers.Default) {
+            val root = source.apiRoot() ?: return@withContext Result.success(null)
+            val title = media.title.trim()
+            if (title.isEmpty()) return@withContext Result.success(null)
+            val query =
+                buildString {
+                    append("$root/api/v2/search/episodes?anime=")
+                    append(encodeUrlComponent(title))
+                    media.episode?.let { append("&episode=$it") }
+                }
+            fetch(query).map { body -> DanmakuApi.parseMatch(body, media.episode) }
         }
-        fetch(query).map { body -> DanmakuApi.parseMatch(body, media.episode) }
-    }
 
     /** The comments for one episode id, which is what a match or a hand-pick resolves to. */
     suspend fun loadEpisode(
         source: DanmakuSource,
         episodeId: String,
-    ): Result<List<DanmakuComment>> = withContext(Dispatchers.Default) {
-        val root = source.apiRoot()
-            ?: return@withContext Result.failure(
-                IllegalArgumentException("这个弹幕源不支持按集加载"),
+    ): Result<List<DanmakuComment>> =
+        withContext(Dispatchers.Default) {
+            val root =
+                source.apiRoot()
+                    ?: return@withContext Result.failure(
+                        IllegalArgumentException("这个弹幕源不支持按集加载"),
+                    )
+            fetchComments(
+                "$root/api/v2/comment/${encodeUrlComponent(episodeId)}?withRelated=true&chConvert=0",
             )
-        fetchComments(
-            "$root/api/v2/comment/${encodeUrlComponent(episodeId)}?withRelated=true&chConvert=0",
-        )
-    }
+        }
 
     /**
      * 发送弹幕 — post one line to the episode currently matched.
@@ -205,31 +216,38 @@ class DanmakuRepository(private val client: HttpClient) {
         text: String,
         positionMs: Long,
         color: Long = 0xFFFFFF,
-    ): Result<Unit> = withContext(Dispatchers.Default) {
-        val message = text.trim().take(120)
-        if (message.isEmpty()) {
-            return@withContext Result.failure(IllegalArgumentException("弹幕内容不能为空"))
+    ): Result<Unit> =
+        withContext(Dispatchers.Default) {
+            val message = text.trim().take(120)
+            if (message.isEmpty()) {
+                return@withContext Result.failure(IllegalArgumentException("弹幕内容不能为空"))
+            }
+            val root =
+                source.apiRoot()
+                    ?: return@withContext Result.failure(
+                        IllegalArgumentException("这个弹幕源不支持发送弹幕"),
+                    )
+            val body =
+                buildJsonObject {
+                    // Seconds with two decimals, which is the unit the `p` attribute reads back in.
+                    put("time", JsonPrimitive(positionMs / 1000.0))
+                    put("mode", JsonPrimitive(1))
+                    put("color", JsonPrimitive(color))
+                    put("comment", JsonPrimitive(message))
+                }
+            post("$root/api/v2/comment/${encodeUrlComponent(episodeId)}", body.toString()).map { }
         }
-        val root = source.apiRoot()
-            ?: return@withContext Result.failure(
-                IllegalArgumentException("这个弹幕源不支持发送弹幕"),
-            )
-        val body = buildJsonObject {
-            // Seconds with two decimals, which is the unit the `p` attribute reads back in.
-            put("time", JsonPrimitive(positionMs / 1000.0))
-            put("mode", JsonPrimitive(1))
-            put("color", JsonPrimitive(color))
-            put("comment", JsonPrimitive(message))
-        }
-        post("$root/api/v2/comment/${encodeUrlComponent(episodeId)}", body.toString()).map { }
-    }
 
-    private suspend fun post(url: String, body: String): Result<String> = request(url) {
-        client.post(url) {
-            contentType(ContentType.Application.Json)
-            setBody(body)
+    private suspend fun post(
+        url: String,
+        body: String,
+    ): Result<String> =
+        request(url) {
+            client.post(url) {
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
         }
-    }
 
     private suspend fun fetchComments(url: String): Result<List<DanmakuComment>> =
         fetch(url).mapCatching { body ->
@@ -295,9 +313,19 @@ class DanmakuRepository(private val client: HttpClient) {
                 event = "http_failed",
                 message = "Danmaku endpoint returned an HTTP error",
                 throwable = error,
-                attributes = mapOf("status" to error.response.status.value.toString()),
+                attributes =
+                    mapOf(
+                        "status" to
+                            error.response.status.value
+                                .toString(),
+                    ),
             )
-            Result.failure(IllegalStateException(error.response.status.value.toDanmakuError()))
+            Result.failure(
+                IllegalStateException(
+                    error.response.status.value
+                        .toDanmakuError(),
+                ),
+            )
         } catch (error: Throwable) {
             // Ktor exception messages include the full request URL. A user template may
             // carry a token, so never surface the raw exception in the player UI.
@@ -330,7 +358,10 @@ class DanmakuRepository(private val client: HttpClient) {
             return value.takeIf { it.isNotBlank() }
         }
 
-        fun resolveUrl(template: String, media: DanmakuMedia): String {
+        fun resolveUrl(
+            template: String,
+            media: DanmakuMedia,
+        ): String {
             require(template.isNotBlank()) { "请先在个人中心配置弹幕链接" }
             return template
                 .replace("{id}", encodeUrlComponent(media.id))
@@ -340,55 +371,63 @@ class DanmakuRepository(private val client: HttpClient) {
                 .replace("{serverId}", encodeUrlComponent(media.serverId.orEmpty()))
         }
 
-        private fun encodeUrlComponent(value: String): String = buildString {
-            value.encodeToByteArray().forEach { byte ->
-                val unsigned = byte.toInt() and 0xFF
-                val safe =
-                    unsigned in 'a'.code..'z'.code ||
-                        unsigned in 'A'.code..'Z'.code ||
-                        unsigned in '0'.code..'9'.code ||
-                        unsigned == '-'.code ||
-                        unsigned == '_'.code ||
-                        unsigned == '.'.code ||
-                        unsigned == '~'.code
-                if (safe) {
-                    append(unsigned.toChar())
-                } else {
-                    append('%')
-                    append(HEX[unsigned ushr 4])
-                    append(HEX[unsigned and 0x0F])
+        private fun encodeUrlComponent(value: String): String =
+            buildString {
+                value.encodeToByteArray().forEach { byte ->
+                    val unsigned = byte.toInt() and 0xFF
+                    val safe =
+                        unsigned in 'a'.code..'z'.code ||
+                            unsigned in 'A'.code..'Z'.code ||
+                            unsigned in '0'.code..'9'.code ||
+                            unsigned == '-'.code ||
+                            unsigned == '_'.code ||
+                            unsigned == '.'.code ||
+                            unsigned == '~'.code
+                    if (safe) {
+                        append(unsigned.toChar())
+                    } else {
+                        append('%')
+                        append(HEX[unsigned ushr 4])
+                        append(HEX[unsigned and 0x0F])
+                    }
                 }
             }
-        }
 
         private const val HEX = "0123456789ABCDEF"
 
-        private fun Int.toDanmakuError(): String = when (this) {
-            401, 403 -> "弹幕接口拒绝访问（$this）"
-            404 -> "弹幕接口不存在（404）"
-            408 -> "弹幕接口请求超时（408）"
-            429 -> "弹幕接口请求过于频繁（429）"
-            in 500..599 -> "弹幕接口暂时不可用（$this）"
-            else -> "弹幕接口请求失败（$this）"
-        }
+        private fun Int.toDanmakuError(): String =
+            when (this) {
+                401, 403 -> "弹幕接口拒绝访问（$this）"
+                404 -> "弹幕接口不存在（404）"
+                408 -> "弹幕接口请求超时（408）"
+                429 -> "弹幕接口请求过于频繁（429）"
+                in 500..599 -> "弹幕接口暂时不可用（$this）"
+                else -> "弹幕接口请求失败（$this）"
+            }
     }
 }
 
 object DanmakuParser {
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
-    private val xmlComment = Regex(
-        """<d\b[^>]*\bp\s*=\s*["']([^"']*)["'][^>]*>(.*?)</d>""",
-        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
-    )
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+        }
+    private val xmlComment =
+        Regex(
+            """<d\b[^>]*\bp\s*=\s*["']([^"']*)["'][^>]*>(.*?)</d>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        )
 
     fun parse(body: String): List<DanmakuComment> {
         val value = body.trim()
         if (value.isEmpty()) return emptyList()
-        val comments = if (value.startsWith("<")) {
-            parseXml(value)
-        } else {
-            runCatching { parseJson(json.parseToJsonElement(value)) }.getOrDefault(emptyList())
-        }
+        val comments =
+            if (value.startsWith("<")) {
+                parseXml(value)
+            } else {
+                runCatching { parseJson(json.parseToJsonElement(value)) }.getOrDefault(emptyList())
+            }
         return comments
             .asSequence()
             .filter { it.timeMs >= 0L && it.text.isNotBlank() }
@@ -399,9 +438,11 @@ object DanmakuParser {
     }
 
     private fun parseXml(body: String): List<DanmakuComment> =
-        xmlComment.findAll(body).mapNotNull { match ->
-            parseP(match.groupValues[1], decodeXml(match.groupValues[2]))
-        }.toList()
+        xmlComment
+            .findAll(body)
+            .mapNotNull { match ->
+                parseP(match.groupValues[1], decodeXml(match.groupValues[2]))
+            }.toList()
 
     /**
      * The comma-packed attribute both wire formats put everything-but-the-text in.
@@ -411,29 +452,48 @@ object DanmakuParser {
      * two fields, colour one index apart — so the field count decides, which is exact
      * rather than a guess about which numbers look like a colour.
      */
-    private fun parseP(attribute: String, text: String): DanmakuComment? {
+    private fun parseP(
+        attribute: String,
+        text: String,
+    ): DanmakuComment? {
         val parts = attribute.split(',')
-        val timeMs = parts.getOrNull(0)?.trim()?.toDoubleOrNull()?.times(1_000)?.toLong()
-            ?: return null
+        val timeMs =
+            parts
+                .getOrNull(0)
+                ?.trim()
+                ?.toDoubleOrNull()
+                ?.times(1_000)
+                ?.toLong()
+                ?: return null
         val colorIndex = if (parts.size >= 5) 3 else 2
         return DanmakuComment(
             timeMs = timeMs,
             text = text,
-            color = parts.getOrNull(colorIndex)?.trim()?.toLongOrNull()?.coerceIn(0, 0xFFFFFF)
-                ?: 0xFFFFFF,
-            kind = when (parts.getOrNull(1)?.trim()?.toIntOrNull()) {
-                5 -> DanmakuKind.Top
-                4 -> DanmakuKind.Bottom
-                else -> DanmakuKind.Scroll
-            },
+            color =
+                parts
+                    .getOrNull(colorIndex)
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.coerceIn(0, 0xFFFFFF)
+                    ?: 0xFFFFFF,
+            kind =
+                when (parts.getOrNull(1)?.trim()?.toIntOrNull()) {
+                    5 -> DanmakuKind.Top
+                    4 -> DanmakuKind.Bottom
+                    else -> DanmakuKind.Scroll
+                },
         )
     }
 
-    private fun parseJson(root: JsonElement): List<DanmakuComment> = buildList {
-        collectJson(root, this)
-    }
+    private fun parseJson(root: JsonElement): List<DanmakuComment> =
+        buildList {
+            collectJson(root, this)
+        }
 
-    private fun collectJson(element: JsonElement, output: MutableList<DanmakuComment>) {
+    private fun collectJson(
+        element: JsonElement,
+        output: MutableList<DanmakuComment>,
+    ) {
         when (element) {
             is JsonObject -> {
                 val comment = parseObject(element)
@@ -456,25 +516,30 @@ object DanmakuParser {
         val text = value.textValue() ?: return null
         // `{"p": "12.3,1,16777215,uid", "m": "text"}` — the dandanplay comment. Read first
         // because such an object also has no `time` key at all for the fallback to find.
-        (value["p"] as? JsonPrimitive)?.contentOrNull
+        (value["p"] as? JsonPrimitive)
+            ?.contentOrNull
             ?.takeIf { it.contains(',') }
             ?.let { attribute -> parseP(attribute, text)?.let { return it } }
-        val timeEntry = listOf("progress", "timeMs", "time", "t", "timestamp")
-            .firstNotNullOfOrNull { key ->
-                (value[key] as? JsonPrimitive)?.doubleOrNull?.let { key to it }
+        val timeEntry =
+            listOf("progress", "timeMs", "time", "t", "timestamp")
+                .firstNotNullOfOrNull { key ->
+                    (value[key] as? JsonPrimitive)?.doubleOrNull?.let { key to it }
+                }
+                ?: return null
+        val timeMs =
+            when (timeEntry.first) {
+                "progress", "timeMs" -> timeEntry.second.toLong()
+                else ->
+                    if (timeEntry.second > 86_400) {
+                        timeEntry.second.toLong()
+                    } else {
+                        (timeEntry.second * 1_000).toLong()
+                    }
             }
-            ?: return null
-        val timeMs = when (timeEntry.first) {
-            "progress", "timeMs" -> timeEntry.second.toLong()
-            else -> if (timeEntry.second > 86_400) {
-                timeEntry.second.toLong()
-            } else {
-                (timeEntry.second * 1_000).toLong()
-            }
-        }
-        val mode = (value["mode"] as? JsonPrimitive)?.contentOrNull
-            ?: (value["type"] as? JsonPrimitive)?.contentOrNull
-            ?: (value["position"] as? JsonPrimitive)?.contentOrNull
+        val mode =
+            (value["mode"] as? JsonPrimitive)?.contentOrNull
+                ?: (value["type"] as? JsonPrimitive)?.contentOrNull
+                ?: (value["position"] as? JsonPrimitive)?.contentOrNull
         val color = (value["color"] as? JsonPrimitive)?.contentOrNull.toColor()
         return DanmakuComment(timeMs, text, color, mode.toKind())
     }
@@ -482,22 +547,24 @@ object DanmakuParser {
     /** DPlayer: `[timeSeconds, type, color, author, text]`; compact `[time, text]` also works. */
     private fun parseTuple(value: JsonArray): DanmakuComment? {
         val time = (value.firstOrNull() as? JsonPrimitive)?.doubleOrNull ?: return null
-        val text = when {
-            value.size >= 5 -> (value[4] as? JsonPrimitive)?.contentOrNull
-            value.size >= 2 -> (value.last() as? JsonPrimitive)?.contentOrNull
-            else -> null
-        } ?: return null
+        val text =
+            when {
+                value.size >= 5 -> (value[4] as? JsonPrimitive)?.contentOrNull
+                value.size >= 2 -> (value.last() as? JsonPrimitive)?.contentOrNull
+                else -> null
+            } ?: return null
         val type = (value.getOrNull(1) as? JsonPrimitive)?.intOrNull
         val color = (value.getOrNull(2) as? JsonPrimitive)?.contentOrNull.toColor()
         return DanmakuComment(
             timeMs = (time * 1_000).toLong(),
             text = text,
             color = color,
-            kind = when (type) {
-                1 -> DanmakuKind.Top
-                2 -> DanmakuKind.Bottom
-                else -> DanmakuKind.Scroll
-            },
+            kind =
+                when (type) {
+                    1 -> DanmakuKind.Top
+                    2 -> DanmakuKind.Bottom
+                    else -> DanmakuKind.Scroll
+                },
         )
     }
 
@@ -505,11 +572,12 @@ object DanmakuParser {
         listOf("content", "text", "body", "message", "m")
             .firstNotNullOfOrNull { key -> (this[key] as? JsonPrimitive)?.contentOrNull }
 
-    private fun String?.toKind(): DanmakuKind = when (this?.lowercase()) {
-        "5", "top", "fixed-top" -> DanmakuKind.Top
-        "4", "bottom", "fixed-bottom" -> DanmakuKind.Bottom
-        else -> DanmakuKind.Scroll
-    }
+    private fun String?.toKind(): DanmakuKind =
+        when (this?.lowercase()) {
+            "5", "top", "fixed-top" -> DanmakuKind.Top
+            "4", "bottom", "fixed-bottom" -> DanmakuKind.Bottom
+            else -> DanmakuKind.Scroll
+        }
 
     private fun String?.toColor(): Long {
         val value = this?.trim().orEmpty()
@@ -523,14 +591,15 @@ object DanmakuParser {
         }.getOrDefault(0xFFFFFF)
     }
 
-    private fun decodeXml(value: String): String = value
-        .replace("<![CDATA[", "")
-        .replace("]]>", "")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
+    private fun decodeXml(value: String): String =
+        value
+            .replace("<![CDATA[", "")
+            .replace("]]>", "")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
 }
 
 /**
@@ -543,7 +612,11 @@ object DanmakuParser {
  * a total failure; this turns them into a missing field.
  */
 internal object DanmakuApi {
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+        }
 
     fun parseSearch(body: String): List<DanmakuSearchResult> =
         root(body)?.animeArray().orEmpty().mapNotNull { entry ->
@@ -559,7 +632,10 @@ internal object DanmakuApi {
             )
         }
 
-    fun parseEpisodes(body: String, animeTitle: String): List<DanmakuEpisode> {
+    fun parseEpisodes(
+        body: String,
+        animeTitle: String,
+    ): List<DanmakuEpisode> {
         val root = root(body) ?: return emptyList()
         val holder = (root["bangumi"] as? JsonObject) ?: root
         return holder.episodeArray().mapNotNull { it.toEpisode(animeTitle) }
@@ -572,9 +648,13 @@ internal object DanmakuApi {
      * series returns the whole season when the episode filter is loose, and taking the
      * first entry there would pin every episode to 第1集.
      */
-    fun parseMatch(body: String, episodeNumber: Int?): DanmakuEpisode? {
-        val anime = root(body)?.animeArray()?.firstNotNullOfOrNull { it as? JsonObject }
-            ?: return null
+    fun parseMatch(
+        body: String,
+        episodeNumber: Int?,
+    ): DanmakuEpisode? {
+        val anime =
+            root(body)?.animeArray()?.firstNotNullOfOrNull { it as? JsonObject }
+                ?: return null
         val title = anime.textOf("animeTitle", "title", "name").orEmpty()
         val episodes = anime.episodeArray().mapNotNull { it.toEpisode(title) }
         if (episodes.isEmpty()) return null
@@ -598,9 +678,10 @@ internal object DanmakuApi {
         val episode = this as? JsonObject ?: return null
         val id = episode.textOf("episodeId", "id") ?: return null
         val number = episode.textOf("episodeNumber", "number", "episode")
-        val title = episode.textOf("episodeTitle", "title", "name")
-            ?: number?.let { "第 $it 集" }
-            ?: return null
+        val title =
+            episode.textOf("episodeTitle", "title", "name")
+                ?: number?.let { "第 $it 集" }
+                ?: return null
         return DanmakuEpisode(
             episodeId = id,
             title = title,
@@ -618,7 +699,8 @@ internal object DanmakuApi {
     }
 
     /** The first of these keys that holds a scalar, number or string alike. */
-    private fun JsonObject.textOf(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
-        (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() && it != "null" }
-    }
+    private fun JsonObject.textOf(vararg keys: String): String? =
+        keys.firstNotNullOfOrNull { key ->
+            (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() && it != "null" }
+        }
 }

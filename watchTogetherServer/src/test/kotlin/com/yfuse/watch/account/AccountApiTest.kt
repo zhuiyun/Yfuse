@@ -27,6 +27,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -410,6 +411,42 @@ class AccountApiTest {
         assertEquals(HttpStatusCode.Created, accepted.status)
     }
 
+    @Test
+    fun device_session_export_and_delete_routes_enforce_owner_authentication() = testApplication {
+        application {
+            watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
+        }
+
+        val registered = client.post("/api/v1/auth/register") {
+            secureJson(
+                """{"username":"Alice","password":"$TEST_PASSWORD","deviceName":"Phone"}""",
+            )
+        }.bodyAsText().asObject()
+        val access = registered.string("accessToken")
+
+        val sessions = client.get("/api/v1/account/sessions") { secureBearer(access) }
+        assertEquals(HttpStatusCode.OK, sessions.status)
+        assertEquals("Phone", sessions.bodyAsText().asObject().getValue("sessions")
+            .toString().asObjectArray().single().string("deviceName"))
+
+        val exported = client.get("/api/v1/account/export") { secureBearer(access) }
+        assertEquals(HttpStatusCode.OK, exported.status)
+        val exportText = exported.bodyAsText()
+        assertFalse(exportText.contains(TEST_PASSWORD))
+        assertFalse(exportText.contains(access))
+        assertTrue(exportText.contains("encryptedSync"))
+
+        val deleted = client.delete("/api/v1/account") {
+            secureJson("""{"password":"$TEST_PASSWORD"}""")
+            bearer(access)
+        }
+        assertEquals(HttpStatusCode.NoContent, deleted.status)
+        assertEquals(
+            HttpStatusCode.Unauthorized,
+            client.get("/api/v1/account/profile") { secureBearer(access) }.status,
+        )
+    }
+
     private suspend fun io.ktor.server.testing.ApplicationTestBuilder.register(): JsonObject =
         registerResponse().bodyAsText().asObject()
 
@@ -439,6 +476,9 @@ private fun HttpRequestBuilder.bearer(token: String) {
 }
 
 private fun String.asObject(): JsonObject = Json.parseToJsonElement(this).jsonObject
+
+private fun String.asObjectArray(): List<JsonObject> =
+    Json.parseToJsonElement(this).jsonArray.map { it.jsonObject }
 
 private fun JsonObject.string(name: String): String = getValue(name).jsonPrimitive.content
 

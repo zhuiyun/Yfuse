@@ -2,8 +2,12 @@ package com.yfuse.feature.player
 
 /** How a queue entry chooses the server which receives Emby playback events. */
 internal sealed interface PlaybackReportingTarget {
-    data class SavedServer(val id: String) : PlaybackReportingTarget
+    data class SavedServer(
+        val id: String,
+    ) : PlaybackReportingTarget
+
     data object DefaultServer : PlaybackReportingTarget
+
     data object Disabled : PlaybackReportingTarget
 }
 

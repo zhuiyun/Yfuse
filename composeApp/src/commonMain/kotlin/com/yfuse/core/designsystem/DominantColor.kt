@@ -17,7 +17,10 @@ import androidx.compose.ui.graphics.luminance
  * detail screen. Returns [fallback] until (or unless) extraction succeeds.
  */
 @Composable
-expect fun rememberDominantColor(url: String?, fallback: Color): Color
+expect fun rememberDominantColor(
+    url: String?,
+    fallback: Color,
+): Color
 
 /**
  * [rememberDominantColor], eased into place.
@@ -45,10 +48,11 @@ fun rememberAnimatedDominantColor(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val eased by animateColorAsState(
         targetValue = target,
-        animationSpec = tween(
-            durationMillis = if (reduceMotion) 0 else durationMillis,
-            easing = Motion.Curve,
-        ),
+        animationSpec =
+            tween(
+                durationMillis = if (reduceMotion) 0 else durationMillis,
+                easing = Motion.Curve,
+            ),
         label = "dominantColor",
     )
     return eased
@@ -83,10 +87,11 @@ fun rememberAnimatedArtworkAccent(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val eased by animateColorAsState(
         targetValue = target,
-        animationSpec = tween(
-            durationMillis = if (reduceMotion) 0 else durationMillis,
-            easing = Motion.Curve,
-        ),
+        animationSpec =
+            tween(
+                durationMillis = if (reduceMotion) 0 else durationMillis,
+                easing = Motion.Curve,
+            ),
         label = "artworkAccent",
     )
     return eased
@@ -98,18 +103,22 @@ fun rememberAnimatedArtworkAccent(
  * image colours and poor button/selection colours. The restrained band also keeps every title
  * recognisably inside Yfuse's visual system instead of letting the artwork redesign the app.
  */
-fun harmonizeArtworkAccent(raw: Color, darkTheme: Boolean): Color {
+fun harmonizeArtworkAccent(
+    raw: Color,
+    darkTheme: Boolean,
+): Color {
     val brandBlend = if (darkTheme) 0.10f else 0.16f
     var result = lerp(raw, Brand.Primary, brandBlend) // design-system: brand-identity
     val minimum = if (darkTheme) 0.10f else 0.08f
     val maximum = if (darkTheme) 0.34f else 0.28f
     repeat(5) {
         val light = result.luminance()
-        result = when {
-            light < minimum -> lerp(result, Color.White, 0.12f)
-            light > maximum -> lerp(result, Color.Black, 0.12f)
-            else -> return result
-        }
+        result =
+            when {
+                light < minimum -> lerp(result, Color.White, 0.12f)
+                light > maximum -> lerp(result, Color.Black, 0.12f)
+                else -> return result
+            }
     }
     return result
 }

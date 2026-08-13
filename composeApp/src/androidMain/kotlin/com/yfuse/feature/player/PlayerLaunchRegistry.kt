@@ -67,9 +67,10 @@ internal data class PlayerLaunchFallback(
 
         fun from(request: PlayerLaunchRequest): PlayerLaunchFallback? {
             val item = request.items.getOrNull(request.startIndex) ?: return null
-            val itemId = item.id.takeIf {
-                it.isNotBlank() && it.length <= MAX_ITEM_ID_CHARS
-            } ?: return null
+            val itemId =
+                item.id.takeIf {
+                    it.isNotBlank() && it.length <= MAX_ITEM_ID_CHARS
+                } ?: return null
             return PlayerLaunchFallback(
                 itemId = itemId,
                 serverId = item.serverId?.takeIf { it.length <= MAX_SERVER_ID_CHARS },
@@ -95,19 +96,22 @@ internal data class PlayerLaunchIntentPayload(
     }
 
     val stringExtras: Map<String, String>
-        get() = buildMap {
-            put(EXTRA_LAUNCH_ID, launchId)
-            fallback?.let { value ->
-                put(EXTRA_FALLBACK_ITEM_ID, value.itemId)
-                value.serverId?.let { put(EXTRA_FALLBACK_SERVER_ID, it) }
-                put(EXTRA_FALLBACK_TITLE, value.title)
+        get() =
+            buildMap {
+                put(EXTRA_LAUNCH_ID, launchId)
+                fallback?.let { value ->
+                    put(EXTRA_FALLBACK_ITEM_ID, value.itemId)
+                    value.serverId?.let { put(EXTRA_FALLBACK_SERVER_ID, it) }
+                    put(EXTRA_FALLBACK_TITLE, value.title)
+                }
             }
-        }
 
     val estimatedParcelBytes: Int
-        get() = INTENT_BASE_OVERHEAD_BYTES + stringExtras.entries.sumOf { (key, value) ->
-            EXTRA_ENTRY_OVERHEAD_BYTES + (key.length + value.length) * BYTES_PER_CHAR_BOUND
-        }
+        get() =
+            INTENT_BASE_OVERHEAD_BYTES +
+                stringExtras.entries.sumOf { (key, value) ->
+                    EXTRA_ENTRY_OVERHEAD_BYTES + (key.length + value.length) * BYTES_PER_CHAR_BOUND
+                }
 
     fun writeTo(intent: Intent) {
         check(estimatedParcelBytes <= MAX_ESTIMATED_PARCEL_BYTES) {
@@ -128,32 +132,44 @@ internal data class PlayerLaunchIntentPayload(
         private const val EXTRA_ENTRY_OVERHEAD_BYTES = 128
         private const val BYTES_PER_CHAR_BOUND = 4
 
-        fun create(request: PlayerLaunchRequest, launchId: String): PlayerLaunchIntentPayload =
+        fun create(
+            request: PlayerLaunchRequest,
+            launchId: String,
+        ): PlayerLaunchIntentPayload =
             PlayerLaunchIntentPayload(
                 launchId = launchId,
                 fallback = PlayerLaunchFallback.from(request),
             )
 
         fun readFrom(intent: Intent): PlayerLaunchIntentPayload? {
-            val launchId = intent.getStringExtra(EXTRA_LAUNCH_ID)
-                ?.takeIf { it.isNotBlank() && it.length <= MAX_LAUNCH_ID_CHARS }
-                ?: return null
-            val itemId = intent.getStringExtra(EXTRA_FALLBACK_ITEM_ID)
-                ?.takeIf { it.isNotBlank() && it.length <= PlayerLaunchFallback.MAX_ITEM_ID_CHARS }
-            val serverId = intent.getStringExtra(EXTRA_FALLBACK_SERVER_ID)
-                ?.takeIf { it.length <= PlayerLaunchFallback.MAX_SERVER_ID_CHARS }
-            val title = intent.getStringExtra(EXTRA_FALLBACK_TITLE)
-                ?.take(PlayerLaunchFallback.MAX_TITLE_CHARS)
-                .orEmpty()
+            val launchId =
+                intent
+                    .getStringExtra(EXTRA_LAUNCH_ID)
+                    ?.takeIf { it.isNotBlank() && it.length <= MAX_LAUNCH_ID_CHARS }
+                    ?: return null
+            val itemId =
+                intent
+                    .getStringExtra(EXTRA_FALLBACK_ITEM_ID)
+                    ?.takeIf { it.isNotBlank() && it.length <= PlayerLaunchFallback.MAX_ITEM_ID_CHARS }
+            val serverId =
+                intent
+                    .getStringExtra(EXTRA_FALLBACK_SERVER_ID)
+                    ?.takeIf { it.length <= PlayerLaunchFallback.MAX_SERVER_ID_CHARS }
+            val title =
+                intent
+                    .getStringExtra(EXTRA_FALLBACK_TITLE)
+                    ?.take(PlayerLaunchFallback.MAX_TITLE_CHARS)
+                    .orEmpty()
             return PlayerLaunchIntentPayload(
                 launchId = launchId,
-                fallback = itemId?.let {
-                    PlayerLaunchFallback(
-                        itemId = it,
-                        serverId = serverId,
-                        title = title,
-                    )
-                },
+                fallback =
+                    itemId?.let {
+                        PlayerLaunchFallback(
+                            itemId = it,
+                            serverId = serverId,
+                            title = title,
+                        )
+                    },
             )
         }
     }
@@ -179,31 +195,35 @@ internal class PlayerLaunchRegistryStore(
         require(ttlMs > 0L)
     }
 
-    fun register(request: PlayerLaunchRequest): String = synchronized(lock) {
-        val now = elapsedRealtimeMs()
-        removeExpired(now)
-        while (entries.size >= maxEntries) {
-            entries.remove(entries.keys.first())
+    fun register(request: PlayerLaunchRequest): String =
+        synchronized(lock) {
+            val now = elapsedRealtimeMs()
+            removeExpired(now)
+            while (entries.size >= maxEntries) {
+                entries.remove(entries.keys.first())
+            }
+            val token = generateUniqueToken()
+            entries[token] = Entry(request, now)
+            token
         }
-        val token = generateUniqueToken()
-        entries[token] = Entry(request, now)
-        token
-    }
 
-    fun consume(token: String?): PlayerLaunchRequest? = synchronized(lock) {
-        removeExpired(elapsedRealtimeMs())
-        token?.let(entries::remove)?.request
-    }
+    fun consume(token: String?): PlayerLaunchRequest? =
+        synchronized(lock) {
+            removeExpired(elapsedRealtimeMs())
+            token?.let(entries::remove)?.request
+        }
 
-    fun discard(token: String?) = synchronized(lock) {
-        token?.let(entries::remove)
-        Unit
-    }
+    fun discard(token: String?) =
+        synchronized(lock) {
+            token?.let(entries::remove)
+            Unit
+        }
 
-    internal fun entryCount(): Int = synchronized(lock) {
-        removeExpired(elapsedRealtimeMs())
-        entries.size
-    }
+    internal fun entryCount(): Int =
+        synchronized(lock) {
+            removeExpired(elapsedRealtimeMs())
+            entries.size
+        }
 
     private fun generateUniqueToken(): String {
         repeat(MAX_TOKEN_ATTEMPTS) {
@@ -267,12 +287,13 @@ internal class PlayerLaunchRegistryController(
 
 internal object PlayerLaunchRegistry {
     private val expiryHandler = Handler(Looper.getMainLooper())
-    private val controller = PlayerLaunchRegistryController(
-        store = PlayerLaunchRegistryStore(),
-        scheduleDiscard = { token, delayMs, discard ->
-            expiryHandler.postDelayed({ discard(token) }, delayMs)
-        },
-    )
+    private val controller =
+        PlayerLaunchRegistryController(
+            store = PlayerLaunchRegistryStore(),
+            scheduleDiscard = { token, delayMs, discard ->
+                expiryHandler.postDelayed({ discard(token) }, delayMs)
+            },
+        )
 
     fun register(request: PlayerLaunchRequest): String = controller.register(request)
 
@@ -282,9 +303,13 @@ internal object PlayerLaunchRegistry {
 }
 
 internal sealed interface PlayerLaunchResolution {
-    data class Ready(val request: PlayerLaunchRequest) : PlayerLaunchResolution
+    data class Ready(
+        val request: PlayerLaunchRequest,
+    ) : PlayerLaunchResolution
 
-    data class Expired(val fallback: PlayerLaunchFallback?) : PlayerLaunchResolution
+    data class Expired(
+        val fallback: PlayerLaunchFallback?,
+    ) : PlayerLaunchResolution
 }
 
 /** Shared by the Activity and unit tests so malformed or expired launches always fail closed. */
@@ -306,11 +331,12 @@ internal fun resolvePlayerLaunch(
 internal fun resolveFreshPlayerLaunch(
     payload: PlayerLaunchIntentPayload,
     consume: (String?) -> PlayerLaunchRequest? = PlayerLaunchRegistry::consume,
-): PlayerLaunchResolution = resolvePlayerLaunch(
-    retained = null,
-    payload = payload,
-    consume = consume,
-)
+): PlayerLaunchResolution =
+    resolvePlayerLaunch(
+        retained = null,
+        payload = payload,
+        consume = consume,
+    )
 
 /** Retains the already-consumed request through configuration recreation, never process death. */
 internal class PlayerLaunchViewModel : ViewModel() {

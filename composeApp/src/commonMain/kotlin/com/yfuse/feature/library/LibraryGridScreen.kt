@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,18 +36,18 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.designsystem.ActionToast
-import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
@@ -56,6 +55,7 @@ import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibrarySort
@@ -78,12 +78,13 @@ private val PosterMinWidth = 96.dp
  */
 private const val PREFETCH_ITEMS = 18
 
-private val sortLabels = mapOf(
-    LibrarySort.RecentlyAdded to "最近添加",
-    LibrarySort.Name to "名称",
-    LibrarySort.Year to "年份",
-    LibrarySort.Rating to "评分",
-)
+private val sortLabels =
+    mapOf(
+        LibrarySort.RecentlyAdded to "最近添加",
+        LibrarySort.Name to "名称",
+        LibrarySort.Year to "年份",
+        LibrarySort.Rating to "评分",
+    )
 
 @Composable
 fun LibraryGridScreen(component: LibraryGridComponent) {
@@ -94,14 +95,16 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
     StatusBarIconStyle(darkIcons = !palette.isDark)
     var sortOpen by remember { mutableStateOf(false) }
     val gridState = component.gridState
+    val bottomContentInset = systemNavigationContentInset()
 
     // Paging is driven by what is on screen rather than by the last composed tile: a tile
     // composes once, so binding the request to it would never fire again after a failure.
     val shouldLoadMore by remember(gridState) {
         derivedStateOf {
             val info = gridState.layoutInfo
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
-                ?: return@derivedStateOf false
+            val lastVisible =
+                info.visibleItemsInfo.lastOrNull()?.index
+                    ?: return@derivedStateOf false
             lastVisible >= info.totalItemsCount - 1 - PREFETCH_ITEMS
         }
     }
@@ -154,7 +157,9 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 // The server's total, not the loaded count: paging means those differ, and
                 // a number that climbed as the user scrolled was reporting the wrong thing.
                 Text(
-                    "${state.totalCount.coerceAtLeast(state.loadedCount)} ${if (state.directoryKind != null) "个" else "部"}",
+                    "${state.totalCount.coerceAtLeast(
+                        state.loadedCount,
+                    )} ${if (state.directoryKind != null) "个" else "部"}",
                     style = AppTypography.caption.medium,
                     color = palette.sub2,
                 )
@@ -168,8 +173,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 AppShapes.pill,
                                 palette.glassStrong,
                                 palette.tabbarBorder,
-                            )
-                            .padding(horizontal = 13.dp),
+                            ).padding(horizontal = 13.dp),
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -193,10 +197,11 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     text = "按服务器中的手工顺序显示",
                     style = AppTypography.caption.medium,
                     color = palette.sub2,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Dimens.pageHorizontal)
-                        .padding(bottom = 10.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Dimens.pageHorizontal)
+                            .padding(bottom = 10.dp),
                 )
             }
 
@@ -215,122 +220,135 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
 
             Box(Modifier.fillMaxSize()) {
                 when {
-                    state.loading && state.loadedCount == 0 -> SkeletonGrid()
+                    state.loading && state.loadedCount == 0 ->
+                        SkeletonGrid(bottomContentInset = bottomContentInset)
 
-                    state.error != null && state.loadedCount == 0 -> ErrorState(
-                        message = state.error!!,
-                        onRetry = { component.store.accept(GridIntent.Retry) },
-                        modifier = Modifier.align(Alignment.Center),
-                    )
+                    state.error != null && state.loadedCount == 0 ->
+                        ErrorState(
+                            message = state.error!!,
+                            onRetry = { component.store.accept(GridIntent.Retry) },
+                            modifier = Modifier.align(Alignment.Center),
+                        )
 
-                    state.loadedCount == 0 -> EmptyGridHint(
-                        title = component.title,
-                        filtered = state.genre != null,
-                        onClearGenre = { component.store.accept(GridIntent.SetGenre(null)) },
-                        onBack = component.onBack,
-                        modifier = Modifier.align(Alignment.Center),
-                    )
+                    state.loadedCount == 0 ->
+                        EmptyGridHint(
+                            title = component.title,
+                            filtered = state.genre != null,
+                            onClearGenre = { component.store.accept(GridIntent.SetGenre(null)) },
+                            onBack = component.onBack,
+                            modifier = Modifier.align(Alignment.Center),
+                        )
 
-                    else -> LazyVerticalGrid(
-                        columns = GridCells.Adaptive(PosterMinWidth),
-                        state = gridState,
-                        contentPadding = PaddingValues(
-                            start = Dimens.pageHorizontal,
-                            end = Dimens.pageHorizontal,
-                            bottom = Dimens.contentBottom,
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        if (state.directoryKind != null) {
-                            items(
-                                items = state.containers,
-                                key = { "${it.serverId}-${it.kind}-${it.id}" },
-                            ) { container ->
-                                CaptionedPoster(
-                                    url = EmbyImages.primary(
-                                        baseUrl = baseUrl,
-                                        itemId = container.id,
-                                        tag = container.posterTag,
-                                        maxHeight = 450,
-                                        accessToken = accessToken,
-                                    ),
-                                    title = container.title,
-                                    year = container.itemCount?.let { "$it 项" },
-                                    progress = null,
-                                    onClick = { component.onOpenContainer(container) },
-                                    modifier = motionAwareItem(),
-                                )
-                            }
-                        } else {
-                        items(state.items, key = { it.playlistItemId ?: it.id }) { item ->
-                            Box(
-                                // Appended pages fade in where they land rather than
-                                // appearing mid-scroll, and a sort change cross-dissolves
-                                // instead of swapping the grid between two frames.
-                                modifier = motionAwareItem(),
-                            ) {
-                                PosterCard(
-                                    baseUrl = baseUrl,
-                                    accessToken = accessToken,
-                                    serverId = component.serverId,
-                                    item = item,
-                                    showProgress = false,
-                                    onClick = { component.onOpenItem(item.id) },
-                                )
-                                if (state.containerKind != null) {
+                    else ->
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(PosterMinWidth),
+                            state = gridState,
+                            contentPadding =
+                                PaddingValues(
+                                    start = Dimens.pageHorizontal,
+                                    end = Dimens.pageHorizontal,
+                                    bottom = bottomContentInset,
+                                ),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            if (state.directoryKind != null) {
+                                items(
+                                    items = state.containers,
+                                    key = { "${it.serverId}-${it.kind}-${it.id}" },
+                                ) { container ->
+                                    CaptionedPoster(
+                                        url =
+                                            EmbyImages.primary(
+                                                baseUrl = baseUrl,
+                                                itemId = container.id,
+                                                tag = container.posterTag,
+                                                maxHeight = 450,
+                                                accessToken = accessToken,
+                                            ),
+                                        title = container.title,
+                                        year = container.itemCount?.let { "$it 项" },
+                                        progress = null,
+                                        onClick = { component.onOpenContainer(container) },
+                                        modifier = motionAwareItem(),
+                                    )
+                                }
+                            } else {
+                                items(state.items, key = { it.playlistItemId ?: it.id }) { item ->
                                     Box(
-                                        Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(3.dp)
-                                            .pressable(
-                                                onClickLabel = "从${if (state.containerKind == MediaContainerKind.Playlist) "播放列表" else "合集"}移除${item.title}",
-                                                onClick = {
-                                                    component.store.accept(
-                                                        GridIntent.RequestRemove(
-                                                            item.playlistItemId ?: item.id,
-                                                        ),
-                                                    )
-                                                },
-                                            )
-                                            .touchTarget(),
-                                        contentAlignment = Alignment.Center,
+                                        // Appended pages fade in where they land rather than
+                                        // appearing mid-scroll, and a sort change cross-dissolves
+                                        // instead of swapping the grid between two frames.
+                                        modifier = motionAwareItem(),
                                     ) {
-                                        Box(
-                                            Modifier
-                                                .size(30.dp)
-                                                .glass(
-                                                    shape = GlassShapes.chip,
-                                                    fill = palette.background.copy(alpha = 0.82f),
-                                                    border = palette.border,
-                                                ),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Icon(
-                                                AppIcons.Close,
-                                                contentDescription = null,
-                                                tint = palette.text,
-                                                modifier = Modifier.size(12.dp),
-                                            )
+                                        PosterCard(
+                                            baseUrl = baseUrl,
+                                            accessToken = accessToken,
+                                            serverId = component.serverId,
+                                            item = item,
+                                            showProgress = false,
+                                            onClick = { component.onOpenItem(item.id) },
+                                        )
+                                        if (state.containerKind != null) {
+                                            Box(
+                                                Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(3.dp)
+                                                    .pressable(
+                                                        onClickLabel =
+                                                            "从${if (
+                                                                state.containerKind ==
+                                                                MediaContainerKind.Playlist
+                                                            ) {
+                                                                "播放列表"
+                                                            } else {
+                                                                "合集"
+                                                            }}移除${item.title}",
+                                                        onClick = {
+                                                            component.store.accept(
+                                                                GridIntent.RequestRemove(
+                                                                    item.playlistItemId ?: item.id,
+                                                                ),
+                                                            )
+                                                        },
+                                                    ).touchTarget(),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Box(
+                                                    Modifier
+                                                        .size(30.dp)
+                                                        .glass(
+                                                            shape = GlassShapes.chip,
+                                                            fill = palette.background.copy(alpha = 0.82f),
+                                                            border = palette.border,
+                                                        ),
+                                                    contentAlignment = Alignment.Center,
+                                                ) {
+                                                    Icon(
+                                                        AppIcons.Close,
+                                                        contentDescription = null,
+                                                        tint = palette.text,
+                                                        modifier = Modifier.size(12.dp),
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        }
-                        if (state.loadingMore || state.loadMoreError != null) {
-                            item(
-                                key = "grid-footer",
-                                span = { GridItemSpan(maxLineSpan) },
-                            ) {
-                                GridFooter(
-                                    error = state.loadMoreError,
-                                    onRetry = { component.store.accept(GridIntent.LoadMore) },
-                                )
+                            if (state.loadingMore || state.loadMoreError != null) {
+                                item(
+                                    key = "grid-footer",
+                                    span = { GridItemSpan(maxLineSpan) },
+                                ) {
+                                    GridFooter(
+                                        error = state.loadMoreError,
+                                        onRetry = { component.store.accept(GridIntent.LoadMore) },
+                                    )
+                                }
                             }
                         }
-                    }
                 }
             }
         }
@@ -357,11 +375,12 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
         }
 
         state.pendingRemoval?.let { item ->
-            val containerLabel = if (state.containerKind == MediaContainerKind.Playlist) {
-                "播放列表"
-            } else {
-                "合集"
-            }
+            val containerLabel =
+                if (state.containerKind == MediaContainerKind.Playlist) {
+                    "播放列表"
+                } else {
+                    "合集"
+                }
             GlassDialog(onDismiss = { component.store.accept(GridIntent.CancelRemove) }) {
                 OverlayHeader(
                     title = "从$containerLabel 移除？",
@@ -400,13 +419,17 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
 
 /** Facet failure must stay actionable even when the poster request itself succeeded. */
 @Composable
-private fun GenreLoadErrorRow(message: String, onRetry: () -> Unit) {
+private fun GenreLoadErrorRow(
+    message: String,
+    onRetry: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -422,15 +445,15 @@ private fun GenreLoadErrorRow(message: String, onRetry: () -> Unit) {
             text = "重试分类",
             style = AppTypography.body.strong,
             color = accent.accent,
-            modifier = Modifier
-                .pressable(onClickLabel = "重新加载分类", onClick = onRetry)
-                .touchTarget()
-                .glass(
-                    shape = GlassShapes.chip,
-                    fill = accent.container,
-                    border = accent.border.copy(alpha = 0.28f),
-                )
-                .padding(horizontal = 14.dp, vertical = 7.dp),
+            modifier =
+                Modifier
+                    .pressable(onClickLabel = "重新加载分类", onClick = onRetry)
+                    .touchTarget()
+                    .glass(
+                        shape = GlassShapes.chip,
+                        fill = accent.container,
+                        border = accent.border.copy(alpha = 0.28f),
+                    ).padding(horizontal = 14.dp, vertical = 7.dp),
         )
     }
 }
@@ -476,33 +499,33 @@ private fun GenreChip(
         style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
         color = if (selected) accent.accent else palette.body,
         maxLines = 1,
-        modifier = modifier
-            .pressable(
-                role = Role.RadioButton,
-                onClickLabel = "选择分类",
-                onClick = onClick,
-            )
-            .semantics { this.selected = selected }
-            .touchTarget()
-            .glass(
-                shape = GlassShapes.chip,
-                fill = if (selected) accent.container else palette.card2,
-                border = if (selected) accent.border.copy(alpha = 0.34f) else palette.border,
-            )
-            .padding(horizontal = 13.dp, vertical = 7.dp),
+        modifier =
+            modifier
+                .pressable(
+                    role = Role.RadioButton,
+                    onClickLabel = "选择分类",
+                    onClick = onClick,
+                ).semantics { this.selected = selected }
+                .touchTarget()
+                .glass(
+                    shape = GlassShapes.chip,
+                    fill = if (selected) accent.container else palette.card2,
+                    border = if (selected) accent.border.copy(alpha = 0.34f) else palette.border,
+                ).padding(horizontal = 13.dp, vertical = 7.dp),
     )
 }
 
 /** Placeholder tiles in the grid's own geometry, so nothing shifts when the page lands. */
 @Composable
-private fun SkeletonGrid() {
+private fun SkeletonGrid(bottomContentInset: androidx.compose.ui.unit.Dp) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(PosterMinWidth),
-        contentPadding = PaddingValues(
-            start = Dimens.pageHorizontal,
-            end = Dimens.pageHorizontal,
-            bottom = Dimens.contentBottom,
-        ),
+        contentPadding =
+            PaddingValues(
+                start = Dimens.pageHorizontal,
+                end = Dimens.pageHorizontal,
+                bottom = bottomContentInset,
+            ),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         userScrollEnabled = false,
@@ -514,7 +537,10 @@ private fun SkeletonGrid() {
 
 /** The row under the last page: either "loading more" or the failure and a retry. */
 @Composable
-private fun GridFooter(error: String?, onRetry: () -> Unit) {
+private fun GridFooter(
+    error: String?,
+    onRetry: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     Box(
@@ -533,15 +559,15 @@ private fun GridFooter(error: String?, onRetry: () -> Unit) {
                     "重试",
                     style = AppTypography.body.strong,
                     color = accent.accent,
-                    modifier = Modifier
-                        .pressable(onClickLabel = "重新加载更多内容", onClick = onRetry)
-                        .touchTarget()
-                        .glass(
-                            shape = GlassShapes.chip,
-                            fill = accent.container,
-                            border = accent.border.copy(alpha = 0.28f),
-                        )
-                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                    modifier =
+                        Modifier
+                            .pressable(onClickLabel = "重新加载更多内容", onClick = onRetry)
+                            .touchTarget()
+                            .glass(
+                                shape = GlassShapes.chip,
+                                fill = accent.container,
+                                border = accent.border.copy(alpha = 0.28f),
+                            ).padding(horizontal = 14.dp, vertical = 7.dp),
                 )
             }
         }
@@ -570,18 +596,20 @@ private fun EmptyGridHint(
         return
     }
     when (title) {
-        "我的收藏" -> PageHint(
-            "还没有收藏的影视\n在详情页点击收藏，就会出现在这里",
-            modifier = modifier,
-            actionLabel = "去媒体库看看",
-            onAction = onBack,
-        )
-        "稍后观看" -> PageHint(
-            "还没有稍后观看的内容\n在详情页加入片单，稍后在这里继续",
-            modifier = modifier,
-            actionLabel = "去媒体库看看",
-            onAction = onBack,
-        )
+        "我的收藏" ->
+            PageHint(
+                "还没有收藏的影视\n在详情页点击收藏，就会出现在这里",
+                modifier = modifier,
+                actionLabel = "去媒体库看看",
+                onAction = onBack,
+            )
+        "稍后观看" ->
+            PageHint(
+                "还没有稍后观看的内容\n在详情页加入片单，稍后在这里继续",
+                modifier = modifier,
+                actionLabel = "去媒体库看看",
+                onAction = onBack,
+            )
         else -> PageHint("暂无内容", modifier = modifier)
     }
 }

@@ -11,7 +11,10 @@ import com.russhwolf.settings.Settings
 interface SecureStore {
     fun get(key: String): ByteArray?
 
-    fun put(key: String, value: ByteArray)
+    fun put(
+        key: String,
+        value: ByteArray,
+    )
 
     fun remove(key: String): Boolean
 

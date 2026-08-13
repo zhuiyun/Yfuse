@@ -10,9 +10,9 @@ import com.arkivanov.decompose.router.stack.popTo
 import com.arkivanov.decompose.router.stack.pushToFront
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
+import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.app.AppDependencies
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.serialization.Serializable
@@ -28,22 +28,27 @@ class LibraryComponent(
     private val registry: ServerRegistry,
     private val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
-
     private val navigation = StackNavigation<Config>()
 
-    val stack: Value<ChildStack<Config, Child>> = childStack(
-        source = navigation,
-        serializer = Config.serializer(),
-        initialConfiguration = Config.Home,
-        // The Compose shell owns system back so only the visible tab can pop.
-        handleBackButton = false,
-        childFactory = ::child,
-    )
+    val stack: Value<ChildStack<Config, Child>> =
+        childStack(
+            source = navigation,
+            serializer = Config.serializer(),
+            initialConfiguration = Config.Home,
+            // The Compose shell owns system back so only the visible tab can pop.
+            handleBackButton = false,
+            childFactory = ::child,
+        )
 
     @Serializable
     sealed interface Config {
         @Serializable data object Home : Config
-        @Serializable data class Grid(val libraryId: String, val title: String) : Config
+
+        @Serializable data class Grid(
+            val libraryId: String,
+            val title: String,
+        ) : Config
+
         @Serializable
         data class Detail(
             val serverId: String?,
@@ -51,6 +56,7 @@ class LibraryComponent(
             /** Skips the detail page's play button — see [DetailComponent]'s `autoPlay`. */
             val autoPlay: Boolean = false,
         ) : Config
+
         @Serializable
         data class Player(
             val serverId: String?,
@@ -62,10 +68,21 @@ class LibraryComponent(
     }
 
     sealed interface Child {
-        class Home(val component: LibraryHomeComponent) : Child
-        class Grid(val component: LibraryGridComponent) : Child
-        class Detail(val component: DetailComponent) : Child
-        class Player(val component: PlayerComponent) : Child
+        class Home(
+            val component: LibraryHomeComponent,
+        ) : Child
+
+        class Grid(
+            val component: LibraryGridComponent,
+        ) : Child
+
+        class Detail(
+            val component: DetailComponent,
+        ) : Child
+
+        class Player(
+            val component: PlayerComponent,
+        ) : Child
     }
 
     fun navigateBack() {
@@ -87,88 +104,100 @@ class LibraryComponent(
      * invite has been resolved to an item on one of the user's own servers, so accepting the
      * invite lands on the film rather than on whatever tab happened to be open.
      */
-    fun openDetail(serverId: String?, itemId: String, autoPlay: Boolean = false) {
+    fun openDetail(
+        serverId: String?,
+        itemId: String,
+        autoPlay: Boolean = false,
+    ) {
         navigation.pushToFront(Config.Detail(serverId, itemId, autoPlay))
     }
 
-    private fun child(config: Config, context: ComponentContext): Child = when (config) {
-        Config.Home -> Child.Home(
-            LibraryHomeComponent(
-                componentContext = context,
-                storeFactory = storeFactory,
-                repo = repo,
-                registry = registry,
-                onSeeAll = { libraryId, title ->
-                    navigation.pushToFront(Config.Grid(libraryId, title))
-                },
-                onOpenItem = {
-                    navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it))
-                },
-            ),
-        )
-        is Config.Grid -> {
-            // Container routes pin their originating server. A default-server switch while
-            // this grid is visible must not send a tapped item to another account.
-            val gridServerId = (
-                LibraryContainerRoute.decode(config.libraryId)?.serverId
-                    ?: LibraryContainerDirectoryRoute.decode(config.libraryId)?.serverId
+    private fun child(
+        config: Config,
+        context: ComponentContext,
+    ): Child =
+        when (config) {
+            Config.Home ->
+                Child.Home(
+                    LibraryHomeComponent(
+                        componentContext = context,
+                        storeFactory = storeFactory,
+                        repo = repo,
+                        registry = registry,
+                        onSeeAll = { libraryId, title ->
+                            navigation.pushToFront(Config.Grid(libraryId, title))
+                        },
+                        onOpenItem = {
+                            navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it))
+                        },
+                    ),
                 )
-                ?: registry.defaultServer?.id
-            Child.Grid(
-                LibraryGridComponent(
-                componentContext = context,
-                storeFactory = storeFactory,
-                repo = repo,
-                registry = registry,
-                libraryId = config.libraryId,
-                title = config.title,
-                onOpenItem = {
-                    navigation.pushToFront(Config.Detail(gridServerId, it))
-                },
-                onOpenContainer = { container ->
-                    navigation.pushToFront(
-                        Config.Grid(
-                            LibraryContainerRoute.from(container).encode(),
-                            container.title,
-                        ),
+            is Config.Grid -> {
+                // Container routes pin their originating server. A default-server switch while
+                // this grid is visible must not send a tapped item to another account.
+                val gridServerId =
+                    (
+                        LibraryContainerRoute.decode(config.libraryId)?.serverId
+                            ?: LibraryContainerDirectoryRoute.decode(config.libraryId)?.serverId
                     )
-                },
-                onBack = { navigation.pop() },
-                ),
-            )
+                        ?: registry.defaultServer?.id
+                Child.Grid(
+                    LibraryGridComponent(
+                        componentContext = context,
+                        storeFactory = storeFactory,
+                        repo = repo,
+                        registry = registry,
+                        libraryId = config.libraryId,
+                        title = config.title,
+                        onOpenItem = {
+                            navigation.pushToFront(Config.Detail(gridServerId, it))
+                        },
+                        onOpenContainer = { container ->
+                            navigation.pushToFront(
+                                Config.Grid(
+                                    LibraryContainerRoute.from(container).encode(),
+                                    container.title,
+                                ),
+                            )
+                        },
+                        onBack = { navigation.pop() },
+                    ),
+                )
+            }
+            is Config.Detail ->
+                Child.Detail(
+                    DetailComponent(
+                        componentContext = context,
+                        storeFactory = storeFactory,
+                        repo = repo,
+                        registry = registry,
+                        itemId = config.itemId,
+                        serverId = config.serverId,
+                        autoPlay = config.autoPlay,
+                        dependencies = dependencies,
+                        onBack = { navigation.pop() },
+                        onOpenRelated = { serverId, itemId ->
+                            navigation.pushToFront(Config.Detail(serverId, itemId))
+                        },
+                        onPlay = { serverId, itemId, ticks, mediaSourceId ->
+                            navigation.pushToFront(Config.Player(serverId, itemId, ticks, mediaSourceId))
+                        },
+                    ),
+                )
+            is Config.Player ->
+                Child.Player(
+                    PlayerComponent(
+                        componentContext = context,
+                        storeFactory = storeFactory,
+                        repo = repo,
+                        registry = registry,
+                        itemId = config.itemId,
+                        startPositionTicks = config.startPositionTicks,
+                        serverId = config.serverId,
+                        mediaSourceId = config.mediaSourceId,
+                        dependencies = dependencies,
+                        onBack = { navigation.pop() },
+                    ),
+                )
         }
-        is Config.Detail -> Child.Detail(
-            DetailComponent(
-                componentContext = context,
-                storeFactory = storeFactory,
-                repo = repo,
-                registry = registry,
-                itemId = config.itemId,
-                serverId = config.serverId,
-                autoPlay = config.autoPlay,
-                dependencies = dependencies,
-                onBack = { navigation.pop() },
-                onOpenRelated = { serverId, itemId ->
-                    navigation.pushToFront(Config.Detail(serverId, itemId))
-                },
-                onPlay = { serverId, itemId, ticks, mediaSourceId ->
-                    navigation.pushToFront(Config.Player(serverId, itemId, ticks, mediaSourceId))
-                },
-            ),
-        )
-        is Config.Player -> Child.Player(
-            PlayerComponent(
-                componentContext = context,
-                storeFactory = storeFactory,
-                repo = repo,
-                registry = registry,
-                itemId = config.itemId,
-                startPositionTicks = config.startPositionTicks,
-                serverId = config.serverId,
-                mediaSourceId = config.mediaSourceId,
-                dependencies = dependencies,
-                onBack = { navigation.pop() },
-            ),
-        )
-    }
 }

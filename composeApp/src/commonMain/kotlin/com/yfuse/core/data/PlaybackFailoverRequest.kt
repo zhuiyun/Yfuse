@@ -12,7 +12,21 @@ class PlaybackFailoverRequest {
 
     @Synchronized
     fun set(plan: PlaybackFailoverPlan) {
-        pending = plan
+        pending =
+            plan.copy(
+                fallbackServerIds =
+                    plan.fallbackServerIds
+                        .asSequence()
+                        .filter(String::isNotBlank)
+                        .distinct()
+                        .take(MAX_SMART_SOURCE_FALLBACKS)
+                        .toList(),
+            )
+    }
+
+    @Synchronized
+    fun clear() {
+        pending = null
     }
 
     @Synchronized

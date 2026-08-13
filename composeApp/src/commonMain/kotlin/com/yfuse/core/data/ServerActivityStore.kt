@@ -23,15 +23,17 @@ class ServerActivityStore(
     private val settings: Settings,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ) {
-
     private companion object {
         const val KEY = "servers.activity"
+
         /** Enough for any plausible registry; bounded so a stale file cannot grow forever. */
         const val MAX_ENTRIES = 100
     }
 
     @Serializable
-    private data class Persisted(val watched: Map<String, Long> = emptyMap())
+    private data class Persisted(
+        val watched: Map<String, Long> = emptyMap(),
+    )
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -43,7 +45,10 @@ class ServerActivityStore(
     fun lastWatchedAt(serverId: String): Long? = _lastWatched.value[serverId]
 
     /** Called when playback actually starts against [serverId]. */
-    fun recordWatch(serverId: String, atEpochMs: Long = nowEpochMs()) {
+    fun recordWatch(
+        serverId: String,
+        atEpochMs: Long = nowEpochMs(),
+    ) {
         if (serverId.isBlank() || atEpochMs <= 0L) return
         // A clock that has jumped backwards must not make an older session look like the
         // newest one; the card would then count down instead of up.
@@ -59,11 +64,15 @@ class ServerActivityStore(
     }
 
     private fun commit(value: Map<String, Long>) {
-        val bounded = if (value.size <= MAX_ENTRIES) {
-            value
-        } else {
-            value.entries.sortedByDescending { it.value }.take(MAX_ENTRIES).associate { it.toPair() }
-        }
+        val bounded =
+            if (value.size <= MAX_ENTRIES) {
+                value
+            } else {
+                value.entries
+                    .sortedByDescending { it.value }
+                    .take(MAX_ENTRIES)
+                    .associate { it.toPair() }
+            }
         _lastWatched.value = bounded
         runCatching {
             settings.putString(KEY, json.encodeToString(Persisted.serializer(), Persisted(bounded)))
@@ -99,7 +108,10 @@ private const val YEAR_MS = 365 * DAY_MS
  * device whose clock was corrected backwards after a session — reads as 刚刚 rather than as
  * a negative age.
  */
-fun formatWatchedAgo(lastWatchedAtEpochMs: Long?, nowEpochMs: Long): String {
+fun formatWatchedAgo(
+    lastWatchedAtEpochMs: Long?,
+    nowEpochMs: Long,
+): String {
     val at = lastWatchedAtEpochMs?.takeIf { it > 0L } ?: return "未看过"
     val age = nowEpochMs - at
     return when {

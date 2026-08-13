@@ -4,9 +4,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,6 +32,7 @@ import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.touchTarget
 
 /** How long before the end 下一集 announces itself. */
 internal const val NEXT_UP_WINDOW_MS = 10_000L
@@ -61,8 +62,7 @@ internal fun NextUpCard(
                 shape = GlassShapes.card,
                 fill = PlayerTokens.nextUpFill,
                 border = PlayerTokens.hairline,
-            )
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            ).padding(horizontal = 14.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -84,12 +84,20 @@ internal fun NextUpCard(
             "取消",
             style = AppTypography.body.strong,
             color = PlayerTokens.timeText,
-            modifier = Modifier
-                .pressable(onClick = onDismiss)
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier =
+                Modifier
+                    .pressable(onClickLabel = "取消自动播放", onClick = onDismiss)
+                    .touchTarget()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
         )
         Box(
-            Modifier.size(38.dp).pressable(haptic = HapticSignal.Confirm, onClick = onPlayNow),
+            Modifier
+                .pressable(
+                    haptic = HapticSignal.Confirm,
+                    onClickLabel = "立即播放下一集",
+                    onClick = onPlayNow,
+                ).touchTarget()
+                .size(38.dp),
             contentAlignment = Alignment.Center,
         ) {
             Canvas(Modifier.fillMaxSize()) {
@@ -110,10 +118,11 @@ internal fun NextUpCard(
                     startAngle = -90f,
                     sweepAngle = -360f * (1f - progress),
                     useCenter = false,
-                    topLeft = Offset(
-                        (size.width - radius * 2f) / 2f,
-                        (size.height - radius * 2f) / 2f,
-                    ),
+                    topLeft =
+                        Offset(
+                            (size.width - radius * 2f) / 2f,
+                            (size.height - radius * 2f) / 2f,
+                        ),
                     size = Size(radius * 2f, radius * 2f),
                     style = Stroke(width = stroke, cap = StrokeCap.Round),
                 )

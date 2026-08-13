@@ -7,7 +7,8 @@ import kotlin.test.assertTrue
 class DiagnosticRedactorTest {
     @Test
     fun redactsSecretsFromCommonLogShapes() {
-        val input = """
+        val input =
+            """
             https://example.test/video?api_key=secret-key&item=42
             Authorization: Bearer secret-token
             Authorization=Basic YWRtaW46c2VjcmV0
@@ -18,7 +19,7 @@ class DiagnosticRedactorTest {
             Cookie: session=private-session
             Set-Cookie: auth=private-cookie
             https://admin:private@example.test/path
-        """.trimIndent()
+            """.trimIndent()
 
         val redacted = redactDiagnosticText(input)
 
@@ -39,13 +40,14 @@ class DiagnosticRedactorTest {
 
     @Test
     fun redactsSensitiveAttributeByKey() {
-        val redacted = redactDiagnosticAttributes(
-            mapOf(
-                "accessToken" to "secret",
-                "set-cookie" to "private-cookie",
-                "operation" to "load_detail",
-            ),
-        )
+        val redacted =
+            redactDiagnosticAttributes(
+                mapOf(
+                    "accessToken" to "secret",
+                    "set-cookie" to "private-cookie",
+                    "operation" to "load_detail",
+                ),
+            )
 
         assertFalse(redacted.getValue("accessToken").contains("secret"))
         assertFalse(redacted.getValue("set-cookie").contains("private-cookie"))
@@ -54,15 +56,17 @@ class DiagnosticRedactorTest {
 
     @Test
     fun logcat_payload_redacts_message_attributes_and_stack_trace() {
-        val payload = formatSafeLogcatMessage(
-            event = "request_failed",
-            message = "GET https://example.test/image?api_key=message-secret",
-            attributes = mapOf(
-                "accessToken" to "attribute-secret",
-                "operation" to "Authorization: Bearer nested-secret",
-            ),
-            throwableText = "IllegalStateException: password=stack-secret",
-        )
+        val payload =
+            formatSafeLogcatMessage(
+                event = "request_failed",
+                message = "GET https://example.test/image?api_key=message-secret",
+                attributes =
+                    mapOf(
+                        "accessToken" to "attribute-secret",
+                        "operation" to "Authorization: Bearer nested-secret",
+                    ),
+                throwableText = "IllegalStateException: password=stack-secret",
+            )
 
         assertFalse("message-secret" in payload)
         assertFalse("attribute-secret" in payload)

@@ -2,6 +2,7 @@ package com.yfuse.app
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import com.yfuse.R
 import com.yfuse.core.designsystem.SplashAnimation
 import kotlin.math.PI
 import kotlin.math.exp
@@ -18,7 +19,6 @@ import kotlin.math.sin
  * variant must never need recomposition to advance.
  */
 internal interface SplashChoreography {
-
     /** Total run time including the cross-fade out. */
     val durationMs: Float
 
@@ -28,22 +28,42 @@ internal interface SplashChoreography {
     /**
      * Draws the mark for [nowMs] into a square canvas.
      *
-     * [mark] is the ribbon artwork with its motion bars removed — the bars are rebuilt by
-     * [drawMotionBar] so a choreography can move them independently of the shape they
-     * trail. Passed in rather than loaded here because a `DrawScope` cannot read
-     * resources, and reloading the bitmap per frame during startup is the one place in
-     * the app where that would actually be felt.
+     * [mark] is the artwork of the logo this choreography is paired with — see
+     * [SplashAnimation.mark] — passed in rather than loaded here because a `DrawScope`
+     * cannot read resources, and reloading the bitmap per frame during startup is the one
+     * place in the app where that would actually be felt. It is null for the cloud
+     * choreographies, which draw every shape they need.
      */
-    fun DrawScope.drawMark(nowMs: Float, mark: ImageBitmap)
+    fun DrawScope.drawMark(
+        nowMs: Float,
+        mark: ImageBitmap?,
+    )
 
     /** 0..1 settle progress of the "Yfuse" wordmark. */
     fun wordmark(nowMs: Float): Float
 }
 
 internal val SplashAnimation.choreography: SplashChoreography
-    get() = when (this) {
-        SplashAnimation.One -> SplashOne
-        SplashAnimation.Two -> SplashTwo
+    get() =
+        when (this) {
+            SplashAnimation.One -> SplashOne
+            SplashAnimation.Two -> SplashTwo
+            SplashAnimation.CloudDrop -> SplashCloudDrop
+            SplashAnimation.CloudWell -> SplashCloudWell
+        }
+
+/**
+ * The artwork a variant unfolds, or null when the choreography draws its own shapes.
+ *
+ * B needs the ribbon without its own motion bars — it animates the streak separately, and a
+ * mark that already carried one would draw two — while A pops the plain mark out of nothing.
+ * The cloud choreographies are pure vector work and need no bitmap at all.
+ */
+internal fun SplashAnimation.markResource(): Int? =
+    when (this) {
+        SplashAnimation.One -> R.drawable.yfuse_mark_ribbon
+        SplashAnimation.Two -> R.drawable.yfuse_mark
+        SplashAnimation.CloudDrop, SplashAnimation.CloudWell -> null
     }
 
 /** How long every choreography leaves for the hand-off to the app. */
@@ -52,16 +72,18 @@ internal const val FadeMs = 120f
 // ---- Shared easing and spring maths. ----
 
 /** 0 before [start], 1 after [start] + [duration], linear in between. */
-internal fun span(nowMs: Float, start: Float, duration: Float): Float =
-    ((nowMs - start) / duration).coerceIn(0f, 1f)
+internal fun span(
+    nowMs: Float,
+    start: Float,
+    duration: Float,
+): Float = ((nowMs - start) / duration).coerceIn(0f, 1f)
 
 internal fun smooth(value: Float): Float = value * value * (3f - 2f * value)
 
 internal fun easeOutCubic(value: Float): Float = 1f - (1f - value) * (1f - value) * (1f - value)
 
 /** `cubic-bezier(0.16,1,0.3,1)` — the design's charge-in curve, near enough. */
-internal fun easeOutExpo(value: Float): Float =
-    if (value >= 1f) 1f else 1f - 2f.pow(-10f * value)
+internal fun easeOutExpo(value: Float): Float = if (value >= 1f) 1f else 1f - 2f.pow(-10f * value)
 
 internal fun easeOutBack(value: Float): Float {
     val shifted = value - 1f
@@ -71,7 +93,11 @@ internal fun easeOutBack(value: Float): Float {
 /** Rises to 1 at the middle of the window and returns to 0 — a single soft pulse. */
 internal fun bell(value: Float): Float = sin(value * PiF).coerceAtLeast(0f)
 
-internal fun lerp(from: Float, to: Float, fraction: Float): Float = from + (to - from) * fraction
+internal fun lerp(
+    from: Float,
+    to: Float,
+    fraction: Float,
+): Float = from + (to - from) * fraction
 
 /**
  * Width gained for height lost.
@@ -95,7 +121,10 @@ private const val SquashWidthGain = 0.55f
  * as elastic. Overshooting past rest into a stretch is what makes it bounce. [cycles] is how
  * many swings fit in the window, [damping] how fast they die out.
  */
-internal class Jelly(private val cycles: Float, private val damping: Float) {
+internal class Jelly(
+    private val cycles: Float,
+    private val damping: Float,
+) {
     private val tail = exp(-damping)
     private val range = 1f - tail
 
@@ -103,26 +132,29 @@ internal class Jelly(private val cycles: Float, private val damping: Float) {
      * First-peak height of [raw], so the amplitude constants at the call sites read as real
      * fractions of the mark instead of arbitrary numbers.
      */
-    private val normaliser = run {
-        val window = (0.5f / cycles).coerceAtMost(1f)
-        var peak = 0f
-        repeat(24) { peak = max(peak, raw(window * (it + 1) / 24f)) }
-        peak.coerceAtLeast(1e-4f)
-    }
+    private val normaliser =
+        run {
+            val window = (0.5f / cycles).coerceAtMost(1f)
+            var peak = 0f
+            repeat(24) { peak = max(peak, raw(window * (it + 1) / 24f)) }
+            peak.coerceAtLeast(1e-4f)
+        }
 
     operator fun invoke(progress: Float): Float =
         if (progress <= 0f || progress >= 1f) 0f else raw(progress) / normaliser
 
     // Subtracting the tail value pins the envelope to exactly 0 at progress 1.
-    private fun raw(progress: Float): Float =
-        sin(progress * cycles * Tau) * ((exp(-damping * progress) - tail) / range)
+    private fun raw(progress: Float): Float = sin(progress * cycles * Tau) * ((exp(-damping * progress) - tail) / range)
 }
 
 /**
  * Deterministic pseudo-random in 0..1 for [index] and [salt]. Scatter has to survive a redraw
  * unchanged — a real RNG would reshuffle the spray on every frame.
  */
-internal fun scatter(index: Int, salt: Int): Float {
+internal fun scatter(
+    index: Int,
+    salt: Int,
+): Float {
     val hashed = (index * 73_856_093) xor (salt * 19_349_663)
     return ((hashed and 0xFFFF) / 65_535f)
 }

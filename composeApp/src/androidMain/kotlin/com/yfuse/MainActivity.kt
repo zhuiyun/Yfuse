@@ -24,10 +24,11 @@ import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.feature.player.PlaybackSourcePreloader
+import com.yfuse.feature.profile.applyPendingAppIconVariant
 import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager
-import com.yfuse.feature.player.PlaybackSourcePreloader
 import org.koin.core.context.GlobalContext
 
 class MainActivity : ComponentActivity() {
@@ -46,50 +47,53 @@ class MainActivity : ComponentActivity() {
         val themePreferences = koin.get<ThemePreferences>()
         val systemDark = resources.isNightMode()
         val appDark = themePreferences.mode.value.resolveDark(systemDark)
-        val windowDark = launchWindowDarkMode(
-            splashEnabled = themePreferences.splashAnimation.value,
-            systemDark = systemDark,
-            appDark = appDark,
-        )
+        val windowDark =
+            launchWindowDarkMode(
+                splashEnabled = themePreferences.splashAnimation.value,
+                systemDark = systemDark,
+                appDark = appDark,
+            )
         window.setBackgroundDrawable(ColorDrawable(splashBackground(windowDark).toArgb()))
 
-        val root = retainedComponent { ctx ->
-            RootComponent(
-                componentContext = ctx,
-                storeFactory = koin.get<StoreFactory>(),
-                repo = koin.get<EmbyRepository>(),
-                tmdb = koin.get<TmdbRepository>(),
-                registry = koin.get<ServerRegistry>(),
-                themePreferences = themePreferences,
-                searchHistory = koin.get<SearchHistory>(),
-                syncManager = koin.get<ServerSyncManager>(),
-                dependencies = AppDependencies(
-                    calendarRepository = koin.get(),
-                    tmdbHomeCache = koin.get(),
-                    offlineMediaManager = koin.get(),
-                    playbackTrackRequest = koin.get(),
-                    serverSyncManager = koin.get(),
-                    watchTogether = koin.get(),
-                    watchTogetherPreferences = koin.get(),
-                    inviteResolver = koin.get(),
-                    playbackSourcePreloader = runCatching { koin.get<PlaybackSourcePreloader>() }.getOrNull(),
-                    playbackRecovery = koin.get(),
-                    playbackReportingCoordinator = koin.get(),
-                    playbackPreferences = koin.get(),
-                    playbackFailoverRequest = koin.get(),
-                    userAgentPreferences = koin.get(),
-                    danmakuPreferences = koin.get(),
-                    skipSegmentPreferences = koin.get(),
-                    libraryCache = koin.get(),
-                    lanDiscovery = koin.get(),
-                    account = koin.get(),
-                    serverHealthMonitor = koin.get(),
-                    serverActivity = koin.get(),
-                    serverStats = koin.get(),
-                    serverRegistry = koin.get(),
-                ),
-            )
-        }
+        val root =
+            retainedComponent { ctx ->
+                RootComponent(
+                    componentContext = ctx,
+                    storeFactory = koin.get<StoreFactory>(),
+                    repo = koin.get<EmbyRepository>(),
+                    tmdb = koin.get<TmdbRepository>(),
+                    registry = koin.get<ServerRegistry>(),
+                    themePreferences = themePreferences,
+                    searchHistory = koin.get<SearchHistory>(),
+                    syncManager = koin.get<ServerSyncManager>(),
+                    dependencies =
+                        AppDependencies(
+                            calendarRepository = koin.get(),
+                            tmdbHomeCache = koin.get(),
+                            offlineMediaManager = koin.get(),
+                            playbackTrackRequest = koin.get(),
+                            serverSyncManager = koin.get(),
+                            watchTogether = koin.get(),
+                            watchTogetherPreferences = koin.get(),
+                            inviteResolver = koin.get(),
+                            playbackSourcePreloader = runCatching { koin.get<PlaybackSourcePreloader>() }.getOrNull(),
+                            playbackRecovery = koin.get(),
+                            playbackReportingCoordinator = koin.get(),
+                            playbackPreferences = koin.get(),
+                            playbackFailoverRequest = koin.get(),
+                            userAgentPreferences = koin.get(),
+                            danmakuPreferences = koin.get(),
+                            skipSegmentPreferences = koin.get(),
+                            libraryCache = koin.get(),
+                            lanDiscovery = koin.get(),
+                            account = koin.get(),
+                            serverHealthMonitor = koin.get(),
+                            serverActivity = koin.get(),
+                            serverStats = koin.get(),
+                            serverRegistry = koin.get(),
+                        ),
+                )
+            }
 
         rootComponent = root
 
@@ -132,5 +136,18 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::updateManager.isInitialized) updateManager.resumeInstall()
+    }
+
+    /**
+     * Launcher-icon switches are applied here rather than where they are chosen.
+     *
+     * Enabling one LAUNCHER component and disabling the others takes this activity's own
+     * component with it, and Android answers that by removing the task — so doing it on the
+     * tap closed the app on a user who was still in settings. Backgrounded is the moment it
+     * costs nothing; see [com.yfuse.feature.profile.applyPendingAppIconVariant].
+     */
+    override fun onStop() {
+        super.onStop()
+        applyPendingAppIconVariant()
     }
 }

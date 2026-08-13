@@ -74,6 +74,21 @@ sudo test -x "$release/bin/watchTogetherServer"
 
 ### 4. Switch and restart
 
+Before switching a build that can change account persistence, take an online SQLite
+snapshot. The database uses WAL, so do not copy only `account.db` while the service is
+running:
+
+```bash
+backup="/var/lib/yfuse/backups/account-$(date -u +%Y%m%d-%H%M%S).db"
+sudo install -d -o yfuse -g yfuse -m 0700 /var/lib/yfuse/backups
+sudo -u yfuse sqlite3 /var/lib/yfuse/account.db ".backup '$backup'"
+sudo -u yfuse sqlite3 "$backup" "PRAGMA integrity_check;" | grep -Fx ok
+```
+
+Retain at least the newest known-good snapshot off-host according to the operator's
+recovery policy. A binary rollback does not undo a future schema/data migration; restore
+the matching verified snapshot only during an explicit recovery window.
+
 ```bash
 sudo ln -sfn "$release" /opt/yfuse-watch/current.new
 sudo mv -T /opt/yfuse-watch/current.new /opt/yfuse-watch/current
@@ -99,10 +114,11 @@ curl --fail https://47.112.219.60/watch/version
 journalctl -u yfuse-watch -n 50 --no-pager
 ```
 
-**`/watch/version` cannot tell you whether this deployment took.** It reports
-`protocolVersion: 3`, and the reaction feature deliberately did not bump it — reactions are
-an additive message type that old clients neither send nor receive, so nothing about the
-protocol contract changed. The endpoint proves the service is up, nothing more.
+`/watch/version` must report `protocolVersion: 4`. Protocol v4 adds authenticated
+resume, host capabilities, strict wire validation, and session-generation checks;
+those are security boundaries, so clients must not downgrade to v3. Deploy and verify
+the v4 server before publishing a v4 client. The Android publish workflow enforces this
+server-first order and stops if production still advertises an older protocol.
 
 To verify the reaction feature specifically, use the app: two devices (or one device and a
 second account) in one room, tap a reaction in 一起看 → 聊天面板. The sender always sees

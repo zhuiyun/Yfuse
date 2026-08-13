@@ -34,7 +34,12 @@ fun createTmdbClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient =
             socketTimeoutMillis = TMDB_REQUEST_TIMEOUT_MS
         }
         install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true; isLenient = true })
+            json(
+                Json {
+                    ignoreUnknownKeys = true
+                    isLenient = true
+                },
+            )
         }
         defaultRequest {
             header("Authorization", "Bearer ${tmdbToken()}")
@@ -44,13 +49,19 @@ fun createTmdbClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient =
 
 /** TMDB image CDN. */
 object TmdbImages {
-    fun poster(path: String?, width: String = "w500"): String? =
-        path?.let { "https://image.tmdb.org/t/p/$width$it" }
+    fun poster(
+        path: String?,
+        width: String = "w500",
+    ): String? = path?.let { "https://image.tmdb.org/t/p/$width$it" }
 
-    fun backdrop(path: String?, width: String = "w1280"): String? =
-        path?.let { "https://image.tmdb.org/t/p/$width$it" }
+    fun backdrop(
+        path: String?,
+        width: String = "w1280",
+    ): String? = path?.let { "https://image.tmdb.org/t/p/$width$it" }
 
     /** Alternate official image host used when image.tmdb.org is unavailable. */
-    fun media(path: String?, width: String = "w500"): String? =
-        path?.let { "https://media.themoviedb.org/t/p/$width$it" }
+    fun media(
+        path: String?,
+        width: String = "w500",
+    ): String? = path?.let { "https://media.themoviedb.org/t/p/$width$it" }
 }

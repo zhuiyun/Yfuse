@@ -1,16 +1,16 @@
 package com.yfuse.core.network
 
 import com.yfuse.core.logging.AppLog
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.SocketTimeoutException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 @Serializable
 private data class DiscoveryResponse(
@@ -27,19 +27,25 @@ private class AndroidLanDiscovery : LanDiscovery {
 
     override suspend fun discover(timeoutMs: Long): List<DiscoveredServer> =
         withContext(Dispatchers.IO) {
-            val socket = DatagramSocket().apply {
-                broadcast = true
-                soTimeout = 250
-            }
+            requireLocalNetworkPermission()
+            val socket =
+                DatagramSocket().apply {
+                    broadcast = true
+                    soTimeout = 250
+                }
             try {
                 val message = "who is EmbyServer?".encodeToByteArray()
-                val targets = buildSet {
-                    add(InetAddress.getByName("255.255.255.255"))
-                    NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
-                        .filter { it.isUp && !it.isLoopback }
-                        .flatMap { it.interfaceAddresses }
-                        .mapNotNullTo(this) { it.broadcast }
-                }
+                val targets =
+                    buildSet {
+                        add(InetAddress.getByName("255.255.255.255"))
+                        NetworkInterface
+                            .getNetworkInterfaces()
+                            ?.toList()
+                            .orEmpty()
+                            .filter { it.isUp && !it.isLoopback }
+                            .flatMap { it.interfaceAddresses }
+                            .mapNotNullTo(this) { it.broadcast }
+                    }
                 var sendFailures = 0
                 targets.forEach { target ->
                     runCatching {
@@ -60,26 +66,29 @@ private class AndroidLanDiscovery : LanDiscovery {
                         continue
                     }
                     val payload = packet.data.decodeToString(0, packet.length)
-                    val response = runCatching {
-                        json.decodeFromString(DiscoveryResponse.serializer(), payload)
-                    }.getOrNull()
+                    val response =
+                        runCatching {
+                            json.decodeFromString(DiscoveryResponse.serializer(), payload)
+                        }.getOrNull()
                     if (response == null) {
                         malformedResponses++
                         continue
                     }
-                    found[response.Id] = DiscoveredServer(
-                        name = response.Name,
-                        address = response.Address,
-                        id = response.Id,
-                        version = response.Version,
-                    )
+                    found[response.Id] =
+                        DiscoveredServer(
+                            name = response.Name,
+                            address = response.Address,
+                            id = response.Id,
+                            version = response.Version,
+                        )
                 }
-                val attributes = mapOf(
-                    "targetCount" to targets.size.toString(),
-                    "sendFailures" to sendFailures.toString(),
-                    "malformedResponses" to malformedResponses.toString(),
-                    "serverCount" to found.size.toString(),
-                )
+                val attributes =
+                    mapOf(
+                        "targetCount" to targets.size.toString(),
+                        "sendFailures" to sendFailures.toString(),
+                        "malformedResponses" to malformedResponses.toString(),
+                        "serverCount" to found.size.toString(),
+                    )
                 if (sendFailures > 0 || malformedResponses > 0) {
                     AppLog.warning(
                         category = "server.discovery",

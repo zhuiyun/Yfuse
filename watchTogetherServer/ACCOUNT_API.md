@@ -14,15 +14,17 @@ do not expose the default account listener directly to the internet.
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
 | `ACCOUNT_DB_PATH` | `/var/lib/yfuse/account.db` | SQLite database file |
-| `ACCOUNT_REGISTRATION_ENABLED` | `true` | Whether new registrations are accepted |
+| `ACCOUNT_REGISTRATION_ENABLED` | `false` | Whether new registrations are accepted |
+| `ACCOUNT_REGISTRATION_INVITE_CODES` | empty | Comma-separated one-time URL-safe invitation codes |
 | `ACCOUNT_MAX_USERS` | `1000` | Maximum registered users (valid range `1..100000`) |
 | `HOST` | `127.0.0.1` | Ktor bind host |
 | `PORT` | `8080` | Ktor bind port |
 
 When registration is disabled or the user cap has been reached, registration returns `503`
 with `registration_closed`. The check happens before password hashing and does not reveal
-which condition closed registration. For a private deployment, create the intended accounts
-and then set `ACCOUNT_REGISTRATION_ENABLED=false`.
+which condition closed registration. For a private deployment, prefer high-entropy one-time
+codes in `ACCOUNT_REGISTRATION_INVITE_CODES` while public registration stays disabled. Only
+SHA-256 code digests are recorded after redemption; each code creates at most one account.
 
 Blocking SQLite calls and CPU-heavy password hashing run on a dedicated four-thread account
 executor, not Ktor CIO event threads. At most four account operations run concurrently by
@@ -54,13 +56,19 @@ reported as `500 response_too_large` instead of a generic internal error.
 
 | Method and path | Request | Response |
 | --- | --- | --- |
-| `POST /api/v1/auth/register` | `{username,password,nickname?,avatarId?}` | `201 AuthResponse` |
-| `POST /api/v1/auth/login` | `{username,password}` | `200 AuthResponse` |
-| `POST /api/v1/auth/refresh` | `{refreshToken}` | `200 AuthResponse` with rotated tokens |
+| `POST /api/v1/auth/register` | `{username,password,nickname?,avatarId?,inviteCode?,deviceName?}` | `201 AuthResponse` |
+| `POST /api/v1/auth/login` | `{username,password,deviceName?}` | `200 AuthResponse` |
+| `POST /api/v1/auth/refresh` | `{refreshToken,deviceName?}` | `200 AuthResponse` with rotated tokens |
 | `POST /api/v1/auth/logout` | Bearer access token | `204` |
 | `GET /api/v1/account/profile` | Bearer access token | `200 UserResponse` |
 | `PUT /api/v1/account/profile` | Bearer plus `{nickname?,avatarId?}` | `200 UserResponse` |
 | `PUT /api/v1/account/password` | Bearer plus the password-change body below | `200 AuthResponse` |
+| `GET /api/v1/account/sessions` | Bearer | Active device sessions, including current marker |
+| `DELETE /api/v1/account/sessions/{id}` | Bearer | Revoke one owned session |
+| `POST /api/v1/account/sessions/revoke-others` | Bearer | Revoke all except current |
+| `POST /api/v1/account/sessions/revoke-all` | Bearer | Revoke every session |
+| `GET /api/v1/account/export` | Bearer | Profile and opaque encrypted sync envelope |
+| `DELETE /api/v1/account` | Bearer plus `{password}` | Permanently delete account |
 
 `AuthResponse` is:
 

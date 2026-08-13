@@ -3,8 +3,9 @@ package com.yfuse.core.data
 import com.russhwolf.settings.Settings
 
 /** Recent search terms, newest first, persisted across launches. */
-class SearchHistory(private val settings: Settings) {
-
+class SearchHistory(
+    private val settings: Settings,
+) {
     private companion object {
         const val KEY = "search.recent"
 
@@ -15,7 +16,8 @@ class SearchHistory(private val settings: Settings) {
     }
 
     fun load(): List<String> =
-        settings.getStringOrNull(KEY)
+        settings
+            .getStringOrNull(KEY)
             ?.split(SEPARATOR)
             ?.filter { it.isNotBlank() }
             .orEmpty()

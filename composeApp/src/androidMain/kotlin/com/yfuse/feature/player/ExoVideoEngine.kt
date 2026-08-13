@@ -7,6 +7,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -18,20 +19,20 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DecoderReuseEvaluation
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.hls.HlsTrackMetadataEntry
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.hls.HlsTrackMetadataEntry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlaybackMethod
+import com.yfuse.core.model.PlaybackQuality
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -57,11 +58,12 @@ internal fun unsupportedMediaTrack(
     videoSupported: Boolean,
     hasAudio: Boolean,
     audioSupported: Boolean,
-): UnsupportedMediaTrack? = when {
-    hasAudio && !audioSupported -> UnsupportedMediaTrack.Audio
-    hasVideo && !videoSupported -> UnsupportedMediaTrack.Video
-    else -> null
-}
+): UnsupportedMediaTrack? =
+    when {
+        hasAudio && !audioSupported -> UnsupportedMediaTrack.Audio
+        hasVideo && !videoSupported -> UnsupportedMediaTrack.Video
+        else -> null
+    }
 
 /** A track before repeated HLS rendition declarations have been collapsed. */
 internal data class ManifestTrackCandidate(
@@ -85,9 +87,7 @@ internal data class ManifestTrackCandidate(
  * a stable `(GROUP-ID, NAME)` pair, so only that pair is safe to merge. When the manifest
  * omits it, preserving an apparent duplicate is preferable to making a real track unreachable.
  */
-internal fun collapseManifestTrackDuplicates(
-    candidates: List<ManifestTrackCandidate>,
-): List<EngineTrack> {
+internal fun collapseManifestTrackDuplicates(candidates: List<ManifestTrackCandidate>): List<EngineTrack> {
     val collapsed = mutableListOf<ManifestTrackCandidate>()
     val renditionIndices = mutableMapOf<Pair<String, String>, Int>()
     candidates.forEach { candidate ->
@@ -110,21 +110,23 @@ internal fun collapseManifestTrackDuplicates(
 
     val labelCounts = collapsed.groupingBy { it.label }.eachCount()
     val labelOrdinals = mutableMapOf<String, Int>()
-    val uniqueQualifiers = collapsed.groupBy { it.label }.mapValues { (_, group) ->
-        val qualifiers = group.mapNotNull { it.qualifier?.takeIf(String::isNotBlank) }
-        qualifiers.size == group.size && qualifiers.distinct().size == group.size
-    }
+    val uniqueQualifiers =
+        collapsed.groupBy { it.label }.mapValues { (_, group) ->
+            val qualifiers = group.mapNotNull { it.qualifier?.takeIf(String::isNotBlank) }
+            qualifiers.size == group.size && qualifiers.distinct().size == group.size
+        }
     return collapsed.map { candidate ->
         val repeatedLabel = (labelCounts[candidate.label] ?: 0) > 1
-        val label = if (!repeatedLabel) {
-            candidate.label
-        } else if (uniqueQualifiers[candidate.label] == true) {
-            "${candidate.label} · ${candidate.qualifier}"
-        } else {
-            val ordinal = (labelOrdinals[candidate.label] ?: 0) + 1
-            labelOrdinals[candidate.label] = ordinal
-            "${candidate.label} $ordinal"
-        }
+        val label =
+            if (!repeatedLabel) {
+                candidate.label
+            } else if (uniqueQualifiers[candidate.label] == true) {
+                "${candidate.label} · ${candidate.qualifier}"
+            } else {
+                val ordinal = (labelOrdinals[candidate.label] ?: 0) + 1
+                labelOrdinals[candidate.label] = ordinal
+                "${candidate.label} $ordinal"
+            }
         EngineTrack(
             id = candidate.id,
             label = label,
@@ -148,48 +150,53 @@ private fun Format.hlsRenditionIdentity(): Pair<String, String>? {
 }
 
 private fun Format.trackQualifier(type: Int): String? {
-    val codec = codecs
-        ?.substringBefore(',')
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
-        ?.uppercase()
-        ?: sampleMimeType
-            ?.substringAfterLast('/')
+    val codec =
+        codecs
+            ?.substringBefore(',')
+            ?.trim()
             ?.takeIf { it.isNotBlank() }
             ?.uppercase()
+            ?: sampleMimeType
+                ?.substringAfterLast('/')
+                ?.takeIf { it.isNotBlank() }
+                ?.uppercase()
     return when (type) {
-        C.TRACK_TYPE_AUDIO -> listOfNotNull(
-            codec,
-            channelCount.takeIf { it > 0 }?.let { "$it 声道" },
-        ).joinToString(" · ").takeIf(String::isNotBlank)
+        C.TRACK_TYPE_AUDIO ->
+            listOfNotNull(
+                codec,
+                channelCount.takeIf { it > 0 }?.let { "$it 声道" },
+            ).joinToString(" · ").takeIf(String::isNotBlank)
         C.TRACK_TYPE_TEXT -> codec
         else -> codec
     }
 }
 
 @UnstableApi
-private fun Format.dynamicRangeLabel(): String = when {
-    codecs.orEmpty().contains("dvhe", ignoreCase = true) ||
-        codecs.orEmpty().contains("dvh1", ignoreCase = true) -> "Dolby Vision"
-    colorInfo?.colorTransfer == C.COLOR_TRANSFER_ST2084 -> "HDR10 / PQ"
-    colorInfo?.colorTransfer == C.COLOR_TRANSFER_HLG -> "HLG"
-    colorInfo != null -> "SDR"
-    else -> ""
-}
+private fun Format.dynamicRangeLabel(): String =
+    when {
+        codecs.orEmpty().contains("dvhe", ignoreCase = true) ||
+            codecs.orEmpty().contains("dvh1", ignoreCase = true) -> "Dolby Vision"
+        colorInfo?.colorTransfer == C.COLOR_TRANSFER_ST2084 -> "HDR10 / PQ"
+        colorInfo?.colorTransfer == C.COLOR_TRANSFER_HLG -> "HLG"
+        colorInfo != null -> "SDR"
+        else -> ""
+    }
 
 private fun Format.audioFormatLabel(): String {
-    val codec = (codecs ?: sampleMimeType?.substringAfterLast('/'))
-        ?.uppercase()
-        ?.takeIf(String::isNotBlank)
-    val channels = channelCount.takeIf { it > 0 }?.let { count ->
-        when (count) {
-            1 -> "单声道"
-            2 -> "2.0"
-            6 -> "5.1"
-            8 -> "7.1"
-            else -> "$count 声道"
+    val codec =
+        (codecs ?: sampleMimeType?.substringAfterLast('/'))
+            ?.uppercase()
+            ?.takeIf(String::isNotBlank)
+    val channels =
+        channelCount.takeIf { it > 0 }?.let { count ->
+            when (count) {
+                1 -> "单声道"
+                2 -> "2.0"
+                6 -> "5.1"
+                8 -> "7.1"
+                else -> "$count 声道"
+            }
         }
-    }
     return listOfNotNull(codec, channels).joinToString(" · ")
 }
 
@@ -216,31 +223,35 @@ class ExoVideoEngine(
     videoCacheBytes: Long,
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
-
     /** Keep quality enforcement inside the engine as well as at the launcher boundary. */
     private val items = items.map { it.withPlaybackQuality(quality) }.toMutableList()
-    private val startTranscoding = this.items.getOrNull(startIndex)
-        ?.startsWithServerTranscode(quality) == true
+    private val startTranscoding =
+        this.items
+            .getOrNull(startIndex)
+            ?.startsWithServerTranscode(quality) == true
 
-    private val _state = MutableStateFlow(
-        PlaybackState(
-            currentIndex = startIndex,
-            itemCount = items.size.coerceAtLeast(1),
-            transcoding = startTranscoding,
-            videoHeight = this.items.getOrNull(startIndex)?.sourceVideoHeight(startTranscoding) ?: 0,
-            diagnostics = initialPlaybackDiagnostics(
-                engine = "Media3 / ExoPlayer",
-                decoder = decoderMode.label,
-                item = this.items.getOrNull(startIndex),
-                quality = quality,
+    private val _state =
+        MutableStateFlow(
+            PlaybackState(
+                currentIndex = startIndex,
+                itemCount = items.size.coerceAtLeast(1),
+                transcoding = startTranscoding,
+                videoHeight = this.items.getOrNull(startIndex)?.sourceVideoHeight(startTranscoding) ?: 0,
+                diagnostics =
+                    initialPlaybackDiagnostics(
+                        engine = "Media3 / ExoPlayer",
+                        decoder = decoderMode.label,
+                        item = this.items.getOrNull(startIndex),
+                        quality = quality,
+                    ),
             ),
-        ),
-    )
+        )
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
-    private val transcodedIndices = items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
-        index.takeIf { item.startsWithServerTranscode(quality) }
-    }
+    private val transcodedIndices =
+        items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
+            index.takeIf { item.startsWithServerTranscode(quality) }
+        }
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private val retryCounts = mutableMapOf<String, Int>()
@@ -249,76 +260,87 @@ class ExoVideoEngine(
     private var released = false
     private val cacheHandle = VideoCachePool.acquire(context.applicationContext, videoCacheBytes)
 
-    val player: ExoPlayer = run {
-        // Emby 302-redirects stream requests to a CDN, often http -> https,
-        // which ExoPlayer refuses unless cross-protocol redirects are allowed.
-        val httpFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(20_000)
-            .setReadTimeoutMs(20_000)
-            .apply {
-                customUserAgent.trim().takeIf { it.isNotEmpty() }?.let { value ->
-                    setDefaultRequestProperties(mapOf("User-Agent" to value))
+    val player: ExoPlayer =
+        run {
+            // Emby 302-redirects stream requests to a CDN, often http -> https,
+            // which ExoPlayer refuses unless cross-protocol redirects are allowed.
+            val httpFactory =
+                DefaultHttpDataSource
+                    .Factory()
+                    .setAllowCrossProtocolRedirects(true)
+                    .setConnectTimeoutMs(20_000)
+                    .setReadTimeoutMs(20_000)
+                    .apply {
+                        customUserAgent.trim().takeIf { it.isNotEmpty() }?.let { value ->
+                            setDefaultRequestProperties(mapOf("User-Agent" to value))
+                        }
+                    }
+
+            val selector =
+                if (decoderMode == DecoderMode.Software) {
+                    MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                        val decoders =
+                            MediaCodecUtil.getDecoderInfos(
+                                mimeType,
+                                requiresSecureDecoder,
+                                requiresTunnelingDecoder,
+                            )
+                        decoders.filter { it.softwareOnly }.ifEmpty { decoders }
+                    }
+                } else {
+                    MediaCodecSelector.DEFAULT
                 }
-            }
+            val renderersFactory =
+                DefaultRenderersFactory(context)
+                    .setMediaCodecSelector(selector)
+                    .setEnableDecoderFallback(decoderMode != DecoderMode.Hardware)
 
-        val selector = if (decoderMode == DecoderMode.Software) {
-            MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-                val decoders = MediaCodecUtil.getDecoderInfos(
-                    mimeType,
-                    requiresSecureDecoder,
-                    requiresTunnelingDecoder,
-                )
-                decoders.filter { it.softwareOnly }.ifEmpty { decoders }
-            }
-        } else {
-            MediaCodecSelector.DEFAULT
+            val upstream = DefaultDataSource.Factory(context, httpFactory)
+            val dataSourceFactory =
+                cacheHandle?.let { handle ->
+                    CacheDataSource
+                        .Factory()
+                        .setCache(handle.cache)
+                        .setUpstreamDataSourceFactory(upstream)
+                        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                } ?: upstream
+            val loadControl =
+                DefaultLoadControl
+                    .Builder()
+                    // Keep enough media ahead to ride through ordinary Wi-Fi/reverse-proxy jitter.
+                    // Time wins over the default byte target so high-bitrate remuxes are not starved.
+                    .setBufferDurationsMs(
+                        30_000,
+                        120_000,
+                        1_500,
+                        3_500,
+                    ).setPrioritizeTimeOverSizeThresholds(true)
+                    .setBackBuffer(15_000, true)
+                    .build()
+
+            ExoPlayer
+                .Builder(context, renderersFactory)
+                .setLoadControl(loadControl)
+                .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+                // Declare what this output is, so the system routes and mixes it as a film
+                // rather than as the unspecified default. Focus itself is claimed once for the
+                // whole player (see PlayerActivity) because the other two engines can't ask
+                // ExoPlayer to do it for them — hence `handleAudioFocus = false` here.
+                .setAudioAttributes(
+                    AudioAttributes
+                        .Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .build(),
+                    // handleAudioFocus =
+                    false,
+                ).build()
+                .apply {
+                    // Preserve the stream's native display aspect ratio. PlayerView uses
+                    // FIT by default, so no axis is stretched and no picture is cropped.
+                    videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+                }
         }
-        val renderersFactory = DefaultRenderersFactory(context)
-            .setMediaCodecSelector(selector)
-            .setEnableDecoderFallback(decoderMode != DecoderMode.Hardware)
-
-        val upstream = DefaultDataSource.Factory(context, httpFactory)
-        val dataSourceFactory = cacheHandle?.let { handle ->
-            CacheDataSource.Factory()
-                .setCache(handle.cache)
-                .setUpstreamDataSourceFactory(upstream)
-                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-        } ?: upstream
-        val loadControl = DefaultLoadControl.Builder()
-            // Keep enough media ahead to ride through ordinary Wi-Fi/reverse-proxy jitter.
-            // Time wins over the default byte target so high-bitrate remuxes are not starved.
-            .setBufferDurationsMs(
-                30_000,
-                120_000,
-                1_500,
-                3_500,
-            )
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(15_000, true)
-            .build()
-
-        ExoPlayer.Builder(context, renderersFactory)
-            .setLoadControl(loadControl)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
-            // Declare what this output is, so the system routes and mixes it as a film
-            // rather than as the unspecified default. Focus itself is claimed once for the
-            // whole player (see PlayerActivity) because the other two engines can't ask
-            // ExoPlayer to do it for them — hence `handleAudioFocus = false` here.
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                /* handleAudioFocus = */ false,
-            )
-            .build()
-            .apply {
-                // Preserve the stream's native display aspect ratio. PlayerView uses
-                // FIT by default, so no axis is stretched and no picture is cropped.
-                videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
-            }
-    }
 
     override val playbackRequested: Boolean
         get() = player.playWhenReady && player.playbackState != Player.STATE_ENDED
@@ -326,288 +348,316 @@ class ExoVideoEngine(
     private var wasBuffering = true
     private var droppedFrames = 0
 
-    private val analyticsListener = object : AnalyticsListener {
-        override fun onVideoDecoderInitialized(
-            eventTime: AnalyticsListener.EventTime,
-            decoderName: String,
-            initializedTimestampMs: Long,
-            initializationDurationMs: Long,
-        ) {
-            _state.update {
-                it.copy(diagnostics = it.diagnostics.copy(decoder = decoderName))
-            }
-        }
-
-        override fun onVideoInputFormatChanged(
-            eventTime: AnalyticsListener.EventTime,
-            format: Format,
-            decoderReuseEvaluation: DecoderReuseEvaluation?,
-        ) {
-            _state.update {
-                it.copy(
-                    diagnostics = it.diagnostics.copy(
-                        videoCodec = format.codecs ?: format.sampleMimeType ?: "未知",
-                        videoWidth = format.width.takeIf { value -> value > 0 }
-                            ?: it.diagnostics.videoWidth,
-                        dynamicRange = format.dynamicRangeLabel()
-                            .ifBlank { it.diagnostics.dynamicRange },
-                        bitrateBitsPerSecond = format.bitrate.takeIf { value -> value > 0 }
-                            ?.toLong() ?: it.diagnostics.bitrateBitsPerSecond,
-                        frameRate = format.frameRate.takeIf { value -> value > 0f }
-                            ?: it.diagnostics.frameRate,
-                    ),
-                )
-            }
-        }
-
-        override fun onAudioInputFormatChanged(
-            eventTime: AnalyticsListener.EventTime,
-            format: Format,
-            decoderReuseEvaluation: DecoderReuseEvaluation?,
-        ) {
-            _state.update {
-                it.copy(
-                    diagnostics = it.diagnostics.copy(
-                        audioFormat = format.audioFormatLabel()
-                            .ifBlank { it.diagnostics.audioFormat },
-                    ),
-                )
-            }
-        }
-
-        override fun onDroppedVideoFrames(
-            eventTime: AnalyticsListener.EventTime,
-            droppedFrames: Int,
-            elapsedMs: Long,
-        ) {
-            this@ExoVideoEngine.droppedFrames += droppedFrames
-            _state.update {
-                it.copy(
-                    diagnostics = it.diagnostics.copy(
-                        droppedFrames = this@ExoVideoEngine.droppedFrames,
-                    ),
-                )
-            }
-        }
-
-        override fun onBandwidthEstimate(
-            eventTime: AnalyticsListener.EventTime,
-            totalLoadTimeMs: Int,
-            totalBytesLoaded: Long,
-            bitrateEstimate: Long,
-        ) {
-            _state.update {
-                it.copy(
-                    diagnostics = it.diagnostics.copy(
-                        networkBitsPerSecond = bitrateEstimate.coerceAtLeast(0L),
-                    ),
-                )
-            }
-        }
-    }
-
-    private val listener = object : Player.Listener {
-        override fun onIsPlayingChanged(isPlaying: Boolean) {
-            _state.update { it.copy(playing = isPlaying) }
-        }
-
-        override fun onPlaybackStateChanged(state: Int) {
-            safeLogcat(Log.INFO, TAG, "exo state=$state")
-            val buffering = state == Player.STATE_BUFFERING
-            val bufferEvent = buffering && !wasBuffering
-            wasBuffering = buffering
-            _state.update {
-                it.copy(
-                    buffering = buffering,
-                    durationMs = knownDuration(),
-                    ended = state == Player.STATE_ENDED,
-                    diagnostics = it.diagnostics.copy(
-                        bufferEvents = it.diagnostics.bufferEvents + if (bufferEvent) 1 else 0,
-                    ),
-                )
-            }
-            if (state == Player.STATE_READY) {
-                retryCounts.remove(retryKey(player.currentMediaItemIndex))
-                fallbackForUnsupportedTracks(
-                    tracks = player.currentTracks,
-                    includeMissingExpectedAudio = true,
-                )
-            }
-        }
-
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            val index = player.currentMediaItemIndex
-            val item = items.getOrNull(index)
-            val transcoding = index in transcodedIndices
-            _state.update {
-                it.copy(
-                    currentIndex = index,
-                    transcoding = transcoding,
-                    videoHeight = item?.sourceVideoHeight(transcoding) ?: 0,
-                    fallbacksExhausted = false,
-                    automaticFallbackBlocked = false,
-                    positionMs = 0L,
-                    durationMs = knownDuration(),
-                    bufferedPositionMs = 0L,
-                    error = null,
-                    ended = false,
-                    diagnostics = initialPlaybackDiagnostics(
-                        engine = "Media3 / ExoPlayer",
-                        decoder = it.diagnostics.decoder,
-                        item = item,
-                        quality = quality,
-                        transcoding = transcoding,
-                    ),
-                )
-            }
-        }
-
-        override fun onPlaybackParametersChanged(parameters: PlaybackParameters) {
-            _state.update { it.copy(speed = parameters.speed) }
-        }
-
-        override fun onVideoSizeChanged(videoSize: VideoSize) {
-            _state.update {
-                it.copy(
-                    videoHeight = videoSize.height,
-                    diagnostics = it.diagnostics.copy(videoWidth = videoSize.width),
-                )
-            }
-        }
-
-        override fun onTracksChanged(tracks: Tracks) {
-            syncTracks()
-            fallbackForUnsupportedTracks(tracks, includeMissingExpectedAudio = false)
-        }
-
-        override fun onPlayerError(error: PlaybackException) {
-            safeLogcat(Log.ERROR, TAG, "playback failed: ${error.errorCodeName}", error)
-            val index = player.currentMediaItemIndex
-            val httpCause = generateSequence(error as Throwable) { it.cause }
-                .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
-                .firstOrNull()
-            val failedUrl = httpCause?.dataSpec?.uri?.toString()
-            AppLog.error(
-                category = "player.exo",
-                event = "playback_failed",
-                message = "ExoPlayer playback failed",
-                throwable = error,
-                attributes = buildMap {
-                    put("errorCode", error.errorCodeName)
-                    put("itemIndex", index.toString())
-                    put("transcoding", _state.value.transcoding.toString())
-                    // Which of the three addresses failed, and — the question the previous
-                    // diagnostic bundles could not answer — what the server actually said.
-                    put("streamVariant", streamVariantOf(index))
-                    failedUrl?.let { url ->
-                        put("requestUrl", sanitizePlaybackUrl(url))
-                        playbackQueryParameter(url, "MediaSourceId")?.let {
-                            put("mediaSourceId", it)
-                        }
-                    }
-                    httpCause?.let {
-                        put("httpStatus", it.responseCode.toString())
-                        put("httpMessage", it.responseMessage.orEmpty().take(120))
-                        it.responseBody
-                            .takeIf { body -> body.isNotEmpty() }
-                            ?.toString(Charsets.UTF_8)
-                            ?.replace(Regex("\\s+"), " ")
-                            ?.trim()
-                            ?.take(240)
-                            ?.takeIf(String::isNotBlank)
-                            ?.let { body -> put("httpBody", sanitizePlaybackUrl(body)) }
-                    }
-                },
-            )
-            when (error.errorCode) {
-                PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
-                -> if (
-                    !scheduleRetry(index, MANIFEST_RETRY_LIMIT, "malformed_manifest") &&
-                    !switchToProgressiveTranscode()
-                ) {
-                    _state.update {
-                        it.copy(
-                            error = "服务器返回了无效的转码清单",
-                            buffering = false,
-                            fallbacksExhausted = true,
-                        )
-                    }
+    private val analyticsListener =
+        object : AnalyticsListener {
+            override fun onVideoDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                _state.update {
+                    it.copy(diagnostics = it.diagnostics.copy(decoder = decoderName))
                 }
+            }
 
-                PlaybackException.ERROR_CODE_DECODING_FAILED,
-                PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-                PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-                -> if (!switchToTranscode()) {
-                    _state.update {
-                        it.copy(
-                            error = "当前视频无法解码，且服务器未提供可用转码流",
-                            buffering = false,
-                            fallbacksExhausted = true,
-                        )
-                    }
-                }
-
-                // The server answered, and refused. This used to fall through to the generic
-                // branch: no fallback attempted, and `fallbacksExhausted` left false, so the
-                // controls still offered a retry that could only fail the same way. Walking
-                // the chain matters most here — a rejected HLS manifest request should still
-                // get the progressive attempt rather than stopping at the first refusal.
-                PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
-                PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
-                -> if (blocksAutomaticPlaybackFallback(httpCause?.responseCode)) {
-                    _state.update {
-                        it.copy(
-                            error = httpFailureMessage(
-                                httpCause?.responseCode,
-                                httpCause?.responseBody?.toString(Charsets.UTF_8),
-                            ),
-                            buffering = false,
-                            fallbacksExhausted = true,
-                            automaticFallbackBlocked = true,
-                        )
-                    }
-                } else if (!advanceFallback()) {
-                    _state.update {
-                        it.copy(
-                            error = httpFailureMessage(
-                                httpCause?.responseCode,
-                                httpCause?.responseBody?.toString(Charsets.UTF_8),
-                            ),
-                            buffering = false,
-                            fallbacksExhausted = true,
-                        )
-                    }
-                }
-
-                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
-                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
-                PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
-                -> if (
-                    !scheduleRetry(index, TRANSIENT_RETRY_LIMIT, "transient_network") &&
-                    !advanceFallback()
-                ) {
-                    _state.update {
-                        it.copy(
-                            error = "网络连接多次失败，已尝试所有播放方式",
-                            buffering = false,
-                            fallbacksExhausted = true,
-                        )
-                    }
-                }
-
-                else -> _state.update {
-                    // Unknown fatal errors still get the bounded engine/version recovery in
-                    // PlayerRoot. Leaving this false stranded the user on Exo even though two
-                    // independent decoder stacks and possibly another file were available.
+            override fun onVideoInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: Format,
+                decoderReuseEvaluation: DecoderReuseEvaluation?,
+            ) {
+                _state.update {
                     it.copy(
-                        error = "播放失败：${error.errorCodeName}",
-                        buffering = false,
-                        fallbacksExhausted = true,
+                        diagnostics =
+                            it.diagnostics.copy(
+                                videoCodec = format.codecs ?: format.sampleMimeType ?: "未知",
+                                videoWidth =
+                                    format.width.takeIf { value -> value > 0 }
+                                        ?: it.diagnostics.videoWidth,
+                                dynamicRange =
+                                    format
+                                        .dynamicRangeLabel()
+                                        .ifBlank { it.diagnostics.dynamicRange },
+                                bitrateBitsPerSecond =
+                                    format.bitrate
+                                        .takeIf { value -> value > 0 }
+                                        ?.toLong() ?: it.diagnostics.bitrateBitsPerSecond,
+                                frameRate =
+                                    format.frameRate.takeIf { value -> value > 0f }
+                                        ?: it.diagnostics.frameRate,
+                            ),
+                    )
+                }
+            }
+
+            override fun onAudioInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: Format,
+                decoderReuseEvaluation: DecoderReuseEvaluation?,
+            ) {
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                audioFormat =
+                                    format
+                                        .audioFormatLabel()
+                                        .ifBlank { it.diagnostics.audioFormat },
+                            ),
+                    )
+                }
+            }
+
+            override fun onDroppedVideoFrames(
+                eventTime: AnalyticsListener.EventTime,
+                droppedFrames: Int,
+                elapsedMs: Long,
+            ) {
+                this@ExoVideoEngine.droppedFrames += droppedFrames
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                droppedFrames = this@ExoVideoEngine.droppedFrames,
+                            ),
+                    )
+                }
+            }
+
+            override fun onBandwidthEstimate(
+                eventTime: AnalyticsListener.EventTime,
+                totalLoadTimeMs: Int,
+                totalBytesLoaded: Long,
+                bitrateEstimate: Long,
+            ) {
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                networkBitsPerSecond = bitrateEstimate.coerceAtLeast(0L),
+                            ),
                     )
                 }
             }
         }
-    }
+
+    private val listener =
+        object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                _state.update { it.copy(playing = isPlaying) }
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                safeLogcat(Log.INFO, TAG, "exo state=$state")
+                val buffering = state == Player.STATE_BUFFERING
+                val bufferEvent = buffering && !wasBuffering
+                wasBuffering = buffering
+                _state.update {
+                    it.copy(
+                        buffering = buffering,
+                        durationMs = knownDuration(),
+                        ended = state == Player.STATE_ENDED,
+                        diagnostics =
+                            it.diagnostics.copy(
+                                bufferEvents = it.diagnostics.bufferEvents + if (bufferEvent) 1 else 0,
+                            ),
+                    )
+                }
+                if (state == Player.STATE_READY) {
+                    retryCounts.remove(retryKey(player.currentMediaItemIndex))
+                    fallbackForUnsupportedTracks(
+                        tracks = player.currentTracks,
+                        includeMissingExpectedAudio = true,
+                    )
+                }
+            }
+
+            override fun onMediaItemTransition(
+                mediaItem: MediaItem?,
+                reason: Int,
+            ) {
+                val index = player.currentMediaItemIndex
+                val item = items.getOrNull(index)
+                val transcoding = index in transcodedIndices
+                _state.update {
+                    it.copy(
+                        currentIndex = index,
+                        transcoding = transcoding,
+                        videoHeight = item?.sourceVideoHeight(transcoding) ?: 0,
+                        fallbacksExhausted = false,
+                        automaticFallbackBlocked = false,
+                        positionMs = 0L,
+                        durationMs = knownDuration(),
+                        bufferedPositionMs = 0L,
+                        error = null,
+                        ended = false,
+                        diagnostics =
+                            initialPlaybackDiagnostics(
+                                engine = "Media3 / ExoPlayer",
+                                decoder = it.diagnostics.decoder,
+                                item = item,
+                                quality = quality,
+                                transcoding = transcoding,
+                            ),
+                    )
+                }
+            }
+
+            override fun onPlaybackParametersChanged(parameters: PlaybackParameters) {
+                _state.update { it.copy(speed = parameters.speed) }
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                _state.update {
+                    it.copy(
+                        videoHeight = videoSize.height,
+                        diagnostics = it.diagnostics.copy(videoWidth = videoSize.width),
+                    )
+                }
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                syncTracks()
+                fallbackForUnsupportedTracks(tracks, includeMissingExpectedAudio = false)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                safeLogcat(Log.ERROR, TAG, "playback failed: ${error.errorCodeName}", error)
+                val index = player.currentMediaItemIndex
+                val httpCause =
+                    generateSequence(error as Throwable) { it.cause }
+                        .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                        .firstOrNull()
+                val failedUrl = httpCause?.dataSpec?.uri?.toString()
+                AppLog.error(
+                    category = "player.exo",
+                    event = "playback_failed",
+                    message = "ExoPlayer playback failed",
+                    throwable = error,
+                    attributes =
+                        buildMap {
+                            put("errorCode", error.errorCodeName)
+                            put("itemIndex", index.toString())
+                            put("transcoding", _state.value.transcoding.toString())
+                            // Which of the three addresses failed, and — the question the previous
+                            // diagnostic bundles could not answer — what the server actually said.
+                            put("streamVariant", streamVariantOf(index))
+                            failedUrl?.let { url ->
+                                put("requestUrl", sanitizePlaybackUrl(url))
+                                playbackQueryParameter(url, "MediaSourceId")?.let {
+                                    put("mediaSourceId", it)
+                                }
+                            }
+                            httpCause?.let {
+                                put("httpStatus", it.responseCode.toString())
+                                put("httpMessage", it.responseMessage.orEmpty().take(120))
+                                it.responseBody
+                                    .takeIf { body -> body.isNotEmpty() }
+                                    ?.toString(Charsets.UTF_8)
+                                    ?.replace(Regex("\\s+"), " ")
+                                    ?.trim()
+                                    ?.take(240)
+                                    ?.takeIf(String::isNotBlank)
+                                    ?.let { body -> put("httpBody", sanitizePlaybackUrl(body)) }
+                            }
+                        },
+                )
+                when (error.errorCode) {
+                    PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+                    ->
+                        if (
+                            !scheduleRetry(index, MANIFEST_RETRY_LIMIT, "malformed_manifest") &&
+                            !switchToProgressiveTranscode()
+                        ) {
+                            _state.update {
+                                it.copy(
+                                    error = "服务器返回了无效的转码清单",
+                                    buffering = false,
+                                    fallbacksExhausted = true,
+                                )
+                            }
+                        }
+
+                    PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                    ->
+                        if (!switchToTranscode()) {
+                            _state.update {
+                                it.copy(
+                                    error = "当前视频无法解码，且服务器未提供可用转码流",
+                                    buffering = false,
+                                    fallbacksExhausted = true,
+                                )
+                            }
+                        }
+
+                    // The server answered, and refused. This used to fall through to the generic
+                    // branch: no fallback attempted, and `fallbacksExhausted` left false, so the
+                    // controls still offered a retry that could only fail the same way. Walking
+                    // the chain matters most here — a rejected HLS manifest request should still
+                    // get the progressive attempt rather than stopping at the first refusal.
+                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+                    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+                    ->
+                        if (blocksAutomaticPlaybackFallback(httpCause?.responseCode)) {
+                            _state.update {
+                                it.copy(
+                                    error =
+                                        httpFailureMessage(
+                                            httpCause?.responseCode,
+                                            httpCause?.responseBody?.toString(Charsets.UTF_8),
+                                        ),
+                                    buffering = false,
+                                    fallbacksExhausted = true,
+                                    automaticFallbackBlocked = true,
+                                )
+                            }
+                        } else if (!advanceFallback()) {
+                            _state.update {
+                                it.copy(
+                                    error =
+                                        httpFailureMessage(
+                                            httpCause?.responseCode,
+                                            httpCause?.responseBody?.toString(Charsets.UTF_8),
+                                        ),
+                                    buffering = false,
+                                    fallbacksExhausted = true,
+                                )
+                            }
+                        }
+
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                    PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+                    ->
+                        if (
+                            !scheduleRetry(index, TRANSIENT_RETRY_LIMIT, "transient_network") &&
+                            !advanceFallback()
+                        ) {
+                            _state.update {
+                                it.copy(
+                                    error = "网络连接多次失败，已尝试所有播放方式",
+                                    buffering = false,
+                                    fallbacksExhausted = true,
+                                )
+                            }
+                        }
+
+                    else ->
+                        _state.update {
+                            // Unknown fatal errors still get the bounded engine/version recovery in
+                            // PlayerRoot. Leaving this false stranded the user on Exo even though two
+                            // independent decoder stacks and possibly another file were available.
+                            it.copy(
+                                error = "播放失败：${error.errorCodeName}",
+                                buffering = false,
+                                fallbacksExhausted = true,
+                            )
+                        }
+                }
+            }
+        }
 
     private var ticker: Job? = null
 
@@ -616,10 +666,7 @@ class ExoVideoEngine(
         player.addAnalyticsListener(analyticsListener)
         player.setMediaItems(
             items.mapIndexed { index, item ->
-                mediaItem(
-                    url = if (index in transcodedIndices) item.transcodeUrl else item.url,
-                    title = item.title,
-                )
+                mediaItem(item, if (index in transcodedIndices) item.transcodeUrl else item.url)
             },
             startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)),
             startPositionMs,
@@ -629,22 +676,24 @@ class ExoVideoEngine(
         player.playWhenReady = true
         player.prepare()
 
-        ticker = scope.launch {
-            while (isActive) {
-                _state.update {
-                    val bufferedDurationMs = player.totalBufferedDuration.coerceAtLeast(0L)
-                    it.copy(
-                        positionMs = player.currentPosition,
-                        durationMs = knownDuration(),
-                        bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0L),
-                        diagnostics = it.diagnostics.copy(
-                            bufferedDurationMs = bufferedDurationMs,
-                        ),
-                    )
+        ticker =
+            scope.launch {
+                while (isActive) {
+                    _state.update {
+                        val bufferedDurationMs = player.totalBufferedDuration.coerceAtLeast(0L)
+                        it.copy(
+                            positionMs = player.currentPosition,
+                            durationMs = knownDuration(),
+                            bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0L),
+                            diagnostics =
+                                it.diagnostics.copy(
+                                    bufferedDurationMs = bufferedDurationMs,
+                                ),
+                        )
+                    }
+                    delay(TICK_MS)
                 }
-                delay(TICK_MS)
             }
-        }
     }
 
     override fun play() {
@@ -725,13 +774,17 @@ class ExoVideoEngine(
      * Track ids are `"<groupIndex>:<trackIndex>"` into [Player.getCurrentTracks],
      * which is what [TrackSelectionOverride] needs to address a track.
      */
-    private fun select(type: Int, id: String) {
+    private fun select(
+        type: Int,
+        id: String,
+    ) {
         val builder = player.trackSelectionParameters.buildUpon()
         if (id == EngineTrack.OFF) {
-            player.trackSelectionParameters = builder
-                .clearOverridesOfType(type)
-                .setTrackTypeDisabled(type, true)
-                .build()
+            player.trackSelectionParameters =
+                builder
+                    .clearOverridesOfType(type)
+                    .setTrackTypeDisabled(type, true)
+                    .build()
             syncTracks()
             return
         }
@@ -748,10 +801,11 @@ class ExoVideoEngine(
                 category = "player.exo",
                 event = "unsupported_audio_track_selected",
                 message = "Selected audio track is unsupported; attempting server transcode",
-                attributes = mapOf(
-                    "itemIndex" to player.currentMediaItemIndex.toString(),
-                    "trackId" to id,
-                ),
+                attributes =
+                    mapOf(
+                        "itemIndex" to player.currentMediaItemIndex.toString(),
+                        "trackId" to id,
+                    ),
             )
             if (!switchToTranscode()) {
                 _state.update {
@@ -761,10 +815,11 @@ class ExoVideoEngine(
             return
         }
 
-        player.trackSelectionParameters = builder
-            .setTrackTypeDisabled(type, false)
-            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
-            .build()
+        player.trackSelectionParameters =
+            builder
+                .setTrackTypeDisabled(type, false)
+                .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
+                .build()
         syncTracks()
     }
 
@@ -783,22 +838,30 @@ class ExoVideoEngine(
     ) {
         val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
         val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
-        val videoSupported = videoGroups.any { group ->
-            (0 until group.length).any { group.isTrackSupported(it) }
-        }
-        val audioSupported = audioGroups.any { group ->
-            (0 until group.length).any { group.isTrackSupported(it) }
-        }
+        val videoSupported =
+            videoGroups.any { group ->
+                (0 until group.length).any { group.isTrackSupported(it) }
+            }
+        val audioSupported =
+            audioGroups.any { group ->
+                (0 until group.length).any { group.isTrackSupported(it) }
+            }
         val index = player.currentMediaItemIndex
-        val expectedAudio = items.getOrNull(index)?.activeVersion?.audioTrackCount
-            ?.let { it > 0 } == true
-        val unsupported = unsupportedMediaTrack(
-            hasVideo = videoGroups.isNotEmpty(),
-            videoSupported = videoSupported,
-            hasAudio = audioGroups.isNotEmpty() ||
-                (includeMissingExpectedAudio && expectedAudio),
-            audioSupported = audioSupported,
-        ) ?: return
+        val expectedAudio =
+            items
+                .getOrNull(index)
+                ?.activeVersion
+                ?.audioTrackCount
+                ?.let { it > 0 } == true
+        val unsupported =
+            unsupportedMediaTrack(
+                hasVideo = videoGroups.isNotEmpty(),
+                videoSupported = videoSupported,
+                hasAudio =
+                    audioGroups.isNotEmpty() ||
+                        (includeMissingExpectedAudio && expectedAudio),
+                audioSupported = audioSupported,
+            ) ?: return
 
         // A rejected audio decoder does not necessarily fail playback: ExoPlayer can keep
         // rendering the picture with no selected audio track. Treat it exactly like an
@@ -811,11 +874,12 @@ class ExoVideoEngine(
             category = "player.exo",
             event = "unsupported_${type}_tracks",
             message = "No supported $type track; attempting server transcode",
-            attributes = mapOf(
-                "itemIndex" to index.toString(),
-                "missingExpectedAudio" to
-                    (expectedAudio && audioGroups.isEmpty()).toString(),
-            ),
+            attributes =
+                mapOf(
+                    "itemIndex" to index.toString(),
+                    "missingExpectedAudio" to
+                        (expectedAudio && audioGroups.isEmpty()).toString(),
+                ),
         )
         switchToTranscode()
     }
@@ -833,29 +897,35 @@ class ExoVideoEngine(
      * A duplicate row carries the selection if any concrete Exo group is selected. Genuine
      * same-label tracks are preserved and receive a codec/channel qualifier or an ordinal.
      */
-    private fun tracksOf(type: Int, fallbackPrefix: String): List<EngineTrack> {
+    private fun tracksOf(
+        type: Int,
+        fallbackPrefix: String,
+    ): List<EngineTrack> {
         var ordinal = 0
         val candidates = mutableListOf<ManifestTrackCandidate>()
-        player.currentTracks.groups.withIndex()
+        player.currentTracks.groups
+            .withIndex()
             .filter { (_, group) -> group.type == type }
             .forEach { (groupIndex, group) ->
                 (0 until group.length).forEach { trackIndex ->
                     val format = group.getTrackFormat(trackIndex)
                     ordinal++
                     val rendition = format.hlsRenditionIdentity()
-                    candidates += ManifestTrackCandidate(
-                        id = "$groupIndex:$trackIndex",
-                        label = format.label
-                            ?: rendition?.second
-                            ?: format.language
-                            ?: "$fallbackPrefix $ordinal",
-                        language = format.language,
-                        selected = group.isTrackSelected(trackIndex),
-                        manifestGroupId = rendition?.first,
-                        manifestName = rendition?.second,
-                        qualifier = format.trackQualifier(type),
-                        codec = format.sampleMimeType?.substringAfterLast('/') ?: format.codecs,
-                    )
+                    candidates +=
+                        ManifestTrackCandidate(
+                            id = "$groupIndex:$trackIndex",
+                            label =
+                                format.label
+                                    ?: rendition?.second
+                                    ?: format.language
+                                    ?: "$fallbackPrefix $ordinal",
+                            language = format.language,
+                            selected = group.isTrackSelected(trackIndex),
+                            manifestGroupId = rendition?.first,
+                            manifestName = rendition?.second,
+                            qualifier = format.trackQualifier(type),
+                            codec = format.sampleMimeType?.substringAfterLast('/') ?: format.codecs,
+                        )
                 }
             }
         return collapseManifestTrackDuplicates(candidates)
@@ -882,13 +952,14 @@ class ExoVideoEngine(
                 buffering = true,
                 bufferedPositionMs = position,
                 transcoding = true,
-                diagnostics = it.diagnostics.copy(
-                    playMethod = "服务器转码",
-                    dynamicRange = "",
-                    audioFormat = "",
-                    fallbackReason = reason ?: "直放失败，已切换服务器转码",
-                    bufferedDurationMs = 0L,
-                ),
+                diagnostics =
+                    it.diagnostics.copy(
+                        playMethod = "服务器转码",
+                        dynamicRange = "",
+                        audioFormat = "",
+                        fallbackReason = reason ?: "直放失败，已切换服务器转码",
+                        bufferedDurationMs = 0L,
+                    ),
             )
         }
         safeLogcat(Log.INFO, TAG, "falling back to transcode for index=$index")
@@ -898,7 +969,7 @@ class ExoVideoEngine(
             message = "Switching from direct play to server transcode",
             attributes = mapOf("itemIndex" to index.toString()),
         )
-        player.replaceMediaItem(index, mediaItem(item.transcodeUrl, item.title))
+        player.replaceMediaItem(index, mediaItem(item, item.transcodeUrl))
         player.prepare()
         player.seekTo(index, position)
         player.playWhenReady = true
@@ -921,10 +992,7 @@ class ExoVideoEngine(
         player.addMediaItems(
             qualityItems.mapIndexed { relativeIndex, item ->
                 val index = offset + relativeIndex
-                mediaItem(
-                    if (index in transcodedIndices) item.transcodeUrl else item.url,
-                    item.title,
-                )
+                mediaItem(item, if (index in transcodedIndices) item.transcodeUrl else item.url)
             },
         )
         _state.update { it.copy(itemCount = this.items.size.coerceAtLeast(1)) }
@@ -932,10 +1000,11 @@ class ExoVideoEngine(
             category = "player.exo",
             event = "queue_extended",
             message = "Queue extended without restarting playback",
-            attributes = mapOf(
-                "addedCount" to items.size.toString(),
-                "itemCount" to this.items.size.toString(),
-            ),
+            attributes =
+                mapOf(
+                    "addedCount" to items.size.toString(),
+                    "itemCount" to this.items.size.toString(),
+                ),
         )
         return true
     }
@@ -956,12 +1025,13 @@ class ExoVideoEngine(
                 buffering = true,
                 bufferedPositionMs = position,
                 transcoding = true,
-                diagnostics = it.diagnostics.copy(
-                    playMethod = PlaybackMethod.Transcode.label,
-                    dynamicRange = "",
-                    audioFormat = "",
-                    fallbackReason = "HLS 转码不可用，已改用 MP4 转码",
-                ),
+                diagnostics =
+                    it.diagnostics.copy(
+                        playMethod = PlaybackMethod.Transcode.label,
+                        dynamicRange = "",
+                        audioFormat = "",
+                        fallbackReason = "HLS 转码不可用，已改用 MP4 转码",
+                    ),
             )
         }
         // Stop reading HLS before deleting its encoder. Starting MP4 first can briefly leave
@@ -975,39 +1045,41 @@ class ExoVideoEngine(
             attributes = mapOf("itemIndex" to index.toString()),
         )
         fallbackJob?.cancel()
-        fallbackJob = scope.launch {
-            val cleaned = item.playSessionId.isBlank() ||
-                withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
-            if (released || player.currentMediaItemIndex != index) return@launch
-            progressiveTransitionIndices -= index
-            if (!cleaned) {
-                AppLog.warning(
+        fallbackJob =
+            scope.launch {
+                val cleaned =
+                    item.playSessionId.isBlank() ||
+                        withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
+                if (released || player.currentMediaItemIndex != index) return@launch
+                progressiveTransitionIndices -= index
+                if (!cleaned) {
+                    AppLog.warning(
+                        category = "player.exo",
+                        event = "progressive_transcode_cleanup_failed",
+                        message = "The active HLS encoder could not be stopped safely",
+                        attributes = mapOf("itemIndex" to index.toString()),
+                    )
+                    _state.update {
+                        it.copy(
+                            error = "无法清理旧的服务器转码，正在尝试其他播放器",
+                            buffering = false,
+                            fallbacksExhausted = true,
+                        )
+                    }
+                    return@launch
+                }
+                progressiveTranscodeIndices += index
+                AppLog.info(
                     category = "player.exo",
-                    event = "progressive_transcode_cleanup_failed",
-                    message = "The active HLS encoder could not be stopped safely",
+                    event = "progressive_transcode_fallback",
+                    message = "Switching from HLS to progressive transcode",
                     attributes = mapOf("itemIndex" to index.toString()),
                 )
-                _state.update {
-                    it.copy(
-                        error = "无法清理旧的服务器转码，正在尝试其他播放器",
-                        buffering = false,
-                        fallbacksExhausted = true,
-                    )
-                }
-                return@launch
+                player.replaceMediaItem(index, mediaItem(item, item.fallbackTranscodeUrl))
+                player.prepare()
+                player.seekTo(index, position)
+                player.playWhenReady = true
             }
-            progressiveTranscodeIndices += index
-            AppLog.info(
-                category = "player.exo",
-                event = "progressive_transcode_fallback",
-                message = "Switching from HLS to progressive transcode",
-                attributes = mapOf("itemIndex" to index.toString()),
-            )
-            player.replaceMediaItem(index, mediaItem(item.fallbackTranscodeUrl, item.title))
-            player.prepare()
-            player.seekTo(index, position)
-            player.playWhenReady = true
-        }
         return true
     }
 
@@ -1018,11 +1090,14 @@ class ExoVideoEngine(
      * so calling them in order is enough to find the next untried one — or to report that
      * there is none, which is what the caller needs to stop offering a pointless retry.
      */
-    private fun advanceFallback(): Boolean =
-        switchToTranscode() || switchToProgressiveTranscode()
+    private fun advanceFallback(): Boolean = switchToTranscode() || switchToProgressiveTranscode()
 
     /** A bounded retry for failures that are commonly one bad proxy connection or startup read. */
-    private fun scheduleRetry(index: Int, limit: Int, reason: String): Boolean {
+    private fun scheduleRetry(
+        index: Int,
+        limit: Int,
+        reason: String,
+    ): Boolean {
         val key = retryKey(index)
         val attempted = retryCounts[key] ?: 0
         if (attempted >= limit) return false
@@ -1034,58 +1109,65 @@ class ExoVideoEngine(
             category = "player.exo",
             event = "playback_retry_scheduled",
             message = "Retrying the current playback request after a transient failure",
-            attributes = mapOf(
-                "itemIndex" to index.toString(),
-                "streamVariant" to streamVariantOf(index),
-                "attempt" to nextAttempt.toString(),
-                "limit" to limit.toString(),
-                "reason" to reason,
-            ),
+            attributes =
+                mapOf(
+                    "itemIndex" to index.toString(),
+                    "streamVariant" to streamVariantOf(index),
+                    "attempt" to nextAttempt.toString(),
+                    "limit" to limit.toString(),
+                    "reason" to reason,
+                ),
         )
-        retryJob = scope.launch {
-            delay(if (nextAttempt == 1) 500L else 1_500L)
-            if (released || player.currentMediaItemIndex != index) return@launch
-            player.prepare()
-            player.playWhenReady = true
-        }
+        retryJob =
+            scope.launch {
+                delay(if (nextAttempt == 1) 500L else 1_500L)
+                if (released || player.currentMediaItemIndex != index) return@launch
+                player.prepare()
+                player.playWhenReady = true
+            }
         return true
     }
 
     private fun retryKey(index: Int): String = "$index:${streamVariantOf(index)}"
 
     /** Which address the entry is currently being played from, for the diagnostic log. */
-    private fun streamVariantOf(index: Int): String = when {
-        index in progressiveTranscodeIndices -> "progressive"
-        index in transcodedIndices -> "hls"
-        else -> "direct"
-    }
-
-    private fun httpFailureMessage(status: Int?, body: String?): String = when (status) {
-        401 -> "服务器登录已失效（401），请重新登录该服务器"
-        403 -> if (body.isAccessBlockPage()) {
-            "服务器入口或 Cloudflare 拒绝了当前网络访问（403），重新登录通常无效"
-        } else {
-            "当前账号没有播放权限，或服务器入口拒绝了访问（403）"
+    private fun streamVariantOf(index: Int): String =
+        when {
+            index in progressiveTranscodeIndices -> "progressive"
+            index in transcodedIndices -> "hls"
+            else -> "direct"
         }
-        400 -> "服务器无法处理当前版本的转码请求（400），正在尝试其他播放方式"
-        404 -> "服务器上找不到这个文件（404）"
-        // What an Emby server returns once its transcoding slots are all taken, which is the
-        // state a leaked encoding leaves it in.
-        429, 503 -> "服务器暂时无法提供转码（$status），请稍后再试"
-        null -> "服务器拒绝了播放请求"
-        else -> "服务器拒绝了播放请求（$status）"
-    }
 
-    private fun knownDuration(): Long =
-        player.duration.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
+    private fun httpFailureMessage(
+        status: Int?,
+        body: String?,
+    ): String =
+        when (status) {
+            401 -> "服务器登录已失效（401），请重新登录该服务器"
+            403 ->
+                if (body.isAccessBlockPage()) {
+                    "服务器入口或 Cloudflare 拒绝了当前网络访问（403），重新登录通常无效"
+                } else {
+                    "当前账号没有播放权限，或服务器入口拒绝了访问（403）"
+                }
+            400 -> "服务器无法处理当前版本的转码请求（400），正在尝试其他播放方式"
+            404 -> "服务器上找不到这个文件（404）"
+            // What an Emby server returns once its transcoding slots are all taken, which is the
+            // state a leaked encoding leaves it in.
+            429, 503 -> "服务器暂时无法提供转码（$status），请稍后再试"
+            null -> "服务器拒绝了播放请求"
+            else -> "服务器拒绝了播放请求（$status）"
+        }
 
+    private fun knownDuration(): Long = player.duration.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
 }
 
 /** Keeps a failing address useful in diagnostics without exporting the user's server token. */
 internal fun sanitizePlaybackUrl(value: String): String {
-    val querySafe = value.replace(
-        Regex("(?i)(api_key|x-emby-token)=([^&\\s]+)"),
-    ) { match -> "${match.groupValues[1]}=<redacted>" }
+    val querySafe =
+        value.replace(
+            Regex("(?i)(api_key|x-emby-token)=([^&\\s]+)"),
+        ) { match -> "${match.groupValues[1]}=<redacted>" }
     return querySafe.replace(
         Regex("(?i)(\"?(?:api_key|x-emby-token)\"?\\s*:\\s*\")([^\"]+)(\")"),
     ) { match -> "${match.groupValues[1]}<redacted>${match.groupValues[3]}" }
@@ -1099,7 +1181,10 @@ private fun String?.isAccessBlockPage(): Boolean {
         "attention required" in value
 }
 
-internal fun playbackQueryParameter(url: String, name: String): String? =
+internal fun playbackQueryParameter(
+    url: String,
+    name: String,
+): String? =
     Regex("(?:[?&])${Regex.escape(name)}=([^&]+)", RegexOption.IGNORE_CASE)
         .find(url)
         ?.groupValues
@@ -1107,11 +1192,32 @@ internal fun playbackQueryParameter(url: String, name: String): String? =
         ?.takeIf(String::isNotBlank)
 
 /** An account or edge-policy rejection applies to every URL/engine for this server. */
-internal fun blocksAutomaticPlaybackFallback(httpStatus: Int?): Boolean =
-    httpStatus == 401 || httpStatus == 403
+internal fun blocksAutomaticPlaybackFallback(httpStatus: Int?): Boolean = httpStatus == 401 || httpStatus == 403
 
-private fun mediaItem(url: String, title: String): MediaItem =
-    MediaItem.Builder()
-        .setUri(url)
-        .setMediaMetadata(MediaMetadata.Builder().setTitle(title).build())
+internal fun exoMediaItem(
+    item: PlayerMediaItem,
+    playbackUrl: String,
+): MediaItem {
+    val builder =
+        MediaItem
+            .Builder()
+            .setUri(playbackUrl)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
+    offlineSubtitleConfiguration(item)?.let { builder.setSubtitleConfigurations(listOf(it)) }
+    return builder.build()
+}
+
+internal fun offlineSubtitleConfiguration(item: PlayerMediaItem): MediaItem.SubtitleConfiguration? {
+    val uri = item.externalSubtitleUri?.takeIf(String::isNotBlank) ?: return null
+    return MediaItem.SubtitleConfiguration
+        .Builder(android.net.Uri.parse(uri))
+        .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+        .setLanguage(item.externalSubtitleLanguage?.takeIf(String::isNotBlank))
+        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
         .build()
+}
+
+private fun mediaItem(
+    item: PlayerMediaItem,
+    playbackUrl: String,
+): MediaItem = exoMediaItem(item, playbackUrl)

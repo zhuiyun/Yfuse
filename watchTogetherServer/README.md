@@ -3,7 +3,7 @@
 轻量 WebSocket 房间服务，只维护房间的**播放时间线**，不代理视频、不读取 Emby 凭据，
 也不承担转码。
 
-## 协议 v3
+## 协议 v4
 
 服务端是时间线权威。房主不再每秒广播当前位置，而是只在**发生事件时**（播放/暂停 /
 seek / 变速 / 换片）提交一个新锚点，其他人本地按
@@ -18,7 +18,7 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 
 | 方向 | type | 说明 |
 | --- | --- | --- |
-| C→S | `hello` | 带 `clientId`、昵称和预设头像；无 `roomCode` 为建房（需 `mediaKey`），有则加入 |
+| C→S | `hello` | 带公开 `clientId`、资料及协议版本；重连还必须带私有 resume/host capability |
 | C→S | `sync` | 当前有控制权限的成员提交新锚点 |
 | C→S | `ping` | 带 `clientSentAtMs`，用于时钟对齐 |
 | C→S | `chat` | 房内文字消息；最多 30 个 Unicode 字素、768 字节 |
@@ -34,30 +34,34 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 | S→C | `pong` | 回显 `clientSentAtMs` |
 | S→C | `chat` | 服务端认定发送者身份、生成序号和时间后广播 |
 | S→C | `controlRequested` / `controlDenied` | 控制权协商结果 |
+| S→C | `hostCapabilityGranted` | 主持权转移时私下下发新的主持凭据 |
 | S→C | `kicked` | 通知被房主移出的成员并结束其当前连接 |
 | S→C | `error` | 文案在 `message` |
 
 行为要点：
 
-- **同 `clientId` 重连会顶掉旧会话并保留房主身份** —— 移动网络断一下不会把控制权交给别人。
+- `clientId` 只用于公开成员身份；首次加入会私下签发每房间独立的
+  `resumeCapability`，主持人另有 `hostCapability`。缺失或错误凭据不能替换已有会话。
+- 主持权转移会立即轮换 `hostCapability`；旧主持人的凭据不能再次取得主持权限。
 - 房主断线后保留 20 秒控制权；宽限期内重连仍是房主，超时才移交给房内下一位成员。
 - 房间空掉后保留 5 分钟宽限期，期间可重连回同一个房间码；超时才回收。
 - 单实例最多 500 个房间、每个来源 IP 默认最多 8 个仍存续的房间、每房 12 人；单连接
   每 10 秒最多 240 条消息，文本帧最大 64 KiB。空房超过 5 分钟被回收时会同时释放该
   IP 的建房额度。
 - 每房在内存中保留最近 50 条聊天，跟随房间一起回收；每连接每 3 秒最多发送 3 条
-  聊天消息。v3 使用 `clientMessageId` 确认并去重重试，聊天不接受图片、文件或客户端
+  聊天消息。v4 使用 `clientMessageId` 确认并去重重试，聊天不接受图片、文件或客户端
   伪造的发送者资料。
 - 昵称最多 24 个 Unicode 字素，头像是 8 个内置样式之一；一起看房间只保存房间内的
   临时成员状态。Yfuse 账号、资料与加密同步数据由独立的 `/api/v1` 账号接口持久化。
 - 房主可以选择仅房主控制、全员共同控制或指定管理员；房主身份仍保持唯一，管理员
   不会影响断线后的房主迁移。
 - 房主可以移出其他成员；被移出的客户端在当前房间存续期间无法再次加入。
-- 新服务端继续接受未携带 `protocolVersion` 的 v2 客户端；v3 客户端会检查服务端返回的
-  版本并明确提示 App 或服务器哪一端过旧。
+- v4 是安全性破坏升级，服务端不接受 v2/v3 或缺少 `protocolVersion` 的客户端，避免
+  回退到可伪造的 clientId-only 重连逻辑。
 
-> ⚠️ **涉及协议的版本仍须服务端先发布、App 后发布。** 新服务端兼容当前旧 App，
-> 新 App 则拒绝连接缺少 v3 能力的旧服务端，避免功能看似可用但消息被静默忽略。
+> ⚠️ **v4 服务端与 App 必须作为一次维护窗口发布。** 房间是内存态，部署会清空旧房间；
+> 新 App 会拒绝缺少 `authenticatedResume`、`hostCapability`、`strictWireValidation` 能力的
+> 旧服务端，服务端也会明确拒绝旧 App。
 
 发布 App 前可请求 `GET /watch/version`，确认返回的 `protocolVersion` 与 App 要求一致；
 仓库内的 Android 发布工作流已经包含这项检查。
@@ -135,7 +139,11 @@ HTTP 源的同源 APK 地址；新的 `update-v2.json` 和新客户端只使用 
 - `WATCH_TRUST_PROXY_HEADERS`：设为 `true` 后，使用 `X-Forwarded-For`（其次 RFC
   `Forwarded`）识别来源 IP；默认 `false`，防止直连客户端伪造转发头绕过限制。
 - `ACCOUNT_DB_PATH`：账号 SQLite 路径，生产模板为 `/var/lib/yfuse/account.db`。
-- `ACCOUNT_REGISTRATION_ENABLED`：是否开放新账号注册；创建所需账号后可设为 `false`。
+- 文件数据库启用 SQLite WAL 与 `synchronous=FULL`；在线备份必须使用 SQLite
+  `.backup`/backup API，不能只复制主数据库文件。完整备份与回滚步骤见
+  `docs/watch-server-deploy.md`。
+- `ACCOUNT_REGISTRATION_ENABLED`：是否开放新账号注册；默认 `false`，仅在创建所需账号时临时设为 `true`。
+- `ACCOUNT_REGISTRATION_INVITE_CODES`：逗号分隔的一次性邀请码；可在公开注册关闭时邀请注册。请使用高熵随机值，并在兑换后从环境变量移除。
 - `ACCOUNT_MAX_USERS`：账号总数上限；生产模板为 `100`。
 - `HOST`：Ktor 监听地址，默认 `127.0.0.1`；只有容器内部端口映射场景才应显式设为
   `0.0.0.0`。

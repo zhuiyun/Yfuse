@@ -17,16 +17,21 @@ import com.yfuse.R
 import com.yfuse.core.designsystem.GlassShapes
 
 @Composable
-internal actual fun AppIconPreview(variant: AppIconVariant, modifier: Modifier) {
-    val background = when (variant) {
-        AppIconVariant.Default -> Color(0xFFFCFBFC)
-        AppIconVariant.Graphite -> Color(0xFF1B2333)
-        AppIconVariant.CloudPlayer -> Color(0xFFFCFBFC)
-    }
-    val artwork = when (variant) {
-        AppIconVariant.CloudPlayer -> R.drawable.cloud_player_logo
-        else -> R.drawable.yfuse_mark
-    }
+internal actual fun AppIconPreview(
+    variant: AppIconVariant,
+    modifier: Modifier,
+) {
+    val background =
+        when (variant) {
+            AppIconVariant.Default -> Color(0xFFFCFBFC)
+            AppIconVariant.Graphite -> Color(0xFF1B2333)
+            AppIconVariant.CloudPlayer -> Color(0xFFFCFBFC)
+        }
+    val artwork =
+        when (variant) {
+            AppIconVariant.CloudPlayer -> R.drawable.cloud_player_logo
+            else -> R.drawable.yfuse_mark
+        }
     Box(
         modifier
             .clip(GlassShapes.appIcon)

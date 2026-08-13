@@ -38,6 +38,30 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class AccountHardeningTest {
+
+    @Test
+    fun fileBackedStoreUsesWalWithDurableCommits() {
+        val database = kotlin.io.path.createTempDirectory("yfuse-account-wal").toFile()
+            .resolve("account.db")
+        try {
+            AccountBackend.sqliteForTests(database).close()
+
+            DriverManager.getConnection("jdbc:sqlite:${database.absolutePath}").use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.executeQuery("PRAGMA journal_mode").use { result ->
+                        assertTrue(result.next())
+                        assertEquals("wal", result.getString(1).lowercase())
+                    }
+                    statement.executeQuery("PRAGMA synchronous").use { result ->
+                        assertTrue(result.next())
+                        assertEquals(2, result.getInt(1))
+                    }
+                }
+            }
+        } finally {
+            database.parentFile.deleteRecursively()
+        }
+    }
     @Test
     fun server_binds_to_loopback_unless_host_is_explicitly_configured() {
         assertEquals("127.0.0.1", resolveServerHost(null))
@@ -469,7 +493,10 @@ class AccountHardeningTest {
             application {
                 watchTogetherModule(
                     accountBackend = AccountBackend.inMemoryForTests(
-                        registrationPolicy = AccountRegistrationPolicy(maxUsers = 1),
+                        registrationPolicy = AccountRegistrationPolicy(
+                            enabled = true,
+                            maxUsers = 1,
+                        ),
                     ),
                 )
             }

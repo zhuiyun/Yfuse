@@ -27,97 +27,176 @@ class AccountApiException(
     val currentVersion: Long? = null,
 ) : Exception(message)
 
-fun createAccountClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient = HttpClient(engine) {
-    expectSuccess = false
-    install(HttpTimeout) {
-        requestTimeoutMillis = 15_000
-        connectTimeoutMillis = 10_000
-        socketTimeoutMillis = 15_000
+fun createAccountClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient =
+    HttpClient(engine) {
+        expectSuccess = false
+        install(HttpTimeout) {
+            requestTimeoutMillis = 15_000
+            connectTimeoutMillis = 10_000
+            socketTimeoutMillis = 15_000
+        }
+        install(ContentNegotiation) {
+            json(
+                Json {
+                    ignoreUnknownKeys = true
+                    encodeDefaults = true
+                },
+            )
+        }
     }
-    install(ContentNegotiation) {
-        json(Json { ignoreUnknownKeys = true; encodeDefaults = true })
-    }
-}
 
 class AccountApi(
     private val client: HttpClient,
     baseUrl: String = ACCOUNT_BASE_URL,
 ) {
-    private val origin = baseUrl.trimEnd('/').also {
-        require(it.startsWith("https://")) { "账号服务必须使用 HTTPS" }
-    }
+    private val origin =
+        baseUrl.trimEnd('/').also {
+            require(it.startsWith("https://")) { "账号服务必须使用 HTTPS" }
+        }
 
     suspend fun register(
         username: String,
         password: String,
         nickname: String?,
         avatarId: Int?,
-    ): AuthResponse = client.post("$origin/api/v1/auth/register") {
-        contentType(ContentType.Application.Json)
-        setBody(RegisterRequest(username, password, nickname, avatarId))
-    }.decoded()
+        inviteCode: String? = null,
+        deviceName: String? = null,
+    ): AuthResponse =
+        client
+            .post("$origin/api/v1/auth/register") {
+                contentType(ContentType.Application.Json)
+                setBody(RegisterRequest(username, password, nickname, avatarId, inviteCode, deviceName))
+            }.decoded()
 
-    suspend fun login(username: String, password: String): AuthResponse =
-        client.post("$origin/api/v1/auth/login") {
-            contentType(ContentType.Application.Json)
-            setBody(LoginRequest(username, password))
-        }.decoded()
+    suspend fun login(
+        username: String,
+        password: String,
+        deviceName: String? = null,
+    ): AuthResponse =
+        client
+            .post("$origin/api/v1/auth/login") {
+                contentType(ContentType.Application.Json)
+                setBody(LoginRequest(username, password, deviceName))
+            }.decoded()
 
-    suspend fun refresh(refreshToken: String): AuthResponse =
-        client.post("$origin/api/v1/auth/refresh") {
-            contentType(ContentType.Application.Json)
-            setBody(RefreshRequest(refreshToken))
-        }.decoded()
+    suspend fun refresh(
+        refreshToken: String,
+        deviceName: String? = null,
+    ): AuthResponse =
+        client
+            .post("$origin/api/v1/auth/refresh") {
+                contentType(ContentType.Application.Json)
+                setBody(RefreshRequest(refreshToken, deviceName))
+            }.decoded()
 
     suspend fun logout(accessToken: String) {
-        client.post("$origin/api/v1/auth/logout") {
-            bearerAuth(accessToken)
-        }.decodedUnit()
+        client
+            .post("$origin/api/v1/auth/logout") {
+                bearerAuth(accessToken)
+            }.decodedUnit()
     }
 
     suspend fun profile(accessToken: String): AccountUser =
-        client.get("$origin/api/v1/account/profile") {
-            bearerAuth(accessToken)
-        }.decoded()
+        client
+            .get("$origin/api/v1/account/profile") {
+                bearerAuth(accessToken)
+            }.decoded()
 
     suspend fun updateProfile(
         accessToken: String,
         nickname: String? = null,
         avatarId: Int? = null,
-    ): AccountUser = client.put("$origin/api/v1/account/profile") {
-        bearerAuth(accessToken)
-        contentType(ContentType.Application.Json)
-        setBody(UpdateProfileRequest(nickname, avatarId))
-    }.decoded()
+    ): AccountUser =
+        client
+            .put("$origin/api/v1/account/profile") {
+                bearerAuth(accessToken)
+                contentType(ContentType.Application.Json)
+                setBody(UpdateProfileRequest(nickname, avatarId))
+            }.decoded()
 
     suspend fun changePassword(
         accessToken: String,
         request: ChangePasswordRequest,
-    ): AuthResponse = client.put("$origin/api/v1/account/password") {
-            bearerAuth(accessToken)
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.decoded()
+    ): AuthResponse =
+        client
+            .put("$origin/api/v1/account/password") {
+                bearerAuth(accessToken)
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }.decoded()
 
     suspend fun getSync(accessToken: String): SyncResponse =
-        client.get("$origin/api/v1/account/sync") {
-            bearerAuth(accessToken)
-        }.decoded()
+        client
+            .get("$origin/api/v1/account/sync") {
+                bearerAuth(accessToken)
+            }.decoded()
 
     suspend fun putSync(
         accessToken: String,
         baseVersion: Long,
         payload: EncryptedSyncPayload,
-    ): SyncResponse = client.put("$origin/api/v1/account/sync") {
-        bearerAuth(accessToken)
-        contentType(ContentType.Application.Json)
-        setBody(PutSyncRequest(baseVersion, payload))
-    }.decoded()
+    ): SyncResponse =
+        client
+            .put("$origin/api/v1/account/sync") {
+                bearerAuth(accessToken)
+                contentType(ContentType.Application.Json)
+                setBody(PutSyncRequest(baseVersion, payload))
+            }.decoded()
 
     suspend fun clearSync(accessToken: String): SyncResponse =
-        client.delete("$origin/api/v1/account/sync") {
-            bearerAuth(accessToken)
-        }.decoded()
+        client
+            .delete("$origin/api/v1/account/sync") {
+                bearerAuth(accessToken)
+            }.decoded()
+
+    suspend fun sessions(accessToken: String): List<AccountDeviceSession> =
+        client
+            .get("$origin/api/v1/account/sessions") {
+                bearerAuth(accessToken)
+            }.decoded<AccountSessionsResponse>()
+            .sessions
+
+    suspend fun revokeSession(
+        accessToken: String,
+        sessionId: String,
+    ) {
+        client
+            .delete("$origin/api/v1/account/sessions/$sessionId") {
+                bearerAuth(accessToken)
+            }.decodedUnit()
+    }
+
+    suspend fun revokeOtherSessions(accessToken: String) {
+        client
+            .post("$origin/api/v1/account/sessions/revoke-others") {
+                bearerAuth(accessToken)
+            }.decodedUnit()
+    }
+
+    suspend fun revokeAllSessions(accessToken: String) {
+        client
+            .post("$origin/api/v1/account/sessions/revoke-all") {
+                bearerAuth(accessToken)
+            }.decodedUnit()
+    }
+
+    suspend fun exportAccount(accessToken: String): AccountExport =
+        client
+            .get("$origin/api/v1/account/export") {
+                bearerAuth(accessToken)
+            }.decoded()
+
+    suspend fun deleteAccount(
+        accessToken: String,
+        password: String,
+    ) {
+        client
+            .delete("$origin/api/v1/account") {
+                bearerAuth(accessToken)
+                contentType(ContentType.Application.Json)
+                setBody(DeleteAccountRequest(password))
+            }.decodedUnit()
+    }
 }
 
 private suspend inline fun <reified T> HttpResponse.decoded(): T {

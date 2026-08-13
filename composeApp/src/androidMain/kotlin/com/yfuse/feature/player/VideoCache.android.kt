@@ -21,15 +21,19 @@ internal object VideoCachePool {
     private var references = 0
 
     @Synchronized
-    fun acquire(context: Context, maxBytes: Long): Handle? {
+    fun acquire(
+        context: Context,
+        maxBytes: Long,
+    ): Handle? {
         if (maxBytes <= 0L) return null
         if (cache == null || (configuredBytes != maxBytes && references == 0)) {
             cache?.release()
-            cache = SimpleCache(
-                context.cacheDir.resolve("video_cache"),
-                LeastRecentlyUsedCacheEvictor(maxBytes),
-                StandaloneDatabaseProvider(context.applicationContext),
-            )
+            cache =
+                SimpleCache(
+                    context.cacheDir.resolve("video_cache"),
+                    LeastRecentlyUsedCacheEvictor(maxBytes),
+                    StandaloneDatabaseProvider(context.applicationContext),
+                )
             configuredBytes = maxBytes
         }
         references++

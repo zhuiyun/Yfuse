@@ -17,27 +17,33 @@ import androidx.compose.ui.platform.LocalView
  * They are compile-time `int`s, so the reference itself is safe on any version — only the
  * device's willingness to render it is not.
  */
-private class ViewHaptics(private val view: View) : Haptics {
+private class ViewHaptics(
+    private val view: View,
+) : Haptics {
     override fun play(signal: HapticSignal) {
-        val constant = when (signal) {
-            HapticSignal.Tap -> HapticFeedbackConstants.VIRTUAL_KEY
-            HapticSignal.Select -> HapticFeedbackConstants.CLOCK_TICK
-            HapticSignal.Confirm -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                HapticFeedbackConstants.CONFIRM
-            } else {
-                HapticFeedbackConstants.VIRTUAL_KEY
+        val constant =
+            when (signal) {
+                HapticSignal.Tap -> HapticFeedbackConstants.VIRTUAL_KEY
+                HapticSignal.Select -> HapticFeedbackConstants.CLOCK_TICK
+                HapticSignal.Confirm ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        HapticFeedbackConstants.CONFIRM
+                    } else {
+                        HapticFeedbackConstants.VIRTUAL_KEY
+                    }
+                HapticSignal.Reject ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        HapticFeedbackConstants.REJECT
+                    } else {
+                        HapticFeedbackConstants.LONG_PRESS
+                    }
+                HapticSignal.Threshold ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        HapticFeedbackConstants.GESTURE_START
+                    } else {
+                        HapticFeedbackConstants.CLOCK_TICK
+                    }
             }
-            HapticSignal.Reject -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                HapticFeedbackConstants.REJECT
-            } else {
-                HapticFeedbackConstants.LONG_PRESS
-            }
-            HapticSignal.Threshold -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                HapticFeedbackConstants.GESTURE_START
-            } else {
-                HapticFeedbackConstants.CLOCK_TICK
-            }
-        }
         view.performHapticFeedback(constant)
     }
 }

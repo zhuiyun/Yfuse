@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -21,7 +22,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,40 +34,42 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.TabBarInset
+import com.yfuse.core.account.AccountDeviceSession
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
-import com.yfuse.core.designsystem.WatchAvatar
-import com.yfuse.core.designsystem.HapticSignal
-import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ConfirmDialog
-import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
+import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.YfLinkButton
-import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.launch
+import com.yfuse.core.designsystem.flatGlass as glass
 
 /** Mirrors the minimum the repository and the account service both enforce. */
 private const val MIN_PASSWORD_LENGTH = 8
@@ -81,50 +83,55 @@ internal fun AccountSettingsScreen(
     val palette = LocalPalette.current
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(
-            top = Dimens.contentTop,
-            bottom = TabBarInset,
-            start = Dimens.pageHorizontal,
-            end = Dimens.pageHorizontal,
-        ),
+        contentPadding =
+            PaddingValues(
+                top = SettingsHeaderTop,
+                bottom = TabBarInset,
+                start = Dimens.pageHorizontal,
+                end = Dimens.pageHorizontal,
+            ),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item { AccountHeader(onBack) }
         when (val current = state) {
-            AccountState.Restoring -> item {
-                AccountCard {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(10.dp))
-                        Text("正在安全恢复账号…", style = AppTypography.body.medium, color = palette.sub)
+            AccountState.Restoring ->
+                item {
+                    AccountCard {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("正在安全恢复账号…", style = AppTypography.body.medium, color = palette.sub)
+                        }
                     }
                 }
-            }
 
-            is AccountState.RestoreFailed -> item {
-                AccountCard {
-                    Text("暂时无法恢复账号", style = AppTypography.body.strong, color = palette.text)
-                    Spacer(Modifier.height(6.dp))
-                    Text(current.message, style = AppTypography.caption.regular, color = palette.sub)
-                    Spacer(Modifier.height(10.dp))
-                    YfButton(
-                        label = "重试",
-                        onClick = account::retryRestore,
-                    )
+            is AccountState.RestoreFailed ->
+                item {
+                    AccountCard {
+                        Text("暂时无法恢复账号", style = AppTypography.body.strong, color = palette.text)
+                        Spacer(Modifier.height(6.dp))
+                        Text(current.message, style = AppTypography.caption.regular, color = palette.sub)
+                        Spacer(Modifier.height(10.dp))
+                        YfButton(
+                            label = "重试",
+                            onClick = account::retryRestore,
+                        )
+                    }
                 }
-            }
 
-            AccountState.SignedOut -> item {
-                SignedOutAccountCard(account)
-            }
+            AccountState.SignedOut ->
+                item {
+                    SignedOutAccountCard(account)
+                }
 
-            is AccountState.SignedIn -> item {
-                SignedInAccountCard(account, current)
-            }
+            is AccountState.SignedIn ->
+                item {
+                    SignedInAccountCard(account, current)
+                }
         }
 
         item {
@@ -159,6 +166,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
     var password by remember { mutableStateOf("") }
     var nickname by rememberSaveable { mutableStateOf("") }
     var avatarId by rememberSaveable { mutableStateOf(0) }
+    var inviteCode by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -190,6 +198,14 @@ private fun SignedOutAccountCard(account: AccountRepository) {
         if (registerMode) {
             Spacer(Modifier.height(9.dp))
             YfFormField(
+                value = inviteCode,
+                onValueChange = { inviteCode = it.trim().take(128) },
+                label = "邀请码",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                enabled = !busy,
+            )
+            Spacer(Modifier.height(9.dp))
+            YfFormField(
                 value = nickname,
                 onValueChange = { nickname = it.take(24) },
                 label = "昵称（可选）",
@@ -213,22 +229,28 @@ private fun SignedOutAccountCard(account: AccountRepository) {
                 val secret = password.toCharArray()
                 password = ""
                 scope.launch {
-                    val result = if (registerMode) {
-                        account.register(
-                            username = username,
-                            password = secret,
-                            nickname = nickname.ifBlank { null },
-                            avatarId = avatarId,
-                        )
-                    } else {
-                        account.login(username, secret)
-                    }
+                    val result =
+                        if (registerMode) {
+                            account.register(
+                                username = username,
+                                password = secret,
+                                nickname = nickname.ifBlank { null },
+                                avatarId = avatarId,
+                                inviteCode = inviteCode,
+                            )
+                        } else {
+                            account.login(username, secret)
+                        }
                     result.exceptionOrNull()?.let { error = it.message ?: "操作失败，请稍后重试" }
                     busy = false
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !busy && username.isNotBlank() && password.length >= MIN_PASSWORD_LENGTH,
+            enabled =
+                !busy &&
+                    username.isNotBlank() &&
+                    password.length >= MIN_PASSWORD_LENGTH &&
+                    (!registerMode || inviteCode.length >= 12),
             loading = busy,
         )
         YfLinkButton(
@@ -270,6 +292,24 @@ private fun SignedInAccountCard(
     // flashing.
     var uploading by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
+    var sessions by remember { mutableStateOf<List<AccountDeviceSession>>(emptyList()) }
+    var sessionsLoading by remember { mutableStateOf(false) }
+    var confirmRevokeOthers by remember { mutableStateOf(false) }
+    var confirmRevokeAll by remember { mutableStateOf(false) }
+    var confirmDeleteAccount by remember { mutableStateOf(false) }
+    var deletePassword by remember { mutableStateOf("") }
+    val share = rememberShareHandler()
+
+    fun reloadSessions() {
+        sessionsLoading = true
+        scope.launch {
+            account
+                .sessions()
+                .onSuccess { sessions = it }
+                .onFailure { localError = it.message ?: "无法读取登录设备" }
+            sessionsLoading = false
+        }
+    }
 
     LaunchedEffect(user.updatedAtEpochMs) {
         nickname = user.nickname
@@ -300,11 +340,12 @@ private fun SignedInAccountCard(
             Text(
                 if (nickname != user.nickname || avatarId != user.avatarId) "未保存" else "已登录",
                 style = AppTypography.caption.strong,
-                color = if (nickname != user.nickname || avatarId != user.avatarId) {
-                    accent.accent
-                } else {
-                    Brand.Online
-                },
+                color =
+                    if (nickname != user.nickname || avatarId != user.avatarId) {
+                        accent.accent
+                    } else {
+                        Brand.Online
+                    },
             )
         }
         Spacer(Modifier.height(14.dp))
@@ -327,7 +368,8 @@ private fun SignedInAccountCard(
                 busy = true
                 localError = null
                 scope.launch {
-                    account.updateProfile(nickname, avatarId)
+                    account
+                        .updateProfile(nickname, avatarId)
                         .exceptionOrNull()
                         ?.let { localError = it.message }
                     busy = false
@@ -399,12 +441,109 @@ private fun SignedInAccountCard(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !busy && currentPassword.isNotEmpty() &&
-                    newPassword.length >= MIN_PASSWORD_LENGTH &&
-                    confirmPassword.length >= MIN_PASSWORD_LENGTH,
+                enabled =
+                    !busy &&
+                        currentPassword.isNotEmpty() &&
+                        newPassword.length >= MIN_PASSWORD_LENGTH &&
+                        confirmPassword.length >= MIN_PASSWORD_LENGTH,
                 loading = busy,
             )
         }
+    }
+
+    Spacer(Modifier.height(16.dp))
+    AccountCard {
+        Text("登录设备与会话", style = AppTypography.body.strong, color = palette.text)
+        Spacer(Modifier.height(5.dp))
+        Text(
+            if (sessions.isEmpty()) "点下方按钮读取当前有效会话" else "共 ${sessions.size} 个有效会话",
+            style = AppTypography.caption.regular,
+            color = palette.sub2,
+        )
+        sessions.forEach { session ->
+            Spacer(Modifier.height(9.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        session.deviceName + if (session.current) " · 当前设备" else "",
+                        style = AppTypography.caption.strong,
+                        color = if (session.current) Brand.Online else palette.text,
+                    )
+                    Text(
+                        "最近活动 ${formatSessionActivity(session.lastSeenAtEpochMs)}",
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                    )
+                }
+                YfLinkButton(
+                    label = "撤销",
+                    onClick = {
+                        busy = true
+                        scope.launch {
+                            account
+                                .revokeSession(session.id)
+                                .onSuccess { sessions = sessions.filterNot { it.id == session.id } }
+                                .onFailure { localError = it.message ?: "撤销失败" }
+                            busy = false
+                        }
+                    },
+                    enabled = !busy,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        YfButton(
+            label = if (sessionsLoading) "正在读取…" else "刷新登录设备",
+            onClick = ::reloadSessions,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !busy && !sessionsLoading,
+            loading = sessionsLoading,
+        )
+        YfLinkButton(
+            label = "退出其他设备",
+            onClick = { confirmRevokeOthers = true },
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            enabled = !busy,
+        )
+        YfLinkButton(
+            label = "全部设备退出（包括当前设备）",
+            onClick = { confirmRevokeAll = true },
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            enabled = !busy,
+        )
+    }
+
+    Spacer(Modifier.height(16.dp))
+    AccountCard {
+        Text("账号数据", style = AppTypography.body.strong, color = palette.text)
+        Spacer(Modifier.height(5.dp))
+        Text(
+            "导出仅含账号资料和端到端加密同步信封，不含密码或登录令牌。",
+            style = AppTypography.caption.regular,
+            color = palette.sub2,
+        )
+        Spacer(Modifier.height(10.dp))
+        YfButton(
+            label = "安全导出账号数据",
+            onClick = {
+                busy = true
+                scope.launch {
+                    account
+                        .exportAccount()
+                        .onSuccess(share::shareText)
+                        .onFailure { localError = it.message ?: "导出失败" }
+                    busy = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !busy,
+        )
+        YfLinkButton(
+            label = "永久删除账号",
+            onClick = { confirmDeleteAccount = true },
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            enabled = !busy,
+        )
     }
 
     Spacer(Modifier.height(16.dp))
@@ -429,11 +568,12 @@ private fun SignedInAccountCard(
         Text(
             text = localError ?: state.message ?: syncIdleHint,
             style = AppTypography.caption.medium,
-            color = when {
-                localError != null -> palette.error
-                state.message != null -> accent.accent
-                else -> palette.sub2
-            },
+            color =
+                when {
+                    localError != null -> palette.error
+                    state.message != null -> accent.accent
+                    else -> palette.sub2
+                },
             minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -491,8 +631,9 @@ private fun SignedInAccountCard(
     if (confirmUpload) {
         ConfirmDialog(
             title = "用本机数据覆盖云端？",
-            message = "云端当前的同步数据会被这台设备上的服务器、弹幕绑定和同步设置替换，" +
-                "不能撤销。",
+            message =
+                "云端当前的同步数据会被这台设备上的服务器、弹幕绑定和同步设置替换，" +
+                    "不能撤销。",
             confirmLabel = "上传",
             onConfirm = {
                 confirmUpload = false
@@ -513,8 +654,9 @@ private fun SignedInAccountCard(
     if (confirmDownload) {
         ConfirmDialog(
             title = "用云端数据覆盖本机？",
-            message = "这台设备上的服务器、弹幕绑定和同步设置会被云端版本 " +
-                "${state.syncVersion} 替换，不能撤销。",
+            message =
+                "这台设备上的服务器、弹幕绑定和同步设置会被云端版本 " +
+                    "${state.syncVersion} 替换，不能撤销。",
             confirmLabel = "恢复",
             onConfirm = {
                 confirmDownload = false
@@ -553,6 +695,85 @@ private fun SignedInAccountCard(
             onDismiss = { confirmClearRemote = false },
         )
     }
+
+    if (confirmRevokeOthers) {
+        ConfirmDialog(
+            title = "退出其他设备？",
+            message = "其他设备的访问令牌和刷新令牌会立即失效，当前设备保持登录。",
+            confirmLabel = "确认退出",
+            destructive = true,
+            onConfirm = {
+                confirmRevokeOthers = false
+                scope.launch { account.revokeOtherSessions().onSuccess { reloadSessions() } }
+            },
+            onDismiss = { confirmRevokeOthers = false },
+        )
+    }
+
+    if (confirmRevokeAll) {
+        ConfirmDialog(
+            title = "全部设备退出？",
+            message = "包括当前设备在内的所有会话都会立即失效，需要重新登录。",
+            confirmLabel = "全部退出",
+            destructive = true,
+            onConfirm = {
+                confirmRevokeAll = false
+                scope.launch { account.revokeAllSessions() }
+            },
+            onDismiss = { confirmRevokeAll = false },
+        )
+    }
+
+    if (confirmDeleteAccount) {
+        GlassDialog(onDismiss = {
+            deletePassword = ""
+            confirmDeleteAccount = false
+        }) {
+            Text("永久删除账号？", style = AppTypography.section.strong, color = palette.text)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "账号、所有登录会话及云端加密数据将永久删除。此操作不能撤销。",
+                style = AppTypography.body.regular,
+                color = palette.body,
+            )
+            Spacer(Modifier.height(10.dp))
+            YfFormField(
+                value = deletePassword,
+                onValueChange = { deletePassword = it.take(128) },
+                label = "当前密码",
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+            Spacer(Modifier.height(12.dp))
+            YfButton(
+                label = "永久删除",
+                tone = YfButtonTone.Destructive,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = deletePassword.isNotEmpty(),
+                onClick = {
+                    val password = deletePassword.toCharArray()
+                    deletePassword = ""
+                    confirmDeleteAccount = false
+                    scope.launch {
+                        account
+                            .deleteAccount(password)
+                            .onFailure { localError = it.message ?: "账号删除失败" }
+                    }
+                },
+            )
+        }
+    }
+}
+
+private fun formatSessionActivity(epochMs: Long, nowEpochMs: Long = System.currentTimeMillis()): String {
+    val elapsedMs = (nowEpochMs - epochMs).coerceAtLeast(0L)
+    return when {
+        elapsedMs < 60_000L -> "刚刚"
+        elapsedMs < 60 * 60_000L -> "${elapsedMs / 60_000L} 分钟前"
+        elapsedMs < 24 * 60 * 60_000L -> "${elapsedMs / (60 * 60_000L)} 小时前"
+        elapsedMs < 30L * 24 * 60 * 60_000L -> "${elapsedMs / (24 * 60 * 60_000L)} 天前"
+        else -> "较早"
+    }
 }
 
 /**
@@ -566,22 +787,18 @@ private fun SignedInAccountCard(
 private const val syncIdleHint =
     "不会自动上传或恢复。上传会用本机数据覆盖云端；恢复会用云端数据覆盖本机。"
 
-
 @Composable
 private fun AccountHeader(onBack: () -> Unit) {
     val palette = LocalPalette.current
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier
-                .pressable(onClickLabel = "返回", onClick = onBack)
-                .touchTarget()
-                .size(34.dp)
-                .glass(AppShapes.thumb, palette.card3, palette.border),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(AppIcons.ChevronLeft, "返回", tint = palette.text, modifier = Modifier.size(17.dp))
-        }
-        Column(Modifier.padding(start = 12.dp)) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            // Past the list's own inset, into the corner — see [SettingsBackButton].
+            .offset(x = SettingsBackInset - Dimens.pageHorizontal),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SettingsBackButton(onBack)
+        Column(Modifier.padding(start = 10.dp)) {
             Text("账号与同步", style = AppTypography.section.strong, color = palette.text)
             Text("IP HTTPS · 敏感数据加密同步", style = AppTypography.caption.regular, color = palette.sub2)
         }
@@ -592,10 +809,11 @@ private fun AccountHeader(onBack: () -> Unit) {
 private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
     val palette = LocalPalette.current
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glass(AppShapes.card, palette.card, palette.border)
-            .padding(horizontal = 16.dp, vertical = 15.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .glass(AppShapes.card, palette.card, palette.border)
+                .padding(horizontal = 16.dp, vertical = 15.dp),
         content = content,
     )
 }
@@ -609,7 +827,11 @@ private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
  * they were choosing between existed in no other part of the app.
  */
 @Composable
-private fun AvatarPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
+private fun AvatarPicker(
+    selected: Int,
+    enabled: Boolean,
+    onSelect: (Int) -> Unit,
+) {
     LazyRow(
         modifier = Modifier.selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -620,18 +842,17 @@ private fun AvatarPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Uni
                 avatarId = id,
                 size = 38.dp,
                 selected = id == selected,
-                modifier = Modifier
-                    .pressable(
-                        enabled = enabled,
-                        haptic = HapticSignal.Select,
-                        role = Role.RadioButton,
-                        onClick = { onSelect(id) },
-                    )
-                    .semantics {
-                        this.selected = id == selected
-                        contentDescription = "头像 ${id + 1}"
-                    }
-                    .touchTarget(),
+                modifier =
+                    Modifier
+                        .pressable(
+                            enabled = enabled,
+                            haptic = HapticSignal.Select,
+                            role = Role.RadioButton,
+                            onClick = { onSelect(id) },
+                        ).semantics {
+                            this.selected = id == selected
+                            contentDescription = "头像 ${id + 1}"
+                        }.touchTarget(),
             )
         }
     }
@@ -645,7 +866,10 @@ private fun AvatarPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Uni
  * app shows this account's actual avatar.
  */
 @Composable
-private fun AccountAvatar(nickname: String, avatarId: Int) {
+private fun AccountAvatar(
+    nickname: String,
+    avatarId: Int,
+) {
     val accent = LocalAccentColors.current
     val initial = nickname.take(1)
     if (initial.isBlank()) {
@@ -653,10 +877,11 @@ private fun AccountAvatar(nickname: String, avatarId: Int) {
         return
     }
     Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .glass(CircleShape, accent.container, accent.border),
+        modifier =
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .glass(CircleShape, accent.container, accent.border),
         contentAlignment = Alignment.Center,
     ) {
         Text(

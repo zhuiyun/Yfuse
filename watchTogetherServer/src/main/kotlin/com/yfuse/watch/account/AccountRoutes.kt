@@ -68,6 +68,48 @@ internal fun Route.accountRoutes(
                     call.respondLimitedJson(backend.execute { getProfile(accessToken) })
                 }
             }
+            get("/sessions") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.ProfileRead) {
+                    val accessToken = call.requireBearerToken()
+                    call.respondLimitedJson(backend.execute { listSessions(accessToken) })
+                }
+            }
+            delete("/sessions/{sessionId}") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.ProfileWrite) {
+                    val accessToken = call.requireBearerToken()
+                    val sessionId = call.parameters["sessionId"].orEmpty()
+                    backend.execute { revokeSession(accessToken, sessionId) }
+                    call.respond(HttpStatusCode.NoContent)
+                }
+            }
+            post("/sessions/revoke-others") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.ProfileWrite) {
+                    val accessToken = call.requireBearerToken()
+                    backend.execute { revokeOtherSessions(accessToken) }
+                    call.respond(HttpStatusCode.NoContent)
+                }
+            }
+            post("/sessions/revoke-all") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.ProfileWrite) {
+                    val accessToken = call.requireBearerToken()
+                    backend.execute { revokeAllSessions(accessToken) }
+                    call.respond(HttpStatusCode.NoContent)
+                }
+            }
+            get("/export") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.ProfileRead) {
+                    val accessToken = call.requireBearerToken()
+                    call.respondLimitedJson(backend.execute { exportAccount(accessToken) })
+                }
+            }
+            delete {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.PasswordChange) {
+                    val accessToken = call.requireBearerToken()
+                    val request = call.receiveLimitedJson<DeleteAccountRequest>()
+                    backend.execute { deleteAccount(accessToken, request) }
+                    call.respond(HttpStatusCode.NoContent)
+                }
+            }
             put("/profile") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.ProfileWrite) {
                     val accessToken = call.requireBearerToken()
@@ -145,6 +187,7 @@ private suspend fun ApplicationCall.handleAccountEndpoint(
             -> HttpStatusCode.Conflict
             AccountProblem.RateLimited -> HttpStatusCode.TooManyRequests
             AccountProblem.RegistrationClosed -> HttpStatusCode.ServiceUnavailable
+            AccountProblem.InvitationInvalid -> HttpStatusCode.Forbidden
             AccountProblem.CurrentPasswordInvalid -> HttpStatusCode.Forbidden
         }
         if (status == HttpStatusCode.Unauthorized) {

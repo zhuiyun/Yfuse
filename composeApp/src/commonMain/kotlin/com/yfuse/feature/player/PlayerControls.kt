@@ -15,8 +15,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -30,13 +30,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -57,9 +56,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -67,8 +66,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -83,29 +82,29 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.util.currentClockTime
+import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
-import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
-import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
-import kotlin.math.abs
+import com.yfuse.core.util.currentClockTime
 import kotlinx.coroutines.delay
-import coil3.compose.AsyncImage
+import kotlin.math.abs
 
 /**
  * How long the player's own chrome takes to arrive or leave.
@@ -159,6 +158,7 @@ private const val HOLD_SEEK_FAST_STEP_MS = 9_000L
 private const val HOLD_SEEK_RAMP_MS = 3_000L
 
 /** Settings use one consistent floating panel and one consistent chip family. */
+
 /**
  * The player chrome, transcribed from the prototype's landscape player: a gradient
  * top bar, a centred transport cluster, a gradient bottom bar with the scrubber and
@@ -294,25 +294,26 @@ internal fun PlayerControls(
     // times a second. That is exactly as often as scrolling it stuttered. The panels below
     // now see the same callbacks they saw last frame and skip when nothing else changed.
     val latestWatchActions by rememberUpdatedState(watchActions)
-    val room = remember {
-        WatchRoomActions(
-            onCreate = { latestWatchActions.onCreate(it) },
-            onJoin = { endpoint, code -> latestWatchActions.onJoin(endpoint, code) },
-            onLeave = { latestWatchActions.onLeave() },
-            onRequestControl = { latestWatchActions.onRequestControl() },
-            onGrantControl = { latestWatchActions.onGrantControl() },
-            onDenyControl = { latestWatchActions.onDenyControl() },
-            onSendChat = { latestWatchActions.onSendChat(it) },
-            onRetryChat = { latestWatchActions.onRetryChat(it) },
-            onClearChatError = { latestWatchActions.onClearChatError() },
-            onToggleChatDanmaku = { latestWatchActions.onToggleChatDanmaku() },
-            onReact = { latestWatchActions.onReact(it) },
-            onReactionFinished = { latestWatchActions.onReactionFinished(it) },
-            onSetControlMode = { latestWatchActions.onSetControlMode(it) },
-            onSetModerator = { id, on -> latestWatchActions.onSetModerator(id, on) },
-            onKickParticipant = { latestWatchActions.onKickParticipant(it) },
-        )
-    }
+    val room =
+        remember {
+            WatchRoomActions(
+                onCreate = { latestWatchActions.onCreate(it) },
+                onJoin = { endpoint, code -> latestWatchActions.onJoin(endpoint, code) },
+                onLeave = { latestWatchActions.onLeave() },
+                onRequestControl = { latestWatchActions.onRequestControl() },
+                onGrantControl = { latestWatchActions.onGrantControl() },
+                onDenyControl = { latestWatchActions.onDenyControl() },
+                onSendChat = { latestWatchActions.onSendChat(it) },
+                onRetryChat = { latestWatchActions.onRetryChat(it) },
+                onClearChatError = { latestWatchActions.onClearChatError() },
+                onToggleChatDanmaku = { latestWatchActions.onToggleChatDanmaku() },
+                onReact = { latestWatchActions.onReact(it) },
+                onReactionFinished = { latestWatchActions.onReactionFinished(it) },
+                onSetControlMode = { latestWatchActions.onSetControlMode(it) },
+                onSetModerator = { id, on -> latestWatchActions.onSetModerator(id, on) },
+                onKickParticipant = { latestWatchActions.onKickParticipant(it) },
+            )
+        }
 
     fun poke() {
         interactions++
@@ -354,12 +355,13 @@ internal fun PlayerControls(
     // Also stable for the life of the panel, and for the same reason: read through the
     // transcript rather than closing over this frame's copy of it.
     val latestChatMessages by rememberUpdatedState(watch.chatMessages)
-    val closeWatchChat = remember {
-        {
-            watchChatOpen = false
-            lastReadChatId = latestChatMessages.lastOrNull()?.id
+    val closeWatchChat =
+        remember {
+            {
+                watchChatOpen = false
+                lastReadChatId = latestChatMessages.lastOrNull()?.id
+            }
         }
-    }
 
     LaunchedEffect(
         visible,
@@ -374,32 +376,41 @@ internal fun PlayerControls(
         accessibilityManager,
         controlsHaveFocus,
     ) {
-        val overlayOpen = gestureHelpOpen || settingsTab != null || drawerOpen ||
-            danmakuSearchOpen || danmakuSendOpen || watchChatOpen
+        val overlayOpen =
+            gestureHelpOpen ||
+                settingsTab != null ||
+                drawerOpen ||
+                danmakuSearchOpen ||
+                danmakuSendOpen ||
+                watchChatOpen
         if (
             !visible ||
             !state.playing ||
             overlayOpen ||
             controlsHaveFocus
-        ) return@LaunchedEffect
-        val timeout = accessibilityManager?.calculateRecommendedTimeoutMillis(
-            originalTimeoutMillis = AUTO_HIDE_MS,
-            containsIcons = true,
-            containsText = true,
-            containsControls = true,
-        ) ?: AUTO_HIDE_MS
+        ) {
+            return@LaunchedEffect
+        }
+        val timeout =
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = AUTO_HIDE_MS,
+                containsIcons = true,
+                containsText = true,
+                containsControls = true,
+            ) ?: AUTO_HIDE_MS
         if (timeout == Long.MAX_VALUE) return@LaunchedEffect
         delay(timeout)
         visible = false
     }
     LaunchedEffect(gestureHud, accessibilityManager) {
         if (gestureHud != null) {
-            val timeout = accessibilityManager?.calculateRecommendedTimeoutMillis(
-                originalTimeoutMillis = GESTURE_HUD_MS,
-                containsIcons = false,
-                containsText = true,
-                containsControls = false,
-            ) ?: GESTURE_HUD_MS
+            val timeout =
+                accessibilityManager?.calculateRecommendedTimeoutMillis(
+                    originalTimeoutMillis = GESTURE_HUD_MS,
+                    containsIcons = false,
+                    containsText = true,
+                    containsControls = false,
+                ) ?: GESTURE_HUD_MS
             if (timeout == Long.MAX_VALUE) return@LaunchedEffect
             delay(timeout)
             gestureHud = null
@@ -440,12 +451,13 @@ internal fun PlayerControls(
         if (watch.chatPreviewEnabled && latestId != null && latestId != lastPreviewedChatId) {
             lastPreviewedChatId = latestId
             chatPreviewVisible = true
-            val timeout = accessibilityManager?.calculateRecommendedTimeoutMillis(
-                originalTimeoutMillis = CHAT_PREVIEW_MS,
-                containsIcons = false,
-                containsText = true,
-                containsControls = false,
-            ) ?: CHAT_PREVIEW_MS
+            val timeout =
+                accessibilityManager?.calculateRecommendedTimeoutMillis(
+                    originalTimeoutMillis = CHAT_PREVIEW_MS,
+                    containsIcons = false,
+                    containsText = true,
+                    containsControls = false,
+                ) ?: CHAT_PREVIEW_MS
             if (timeout == Long.MAX_VALUE) return@LaunchedEffect
             delay(timeout)
             chatPreviewVisible = false
@@ -483,12 +495,13 @@ internal fun PlayerControls(
     }
     LaunchedEffect(volumeKeyPresses, volumeSliderTouches, volumeSliderVisible, accessibilityManager) {
         if (!volumeSliderVisible) return@LaunchedEffect
-        val timeout = accessibilityManager?.calculateRecommendedTimeoutMillis(
-            originalTimeoutMillis = VOLUME_SLIDER_HIDE_MS,
-            containsIcons = true,
-            containsText = true,
-            containsControls = true,
-        ) ?: VOLUME_SLIDER_HIDE_MS
+        val timeout =
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = VOLUME_SLIDER_HIDE_MS,
+                containsIcons = true,
+                containsText = true,
+                containsControls = true,
+            ) ?: VOLUME_SLIDER_HIDE_MS
         if (timeout == Long.MAX_VALUE) return@LaunchedEffect
         delay(timeout)
         volumeSliderVisible = false
@@ -606,8 +619,7 @@ internal fun PlayerControls(
                             poke()
                         },
                     )
-                }
-                .pointerInput(
+                }.pointerInput(
                     state.currentIndex,
                 ) {
                     var totalX = 0f
@@ -652,8 +664,9 @@ internal fun PlayerControls(
                                 return@detectDragGestures
                             }
                             val span = latestDuration.coerceAtLeast(1L)
-                            seekTarget = (
-                                latestPosition + totalX / size.width * span * 0.45f
+                            seekTarget =
+                                (
+                                    latestPosition + totalX / size.width * span * 0.45f
                                 ).toLong().coerceIn(0L, span)
                             gestureHud = "${seekTarget.asClock()} / ${span.asClock()}"
                         } else {
@@ -669,7 +682,7 @@ internal fun PlayerControls(
                             }
                         }
                     }
-                }
+                },
         )
 
         state.error?.let { message ->
@@ -682,7 +695,10 @@ internal fun PlayerControls(
         }
 
         if (locked) {
-            LockedOverlay(onUnlock = { locked = false; poke() })
+            LockedOverlay(onUnlock = {
+                locked = false
+                poke()
+            })
             return@Box
         }
 
@@ -706,11 +722,15 @@ internal fun PlayerControls(
                     onRefreshEpisodes()
                     openEpisodeDrawer()
                 },
-                onToggleFill = { poke(); onToggleFill() },
+                onToggleFill = {
+                    poke()
+                    onToggleFill()
+                },
                 watchConnected = watch.connected,
-                unreadChat = watch.chatMessages.lastOrNull()?.id?.let { latest ->
-                    lastReadChatId?.let { latest > it } ?: true
-                } ?: false,
+                unreadChat =
+                    watch.chatMessages.lastOrNull()?.id?.let { latest ->
+                        lastReadChatId?.let { latest > it } ?: true
+                    } ?: false,
                 onOpenChat = ::openWatchChat,
             )
         }
@@ -723,14 +743,30 @@ internal fun PlayerControls(
             BottomBar(
                 state = state,
                 seekLocked = watchLocked,
-                onPlayPause = { poke(); onPlayPause() },
-                onPrevious = { poke(); onPreviousItem() },
-                onNext = { poke(); onNextItem() },
-                skipCountdownLabel = skip.countdownSeconds?.let {
-                    skipCountdownLabel(skip.segmentLabel, it)
+                onPlayPause = {
+                    poke()
+                    onPlayPause()
                 },
-                onCancelAutoSkip = { poke(); skipActions.onCancelAuto() },
-                onSeek = { poke(); onSeek(it) },
+                onPrevious = {
+                    poke()
+                    onPreviousItem()
+                },
+                onNext = {
+                    poke()
+                    onNextItem()
+                },
+                skipCountdownLabel =
+                    skip.countdownSeconds?.let {
+                        skipCountdownLabel(skip.segmentLabel, it)
+                    },
+                onCancelAutoSkip = {
+                    poke()
+                    skipActions.onCancelAuto()
+                },
+                onSeek = {
+                    poke()
+                    onSeek(it)
+                },
                 onScrub = { interactions++ },
                 trickplay = trickplay,
                 onOpenTab = ::openSettings,
@@ -759,21 +795,31 @@ internal fun PlayerControls(
         // While the controls are up it is drawn under the progress bar by [BottomBar]; this
         // is the same pill for when they aren't.
         when {
-            skip.countdownSeconds != null && !visible -> SkipPill(
-                label = skipCountdownLabel(skip.segmentLabel, skip.countdownSeconds),
-                onClick = { poke(); skipActions.onCancelAuto() },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 22.dp, bottom = 24.dp),
-            )
+            skip.countdownSeconds != null && !visible ->
+                SkipPill(
+                    label = skipCountdownLabel(skip.segmentLabel, skip.countdownSeconds),
+                    onClick = {
+                        poke()
+                        skipActions.onCancelAuto()
+                    },
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 22.dp, bottom = 24.dp),
+                )
 
-            skip.countdownSeconds == null && skip.segmentLabel != null -> SkipPill(
-                label = skip.segmentLabel,
-                onClick = { poke(); skipActions.onSkip() },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 22.dp, bottom = if (visible) 92.dp else 24.dp),
-            )
+            skip.countdownSeconds == null && skip.segmentLabel != null ->
+                SkipPill(
+                    label = skip.segmentLabel,
+                    onClick = {
+                        poke()
+                        skipActions.onSkip()
+                    },
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 22.dp, bottom = if (visible) 92.dp else 24.dp),
+                )
         }
 
         settingsTab?.let { tab ->
@@ -781,70 +827,91 @@ internal fun PlayerControls(
                 onBack = { settingsTab = null },
             ) {
                 SettingsPanel(
-                modifier = Modifier.align(Alignment.CenterEnd),
-                tab = tab,
-                state = state,
-                speeds = SPEEDS,
-                engineOptions = engineOptions,
-                qualityOptions = qualityOptions,
-                transcodeLabel = transcodeLabel,
-                transcodeActive = transcodeActive,
-                castDevices = castDevices,
-                castingDeviceId = castingDeviceId,
-                castDiscovering = castDiscovering,
-                castError = castError,
-                castStatus = castStatus,
-                castPosition = castPosition,
-                castCapabilities = castCapabilities,
-                danmaku = danmaku,
-                danmakuActions = danmakuActions,
-                onOpenDanmakuSearch = {
-                    settingsTab = null
-                    danmakuActions.onOpenSearch()
-                    danmakuSearchOpen = true
-                },
-                onOpenDanmakuSend = {
-                    settingsTab = null
-                    danmakuSendOpen = true
-                },
-                onTab = { settingsTab = it },
-                onSelectSubtitle = { onSelectSubtitle(it); settingsTab = null },
-                subtitleControls = subtitleControls,
-                subtitleActions = subtitleActions,
-                remoteSubtitles = remoteSubtitles,
-                remoteSubtitleActions = remoteSubtitleActions,
-                onSelectAudio = { onSelectAudio(it); settingsTab = null },
-                onSpeed = { onSpeed(it); settingsTab = null },
-                filled = filled,
-                onToggleFill = onToggleFill,
-                onSelectEngine = { onSelectEngine(it); settingsTab = null },
-                onSelectQuality = { onSelectQuality(it); settingsTab = null },
-                onTranscode = { onTranscode(); settingsTab = null },
-                onDiscoverCast = onDiscoverCast,
-                onCastTo = onCastTo,
-                onStopCast = onStopCast,
-                onLock = {
-                    settingsTab = null
-                    locked = true
-                    visible = true
-                },
-                onOpenGestureHelp = {
-                    settingsTab = null
-                    gestureHelpOpen = true
-                },
-                watch = watch,
-                onOpenWatchTogether = {
-                    settingsTab = null
-                    watchDialogOpen = true
-                },
-                versions = versions,
-                selectedVersionId = selectedVersionId,
-                onSelectVersion = { onSelectVersion(it); settingsTab = null },
-                skip = skip,
-                // The panel stays open: setting a boundary is something you check against
-                // the picture behind it, and often two of the three in one visit.
-                skipActions = skipActions,
-                onDismiss = { settingsTab = null },
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    tab = tab,
+                    state = state,
+                    speeds = SPEEDS,
+                    engineOptions = engineOptions,
+                    qualityOptions = qualityOptions,
+                    transcodeLabel = transcodeLabel,
+                    transcodeActive = transcodeActive,
+                    castDevices = castDevices,
+                    castingDeviceId = castingDeviceId,
+                    castDiscovering = castDiscovering,
+                    castError = castError,
+                    castStatus = castStatus,
+                    castPosition = castPosition,
+                    castCapabilities = castCapabilities,
+                    danmaku = danmaku,
+                    danmakuActions = danmakuActions,
+                    onOpenDanmakuSearch = {
+                        settingsTab = null
+                        danmakuActions.onOpenSearch()
+                        danmakuSearchOpen = true
+                    },
+                    onOpenDanmakuSend = {
+                        settingsTab = null
+                        danmakuSendOpen = true
+                    },
+                    onTab = { settingsTab = it },
+                    onSelectSubtitle = {
+                        onSelectSubtitle(it)
+                        settingsTab = null
+                    },
+                    subtitleControls = subtitleControls,
+                    subtitleActions = subtitleActions,
+                    remoteSubtitles = remoteSubtitles,
+                    remoteSubtitleActions = remoteSubtitleActions,
+                    onSelectAudio = {
+                        onSelectAudio(it)
+                        settingsTab = null
+                    },
+                    onSpeed = {
+                        onSpeed(it)
+                        settingsTab = null
+                    },
+                    filled = filled,
+                    onToggleFill = onToggleFill,
+                    onSelectEngine = {
+                        onSelectEngine(it)
+                        settingsTab = null
+                    },
+                    onSelectQuality = {
+                        onSelectQuality(it)
+                        settingsTab = null
+                    },
+                    onTranscode = {
+                        onTranscode()
+                        settingsTab = null
+                    },
+                    onDiscoverCast = onDiscoverCast,
+                    onCastTo = onCastTo,
+                    onStopCast = onStopCast,
+                    onLock = {
+                        settingsTab = null
+                        locked = true
+                        visible = true
+                    },
+                    onOpenGestureHelp = {
+                        settingsTab = null
+                        gestureHelpOpen = true
+                    },
+                    watch = watch,
+                    onOpenWatchTogether = {
+                        settingsTab = null
+                        watchDialogOpen = true
+                    },
+                    versions = versions,
+                    selectedVersionId = selectedVersionId,
+                    onSelectVersion = {
+                        onSelectVersion(it)
+                        settingsTab = null
+                    },
+                    skip = skip,
+                    // The panel stays open: setting a boundary is something you check against
+                    // the picture behind it, and often two of the three in one visit.
+                    skipActions = skipActions,
+                    onDismiss = { settingsTab = null },
                 )
             }
         }
@@ -906,9 +973,10 @@ internal fun PlayerControls(
         ChromeVisibility(
             visible = !watchChatOpen && chatPreviewVisible && watch.chatMessages.isNotEmpty(),
             edge = ChromeEdge.Top,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = if (visible) 70.dp else 18.dp, end = 22.dp),
+            modifier =
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = if (visible) 70.dp else 18.dp, end = 22.dp),
         ) {
             WatchChatPreview(
                 messages = watch.chatMessages,
@@ -936,13 +1004,17 @@ internal fun PlayerControls(
                 EpisodeStrip(
                     episodes = episodes,
                     currentIndex = state.currentIndex,
-                    onSelect = if (watchLocked) {
-                        // Guests can still browse what's in the room's queue; picking is the
-                        // host's move, so tapping explains itself instead of doing nothing.
-                        { gestureHud = "房主控制播放" }
-                    } else {
-                        { onSelectItem(it); drawerOpen = false }
-                    },
+                    onSelect =
+                        if (watchLocked) {
+                            // Guests can still browse what's in the room's queue; picking is the
+                            // host's move, so tapping explains itself instead of doing nothing.
+                            { gestureHud = "房主控制播放" }
+                        } else {
+                            {
+                                onSelectItem(it)
+                                drawerOpen = false
+                            }
+                        },
                     onDismiss = { drawerOpen = false },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
@@ -957,12 +1029,13 @@ internal fun PlayerControls(
                     state = danmaku,
                     // Picking closes the sheet: the choice is made, and the result of it is
                     // the 弹幕 now running over the picture the sheet is covering.
-                    actions = danmakuActions.copy(
-                        onPickEpisode = {
-                            danmakuActions.onPickEpisode(it)
-                            danmakuSearchOpen = false
-                        },
-                    ),
+                    actions =
+                        danmakuActions.copy(
+                            onPickEpisode = {
+                                danmakuActions.onPickEpisode(it)
+                                danmakuSearchOpen = false
+                            },
+                        ),
                     onDismiss = { danmakuSearchOpen = false },
                     modifier = Modifier.align(Alignment.CenterEnd),
                 )
@@ -985,29 +1058,31 @@ internal fun PlayerControls(
         // reconnect state surfaces during playback — the room stays live and controls stay
         // in place, so a dropped socket reads as "catching up", not as the room vanishing.
         if (watch.connected && visible) {
-            val roomNote = when {
-                watch.reconnecting -> "一起看 · 重连中… · 聊天"
-                !watch.isHost -> "一起看 · 房主控制播放 · 聊天"
-                else -> "一起看 · 你是房主 · ${watch.participantCount} 人 · 聊天"
-            }
+            val roomNote =
+                when {
+                    watch.reconnecting -> "一起看 · 重连中… · 聊天"
+                    !watch.isHost -> "一起看 · 房主控制播放 · 聊天"
+                    else -> "一起看 · 你是房主 · ${watch.participantCount} 人 · 聊天"
+                }
             Text(
                 roomNote,
                 style = AppTypography.caption.medium,
                 color = if (watch.reconnecting) DarkPalette.onErrorContainer else Color.White.copy(alpha = 0.92f),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 74.dp)
-                    .glass(
-                        shape = GlassShapes.chip,
-                        fill = if (watch.reconnecting) {
-                            DarkPalette.errorContainer
-                        } else {
-                            Color.Black.copy(alpha = 0.52f)
-                        },
-                        border = Color.White.copy(alpha = 0.24f),
-                    )
-                    .noRippleClickable(::openWatchChat)
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 74.dp)
+                        .glass(
+                            shape = GlassShapes.chip,
+                            fill =
+                                if (watch.reconnecting) {
+                                    DarkPalette.errorContainer
+                                } else {
+                                    Color.Black.copy(alpha = 0.52f)
+                                },
+                            border = Color.White.copy(alpha = 0.24f),
+                        ).noRippleClickable(::openWatchChat)
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
             )
         }
 
@@ -1023,11 +1098,12 @@ internal fun PlayerControls(
          * resume button over a frame that is already coming back is a lie. Not for a guest
          * whose room is driven by its host either — the tap would only be refused.
          */
-        val showResume = !state.playing &&
-            !state.buffering &&
-            !state.ended &&
-            state.error == null &&
-            !watchLocked
+        val showResume =
+            !state.playing &&
+                !state.buffering &&
+                !state.ended &&
+                state.error == null &&
+                !watchLocked
         if (showResume) {
             Box(
                 Modifier
@@ -1037,8 +1113,7 @@ internal fun PlayerControls(
                         shape = CircleShape,
                         fill = Color.Black.copy(alpha = 0.46f),
                         border = Color.White.copy(alpha = 0.28f),
-                    )
-                    .noRippleClickable {
+                    ).noRippleClickable {
                         onPlayPause()
                         poke()
                     },
@@ -1060,15 +1135,15 @@ internal fun PlayerControls(
                 value,
                 style = AppTypography.section.strong,
                 color = Color.White,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .semantics { liveRegion = LiveRegionMode.Polite }
-                    .glass(
-                        shape = AppShapes.pill,
-                        fill = Color.Black.copy(alpha = 0.56f),
-                        border = Color.White.copy(alpha = 0.24f),
-                    )
-                    .padding(horizontal = 22.dp, vertical = 13.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.Center)
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                        .glass(
+                            shape = AppShapes.pill,
+                            fill = Color.Black.copy(alpha = 0.56f),
+                            border = Color.White.copy(alpha = 0.24f),
+                        ).padding(horizontal = 22.dp, vertical = 13.dp),
             )
         }
 
@@ -1079,9 +1154,10 @@ internal fun PlayerControls(
                     volumeSliderTouches++
                     onVolume(target)
                 },
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 26.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 26.dp),
             )
         }
 
@@ -1091,11 +1167,18 @@ internal fun PlayerControls(
                 PlayerControlsNextUpCard(
                     title = episodes.getOrNull(state.currentIndex + 1)?.title.orEmpty(),
                     remainingMs = remainingMs,
-                    onPlayNow = { poke(); onNextItem() },
-                    onDismiss = { poke(); nextUpDismissed = true },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 22.dp, bottom = 96.dp),
+                    onPlayNow = {
+                        poke()
+                        onNextItem()
+                    },
+                    onDismiss = {
+                        poke()
+                        nextUpDismissed = true
+                    },
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 22.dp, bottom = 96.dp),
                 )
             }
         }
@@ -1128,8 +1211,7 @@ private fun PlayerControlsNextUpCard(
                 shape = GlassShapes.card,
                 fill = PlayerTokens.nextUpFill,
                 border = PlayerTokens.hairline,
-            )
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            ).padding(horizontal = 14.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1151,10 +1233,11 @@ private fun PlayerControlsNextUpCard(
             "取消",
             style = AppTypography.caption.medium,
             color = PlayerTokens.timeText,
-            modifier = Modifier
-                .pressable(onClick = onDismiss)
-                .touchTarget()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier =
+                Modifier
+                    .pressable(onClick = onDismiss)
+                    .touchTarget()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
         )
         Box(
             Modifier
@@ -1181,10 +1264,11 @@ private fun PlayerControlsNextUpCard(
                     startAngle = -90f,
                     sweepAngle = -360f * (1f - progress),
                     useCenter = false,
-                    topLeft = Offset(
-                        (size.width - radius * 2f) / 2f,
-                        (size.height - radius * 2f) / 2f,
-                    ),
+                    topLeft =
+                        Offset(
+                            (size.width - radius * 2f) / 2f,
+                            (size.height - radius * 2f) / 2f,
+                        ),
                     size = Size(radius * 2f, radius * 2f),
                     style = Stroke(width = stroke, cap = StrokeCap.Round),
                 )
@@ -1233,27 +1317,27 @@ private fun PlaybackErrorOverlay(
                     "返回",
                     style = AppTypography.body.medium,
                     color = Color.White.copy(alpha = 0.82f),
-                    modifier = Modifier
-                        .glass(
-                            shape = AppShapes.pill,
-                            fill = Color.White.copy(alpha = 0.10f),
-                            border = Color.White.copy(alpha = 0.28f),
-                        )
-                        .noRippleClickable(onBack)
-                        .padding(horizontal = 18.dp, vertical = 9.dp),
+                    modifier =
+                        Modifier
+                            .glass(
+                                shape = AppShapes.pill,
+                                fill = Color.White.copy(alpha = 0.10f),
+                                border = Color.White.copy(alpha = 0.28f),
+                            ).noRippleClickable(onBack)
+                            .padding(horizontal = 18.dp, vertical = 9.dp),
                 )
                 Text(
                     "重试",
                     style = AppTypography.body.strong,
                     color = Color(0xFF1B2436),
-                    modifier = Modifier
-                        .glass(
-                            shape = AppShapes.pill,
-                            fill = Color.White.copy(alpha = 0.68f),
-                            border = Color.White.copy(alpha = 0.88f),
-                        )
-                        .noRippleClickable(onRetry)
-                        .padding(horizontal = 18.dp, vertical = 9.dp),
+                    modifier =
+                        Modifier
+                            .glass(
+                                shape = AppShapes.pill,
+                                fill = Color.White.copy(alpha = 0.68f),
+                                border = Color.White.copy(alpha = 0.88f),
+                            ).noRippleClickable(onRetry)
+                            .padding(horizontal = 18.dp, vertical = 9.dp),
                 )
             }
         }
@@ -1323,8 +1407,7 @@ private fun TopBar(
                     0f to Color.Black.copy(alpha = 0.5f),
                     1f to Color.Transparent,
                 ),
-            )
-            .padding(horizontal = 22.dp, vertical = 14.dp),
+            ).padding(horizontal = 22.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -1486,7 +1569,11 @@ private fun TransportRow(
  * Fill grows upward, so the gesture matches both the rocker and the bar's own shape.
  */
 @Composable
-private fun VolumeSlider(volume: Float, onVolume: (Float) -> Unit, modifier: Modifier = Modifier) {
+private fun VolumeSlider(
+    volume: Float,
+    onVolume: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val accent = rememberAccentColorsForSurface(dark = true)
     val fraction = volume.coerceIn(0f, 1f)
     var height by remember { mutableIntStateOf(1) }
@@ -1503,8 +1590,7 @@ private fun VolumeSlider(volume: Float, onVolume: (Float) -> Unit, modifier: Mod
                     shape = AppShapes.pill,
                     fill = Color.Black.copy(alpha = 0.56f),
                     border = Color.White.copy(alpha = 0.24f),
-                )
-                .padding(horizontal = 12.dp, vertical = 14.dp),
+                ).padding(horizontal = 12.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text("${(fraction * 100).toInt()}", style = AppTypography.caption.strong, color = Color.White)
@@ -1543,28 +1629,24 @@ private fun VolumeSlider(volume: Float, onVolume: (Float) -> Unit, modifier: Mod
                     } else {
                         Modifier
                     },
-                )
-                .semantics {
+                ).semantics {
                     stateDescription = "音量 ${(fraction * 100).toInt()}%"
                     progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f, 100)
                     setProgress { adjust(it) }
-                }
-                .onKeyEvent { event ->
+                }.onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                     when (event.key) {
                         Key.DirectionDown, Key.DirectionLeft -> adjust(fraction - 0.05f)
                         Key.DirectionUp, Key.DirectionRight -> adjust(fraction + 0.05f)
                         else -> false
                     }
-                }
-                .onFocusChanged { focused = it.isFocused }
+                }.onFocusChanged { focused = it.isFocused }
                 .focusable()
                 .onSizeChanged { height = it.height.coerceAtLeast(1) }
                 .pointerInput(height) {
                     // Bottom of the track is 0, top is 1 — hence the inversion.
                     detectTapGestures { offset -> adjust(1f - offset.y / height) }
-                }
-                .pointerInput(Unit) {
+                }.pointerInput(Unit) {
                     detectVerticalDragGestures { change, _ ->
                         change.consume()
                         adjust(1f - change.position.y / height)
@@ -1582,25 +1664,31 @@ private fun VolumeSlider(volume: Float, onVolume: (Float) -> Unit, modifier: Mod
  * first would spend a chunk of that window.
  */
 @Composable
-private fun SkipPill(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun SkipPill(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Text(
         label,
         style = AppTypography.body.strong,
         color = Color.White,
-        modifier = modifier
-            .glass(
-                shape = AppShapes.pill,
-                fill = Color.Black.copy(alpha = 0.64f),
-                border = Color.White.copy(alpha = 0.28f),
-            )
-            .noRippleClickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+        modifier =
+            modifier
+                .glass(
+                    shape = AppShapes.pill,
+                    fill = Color.Black.copy(alpha = 0.64f),
+                    border = Color.White.copy(alpha = 0.28f),
+                ).noRippleClickable(onClick = onClick)
+                .padding(horizontal = 18.dp, vertical = 10.dp),
     )
 }
 
 /** "片头结束 · 90 秒" / "片头结束 · 未设置". */
-internal fun skipBoundaryLabel(name: String, seconds: Long): String =
-    if (seconds > 0L) "$name · $seconds 秒" else "$name · 未设置"
+internal fun skipBoundaryLabel(
+    name: String,
+    seconds: Long,
+): String = if (seconds > 0L) "$name · $seconds 秒" else "$name · 未设置"
 
 /**
  * "片尾开始 · 距结束 120 秒" / "片尾开始 · 未设置".
@@ -1608,11 +1696,13 @@ internal fun skipBoundaryLabel(name: String, seconds: Long): String =
  * Spelled out rather than reusing [skipBoundaryLabel] because the number means the
  * opposite thing: 120 here is near the end of the episode, not two minutes into it.
  */
-internal fun skipCreditsLabel(seconds: Long): String =
-    if (seconds > 0L) "片尾开始 · 距结束 $seconds 秒" else "片尾开始 · 未设置"
+internal fun skipCreditsLabel(seconds: Long): String = if (seconds > 0L) "片尾开始 · 距结束 $seconds 秒" else "片尾开始 · 未设置"
 
 /** "3 秒后跳过片头 · 点击取消" — the label says what will happen and how to stop it. */
-private fun skipCountdownLabel(skipSegmentLabel: String?, seconds: Int): String {
+private fun skipCountdownLabel(
+    skipSegmentLabel: String?,
+    seconds: Int,
+): String {
     // 跳过片头 -> 片头. The type's own label is the only place this wording lives.
     val what = skipSegmentLabel?.removePrefix("跳过").orEmpty()
     return "$seconds 秒后跳过$what · 点击取消"
@@ -1643,11 +1733,12 @@ private fun BottomBar(
     var scrubbed by remember { mutableStateOf<Float?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
     val fraction = scrubbed ?: (state.positionMs.toFloat() / duration).coerceIn(0f, 1f)
-    val bufferedFraction = if (state.durationMs > 0L) {
-        (state.bufferedPositionMs.toFloat() / duration).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
+    val bufferedFraction =
+        if (state.durationMs > 0L) {
+            (state.bufferedPositionMs.toFloat() / duration).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
     val shownPosition = scrubbed?.let { scrubPositionMs(it, state.durationMs) } ?: state.positionMs
 
     Column(
@@ -1659,16 +1750,16 @@ private fun BottomBar(
                     0f to Color.Black.copy(alpha = 0.55f),
                     1f to Color.Transparent,
                 ),
-            )
-            .padding(start = 22.dp, end = 22.dp, top = 14.dp, bottom = 16.dp),
+            ).padding(start = 22.dp, end = 22.dp, top = 14.dp, bottom = 16.dp),
     ) {
         if (scrubbed != null && trickplay != null) {
             TrickplayPreview(
                 storyboard = trickplay,
                 positionMs = shownPosition,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(bottom = 8.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(bottom = 8.dp),
             )
         }
         // Progress row — `gap:10px`, `400 11px Manrope`, `rgba(255,255,255,.75)`.
@@ -1676,7 +1767,11 @@ private fun BottomBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(formatTime(shownPosition), style = AppTypography.caption.regular, color = PlayerTokens.timeTextLandscape)
+            Text(
+                formatTime(shownPosition),
+                style = AppTypography.caption.regular,
+                color = PlayerTokens.timeTextLandscape,
+            )
             SeekBar(
                 fraction = fraction,
                 bufferedFraction = bufferedFraction,
@@ -1694,7 +1789,11 @@ private fun BottomBar(
                 onCancel = { scrubbed = null },
                 modifier = Modifier.weight(1f),
             )
-            Text(formatTime(state.durationMs), style = AppTypography.caption.regular, color = PlayerTokens.timeTextLandscape)
+            Text(
+                formatTime(state.durationMs),
+                style = AppTypography.caption.regular,
+                color = PlayerTokens.timeTextLandscape,
+            )
         }
 
         if (skipCountdownLabel != null) {
@@ -1775,22 +1874,24 @@ private fun TrickplayPreview(
             model = frame.url,
             contentDescription = "${formatTime(positionMs)} 预览",
             contentScale = ContentScale.FillBounds,
-            modifier = Modifier
-                .width((previewWidth.value * storyboard.tileColumns).dp)
-                .height((previewHeight.value * storyboard.tileRows).dp)
-                .offset(
-                    x = -(previewWidth.value * frame.column).dp,
-                    y = -(previewHeight.value * frame.row).dp,
-                ),
+            modifier =
+                Modifier
+                    .width((previewWidth.value * storyboard.tileColumns).dp)
+                    .height((previewHeight.value * storyboard.tileRows).dp)
+                    .offset(
+                        x = -(previewWidth.value * frame.column).dp,
+                        y = -(previewHeight.value * frame.row).dp,
+                    ),
         )
         Text(
             formatTime(positionMs),
             style = AppTypography.caption.strong,
             color = Color.White,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .background(Color.Black.copy(alpha = 0.68f), AppShapes.micro)
-                .padding(horizontal = 5.dp, vertical = 2.dp),
+            modifier =
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .background(Color.Black.copy(alpha = 0.68f), AppShapes.micro)
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
         )
     }
 }
@@ -1850,8 +1951,7 @@ private fun SeekBar(
                 } else {
                     Modifier
                 },
-            )
-            .semantics {
+            ).semantics {
                 stateDescription = "播放进度 ${formatTime(positionMs)} / ${formatTime(durationMs)}"
                 progressBarRangeInfo = ProgressBarRangeInfo(shownFraction, 0f..1f)
                 if (enabled) {
@@ -1859,16 +1959,14 @@ private fun SeekBar(
                 } else {
                     disabled()
                 }
-            }
-            .onKeyEvent { event ->
+            }.onKeyEvent { event ->
                 if (!enabled || event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
                     Key.DirectionLeft, Key.DirectionDown -> commit(shownFraction - keyStep)
                     Key.DirectionRight, Key.DirectionUp -> commit(shownFraction + keyStep)
                     else -> false
                 }
-            }
-            .onFocusChanged { focused = it.isFocused }
+            }.onFocusChanged { focused = it.isFocused }
             .focusable(enabled)
             .let { base ->
                 if (!enabled) return@let base
@@ -1936,13 +2034,13 @@ private fun SeekBar(
                 .offset {
                     val thumbPx = thumbDiameter.roundToPx()
                     IntOffset(
-                        x = (widthPx * shownFraction - thumbPx / 2f)
-                            .toInt()
-                            .coerceIn(-thumbPx / 2, (widthPx - thumbPx / 2).coerceAtLeast(0)),
+                        x =
+                            (widthPx * shownFraction - thumbPx / 2f)
+                                .toInt()
+                                .coerceIn(-thumbPx / 2, (widthPx - thumbPx / 2).coerceAtLeast(0)),
                         y = 0,
                     )
-                }
-                .graphicsLayer { alpha = 0.72f + 0.28f * interaction }
+                }.graphicsLayer { alpha = 0.72f + 0.28f * interaction }
                 .background(Color.White, CircleShape),
         )
     }
@@ -1984,8 +2082,7 @@ private fun Chip(
                 shape = ChipShape,
                 fill = if (active) accent.container else PlayerTokens.chipFill,
                 border = if (active) accent.border else Color.White.copy(alpha = 0.24f),
-            )
-            .padding(horizontal = 14.dp),
+            ).padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -2013,16 +2110,18 @@ private fun IconChip(
             .height(ChipHeight)
             .glass(
                 shape = ChipShape,
-                fill = if (active) {
-                    accent.container
-                } else {
-                    PlayerTokens.chipFill
-                },
-                border = if (active) {
-                    accent.border
-                } else {
-                    Color.White.copy(alpha = 0.24f)
-                },
+                fill =
+                    if (active) {
+                        accent.container
+                    } else {
+                        PlayerTokens.chipFill
+                    },
+                border =
+                    if (active) {
+                        accent.border
+                    } else {
+                        Color.White.copy(alpha = 0.24f)
+                    },
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -2057,8 +2156,7 @@ private fun CircleControl(
             .graphicsLayer { alpha = if (enabled) 1f else 0.35f }
             .let {
                 if (enabled && interactive) it.noRippleClickable(onClick) else it.touchTarget()
-            }
-            .size(size + ControlTouchPadding * 2),
+            }.size(size + ControlTouchPadding * 2),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -2130,23 +2228,25 @@ private fun LockedOverlay(onUnlock: () -> Unit) {
             "解锁",
             style = AppTypography.body.medium,
             color = Color.White,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 22.dp, bottom = 40.dp)
-                .glass(
-                    shape = AppShapes.pill,
-                    fill = Color.White.copy(alpha = 0.10f),
-                    border = Color.White.copy(alpha = 0.28f),
-                )
-                .noRippleClickable(onUnlock)
-                .padding(horizontal = 18.dp, vertical = 9.dp),
+            modifier =
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 22.dp, bottom = 40.dp)
+                    .glass(
+                        shape = AppShapes.pill,
+                        fill = Color.White.copy(alpha = 0.10f),
+                        border = Color.White.copy(alpha = 0.28f),
+                    ).noRippleClickable(onUnlock)
+                    .padding(horizontal = 18.dp, vertical = 9.dp),
         )
     }
 }
 
-
 @Composable
-internal fun DiagnosticRow(label: String, value: String) {
+internal fun DiagnosticRow(
+    label: String,
+    value: String,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -2154,8 +2254,7 @@ internal fun DiagnosticRow(label: String, value: String) {
                 shape = GlassShapes.thumb,
                 fill = Color.White.copy(alpha = 0.06f),
                 border = Color.White.copy(alpha = 0.10f),
-            )
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            ).padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -2209,23 +2308,25 @@ internal fun SegmentedRow(
                 color = if (active) accent.accent else Color.White.copy(alpha = 0.62f),
                 maxLines = 1,
                 textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .weight(1f)
-                    .glass(
-                        shape = GlassShapes.thumb,
-                        fill = if (active) {
-                            accent.container
-                        } else {
-                            Color.White.copy(alpha = 0.06f)
-                        },
-                        border = if (active) {
-                            accent.border
-                        } else {
-                            Color.White.copy(alpha = 0.10f)
-                        },
-                    )
-                    .noRippleClickable { onSelect(index) }
-                    .padding(vertical = 8.dp),
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .glass(
+                            shape = GlassShapes.thumb,
+                            fill =
+                                if (active) {
+                                    accent.container
+                                } else {
+                                    Color.White.copy(alpha = 0.06f)
+                                },
+                            border =
+                                if (active) {
+                                    accent.border
+                                } else {
+                                    Color.White.copy(alpha = 0.10f)
+                                },
+                        ).noRippleClickable { onSelect(index) }
+                        .padding(vertical = 8.dp),
             )
         }
     }
@@ -2264,18 +2365,19 @@ internal fun OptionRow(
             .fillMaxWidth()
             .glass(
                 shape = GlassShapes.thumb,
-                fill = if (selected) {
-                    accent.container
-                } else {
-                    Color.White.copy(alpha = 0.06f)
-                },
-                border = if (selected) {
-                    accent.border
-                } else {
-                    Color.White.copy(alpha = 0.10f)
-                },
-            )
-            .noRippleClickable(onClick)
+                fill =
+                    if (selected) {
+                        accent.container
+                    } else {
+                        Color.White.copy(alpha = 0.06f)
+                    },
+                border =
+                    if (selected) {
+                        accent.border
+                    } else {
+                        Color.White.copy(alpha = 0.10f)
+                    },
+            ).noRippleClickable(onClick)
             .padding(horizontal = 10.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -2289,15 +2391,17 @@ internal fun OptionRow(
             modifier = Modifier.weight(1f, fill = false),
         )
         when {
-            actionLabel != null -> Text(
-                actionLabel,
-                style = AppTypography.caption.medium,
-                color = DarkPalette.error,
-                maxLines = 1,
-                modifier = Modifier
-                    .noRippleClickable(onAction)
-                    .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
-            )
+            actionLabel != null ->
+                Text(
+                    actionLabel,
+                    style = AppTypography.caption.medium,
+                    color = DarkPalette.error,
+                    maxLines = 1,
+                    modifier =
+                        Modifier
+                            .noRippleClickable(onAction)
+                            .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
+                )
 
             selected -> Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(12.dp))
         }
@@ -2312,8 +2416,7 @@ internal fun OptionRow(
  * — still no ripple — and gives them the same dip every other control in the app has.
  */
 @Composable
-internal fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier =
-    pressable(onClick = onClick).touchTarget()
+internal fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier = pressable(onClick = onClick).touchTarget()
 
 /**
  * `alphatv · 1080P · EXO · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.
@@ -2326,17 +2429,18 @@ internal fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier =
 private fun PlaybackState.readoutLine(
     sourceLabel: String?,
     containerLabel: String?,
-): String = listOfNotNull(
-    sourceLabel?.takeIf { it.isNotBlank() },
-    diagnostics.playMethod.takeIf { it.isNotBlank() },
-    resolutionLabel(videoHeight),
-    diagnostics.dynamicRange.takeIf { it.isNotBlank() },
-    containerLabel?.takeIf { it.isNotBlank() },
-    diagnostics.engine.takeIf { it.isNotBlank() }?.let(::engineShortLabel),
-    diagnostics.videoCodec.takeIf { it.isNotBlank() && it != "未知" }?.uppercase(),
-    diagnostics.bitrateBitsPerSecond.takeIf { it > 0L }?.asBitrate(),
-    diagnostics.frameRate.takeIf { it > 0f }?.asFrameRate(),
-).joinToString(" · ")
+): String =
+    listOfNotNull(
+        sourceLabel?.takeIf { it.isNotBlank() },
+        diagnostics.playMethod.takeIf { it.isNotBlank() },
+        resolutionLabel(videoHeight),
+        diagnostics.dynamicRange.takeIf { it.isNotBlank() },
+        containerLabel?.takeIf { it.isNotBlank() },
+        diagnostics.engine.takeIf { it.isNotBlank() }?.let(::engineShortLabel),
+        diagnostics.videoCodec.takeIf { it.isNotBlank() && it != "未知" }?.uppercase(),
+        diagnostics.bitrateBitsPerSecond.takeIf { it > 0L }?.asBitrate(),
+        diagnostics.frameRate.takeIf { it > 0f }?.asFrameRate(),
+    ).joinToString(" · ")
 
 /**
  * `Media3 / ExoPlayer` reads as a sentence; this line has room for a word.
@@ -2344,21 +2448,23 @@ private fun PlaybackState.readoutLine(
  * Unmatched names pass through as their first word rather than being dropped — a future
  * engine should show up here without anyone remembering to add it to a list.
  */
-private fun engineShortLabel(engine: String): String = when {
-    engine.contains("exo", ignoreCase = true) -> "EXO"
-    engine.contains("mpv", ignoreCase = true) -> "MPV"
-    engine.contains("mdk", ignoreCase = true) -> "MDK"
-    else -> engine.substringBefore(' ').uppercase()
-}
+private fun engineShortLabel(engine: String): String =
+    when {
+        engine.contains("exo", ignoreCase = true) -> "EXO"
+        engine.contains("mpv", ignoreCase = true) -> "MPV"
+        engine.contains("mdk", ignoreCase = true) -> "MDK"
+        else -> engine.substringBefore(' ').uppercase()
+    }
 
-private fun resolutionLabel(height: Int): String? = when {
-    height <= 0 -> null
-    height >= 2000 -> "4K"
-    height >= 1400 -> "2K"
-    height >= 1000 -> "1080P"
-    height >= 700 -> "720P"
-    else -> "${height}P"
-}
+private fun resolutionLabel(height: Int): String? =
+    when {
+        height <= 0 -> null
+        height >= 2000 -> "4K"
+        height >= 1400 -> "2K"
+        height >= 1000 -> "1080P"
+        height >= 700 -> "720P"
+        else -> "${height}P"
+    }
 
 internal fun speedLabel(speed: Float): String =
     if (speed == speed.toInt().toFloat()) "${speed.toInt()}x" else "${speed}x"
@@ -2409,30 +2515,36 @@ internal fun ChromeVisibility(
     val travel: (Int) -> Int = { full -> full / 6 }
     val moving = !reduceMotion
 
-    val enter = when {
-        !moving -> fadeIn(fade)
-        edge == ChromeEdge.Top -> fadeIn(fade) + slideInVertically(slide) { -travel(it) }
-        edge == ChromeEdge.Bottom -> fadeIn(fade) + slideInVertically(slide) { travel(it) }
-        edge == ChromeEdge.End -> fadeIn(fade) + slideInHorizontally(slide) { travel(it) }
-        // Anchored inside its own full-screen box, so it grows out of the corner it sits in
-        // rather than sliding the invisible dismiss catcher around with it.
-        else -> fadeIn(fade) + scaleIn(
-            tween(CHROME_MS, easing = Motion.Curve),
-            initialScale = 0.94f,
-            transformOrigin = TransformOrigin(1f, 1f),
-        )
-    }
-    val exit = when {
-        !moving -> fadeOut(fade)
-        edge == ChromeEdge.Top -> fadeOut(fade) + slideOutVertically(slide) { -travel(it) }
-        edge == ChromeEdge.Bottom -> fadeOut(fade) + slideOutVertically(slide) { travel(it) }
-        edge == ChromeEdge.End -> fadeOut(fade) + slideOutHorizontally(slide) { travel(it) }
-        else -> fadeOut(fade) + scaleOut(
-            tween(CHROME_MS, easing = Motion.Curve),
-            targetScale = 0.94f,
-            transformOrigin = TransformOrigin(1f, 1f),
-        )
-    }
+    val enter =
+        when {
+            !moving -> fadeIn(fade)
+            edge == ChromeEdge.Top -> fadeIn(fade) + slideInVertically(slide) { -travel(it) }
+            edge == ChromeEdge.Bottom -> fadeIn(fade) + slideInVertically(slide) { travel(it) }
+            edge == ChromeEdge.End -> fadeIn(fade) + slideInHorizontally(slide) { travel(it) }
+            // Anchored inside its own full-screen box, so it grows out of the corner it sits in
+            // rather than sliding the invisible dismiss catcher around with it.
+            else ->
+                fadeIn(fade) +
+                    scaleIn(
+                        tween(CHROME_MS, easing = Motion.Curve),
+                        initialScale = 0.94f,
+                        transformOrigin = TransformOrigin(1f, 1f),
+                    )
+        }
+    val exit =
+        when {
+            !moving -> fadeOut(fade)
+            edge == ChromeEdge.Top -> fadeOut(fade) + slideOutVertically(slide) { -travel(it) }
+            edge == ChromeEdge.Bottom -> fadeOut(fade) + slideOutVertically(slide) { travel(it) }
+            edge == ChromeEdge.End -> fadeOut(fade) + slideOutHorizontally(slide) { travel(it) }
+            else ->
+                fadeOut(fade) +
+                    scaleOut(
+                        tween(CHROME_MS, easing = Motion.Curve),
+                        targetScale = 0.94f,
+                        transformOrigin = TransformOrigin(1f, 1f),
+                    )
+        }
 
     AnimatedVisibility(
         visible = visible,

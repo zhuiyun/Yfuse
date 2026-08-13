@@ -40,9 +40,10 @@ internal fun String.takeGraphemesWithinUtf8Bytes(maxBytes: Int): String {
     return substring(0, cursor)
 }
 
-internal fun String.withoutControlCharacters(): String = filterNot { character ->
-    character.code in 0x00..0x1F || character.code in 0x7F..0x9F
-}
+internal fun String.withoutControlCharacters(): String =
+    filterNot { character ->
+        character.code in 0x00..0x1F || character.code in 0x7F..0x9F
+    }
 
 private fun String.nextGraphemeEnd(start: Int): Int {
     var cursor = codePointAt(start).end
@@ -74,7 +75,10 @@ private fun String.consumeExtenders(from: Int): Int {
     return cursor
 }
 
-private data class CodePoint(val value: Int, val end: Int)
+private data class CodePoint(
+    val value: Int,
+    val end: Int,
+)
 
 private fun String.codePointAt(index: Int): CodePoint {
     val high = this[index].code

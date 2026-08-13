@@ -39,11 +39,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yfuse.R
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.LightPalette
+import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.defaultAnimation
 import com.yfuse.core.designsystem.resolveDark
+import com.yfuse.feature.profile.currentAppIconVariant
+import com.yfuse.feature.profile.splashMark
 import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.lerp as lerpColor
 
@@ -58,26 +61,35 @@ fun AnimatedSplashApp(
 ) {
     val themeMode by root.themePreferences.mode.collectAsState()
     val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
-    val variant by root.themePreferences.splashVariant.collectAsState()
+    val storedVariant by root.themePreferences.splashVariant.collectAsState()
+    // Logo and launch are one decision, and the launcher icon is the half of it the user can
+    // see from the home screen — so it is the authority. Settings writes both together; this
+    // only catches a pair that drifted apart, which upgrades from a build that mapped them
+    // differently can leave behind, and it resolves it without a startup write.
+    val iconMark = remember { currentAppIconVariant().splashMark }
+    val variant = if (storedVariant.mark == iconMark) storedVariant else iconMark.defaultAnimation
     val systemDark = isSystemInDarkTheme()
     val dark = themeMode.resolveDark(systemDark)
 
     val context = LocalContext.current
     val systemAnimationsOff = remember(context) { context.systemAnimationsOff() }
     val stillFrame = reduceMotion || systemAnimationsOff
-    val splashHistory = remember(context) {
-        context.getSharedPreferences(SplashHistoryPreferences, Context.MODE_PRIVATE)
-    }
-    val firstSplash = rememberSaveable {
-        !splashHistory.getBoolean(SplashHistorySeenKey, false)
-    }
-    val timing = remember(firstSplash, reduceMotion, systemAnimationsOff) {
-        splashTiming(
-            firstLaunch = firstSplash,
-            reduceMotion = reduceMotion,
-            systemAnimationsOff = systemAnimationsOff,
-        )
-    }
+    val splashHistory =
+        remember(context) {
+            context.getSharedPreferences(SplashHistoryPreferences, Context.MODE_PRIVATE)
+        }
+    val firstSplash =
+        rememberSaveable {
+            !splashHistory.getBoolean(SplashHistorySeenKey, false)
+        }
+    val timing =
+        remember(firstSplash, reduceMotion, systemAnimationsOff) {
+            splashTiming(
+                firstLaunch = firstSplash,
+                reduceMotion = reduceMotion,
+                systemAnimationsOff = systemAnimationsOff,
+            )
+        }
 
     var splashVisible by rememberSaveable {
         mutableStateOf(root.themePreferences.splashAnimation.value)
@@ -99,7 +111,7 @@ fun AnimatedSplashApp(
 
         if (splashVisible) {
             AnimatedSplashScreen(
-                choreography = variant.choreography,
+                variant = variant,
                 dark = dark,
                 // The system painted the starting window from the -night resources, so it
                 // followed the OS rather than our own setting. Opening on that colour and
@@ -123,7 +135,7 @@ fun AnimatedSplashApp(
  */
 @Composable
 private fun AnimatedSplashScreen(
-    choreography: SplashChoreography,
+    variant: SplashAnimation,
     dark: Boolean,
     entryDark: Boolean,
     stillFrame: Boolean,
@@ -132,6 +144,7 @@ private fun AnimatedSplashScreen(
 ) {
     StatusBarIconStyle(darkIcons = !dark)
 
+    val choreography = variant.choreography
     val clock = remember(choreography) { Animatable(0f) }
 
     LaunchedEffect(choreography, stillFrame, timing) {
@@ -163,38 +176,35 @@ private fun AnimatedSplashScreen(
     val targetColor = splashBackground(dark)
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .drawBehind {
-                val tint = smooth(span(clock.value, 0f, EntryTintMs))
-                drawRect(lerpColor(entryColor, targetColor, tint))
-            },
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    val tint = smooth(span(clock.value, 0f, EntryTintMs))
+                    drawRect(lerpColor(entryColor, targetColor, tint))
+                },
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer {
-                    // Only the artwork fades. The splash surface remains opaque until this
-                    // whole layer is removed, so startup content can never leak through in a
-                    // half-composed frame during the hand-off.
-                    alpha = splashForegroundAlpha(
-                        nowMs = clock.value,
-                        fadeStartMs = choreography.fadeStartMs,
-                        durationMs = choreography.durationMs,
-                    )
-                },
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        // Only the artwork fades. The splash surface remains opaque until this
+                        // whole layer is removed, so startup content can never leak through in a
+                        // half-composed frame during the hand-off.
+                        alpha =
+                            splashForegroundAlpha(
+                                nowMs = clock.value,
+                                fadeStartMs = choreography.fadeStartMs,
+                                durationMs = choreography.durationMs,
+                            )
+                    },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Keep launcher Logo and splash artwork paired. 折带展开 belongs to the
-            // legacy cloud-player mark; 水火交接 belongs to the current water-fire mark.
-            val mark = ImageBitmap.imageResource(
-                if (choreography === SplashOne) {
-                    R.drawable.cloud_player_logo
-                } else {
-                    R.drawable.yfuse_mark_ribbon
-                },
-            )
+            // The artwork belongs to the choreography, which belongs to a logo — the cloud
+            // ones draw their own shapes and take nothing from here.
+            val mark = variant.markResource()?.let { ImageBitmap.imageResource(it) }
             Canvas(
                 Modifier
                     // B lays the streak column and the mark out across one row 240 units
@@ -226,31 +236,31 @@ private fun AnimatedSplashScreen(
  * being waited for. The artwork carries the colour; the name says whose it is.
  */
 @Composable
-private fun SplashWordmark(
-    wordmark: () -> Float,
-) {
+private fun SplashWordmark(wordmark: () -> Float) {
     Text(
         text = "Yfuse",
-        style = TextStyle(
-            // The mark's own run, left to right: water into fire. Flat ink was the safe
-            // choice while the wordmark sat under a blue-purple logo; under this one it
-            // is the only grey thing on the screen.
-            brush = WordmarkBrush,
-            fontSize = 30.sp,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = 1.sp,
-        ),
+        style =
+            TextStyle(
+                // The mark's own run, left to right: water into fire. Flat ink was the safe
+                // choice while the wordmark sat under a blue-purple logo; under this one it
+                // is the only grey thing on the screen.
+                brush = WordmarkBrush,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.sp,
+            ),
         // An earlier pass animated letterSpacing and Modifier.blur. letterSpacing
         // re-measured and re-laid-out the text on every frame, and blur built a fresh
         // RenderEffect on every frame while being a silent no-op below API 31, which is
         // most of our minSdk 26 range. A scale reads the same and never leaves the layer.
-        modifier = Modifier.graphicsLayer {
-            val settled = wordmark()
-            alpha = settled
-            scaleX = lerp(1.09f, 1f, settled)
-            scaleY = lerp(1.04f, 1f, settled)
-            translationY = lerp(9f, 0f, settled).dp.toPx()
-        },
+        modifier =
+            Modifier.graphicsLayer {
+                val settled = wordmark()
+                alpha = settled
+                scaleX = lerp(1.09f, 1f, settled)
+                scaleY = lerp(1.04f, 1f, settled)
+                translationY = lerp(9f, 0f, settled).dp.toPx()
+            },
     )
 }
 
@@ -258,8 +268,7 @@ private fun SplashWordmark(
  * The one colour the system splash, the activity window and the Compose splash all paint. It is
  * the app's own background, so the last hand-off has no colour step in it either.
  */
-internal fun splashBackground(dark: Boolean): Color =
-    if (dark) DarkPalette.background else LightPalette.background
+internal fun splashBackground(dark: Boolean): Color = if (dark) DarkPalette.background else LightPalette.background
 
 /**
  * The launch window must match the first Compose splash frame. When animation is disabled there
@@ -272,8 +281,11 @@ internal fun launchWindowDarkMode(
 ): Boolean = if (splashEnabled) systemDark else appDark
 
 /** Fades only the splash artwork; its background intentionally has no alpha transition. */
-internal fun splashForegroundAlpha(nowMs: Float, fadeStartMs: Float, durationMs: Float): Float =
-    1f - smooth(span(nowMs, fadeStartMs, durationMs - fadeStartMs))
+internal fun splashForegroundAlpha(
+    nowMs: Float,
+    fadeStartMs: Float,
+    durationMs: Float,
+): Float = 1f - smooth(span(nowMs, fadeStartMs, durationMs - fadeStartMs))
 
 /** Whether the OS is in dark mode — the configuration the -night resources resolved against. */
 internal fun Resources.isNightMode(): Boolean =
@@ -297,28 +309,33 @@ internal fun splashTiming(
     firstLaunch: Boolean,
     reduceMotion: Boolean,
     systemAnimationsOff: Boolean,
-): SplashTiming = when {
-    systemAnimationsOff -> SplashTiming(
-        motionDurationMs = 0,
-        fadeDurationMs = 0,
-        stillFrameHoldMs = SystemAnimationsOffHoldMs,
-    )
-    reduceMotion -> SplashTiming(
-        motionDurationMs = 0,
-        fadeDurationMs = ReducedMotionFadeMs,
-        stillFrameHoldMs = ReducedMotionHoldMs,
-    )
-    firstLaunch -> SplashTiming(
-        motionDurationMs = FirstLaunchMotionMs,
-        fadeDurationMs = FirstLaunchFadeMs,
-        stillFrameHoldMs = 0,
-    )
-    else -> SplashTiming(
-        motionDurationMs = ReturningLaunchMotionMs,
-        fadeDurationMs = ReturningLaunchFadeMs,
-        stillFrameHoldMs = 0,
-    )
-}
+): SplashTiming =
+    when {
+        systemAnimationsOff ->
+            SplashTiming(
+                motionDurationMs = 0,
+                fadeDurationMs = 0,
+                stillFrameHoldMs = SystemAnimationsOffHoldMs,
+            )
+        reduceMotion ->
+            SplashTiming(
+                motionDurationMs = 0,
+                fadeDurationMs = ReducedMotionFadeMs,
+                stillFrameHoldMs = ReducedMotionHoldMs,
+            )
+        firstLaunch ->
+            SplashTiming(
+                motionDurationMs = FirstLaunchMotionMs,
+                fadeDurationMs = FirstLaunchFadeMs,
+                stillFrameHoldMs = 0,
+            )
+        else ->
+            SplashTiming(
+                motionDurationMs = ReturningLaunchMotionMs,
+                fadeDurationMs = ReturningLaunchFadeMs,
+                stillFrameHoldMs = 0,
+            )
+    }
 
 private const val SplashHistoryPreferences = "yfuse_splash_history"
 private const val SplashHistorySeenKey = "has_seen_full_splash"
@@ -338,11 +355,13 @@ private const val EntryTintMs = 300f
  * direction the mark runs it. Identical in both themes: these are brand colours, and both
  * ends of the ramp clear the light and the dark page.
  */
-private val WordmarkBrush = Brush.linearGradient(
-    colorStops = arrayOf(
-        0f to Color(0xFF22D3EE),
-        0.34f to Color(0xFF2563EB),
-        0.68f to Color(0xFFF97316),
-        1f to Color(0xFFEAB308),
-    ),
-)
+private val WordmarkBrush =
+    Brush.linearGradient(
+        colorStops =
+            arrayOf(
+                0f to Color(0xFF22D3EE),
+                0.34f to Color(0xFF2563EB),
+                0.68f to Color(0xFFF97316),
+                1f to Color(0xFFEAB308),
+            ),
+    )

@@ -6,15 +6,20 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
-import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.PlaybackFailoverPlan
 import com.yfuse.core.data.PlaybackFailoverRequest
+import com.yfuse.core.data.PlaybackNetworkClass
+import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.PlaybackTrackRequest
+import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.smartFailoverServerIds
+import com.yfuse.core.data.recommendedServerSource
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
+import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
-import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
@@ -93,23 +98,53 @@ sealed interface DetailIntent {
 
     /** The one-shot 提示 has been on screen long enough — see [ActionToast]. */
     data object DismissMessage : DetailIntent
+
     data object Play : DetailIntent
+
     data object ToggleFavorite : DetailIntent
+
     data object TogglePlayed : DetailIntent
+
     data object AddToWatchLater : DetailIntent
+
     data object LoadOrganizationContainers : DetailIntent
-    data class AddToOrganizationContainer(val containerId: String) : DetailIntent
+
+    data class AddToOrganizationContainer(
+        val containerId: String,
+    ) : DetailIntent
+
     /** 从头播放 — the same target as [Play], with the stored progress ignored. */
     data object PlayFromStart : DetailIntent
-    data class SelectSource(val serverId: String, val itemId: String) : DetailIntent
+
+    data class SelectSource(
+        val serverId: String,
+        val itemId: String,
+    ) : DetailIntent
+
     /** Picks one of the several files the server holds for this title. */
-    data class SelectVersion(val versionId: String) : DetailIntent
-    data class SelectSeason(val seasonId: String) : DetailIntent
+    data class SelectVersion(
+        val versionId: String,
+    ) : DetailIntent
+
+    data class SelectSeason(
+        val seasonId: String,
+    ) : DetailIntent
+
     /** Null restores the file's own default track. */
-    data class SelectAudioLanguage(val language: String?) : DetailIntent
+    data class SelectAudioLanguage(
+        val language: String?,
+    ) : DetailIntent
+
     /** `PlaybackTrackRequest.SUBTITLES_OFF` starts with subtitles off. */
-    data class SelectSubtitleLanguage(val language: String?) : DetailIntent
-    data class SelectEpisode(val episodeId: String, val startPositionTicks: Long) : DetailIntent
+    data class SelectSubtitleLanguage(
+        val language: String?,
+    ) : DetailIntent
+
+    data class SelectEpisode(
+        val episodeId: String,
+        val startPositionTicks: Long,
+    ) : DetailIntent
+
     /** Mirrors episode/resource/version changes made inside the dedicated player. */
     data class SyncPlaybackSelection(
         val serverId: String?,
@@ -138,7 +173,9 @@ sealed interface DetailLabel {
     ) : DetailLabel
 }
 
-private sealed interface DetailAction { data object Load : DetailAction }
+private sealed interface DetailAction {
+    data object Load : DetailAction
+}
 
 private data class ResolvedPlaybackSelection(
     val server: SavedServer,
@@ -161,30 +198,73 @@ private const val SOURCE_SELECTION_TIMEOUT_MS = 45_000L
 
 private sealed interface DetailMsg {
     data object Loading : DetailMsg
-    data class Loaded(val detail: MediaDetail, val server: SavedServer) : DetailMsg
-    data class Failed(val message: String) : DetailMsg
-    data class Resolving(val value: Boolean) : DetailMsg
-    data class SelectionLoading(val value: Boolean) : DetailMsg
-    data class VersionSelected(val versionId: String) : DetailMsg
-    data class EpisodeSelected(val itemId: String) : DetailMsg
-    data class SeasonsLoaded(val seasons: List<Season>, val selected: String?) : DetailMsg
+
+    data class Loaded(
+        val detail: MediaDetail,
+        val server: SavedServer,
+    ) : DetailMsg
+
+    data class Failed(
+        val message: String,
+    ) : DetailMsg
+
+    data class Resolving(
+        val value: Boolean,
+    ) : DetailMsg
+
+    data class SelectionLoading(
+        val value: Boolean,
+    ) : DetailMsg
+
+    data class VersionSelected(
+        val versionId: String,
+    ) : DetailMsg
+
+    data class EpisodeSelected(
+        val itemId: String,
+    ) : DetailMsg
+
+    data class SeasonsLoaded(
+        val seasons: List<Season>,
+        val selected: String?,
+    ) : DetailMsg
+
     data object EpisodesLoading : DetailMsg
+
     data object EpisodesLoadingFinished : DetailMsg
-    data class EpisodesLoaded(val episodes: List<Episode>) : DetailMsg
-    data class SourcesLoaded(val sources: List<ServerSource>) : DetailMsg
-    data class RelatedLoaded(val items: List<MediaItem>) : DetailMsg
+
+    data class EpisodesLoaded(
+        val episodes: List<Episode>,
+    ) : DetailMsg
+
+    data class SourcesLoaded(
+        val sources: List<ServerSource>,
+    ) : DetailMsg
+
+    data class RelatedLoaded(
+        val items: List<MediaItem>,
+    ) : DetailMsg
+
     data class FavoriteChanged(
         val serverId: String,
         val itemId: String,
         val value: Boolean,
     ) : DetailMsg
+
     data class PlayedChanged(
         val serverId: String,
         val itemId: String,
         val value: Boolean,
     ) : DetailMsg
-    data class ActionMessage(val value: String?) : DetailMsg
-    data class SourceFailure(val value: SourceSelectionFailure?) : DetailMsg
+
+    data class ActionMessage(
+        val value: String?,
+    ) : DetailMsg
+
+    data class SourceFailure(
+        val value: SourceSelectionFailure?,
+    ) : DetailMsg
+
     data class PlaybackSelectionLoaded(
         val server: SavedServer,
         val sourceDetail: MediaDetail,
@@ -195,14 +275,37 @@ private sealed interface DetailMsg {
         val episodes: List<Episode>? = null,
         val preferredVersionId: String? = null,
     ) : DetailMsg
-    data class AudioLanguageSelected(val language: String?) : DetailMsg
-    data class SubtitleLanguageSelected(val language: String?) : DetailMsg
+
+    data class AudioLanguageSelected(
+        val language: String?,
+    ) : DetailMsg
+
+    data class SubtitleLanguageSelected(
+        val language: String?,
+    ) : DetailMsg
+
     data object OrganizationLoading : DetailMsg
-    data class OrganizationLoaded(val containers: List<MediaContainer>) : DetailMsg
-    data class OrganizationLoadFailed(val message: String) : DetailMsg
-    data class OrganizationAdding(val containerId: String) : DetailMsg
-    data class OrganizationAdded(val containerId: String) : DetailMsg
-    data class OrganizationAddFailed(val containerId: String, val message: String) : DetailMsg
+
+    data class OrganizationLoaded(
+        val containers: List<MediaContainer>,
+    ) : DetailMsg
+
+    data class OrganizationLoadFailed(
+        val message: String,
+    ) : DetailMsg
+
+    data class OrganizationAdding(
+        val containerId: String,
+    ) : DetailMsg
+
+    data class OrganizationAdded(
+        val containerId: String,
+    ) : DetailMsg
+
+    data class OrganizationAddFailed(
+        val containerId: String,
+        val message: String,
+    ) : DetailMsg
 }
 
 class DetailStoreFactory(
@@ -216,14 +319,18 @@ class DetailStoreFactory(
     private val playbackTrackRequest: PlaybackTrackRequest,
     private val syncManager: ServerSyncManager,
     private val playbackFailoverRequest: PlaybackFailoverRequest = PlaybackFailoverRequest(),
+    private val playbackPreferences: PlaybackPreferences? = null,
+    private val healthMonitor: ServerHealthMonitor? = null,
+    private val networkClass: () -> PlaybackNetworkClass = { PlaybackNetworkClass.Unknown },
 ) {
     fun create(): Store<DetailIntent, DetailState, DetailLabel> =
         storeFactory.create(
             name = "DetailStore",
             initialState = DetailState(),
-            bootstrapper = coroutineBootstrapper<DetailAction>(mainContext) {
-                dispatch(DetailAction.Load)
-            },
+            bootstrapper =
+                coroutineBootstrapper<DetailAction>(mainContext) {
+                    dispatch(DetailAction.Load)
+                },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
         )
@@ -232,10 +339,10 @@ class DetailStoreFactory(
         CoroutineExecutor<DetailIntent, DetailAction, DetailState, DetailMsg, DetailLabel>(
             mainContext,
         ) {
-
         /** Only one cross-server resolution may own the pending UI state at a time. */
         private var sourceSelectionJob: Job? = null
         private var sourceSelectionOperation = 0L
+
         /** Prevents an older episode response from committing after a newer selection flow. */
         private var episodeSelectionOperation = 0L
         private var pendingSourceServerId: String? = null
@@ -326,12 +433,13 @@ class DetailStoreFactory(
                     val current = state()
                     val syncedItemId = intent.itemId ?: return
                     val syncedServerId = intent.serverId ?: return
-                    val source = current.sources.firstOrNull {
-                        it.serverId == syncedServerId &&
-                            it.reachable &&
-                            it.source != null &&
-                            it.itemId != null
-                    }
+                    val source =
+                        current.sources.firstOrNull {
+                            it.serverId == syncedServerId &&
+                                it.reachable &&
+                                it.source != null &&
+                                it.itemId != null
+                        }
                     if (current.selectedSourceServerId != syncedServerId && source?.itemId != null) {
                         clearQueuedPlay()
                         selectSource(
@@ -379,11 +487,12 @@ class DetailStoreFactory(
         }
 
         /** The series this detail belongs to, if any. */
-        private fun seriesIdOf(detail: MediaDetail): String? = when (detail.type) {
-            "Series" -> detail.id
-            "Episode" -> detail.seriesId
-            else -> null
-        }
+        private fun seriesIdOf(detail: MediaDetail): String? =
+            when (detail.type) {
+                "Series" -> detail.id
+                "Episode" -> detail.seriesId
+                else -> null
+            }
 
         private fun load() {
             val server = serverId?.let(registry::serverById) ?: registry.defaultServer
@@ -398,13 +507,13 @@ class DetailStoreFactory(
                     dispatch(DetailMsg.Failed("没有可用的服务器"))
                     return@launch
                 }
-                repo.itemDetail(server, itemId)
+                repo
+                    .itemDetail(server, itemId)
                     .onSuccess { detail ->
                         dispatch(DetailMsg.Loaded(detail, server))
                         loadPlaybackSelection(server, detail)
                         loadRelated(server, detail)
-                    }
-                    .onFailure {
+                    }.onFailure {
                         clearQueuedPlay()
                         dispatch(DetailMsg.SelectionLoading(false))
                         AppLog.warning(
@@ -431,7 +540,10 @@ class DetailStoreFactory(
          * Failure is silent on purpose: everything it feeds is an enrichment, and the page
          * behaves exactly as it did before when it does not arrive.
          */
-        private fun loadPlaybackSelection(server: SavedServer, detail: MediaDetail) {
+        private fun loadPlaybackSelection(
+            server: SavedServer,
+            detail: MediaDetail,
+        ) {
             scope.launch {
                 resolvePlaybackSelection(server, detail, preferredEpisode = null)
                     .onSuccess { selection ->
@@ -444,8 +556,7 @@ class DetailStoreFactory(
                         ) {
                             dispatchPlaybackSelection(selection)
                         }
-                    }
-                    .onFailure {
+                    }.onFailure {
                         // Comparison remains useful even when resolving the initial episode
                         // fails; without a coordinate the repository uses its fallback.
                         loadSources(server, detail, seasonNumber = null, episodeNumber = null)
@@ -478,34 +589,41 @@ class DetailStoreFactory(
             val servers = registry.data.value.servers
             val generation = ++sourceLoadGeneration
             scope.launch {
-                val tmdbId = detail.providerIds.entries
-                    .firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
-                    ?.value
-                    ?.toIntOrNull()
-                val sources = repo.compareSources(
-                    servers = servers,
-                    currentServerId = server.id,
-                    title = detail.title,
-                    tmdbId = tmdbId,
-                    mediaType = when (detail.type) {
-                        "Series" -> "tv"
-                        "Movie" -> "movie"
-                        else -> null
-                    },
-                    year = detail.year,
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                )
+                val tmdbId =
+                    detail.providerIds.entries
+                        .firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
+                        ?.value
+                        ?.toIntOrNull()
+                val sources =
+                    repo.compareSources(
+                        servers = servers,
+                        currentServerId = server.id,
+                        title = detail.title,
+                        tmdbId = tmdbId,
+                        mediaType =
+                            when (detail.type) {
+                                "Series" -> "tv"
+                                "Movie" -> "movie"
+                                else -> null
+                            },
+                        year = detail.year,
+                        seasonNumber = seasonNumber,
+                        episodeNumber = episodeNumber,
+                    )
                 if (generation == sourceLoadGeneration) {
                     dispatch(DetailMsg.SourcesLoaded(sources))
                 }
             }
         }
 
-        private fun loadRelated(server: SavedServer, detail: MediaDetail) {
+        private fun loadRelated(
+            server: SavedServer,
+            detail: MediaDetail,
+        ) {
             val generation = ++relatedLoadGeneration
             scope.launch {
-                repo.similarItems(server, detail.id)
+                repo
+                    .similarItems(server, detail.id)
                     .onSuccess {
                         if (
                             generation == relatedLoadGeneration &&
@@ -514,8 +632,7 @@ class DetailStoreFactory(
                         ) {
                             dispatch(DetailMsg.RelatedLoaded(it))
                         }
-                    }
-                    .onFailure {
+                    }.onFailure {
                         if (
                             generation != relatedLoadGeneration ||
                             state().server?.id != server.id ||
@@ -540,84 +657,91 @@ class DetailStoreFactory(
             sourceDetail: MediaDetail,
             preferredEpisode: EpisodeCoordinate?,
             preferredPlaybackItemId: String? = null,
-        ): Result<ResolvedPlaybackSelection> = cancellableResult {
-            if (sourceDetail.type != "Series") {
-                val catalog = seriesIdOf(sourceDetail)?.let { seriesId ->
-                    loadSeriesCatalog(server, seriesId, sourceDetail, allEpisodes = null)
-                }
-                return@cancellableResult ResolvedPlaybackSelection(
-                    server = server,
-                    sourceDetail = sourceDetail,
-                    target = sourceDetail,
-                    positionTicks = sourceDetail.resumePositionTicks ?: 0L,
-                    seasons = catalog?.seasons.orEmpty(),
-                    selectedSeasonId = catalog?.selectedSeasonId,
-                    episodes = catalog?.episodes.orEmpty(),
-                )
-            }
-
-            if (preferredPlaybackItemId != null) {
-                val targetDetail = repo.itemDetail(server, preferredPlaybackItemId).getOrThrow()
-                if (targetDetail.type != "Episode" || targetDetail.seriesId != sourceDetail.id) {
-                    throw EpisodeUnavailableException(
-                        seasonNumber = targetDetail.seasonNumber,
-                        episodeNumber = targetDetail.episodeNumber,
+        ): Result<ResolvedPlaybackSelection> =
+            cancellableResult {
+                if (sourceDetail.type != "Series") {
+                    val catalog =
+                        seriesIdOf(sourceDetail)?.let { seriesId ->
+                            loadSeriesCatalog(server, seriesId, sourceDetail, allEpisodes = null)
+                        }
+                    return@cancellableResult ResolvedPlaybackSelection(
+                        server = server,
+                        sourceDetail = sourceDetail,
+                        target = sourceDetail,
+                        positionTicks = sourceDetail.resumePositionTicks ?: 0L,
+                        seasons = catalog?.seasons.orEmpty(),
+                        selectedSeasonId = catalog?.selectedSeasonId,
+                        episodes = catalog?.episodes.orEmpty(),
                     )
                 }
-                val catalog = loadSeriesCatalog(
-                    server = server,
-                    seriesId = sourceDetail.id,
-                    target = targetDetail,
-                    allEpisodes = null,
-                )
-                return@cancellableResult ResolvedPlaybackSelection(
+
+                if (preferredPlaybackItemId != null) {
+                    val targetDetail = repo.itemDetail(server, preferredPlaybackItemId).getOrThrow()
+                    if (targetDetail.type != "Episode" || targetDetail.seriesId != sourceDetail.id) {
+                        throw EpisodeUnavailableException(
+                            seasonNumber = targetDetail.seasonNumber,
+                            episodeNumber = targetDetail.episodeNumber,
+                        )
+                    }
+                    val catalog =
+                        loadSeriesCatalog(
+                            server = server,
+                            seriesId = sourceDetail.id,
+                            target = targetDetail,
+                            allEpisodes = null,
+                        )
+                    return@cancellableResult ResolvedPlaybackSelection(
+                        server = server,
+                        sourceDetail = sourceDetail,
+                        target = targetDetail,
+                        positionTicks = targetDetail.resumePositionTicks ?: 0L,
+                        seasons = catalog.seasons,
+                        selectedSeasonId = catalog.selectedSeasonId,
+                        episodes = catalog.episodes,
+                    )
+                }
+
+                val allEpisodes =
+                    preferredEpisode?.let {
+                        // Failure is not the same as "this server lacks the episode". Treating both
+                        // as an empty list silently selected NextUp and bypassed the retry policy.
+                        repo.episodes(server, sourceDetail.id, seasonId = null).getOrThrow()
+                    }
+                val resolvedTarget =
+                    if (preferredEpisode != null) {
+                        val matchedEpisode =
+                            allEpisodes?.firstOrNull { episode ->
+                                episode.seasonNumber == preferredEpisode.seasonNumber &&
+                                    episode.indexNumber == preferredEpisode.episodeNumber
+                            } ?: throw EpisodeUnavailableException(
+                                seasonNumber = preferredEpisode.seasonNumber,
+                                episodeNumber = preferredEpisode.episodeNumber,
+                            )
+                        com.yfuse.core.model.PlayTarget(
+                            matchedEpisode.id,
+                            matchedEpisode.resumePositionTicks ?: 0L,
+                        )
+                    } else {
+                        repo.resolvePlayTarget(server, sourceDetail).getOrThrow()
+                    }
+                val targetDetail = repo.itemDetail(server, resolvedTarget.itemId).getOrThrow()
+                val catalog =
+                    loadSeriesCatalog(
+                        server = server,
+                        seriesId = sourceDetail.id,
+                        target = targetDetail,
+                        allEpisodes = allEpisodes,
+                    )
+                ResolvedPlaybackSelection(
                     server = server,
                     sourceDetail = sourceDetail,
                     target = targetDetail,
-                    positionTicks = targetDetail.resumePositionTicks ?: 0L,
+                    positionTicks = resolvedTarget.startPositionTicks,
                     seasons = catalog.seasons,
                     selectedSeasonId = catalog.selectedSeasonId,
                     episodes = catalog.episodes,
                 )
             }
-
-            val allEpisodes = preferredEpisode?.let {
-                // Failure is not the same as "this server lacks the episode". Treating both
-                // as an empty list silently selected NextUp and bypassed the retry policy.
-                repo.episodes(server, sourceDetail.id, seasonId = null).getOrThrow()
-            }
-            val resolvedTarget = if (preferredEpisode != null) {
-                val matchedEpisode = allEpisodes?.firstOrNull { episode ->
-                    episode.seasonNumber == preferredEpisode.seasonNumber &&
-                        episode.indexNumber == preferredEpisode.episodeNumber
-                } ?: throw EpisodeUnavailableException(
-                    seasonNumber = preferredEpisode.seasonNumber,
-                    episodeNumber = preferredEpisode.episodeNumber,
-                )
-                com.yfuse.core.model.PlayTarget(
-                    matchedEpisode.id,
-                    matchedEpisode.resumePositionTicks ?: 0L,
-                )
-            } else {
-                repo.resolvePlayTarget(server, sourceDetail).getOrThrow()
-            }
-            val targetDetail = repo.itemDetail(server, resolvedTarget.itemId).getOrThrow()
-            val catalog = loadSeriesCatalog(
-                server = server,
-                seriesId = sourceDetail.id,
-                target = targetDetail,
-                allEpisodes = allEpisodes,
-            )
-            ResolvedPlaybackSelection(
-                server = server,
-                sourceDetail = sourceDetail,
-                target = targetDetail,
-                positionTicks = resolvedTarget.startPositionTicks,
-                seasons = catalog.seasons,
-                selectedSeasonId = catalog.selectedSeasonId,
-                episodes = catalog.episodes,
-            )
-        }
 
         private suspend fun loadSeriesCatalog(
             server: SavedServer,
@@ -662,12 +786,13 @@ class DetailStoreFactory(
             // EpisodeSelected is committed before its detail request completes. If the user
             // switches server during that request, carry the episode they just chose rather
             // than the older concrete playTarget that is still visible underneath it.
-            val coordinate = current.episodes
-                .firstOrNull { it.id == current.selectedEpisodeId }
-                ?.let { EpisodeCoordinate(it.seasonNumber, it.indexNumber) }
-                ?: current.playTarget?.let {
-                    EpisodeCoordinate(it.seasonNumber, it.episodeNumber)
-                }
+            val coordinate =
+                current.episodes
+                    .firstOrNull { it.id == current.selectedEpisodeId }
+                    ?.let { EpisodeCoordinate(it.seasonNumber, it.indexNumber) }
+                    ?: current.playTarget?.let {
+                        EpisodeCoordinate(it.seasonNumber, it.episodeNumber)
+                    }
             // The chosen coordinate above is carried to the new server. Any response from
             // the old server is stale from this point onward, even while the new server is
             // still resolving and the committed play target remains visible underneath.
@@ -678,52 +803,54 @@ class DetailStoreFactory(
             pendingSourceItemId = sourceItemId
             dispatch(DetailMsg.ActionMessage(null))
             dispatch(DetailMsg.SelectionLoading(true))
-            sourceSelectionJob = scope.launch {
-                try {
-                    val result = withTimeoutOrNull(sourceSelectionTimeoutMs) {
-                        resolveSelectedSourceWithRetry(
-                            server = server,
-                            sourceItemId = sourceItemId,
-                            coordinate = coordinate,
-                            preferredPlaybackItemId = preferredPlaybackItemId,
-                            operation = operation,
-                        )
-                    } ?: Result.failure(SourceSelectionTimeoutException())
-                    if (operation != sourceSelectionOperation) return@launch
-                    pendingSourceServerId = null
-                    pendingSourceItemId = null
-                    result
-                        .onSuccess { selection ->
-                            // Commit the visible source and the concrete play target together.
-                            // Until this point the previous source remains the only truth.
-                            dispatchPlaybackSelection(selection, preferredVersionId)
-                            loadRelated(selection.server, selection.sourceDetail)
-                        }
-                        .onFailure {
-                            clearQueuedPlay()
-                            dispatch(DetailMsg.SelectionLoading(false))
-                            restoreCommittedEpisodeSelection()
-                            AppLog.warning(
-                                category = "feature.detail",
-                                event = "source_selection_failed",
-                                message = "Selected resource could not be resolved",
-                                throwable = it,
-                                attributes = mapOf(
-                                    "serverId" to serverId,
-                                    "itemId" to sourceItemId,
-                                    "operation" to operation.toString(),
-                                ),
-                            )
-                            dispatch(DetailMsg.SourceFailure(it.toSourceSelectionFailure()))
-                        }
-                } finally {
-                    if (operation == sourceSelectionOperation) {
-                        sourceSelectionJob = null
+            sourceSelectionJob =
+                scope.launch {
+                    try {
+                        val result =
+                            withTimeoutOrNull(sourceSelectionTimeoutMs) {
+                                resolveSelectedSourceWithRetry(
+                                    server = server,
+                                    sourceItemId = sourceItemId,
+                                    coordinate = coordinate,
+                                    preferredPlaybackItemId = preferredPlaybackItemId,
+                                    operation = operation,
+                                )
+                            } ?: Result.failure(SourceSelectionTimeoutException())
+                        if (operation != sourceSelectionOperation) return@launch
                         pendingSourceServerId = null
                         pendingSourceItemId = null
+                        result
+                            .onSuccess { selection ->
+                                // Commit the visible source and the concrete play target together.
+                                // Until this point the previous source remains the only truth.
+                                dispatchPlaybackSelection(selection, preferredVersionId)
+                                loadRelated(selection.server, selection.sourceDetail)
+                            }.onFailure {
+                                clearQueuedPlay()
+                                dispatch(DetailMsg.SelectionLoading(false))
+                                restoreCommittedEpisodeSelection()
+                                AppLog.warning(
+                                    category = "feature.detail",
+                                    event = "source_selection_failed",
+                                    message = "Selected resource could not be resolved",
+                                    throwable = it,
+                                    attributes =
+                                        mapOf(
+                                            "serverId" to serverId,
+                                            "itemId" to sourceItemId,
+                                            "operation" to operation.toString(),
+                                        ),
+                                )
+                                dispatch(DetailMsg.SourceFailure(it.toSourceSelectionFailure()))
+                            }
+                    } finally {
+                        if (operation == sourceSelectionOperation) {
+                            sourceSelectionJob = null
+                            pendingSourceServerId = null
+                            pendingSourceItemId = null
+                        }
                     }
                 }
-            }
         }
 
         /**
@@ -737,8 +864,8 @@ class DetailStoreFactory(
             coordinate: EpisodeCoordinate?,
             preferredPlaybackItemId: String?,
             operation: Long,
-        ): Result<ResolvedPlaybackSelection> {
-            return sourceCoordinator.resolve(
+        ): Result<ResolvedPlaybackSelection> =
+            sourceCoordinator.resolve(
                 server = server,
                 sourceItemId = sourceItemId,
                 stillCurrent = { operation == sourceSelectionOperation },
@@ -750,7 +877,6 @@ class DetailStoreFactory(
                     preferredPlaybackItemId = preferredPlaybackItemId,
                 )
             }
-        }
 
         private fun selectEpisode(
             episodeId: String,
@@ -771,57 +897,63 @@ class DetailStoreFactory(
             dispatch(DetailMsg.EpisodeSelected(episodeId))
             dispatch(DetailMsg.SelectionLoading(true))
             scope.launch {
-                val result = retryTransientDetailRequest(
-                    event = "episode_selection_retry",
-                    attributes = mapOf(
-                        "serverId" to server.id,
-                        "itemId" to episodeId,
-                    ),
-                    stillCurrent = {
-                        operation == episodeSelectionOperation &&
-                            pendingSourceServerId == null &&
-                            !state().episodesLoading &&
-                            state().selectedEpisodeId == episodeId &&
-                            state().playServer?.id == playServerId &&
-                            state().playSourceDetail?.id == playSourceItemId
-                    },
-                ) {
-                    repo.itemDetail(server, episodeId).fold(
-                        onSuccess = { target ->
-                            cancellableResult {
-                                val currentSeasonNumber = state().seasons
-                                    .firstOrNull { it.id == state().selectedSeasonId }
-                                    ?.indexNumber
-                                val catalog = if (
-                                    target.type == "Episode" &&
-                                    target.seasonNumber != currentSeasonNumber
-                                ) {
-                                    seriesIdOf(sourceDetail)?.let { seriesId ->
-                                        loadSeriesCatalog(
-                                            server,
-                                            seriesId,
-                                            target,
-                                            allEpisodes = null,
-                                        )
-                                    }
-                                } else {
-                                    null
-                                }
-                                ResolvedPlaybackSelection(
-                                    server = server,
-                                    sourceDetail = sourceDetail,
-                                    target = target,
-                                    positionTicks = target.resumePositionTicks
-                                        ?: startPositionTicks,
-                                    seasons = catalog?.seasons,
-                                    selectedSeasonId = catalog?.selectedSeasonId,
-                                    episodes = catalog?.episodes,
-                                )
-                            }
+                val result =
+                    retryTransientDetailRequest(
+                        event = "episode_selection_retry",
+                        attributes =
+                            mapOf(
+                                "serverId" to server.id,
+                                "itemId" to episodeId,
+                            ),
+                        stillCurrent = {
+                            operation == episodeSelectionOperation &&
+                                pendingSourceServerId == null &&
+                                !state().episodesLoading &&
+                                state().selectedEpisodeId == episodeId &&
+                                state().playServer?.id == playServerId &&
+                                state().playSourceDetail?.id == playSourceItemId
                         },
-                        onFailure = { Result.failure(it) },
-                    )
-                }
+                    ) {
+                        repo.itemDetail(server, episodeId).fold(
+                            onSuccess = { target ->
+                                cancellableResult {
+                                    val currentSeasonNumber =
+                                        state()
+                                            .seasons
+                                            .firstOrNull { it.id == state().selectedSeasonId }
+                                            ?.indexNumber
+                                    val catalog =
+                                        if (
+                                            target.type == "Episode" &&
+                                            target.seasonNumber != currentSeasonNumber
+                                        ) {
+                                            seriesIdOf(sourceDetail)?.let { seriesId ->
+                                                loadSeriesCatalog(
+                                                    server,
+                                                    seriesId,
+                                                    target,
+                                                    allEpisodes = null,
+                                                )
+                                            }
+                                        } else {
+                                            null
+                                        }
+                                    ResolvedPlaybackSelection(
+                                        server = server,
+                                        sourceDetail = sourceDetail,
+                                        target = target,
+                                        positionTicks =
+                                            target.resumePositionTicks
+                                                ?: startPositionTicks,
+                                        seasons = catalog?.seasons,
+                                        selectedSeasonId = catalog?.selectedSeasonId,
+                                        episodes = catalog?.episodes,
+                                    )
+                                }
+                            },
+                            onFailure = { Result.failure(it) },
+                        )
+                    }
                 if (
                     operation != episodeSelectionOperation ||
                     pendingSourceServerId != null ||
@@ -835,8 +967,7 @@ class DetailStoreFactory(
                 result
                     .onSuccess { selection ->
                         dispatchPlaybackSelection(selection, preferredVersionId)
-                    }
-                    .onFailure {
+                    }.onFailure {
                         clearQueuedPlay()
                         dispatch(DetailMsg.SelectionLoading(false))
                         previousEpisodeId?.let { dispatch(DetailMsg.EpisodeSelected(it)) }
@@ -859,11 +990,12 @@ class DetailStoreFactory(
             scope.launch {
                 retryTransientDetailRequest(
                     event = "season_episodes_retry",
-                    attributes = mapOf(
-                        "serverId" to server.id,
-                        "seriesId" to seriesId,
-                        "seasonId" to seasonId,
-                    ),
+                    attributes =
+                        mapOf(
+                            "serverId" to server.id,
+                            "seriesId" to seriesId,
+                            "seasonId" to seasonId,
+                        ),
                     stillCurrent = {
                         state().selectedSeasonId == seasonId &&
                             state().playServer?.id == playServerId &&
@@ -871,46 +1003,47 @@ class DetailStoreFactory(
                     },
                 ) {
                     repo.episodes(server, seriesId, seasonId)
-                }
-                    .onSuccess { episodes ->
-                        if (
-                            state().selectedSeasonId != seasonId ||
-                            state().playServer?.id != playServerId ||
-                            state().playSourceDetail?.id != playSourceItemId
-                        ) {
-                            return@onSuccess
-                        }
-                        dispatch(DetailMsg.EpisodesLoaded(episodes))
-                        val selected = episodes.firstOrNull { it.id == state().selectedEpisodeId }
+                }.onSuccess { episodes ->
+                    if (
+                        state().selectedSeasonId != seasonId ||
+                        state().playServer?.id != playServerId ||
+                        state().playSourceDetail?.id != playSourceItemId
+                    ) {
+                        return@onSuccess
+                    }
+                    dispatch(DetailMsg.EpisodesLoaded(episodes))
+                    val selected =
+                        episodes.firstOrNull { it.id == state().selectedEpisodeId }
                             ?: episodes.firstOrNull()
                             ?: run {
                                 clearQueuedPlay()
                                 return@onSuccess
                             }
-                        selectEpisode(selected.id, selected.resumePositionTicks ?: 0L)
+                    selectEpisode(selected.id, selected.resumePositionTicks ?: 0L)
+                }.onFailure {
+                    if (
+                        state().selectedSeasonId != seasonId ||
+                        state().playServer?.id != playServerId ||
+                        state().playSourceDetail?.id != playSourceItemId
+                    ) {
+                        return@onFailure
                     }
-                    .onFailure {
-                        if (
-                            state().selectedSeasonId != seasonId ||
-                            state().playServer?.id != playServerId ||
-                            state().playSourceDetail?.id != playSourceItemId
-                        ) {
-                            return@onFailure
-                        }
-                        dispatch(DetailMsg.SeasonsLoaded(state().seasons, previousSeasonId))
-                        dispatch(DetailMsg.EpisodesLoadingFinished)
-                        restoreCommittedEpisodeSelection()
-                        clearQueuedPlay()
-                        dispatch(DetailMsg.ActionMessage(it.toUserMessage("剧集加载失败，请重试")))
-                    }
+                    dispatch(DetailMsg.SeasonsLoaded(state().seasons, previousSeasonId))
+                    dispatch(DetailMsg.EpisodesLoadingFinished)
+                    restoreCommittedEpisodeSelection()
+                    clearQueuedPlay()
+                    dispatch(DetailMsg.ActionMessage(it.toUserMessage("剧集加载失败，请重试")))
+                }
             }
         }
 
         private fun restoreCommittedEpisodeSelection() {
-            val committedEpisodeId = state().playTarget
-                ?.takeIf { it.type == "Episode" }
-                ?.id
-                ?: return
+            val committedEpisodeId =
+                state()
+                    .playTarget
+                    ?.takeIf { it.type == "Episode" }
+                    ?.id
+                    ?: return
             if (state().selectedEpisodeId != committedEpisodeId) {
                 dispatch(DetailMsg.EpisodeSelected(committedEpisodeId))
             }
@@ -924,13 +1057,14 @@ class DetailStoreFactory(
         ): Result<T> {
             var attempt = 1
             while (true) {
-                val result = try {
-                    request()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Throwable) {
-                    Result.failure(failure)
-                }
+                val result =
+                    try {
+                        request()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Throwable) {
+                        Result.failure(failure)
+                    }
                 val failure = result.exceptionOrNull()
                 if (failure is CancellationException) throw failure
                 if (
@@ -946,11 +1080,13 @@ class DetailStoreFactory(
                     category = "feature.detail",
                     event = event,
                     message = "Retrying a transient detail request",
-                    attributes = attributes + mapOf(
-                        "attempt" to attempt.toString(),
-                        "nextAttempt" to (attempt + 1).toString(),
-                        "delayMs" to retryDelayMs.toString(),
-                    ),
+                    attributes =
+                        attributes +
+                            mapOf(
+                                "attempt" to attempt.toString(),
+                                "nextAttempt" to (attempt + 1).toString(),
+                                "delayMs" to retryDelayMs.toString(),
+                            ),
                 )
                 delay(retryDelayMs)
                 if (!stillCurrent()) return result
@@ -976,13 +1112,35 @@ class DetailStoreFactory(
                             dispatchPlaybackSelection(selection)
                             dispatch(DetailMsg.Resolving(false))
                             publishPlay(state(), fromStart)
-                        }
-                        .onFailure {
+                        }.onFailure {
                             dispatch(DetailMsg.Resolving(false))
                             dispatch(DetailMsg.ActionMessage(it.toUserMessage("无法播放，请重试")))
                         }
                 }
                 return
+            }
+            if (playbackPreferences?.smartCrossServerSource?.value == true) {
+                val recommended = recommendedServerSource(
+                    sources = current.sources,
+                    health = healthMonitor?.health?.value.orEmpty(),
+                    network = networkClass(),
+                )
+                val itemId = recommended?.itemId
+                if (
+                    itemId != null &&
+                    recommended.serverId != server.id &&
+                    (
+                        current.selectedSourceServerId != recommended.serverId ||
+                            current.selectedSourceItemId != itemId
+                    )
+                ) {
+                    queuePlayAfterSelection(
+                        fromStart = fromStart,
+                        message = "正在切换到推荐线路，完成后将自动播放",
+                    )
+                    selectSource(recommended.serverId, itemId)
+                    return
+                }
             }
             publishPlay(current, fromStart)
         }
@@ -1008,29 +1166,43 @@ class DetailStoreFactory(
             publishPlay(state(), fromStart)
         }
 
-        private fun publishPlay(current: DetailState, fromStart: Boolean) {
+        private fun publishPlay(
+            current: DetailState,
+            fromStart: Boolean,
+        ) {
             val target = current.playTarget ?: return
             val server = current.playServer ?: return
-            val versionId = current.selectedVersionId
-                ?.takeIf { selected -> target.versions.any { it.id == selected } }
+            val versionId =
+                current.selectedVersionId
+                    ?.takeIf { selected -> target.versions.any { it.id == selected } }
             playbackTrackRequest.set(
                 itemId = target.id,
                 audioLanguage = current.preferredAudioLanguage,
                 subtitleLanguage = current.preferredSubtitleLanguage,
             )
             val mediaKey = target.providerIds.watchKey(target.id)
-            val fallbackServers = current.sources.asSequence()
-                .filter { it.reachable && it.source != null && it.serverId != server.id }
-                .map { it.serverId }
-                .distinct()
-                .toList()
-            playbackFailoverRequest.set(
-                PlaybackFailoverPlan(
-                    itemId = target.id,
-                    mediaKey = mediaKey,
-                    fallbackServerIds = fallbackServers,
-                ),
-            )
+            val fallbackServers =
+                if (playbackPreferences?.smartCrossServerSource?.value != false) {
+                    smartFailoverServerIds(
+                        currentServerId = server.id,
+                        sources = current.sources,
+                        health = healthMonitor?.health?.value.orEmpty(),
+                        network = networkClass(),
+                    )
+                } else {
+                    emptyList()
+                }
+            if (fallbackServers.isEmpty()) {
+                playbackFailoverRequest.clear()
+            } else {
+                playbackFailoverRequest.set(
+                    PlaybackFailoverPlan(
+                        itemId = target.id,
+                        mediaKey = mediaKey,
+                        fallbackServerIds = fallbackServers,
+                    ),
+                )
+            }
             publish(
                 DetailLabel.Play(
                     serverId = server.id,
@@ -1048,7 +1220,8 @@ class DetailStoreFactory(
             val target = !detail.isFavorite
             val sync = syncManager
             scope.launch {
-                sync.setFavorite(server, detail.id, detail.title, target)
+                sync
+                    .setFavorite(server, detail.id, detail.title, target)
                     .onSuccess {
                         if (isVisibleSource(server.id, detail.id)) {
                             dispatch(DetailMsg.FavoriteChanged(server.id, detail.id, target))
@@ -1058,8 +1231,7 @@ class DetailStoreFactory(
                                 ),
                             )
                         }
-                    }
-                    .onFailure {
+                    }.onFailure {
                         if (isVisibleSource(server.id, detail.id)) {
                             dispatch(DetailMsg.FavoriteChanged(server.id, detail.id, target))
                             dispatch(DetailMsg.ActionMessage("服务器暂不可用，收藏操作已排队同步"))
@@ -1075,7 +1247,8 @@ class DetailStoreFactory(
             val target = !detail.played
             val sync = syncManager
             scope.launch {
-                sync.setPlayed(server, detail.id, detail.title, target)
+                sync
+                    .setPlayed(server, detail.id, detail.title, target)
                     .onSuccess {
                         if (isVisibleSource(server.id, detail.id)) {
                             dispatch(DetailMsg.PlayedChanged(server.id, detail.id, target))
@@ -1085,8 +1258,7 @@ class DetailStoreFactory(
                                 ),
                             )
                         }
-                    }
-                    .onFailure {
+                    }.onFailure {
                         if (isVisibleSource(server.id, detail.id)) {
                             dispatch(DetailMsg.PlayedChanged(server.id, detail.id, target))
                             dispatch(DetailMsg.ActionMessage("服务器暂不可用，已看状态已排队同步"))
@@ -1095,15 +1267,18 @@ class DetailStoreFactory(
             }
         }
 
-        private fun isVisibleSource(serverId: String, itemId: String): Boolean =
-            state().server?.id == serverId && state().detail?.id == itemId
+        private fun isVisibleSource(
+            serverId: String,
+            itemId: String,
+        ): Boolean = state().server?.id == serverId && state().detail?.id == itemId
 
         private fun addToWatchLater() {
             val current = state()
             val detail = current.detail ?: return
             val server = current.server ?: return
             scope.launch {
-                repo.addToWatchLater(server, detail.id)
+                repo
+                    .addToWatchLater(server, detail.id)
                     .onSuccess { dispatch(DetailMsg.ActionMessage("已加入稍后观看")) }
                     .onFailure {
                         AppLog.warning(
@@ -1125,7 +1300,8 @@ class DetailStoreFactory(
             val generation = ++organizationLoadGeneration
             dispatch(DetailMsg.OrganizationLoading)
             scope.launch {
-                repo.mediaContainers(server)
+                repo
+                    .mediaContainers(server)
                     .onSuccess { containers ->
                         if (
                             generation == organizationLoadGeneration &&
@@ -1133,8 +1309,7 @@ class DetailStoreFactory(
                         ) {
                             dispatch(DetailMsg.OrganizationLoaded(containers))
                         }
-                    }
-                    .onFailure {
+                    }.onFailure {
                         if (
                             generation == organizationLoadGeneration &&
                             isVisibleSource(server.id, detail.id)
@@ -1163,8 +1338,9 @@ class DetailStoreFactory(
             if (containerId in current.addingContainerIds || containerId in current.addedContainerIds) {
                 return
             }
-            val container = current.organizationContainers.firstOrNull { it.id == containerId }
-                ?: return
+            val container =
+                current.organizationContainers.firstOrNull { it.id == containerId }
+                    ?: return
             // A container response from another account must never be reused after a source switch.
             if (container.serverId != server.id) {
                 dispatch(DetailMsg.ActionMessage("容器所属服务器已切换，请重新加载"))
@@ -1172,197 +1348,229 @@ class DetailStoreFactory(
             }
             dispatch(DetailMsg.OrganizationAdding(container.id))
             scope.launch {
-                repo.addItemToMediaContainer(
-                    server = server,
-                    containerId = container.id,
-                    kind = container.kind,
-                    itemId = detail.id,
-                ).onSuccess {
-                    if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(DetailMsg.OrganizationAdded(container.id))
-                        dispatch(DetailMsg.ActionMessage("已加入${container.title}"))
+                repo
+                    .addItemToMediaContainer(
+                        server = server,
+                        containerId = container.id,
+                        kind = container.kind,
+                        itemId = detail.id,
+                    ).onSuccess {
+                        if (isVisibleSource(server.id, detail.id)) {
+                            dispatch(DetailMsg.OrganizationAdded(container.id))
+                            dispatch(DetailMsg.ActionMessage("已加入${container.title}"))
+                        }
+                    }.onFailure {
+                        if (isVisibleSource(server.id, detail.id)) {
+                            AppLog.warning(
+                                category = "feature.detail",
+                                event = "organization_add_failed",
+                                message = "Adding media to an existing container failed",
+                                throwable = it,
+                                attributes =
+                                    mapOf(
+                                        "serverId" to server.id,
+                                        "containerId" to container.id,
+                                    ),
+                            )
+                            val message = it.toOrganizationMessage("加入合集或播放列表失败")
+                            dispatch(DetailMsg.OrganizationAddFailed(container.id, message))
+                            dispatch(DetailMsg.ActionMessage(message))
+                        }
                     }
-                }.onFailure {
-                    if (isVisibleSource(server.id, detail.id)) {
-                        AppLog.warning(
-                            category = "feature.detail",
-                            event = "organization_add_failed",
-                            message = "Adding media to an existing container failed",
-                            throwable = it,
-                            attributes = mapOf(
-                                "serverId" to server.id,
-                                "containerId" to container.id,
-                            ),
-                        )
-                        val message = it.toOrganizationMessage("加入合集或播放列表失败")
-                        dispatch(DetailMsg.OrganizationAddFailed(container.id, message))
-                        dispatch(DetailMsg.ActionMessage(message))
-                    }
-                }
             }
         }
     }
 
     private object ReducerImpl : Reducer<DetailState, DetailMsg> {
-        override fun DetailState.reduce(msg: DetailMsg): DetailState = when (msg) {
-            DetailMsg.Loading -> copy(loading = true, error = null)
-            is DetailMsg.Loaded -> copy(
-                loading = false,
-                detail = msg.detail,
-                server = msg.server,
-                playServer = msg.server,
-                playSourceDetail = msg.detail,
-                selectionLoading = true,
-                selectedVersionId = msg.detail.versions.firstOrNull()?.id,
-            )
-            is DetailMsg.Failed -> copy(
-                loading = false,
-                resolvingPlay = false,
-                selectionLoading = false,
-                error = msg.message,
-            )
-            is DetailMsg.Resolving -> copy(resolvingPlay = msg.value)
-            is DetailMsg.SelectionLoading -> copy(selectionLoading = msg.value, sourceFailure = if (msg.value) null else sourceFailure)
-            is DetailMsg.VersionSelected -> withSelectedVersion(msg.versionId)
-            is DetailMsg.EpisodeSelected -> copy(
-                selectedEpisodeId = msg.itemId,
-                actionMessage = null,
-            )
-            is DetailMsg.SeasonsLoaded -> copy(seasons = msg.seasons, selectedSeasonId = msg.selected)
-            DetailMsg.EpisodesLoading -> copy(episodesLoading = true)
-            DetailMsg.EpisodesLoadingFinished -> copy(episodesLoading = false)
-            is DetailMsg.EpisodesLoaded -> copy(episodesLoading = false, episodes = msg.episodes)
-            is DetailMsg.SourcesLoaded -> {
-                val selected = msg.sources.firstOrNull { it.isCurrent && it.itemId != null }
-                copy(
-                    sources = msg.sources,
-                    selectedSourceServerId = selectedSourceServerId ?: selected?.serverId,
-                    selectedSourceItemId = selectedSourceItemId ?: selected?.itemId,
-                )
-            }
-            is DetailMsg.RelatedLoaded -> copy(related = msg.items)
-            is DetailMsg.FavoriteChanged -> if (
-                server?.id == msg.serverId && detail?.id == msg.itemId
-            ) {
-                copy(
-                    detail = detail.copy(isFavorite = msg.value),
-                    playSourceDetail = playSourceDetail?.let { source ->
-                        if (source.id == msg.itemId) source.copy(isFavorite = msg.value) else source
-                    },
-                    actionMessage = null,
-                )
-            } else {
-                this
-            }
-            is DetailMsg.PlayedChanged -> if (
-                server?.id == msg.serverId && detail?.id == msg.itemId
-            ) {
-                copy(
-                    detail = detail.copy(played = msg.value),
-                    playSourceDetail = playSourceDetail?.let { source ->
-                        if (source.id == msg.itemId) source.copy(played = msg.value) else source
-                    },
-                    actionMessage = null,
-                )
-            } else {
-                this
-            }
-            is DetailMsg.ActionMessage -> copy(actionMessage = msg.value)
-            is DetailMsg.SourceFailure -> copy(sourceFailure = msg.value, selectionLoading = false)
-            is DetailMsg.AudioLanguageSelected -> copy(preferredAudioLanguage = msg.language)
-            is DetailMsg.SubtitleLanguageSelected -> copy(preferredSubtitleLanguage = msg.language)
-            DetailMsg.OrganizationLoading -> copy(
-                organizationLoading = true,
-                organizationError = null,
-            )
-            is DetailMsg.OrganizationLoaded -> copy(
-                organizationContainers = msg.containers,
-                organizationLoading = false,
-                organizationError = null,
-            )
-            is DetailMsg.OrganizationLoadFailed -> copy(
-                organizationLoading = false,
-                organizationError = msg.message,
-            )
-            is DetailMsg.OrganizationAdding -> copy(
-                addingContainerIds = addingContainerIds + msg.containerId,
-                organizationError = null,
-            )
-            is DetailMsg.OrganizationAdded -> copy(
-                addingContainerIds = addingContainerIds - msg.containerId,
-                addedContainerIds = addedContainerIds + msg.containerId,
-                organizationError = null,
-            )
-            is DetailMsg.OrganizationAddFailed -> copy(
-                addingContainerIds = addingContainerIds - msg.containerId,
-                organizationError = msg.message,
-            )
-            is DetailMsg.PlaybackSelectionLoaded -> {
-                // Episode resolution captures sourceDetail before it suspends. Favorite/played
-                // mutations can commit while that request is in flight, so never replace the
-                // same committed source with the stale captured copy when the response returns.
-                val visibleSource = detail?.takeIf {
-                    server?.id == msg.server.id && it.id == msg.sourceDetail.id
+        override fun DetailState.reduce(msg: DetailMsg): DetailState =
+            when (msg) {
+                DetailMsg.Loading -> copy(loading = true, error = null)
+                is DetailMsg.Loaded ->
+                    copy(
+                        loading = false,
+                        detail = msg.detail,
+                        server = msg.server,
+                        playServer = msg.server,
+                        playSourceDetail = msg.detail,
+                        selectionLoading = true,
+                        selectedVersionId =
+                            msg.detail.versions
+                                .firstOrNull()
+                                ?.id,
+                    )
+                is DetailMsg.Failed ->
+                    copy(
+                        loading = false,
+                        resolvingPlay = false,
+                        selectionLoading = false,
+                        error = msg.message,
+                    )
+                is DetailMsg.Resolving -> copy(resolvingPlay = msg.value)
+                is DetailMsg.SelectionLoading ->
+                    copy(
+                        selectionLoading = msg.value,
+                        sourceFailure = if (msg.value) null else sourceFailure,
+                    )
+                is DetailMsg.VersionSelected -> withSelectedVersion(msg.versionId)
+                is DetailMsg.EpisodeSelected ->
+                    copy(
+                        selectedEpisodeId = msg.itemId,
+                        actionMessage = null,
+                    )
+                is DetailMsg.SeasonsLoaded -> copy(seasons = msg.seasons, selectedSeasonId = msg.selected)
+                DetailMsg.EpisodesLoading -> copy(episodesLoading = true)
+                DetailMsg.EpisodesLoadingFinished -> copy(episodesLoading = false)
+                is DetailMsg.EpisodesLoaded -> copy(episodesLoading = false, episodes = msg.episodes)
+                is DetailMsg.SourcesLoaded -> {
+                    val selected = msg.sources.firstOrNull { it.isCurrent && it.itemId != null }
+                    copy(
+                        sources = msg.sources,
+                        selectedSourceServerId = selectedSourceServerId ?: selected?.serverId,
+                        selectedSourceItemId = selectedSourceItemId ?: selected?.itemId,
+                    )
                 }
-                val committedSource = playSourceDetail?.takeIf {
-                    playServer?.id == msg.server.id && it.id == msg.sourceDetail.id
-                }
-                val retainedSource = visibleSource ?: committedSource
-                val sourceChanged = retainedSource == null
-                val resolvedSource = retainedSource ?: msg.sourceDetail
-                val organizationSourceChanged =
-                    server?.id != msg.server.id || detail?.id != resolvedSource.id
-                val versionId = msg.preferredVersionId
-                    ?.takeIf { preferred ->
-                        msg.target.versions.any { it.id == preferred }
+                is DetailMsg.RelatedLoaded -> copy(related = msg.items)
+                is DetailMsg.FavoriteChanged ->
+                    if (
+                        server?.id == msg.serverId && detail?.id == msg.itemId
+                    ) {
+                        copy(
+                            detail = detail.copy(isFavorite = msg.value),
+                            playSourceDetail =
+                                playSourceDetail?.let { source ->
+                                    if (source.id == msg.itemId) source.copy(isFavorite = msg.value) else source
+                                },
+                            actionMessage = null,
+                        )
+                    } else {
+                        this
                     }
-                    ?: msg.target.versions.firstOrNull()?.id
-                copy(
-                    detail = resolvedSource,
-                    server = msg.server,
-                    playServer = msg.server,
-                    playSourceDetail = resolvedSource,
-                    playTarget = msg.target,
-                    playPositionTicks = msg.positionTicks,
-                    selectedSourceServerId = msg.server.id,
-                    selectedSourceItemId = msg.sourceDetail.id,
-                    selectedEpisodeId = msg.target.id.takeIf { msg.target.type == "Episode" },
-                    seasons = msg.seasons ?: seasons,
-                    selectedSeasonId = if (msg.seasons != null) {
-                        msg.selectedSeasonId
+                is DetailMsg.PlayedChanged ->
+                    if (
+                        server?.id == msg.serverId && detail?.id == msg.itemId
+                    ) {
+                        copy(
+                            detail = detail.copy(played = msg.value),
+                            playSourceDetail =
+                                playSourceDetail?.let { source ->
+                                    if (source.id == msg.itemId) source.copy(played = msg.value) else source
+                                },
+                            actionMessage = null,
+                        )
                     } else {
-                        selectedSeasonId
-                    },
-                    organizationContainers = if (organizationSourceChanged) {
-                        emptyList()
-                    } else {
-                        organizationContainers
-                    },
-                    organizationLoading = if (organizationSourceChanged) false else organizationLoading,
-                    organizationError = if (organizationSourceChanged) null else organizationError,
-                    addingContainerIds = if (organizationSourceChanged) emptySet() else addingContainerIds,
-                    addedContainerIds = if (organizationSourceChanged) emptySet() else addedContainerIds,
-                    episodes = msg.episodes ?: episodes,
-                    episodesLoading = false,
-                    selectionLoading = false,
-                    related = if (sourceChanged) emptyList() else related,
-                    actionMessage = null,
-                    sourceFailure = null,
-                ).withSelectedVersion(versionId)
+                        this
+                    }
+                is DetailMsg.ActionMessage -> copy(actionMessage = msg.value)
+                is DetailMsg.SourceFailure -> copy(sourceFailure = msg.value, selectionLoading = false)
+                is DetailMsg.AudioLanguageSelected -> copy(preferredAudioLanguage = msg.language)
+                is DetailMsg.SubtitleLanguageSelected -> copy(preferredSubtitleLanguage = msg.language)
+                DetailMsg.OrganizationLoading ->
+                    copy(
+                        organizationLoading = true,
+                        organizationError = null,
+                    )
+                is DetailMsg.OrganizationLoaded ->
+                    copy(
+                        organizationContainers = msg.containers,
+                        organizationLoading = false,
+                        organizationError = null,
+                    )
+                is DetailMsg.OrganizationLoadFailed ->
+                    copy(
+                        organizationLoading = false,
+                        organizationError = msg.message,
+                    )
+                is DetailMsg.OrganizationAdding ->
+                    copy(
+                        addingContainerIds = addingContainerIds + msg.containerId,
+                        organizationError = null,
+                    )
+                is DetailMsg.OrganizationAdded ->
+                    copy(
+                        addingContainerIds = addingContainerIds - msg.containerId,
+                        addedContainerIds = addedContainerIds + msg.containerId,
+                        organizationError = null,
+                    )
+                is DetailMsg.OrganizationAddFailed ->
+                    copy(
+                        addingContainerIds = addingContainerIds - msg.containerId,
+                        organizationError = msg.message,
+                    )
+                is DetailMsg.PlaybackSelectionLoaded -> {
+                    // Episode resolution captures sourceDetail before it suspends. Favorite/played
+                    // mutations can commit while that request is in flight, so never replace the
+                    // same committed source with the stale captured copy when the response returns.
+                    val visibleSource =
+                        detail?.takeIf {
+                            server?.id == msg.server.id && it.id == msg.sourceDetail.id
+                        }
+                    val committedSource =
+                        playSourceDetail?.takeIf {
+                            playServer?.id == msg.server.id && it.id == msg.sourceDetail.id
+                        }
+                    val retainedSource = visibleSource ?: committedSource
+                    val sourceChanged = retainedSource == null
+                    val resolvedSource = retainedSource ?: msg.sourceDetail
+                    val organizationSourceChanged =
+                        server?.id != msg.server.id || detail?.id != resolvedSource.id
+                    val versionId =
+                        msg.preferredVersionId
+                            ?.takeIf { preferred ->
+                                msg.target.versions.any { it.id == preferred }
+                            }
+                            ?: msg.target.versions
+                                .firstOrNull()
+                                ?.id
+                    copy(
+                        detail = resolvedSource,
+                        server = msg.server,
+                        playServer = msg.server,
+                        playSourceDetail = resolvedSource,
+                        playTarget = msg.target,
+                        playPositionTicks = msg.positionTicks,
+                        selectedSourceServerId = msg.server.id,
+                        selectedSourceItemId = msg.sourceDetail.id,
+                        selectedEpisodeId = msg.target.id.takeIf { msg.target.type == "Episode" },
+                        seasons = msg.seasons ?: seasons,
+                        selectedSeasonId =
+                            if (msg.seasons != null) {
+                                msg.selectedSeasonId
+                            } else {
+                                selectedSeasonId
+                            },
+                        organizationContainers =
+                            if (organizationSourceChanged) {
+                                emptyList()
+                            } else {
+                                organizationContainers
+                            },
+                        organizationLoading = if (organizationSourceChanged) false else organizationLoading,
+                        organizationError = if (organizationSourceChanged) null else organizationError,
+                        addingContainerIds = if (organizationSourceChanged) emptySet() else addingContainerIds,
+                        addedContainerIds = if (organizationSourceChanged) emptySet() else addedContainerIds,
+                        episodes = msg.episodes ?: episodes,
+                        episodesLoading = false,
+                        selectionLoading = false,
+                        related = if (sourceChanged) emptyList() else related,
+                        actionMessage = null,
+                        sourceFailure = null,
+                    ).withSelectedVersion(versionId)
+                }
             }
-        }
     }
 }
 
 private fun DetailState.withSelectedVersion(versionId: String?): DetailState {
     val version = playTarget?.versions?.firstOrNull { it.id == versionId }
-    val audioLanguage = preferredAudioLanguage?.takeIf { selected ->
-        version?.audioTracks?.any { it.language.equals(selected, ignoreCase = true) } == true
-    }
-    val subtitleLanguage = preferredSubtitleLanguage?.takeIf { selected ->
-        selected == PlaybackTrackRequest.SUBTITLES_OFF ||
-            version?.subtitleTracks?.any { it.language.equals(selected, ignoreCase = true) } == true
-    }
+    val audioLanguage =
+        preferredAudioLanguage?.takeIf { selected ->
+            version?.audioTracks?.any { it.language.equals(selected, ignoreCase = true) } == true
+        }
+    val subtitleLanguage =
+        preferredSubtitleLanguage?.takeIf { selected ->
+            selected == PlaybackTrackRequest.SUBTITLES_OFF ||
+                version?.subtitleTracks?.any { it.language.equals(selected, ignoreCase = true) } == true
+        }
     return copy(
         selectedVersionId = version?.id,
         preferredAudioLanguage = audioLanguage,
@@ -1377,12 +1585,11 @@ private fun Throwable.isTransientSourceFailure(): Boolean =
         else -> false
     }
 
-private suspend inline fun <T> cancellableResult(
-    crossinline block: suspend () -> T,
-): Result<T> = try {
-    Result.success(block())
-} catch (error: CancellationException) {
-    throw error
-} catch (error: Throwable) {
-    Result.failure(error)
-}
+private suspend inline fun <T> cancellableResult(crossinline block: suspend () -> T): Result<T> =
+    try {
+        Result.success(block())
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }

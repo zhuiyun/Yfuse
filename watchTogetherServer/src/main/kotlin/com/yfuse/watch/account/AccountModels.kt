@@ -8,18 +8,25 @@ internal data class RegisterRequest(
     val password: String,
     val nickname: String? = null,
     val avatarId: Int? = null,
+    val inviteCode: String? = null,
+    val deviceName: String? = null,
 )
 
 @Serializable
 internal data class LoginRequest(
     val username: String,
     val password: String,
+    val deviceName: String? = null,
 )
 
 @Serializable
 internal data class RefreshRequest(
     val refreshToken: String,
+    val deviceName: String? = null,
 )
+
+@Serializable
+internal data class DeleteAccountRequest(val password: String)
 
 @Serializable
 internal data class UpdateProfileRequest(
@@ -39,6 +46,7 @@ internal data class ChangePasswordRequest(
     val wrappedVaultKey: String,
     val wrapSalt: String,
     val wrapNonce: String,
+    val deviceName: String? = null,
 )
 
 @Serializable
@@ -58,6 +66,27 @@ internal data class AuthResponse(
     val accessExpiresAtEpochMs: Long,
     val refreshToken: String,
     val refreshExpiresAtEpochMs: Long,
+)
+
+@Serializable
+internal data class AccountSessionResponse(
+    val id: String,
+    val deviceName: String,
+    val createdAtEpochMs: Long,
+    val lastSeenAtEpochMs: Long,
+    val current: Boolean,
+)
+
+@Serializable
+internal data class AccountSessionsResponse(val sessions: List<AccountSessionResponse>)
+
+@Serializable
+internal data class AccountExportResponse(
+    val schemaVersion: Int,
+    val exportedAtEpochMs: Long,
+    val user: UserResponse,
+    /** Still an opaque AES-GCM envelope; the account server never exports plaintext sync data. */
+    val encryptedSync: SyncResponse,
 )
 
 /**
@@ -130,6 +159,7 @@ internal data class NewSession(
     val accessExpiresAtEpochMs: Long,
     val refreshExpiresAtEpochMs: Long,
     val createdAtEpochMs: Long,
+    val deviceName: String,
 )
 
 internal data class SessionReplacement(
@@ -139,11 +169,19 @@ internal data class SessionReplacement(
     val accessExpiresAtEpochMs: Long,
     val refreshExpiresAtEpochMs: Long,
     val createdAtEpochMs: Long,
+    val deviceName: String?,
 )
 
 internal data class AuthenticatedSession(
     val sessionId: String,
     val user: StoredUser,
+)
+
+internal data class StoredSession(
+    val id: String,
+    val deviceName: String,
+    val createdAtEpochMs: Long,
+    val lastSeenAtEpochMs: Long,
 )
 
 internal data class StoredSyncRecord(
@@ -195,6 +233,7 @@ internal sealed interface RegistrationWriteResult {
     data object Created : RegistrationWriteResult
     data object UsernameUnavailable : RegistrationWriteResult
     data object Closed : RegistrationWriteResult
+    data object InviteUnavailable : RegistrationWriteResult
 }
 
 internal data class StoredKeyWrap(
@@ -212,4 +251,10 @@ internal sealed interface PasswordChangeWriteResult {
     data class VersionConflict(val currentVersion: Long) : PasswordChangeWriteResult
     data class KeyVersionConflict(val currentVersion: Long) : PasswordChangeWriteResult
     data object CredentialsChanged : PasswordChangeWriteResult
+}
+
+internal sealed interface DeleteAccountWriteResult {
+    data object Deleted : DeleteAccountWriteResult
+    data object CredentialsChanged : DeleteAccountWriteResult
+    data object SessionInvalid : DeleteAccountWriteResult
 }

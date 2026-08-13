@@ -1,8 +1,6 @@
 package com.yfuse.feature.profile
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,47 +8,52 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.network.EndpointTransportDecision
+import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
+import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
+import com.yfuse.core.designsystem.flatGlass as glass
 
 /**
  * 添加服务器.
@@ -70,15 +73,22 @@ fun AddServerDialog(
     val accent = LocalAccentColors.current
     val form = state.form
     val editing = state.editingServerId != null
+    val endpointValidation = validateEmbyServerEndpoint(form.url, form.httpRiskAccepted)
+    val requestLanScan =
+        rememberLocalNetworkPermissionRequest(
+            onGranted = { onIntent(ServersIntent.Scan) },
+            onDenied = { onIntent(ServersIntent.LocalNetworkPermissionDenied) },
+        )
 
     GlassDialog(onDismiss = onDismiss, scrollable = false) {
         OverlayHeader(
             title = if (editing) "编辑服务器" else "添加服务器",
-            subtitle = if (editing) {
-                "名称可直接修改；连接信息变更后需重新登录"
-            } else {
-                "连接你自己的 Emby 服务器"
-            },
+            subtitle =
+                if (editing) {
+                    "名称可直接修改；连接信息变更后需重新登录"
+                } else {
+                    "连接你自己的 Emby 服务器"
+                },
             onClose = onDismiss,
         )
 
@@ -95,9 +105,8 @@ fun AddServerDialog(
                 Row(
                     Modifier
                         .pressable(enabled = !state.scanning) {
-                            onIntent(ServersIntent.Scan)
-                        }
-                        .touchTarget()
+                            requestLanScan()
+                        }.touchTarget()
                         .glass(GlassShapes.thumb, palette.card2, palette.border)
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -119,58 +128,67 @@ fun AddServerDialog(
             }
 
             when {
-                state.discovered.isNotEmpty() -> state.discovered.forEach { server ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .pressable { onIntent(ServersIntent.SelectDiscovered(server)) }
-                            .background(palette.card2)
-                            .padding(horizontal = 10.dp, vertical = 9.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
+                state.discovered.isNotEmpty() ->
+                    state.discovered.forEach { server ->
+                        Row(
                             Modifier
-                                .size(30.dp)
-                                .background(accent.accent, AppShapes.thumb),
-                            contentAlignment = Alignment.Center,
+                                .fillMaxWidth()
+                                .pressable { onIntent(ServersIntent.SelectDiscovered(server)) }
+                                .background(palette.card2)
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                server.name.take(1).uppercase(),
-                                style = AppTypography.caption.strong,
-                                color = accent.onAccent,
+                            Box(
+                                Modifier
+                                    .size(30.dp)
+                                    .background(accent.accent, AppShapes.thumb),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    server.name.take(1).uppercase(),
+                                    style = AppTypography.caption.strong,
+                                    color = accent.onAccent,
+                                )
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    server.name,
+                                    style = AppTypography.body.strong,
+                                    color = palette.text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    server.address,
+                                    style = AppTypography.caption.regular,
+                                    color = palette.sub2,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Icon(
+                                AppIcons.ChevronRight,
+                                null,
+                                tint = palette.sub2,
+                                modifier = Modifier.size(13.dp),
                             )
                         }
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                server.name,
-                                style = AppTypography.body.strong,
-                                color = palette.text,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                server.address,
-                                style = AppTypography.caption.regular,
-                                color = palette.sub2,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Icon(
-                            AppIcons.ChevronRight,
-                            null,
-                            tint = palette.sub2,
-                            modifier = Modifier.size(13.dp),
-                        )
                     }
-                }
 
-                !state.scanning -> Text(
-                    "点击扫描查找同一网络下的服务器，或在下方手动填写。",
-                    style = AppTypography.caption.regular.copy(lineHeight = 16.8.sp),
-                    color = palette.hint,
-                )
+                state.scanError != null ->
+                    Text(
+                        state.scanError,
+                        style = AppTypography.caption.medium.copy(lineHeight = 16.8.sp),
+                        color = palette.error,
+                    )
+
+                !state.scanning ->
+                    Text(
+                        "点击扫描查找同一网络下的服务器，或在下方手动填写。",
+                        style = AppTypography.caption.regular.copy(lineHeight = 16.8.sp),
+                        color = palette.hint,
+                    )
             }
 
             Spacer(Modifier.height(4.dp))
@@ -218,6 +236,22 @@ fun AddServerDialog(
             }
 
             Spacer(Modifier.height(4.dp))
+            if (!form.https) {
+                EmbyHttpRiskNotice(
+                    accepted = form.httpRiskAccepted,
+                    publicCleartextRejected =
+                        endpointValidation.decision ==
+                            EndpointTransportDecision.PublicCleartextRejected,
+                    message = endpointValidation.message,
+                    enabled = !form.submitting,
+                    onAcceptedChange = {
+                        onIntent(ServersIntent.HttpRiskAcceptedChanged(it))
+                    },
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+
+            Spacer(Modifier.height(4.dp))
             FieldLabel("账号")
             Column(
                 Modifier
@@ -256,39 +290,40 @@ fun AddServerDialog(
                             val selected = name == form.username
                             Text(
                                 name,
-                                style = if (selected) {
-                                    AppTypography.caption.strong
-                                } else {
-                                    AppTypography.caption.medium
-                                },
+                                style =
+                                    if (selected) {
+                                        AppTypography.caption.strong
+                                    } else {
+                                        AppTypography.caption.medium
+                                    },
                                 color = if (selected) accent.accent else palette.body,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .pressable(role = Role.RadioButton) {
-                                        onIntent(ServersIntent.SelectPublicUser(name))
-                                    }
-                                    .semantics { this.selected = selected }
-                                    .touchTarget()
-                                    .glass(
-                                        shape = GlassShapes.thumb,
-                                        fill = if (selected) {
-                                            accent.container
-                                        } else {
-                                            palette.card2
-                                        },
-                                        border = if (selected) {
-                                            accent.border
-                                        } else {
-                                            palette.border
-                                        },
-                                    )
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                modifier =
+                                    Modifier
+                                        .pressable(role = Role.RadioButton) {
+                                            onIntent(ServersIntent.SelectPublicUser(name))
+                                        }.semantics { this.selected = selected }
+                                        .touchTarget()
+                                        .glass(
+                                            shape = GlassShapes.thumb,
+                                            fill =
+                                                if (selected) {
+                                                    accent.container
+                                                } else {
+                                                    palette.card2
+                                                },
+                                            border =
+                                                if (selected) {
+                                                    accent.border
+                                                } else {
+                                                    palette.border
+                                                },
+                                        ).padding(horizontal = 10.dp, vertical = 6.dp),
                             )
                         }
                 }
             }
-
         }
 
         // Outside the scrolling form, immediately above the button that produced it. As the
@@ -310,15 +345,81 @@ fun AddServerDialog(
             onClick = { onIntent(ServersIntent.Submit) },
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,
-            enabled = form.canSubmit && (!editing || form.serverName.isNotBlank()),
+            enabled =
+                form.canSubmit &&
+                    endpointValidation.allowed &&
+                    (!editing || form.serverName.isNotBlank()),
             loading = form.submitting,
         )
     }
 }
 
+@Composable
+private fun EmbyHttpRiskNotice(
+    accepted: Boolean,
+    publicCleartextRejected: Boolean,
+    message: String?,
+    enabled: Boolean,
+    onAcceptedChange: (Boolean) -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .glass(
+                shape = AppShapes.control,
+                fill = palette.error.copy(alpha = 0.08f),
+                border = palette.error.copy(alpha = 0.26f),
+            ).padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            if (publicCleartextRejected) "公网 HTTP 已禁用" else "局域网 HTTP 未加密",
+            style = AppTypography.caption.strong,
+            color = palette.error,
+        )
+        Text(
+            message ?: "用户名、密码和访问令牌可能被同一网络中的他人读取。",
+            style = AppTypography.caption.regular,
+            color = palette.sub2,
+        )
+        if (!publicCleartextRejected) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .pressable(
+                        enabled = enabled,
+                        role = Role.Checkbox,
+                        onClickLabel = if (accepted) "取消 HTTP 风险确认" else "确认 HTTP 风险",
+                        onClick = { onAcceptedChange(!accepted) },
+                    ).semantics { toggleableState = ToggleableState(accepted) },
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = if (accepted) AppIcons.Check else AppIcons.Info,
+                    contentDescription = null,
+                    tint = palette.error,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    "我确认这是可信局域网，继续使用 HTTP",
+                    style = AppTypography.caption.strong,
+                    color = if (enabled) palette.text else palette.hint,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
 /** Group label, optionally with a trailing control on the same baseline. */
 @Composable
-private fun FieldLabel(text: String, trailing: @Composable (() -> Unit)? = null) {
+private fun FieldLabel(
+    text: String,
+    trailing: @Composable (() -> Unit)? = null,
+) {
     val palette = LocalPalette.current
     Row(
         Modifier.fillMaxWidth(),
@@ -383,15 +484,17 @@ private fun FormInput(
                 singleLine = true,
                 textStyle = AppTypography.body.medium.copy(color = palette.text),
                 cursorBrush = SolidColor(accent.accent),
-                visualTransformation = if (password) {
-                    PasswordVisualTransformation()
-                } else {
-                    VisualTransformation.None
-                },
+                visualTransformation =
+                    if (password) {
+                        PasswordVisualTransformation()
+                    } else {
+                        VisualTransformation.None
+                    },
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { contentDescription = label },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = label },
             )
         }
     }
@@ -418,13 +521,13 @@ private fun ProtocolSegment(
             .glass(
                 shape = AppShapes.thumb,
                 fill = if (selected) accent.container else palette.card3,
-                border = if (selected) {
-                    accent.border
-                } else {
-                    palette.border.copy(alpha = 0.55f)
-                },
-            )
-            .padding(vertical = 6.dp),
+                border =
+                    if (selected) {
+                        accent.border
+                    } else {
+                        palette.border.copy(alpha = 0.55f)
+                    },
+            ).padding(vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
