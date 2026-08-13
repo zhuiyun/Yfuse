@@ -23,16 +23,21 @@ fun windowWidthTier(width: Dp): WindowWidthTier =
         else -> WindowWidthTier.Expanded
     }
 
+private val NavigationRailMinWidth = 1_200.dp
+private const val NavigationRailMinAspectRatio = 1.75f
+
 /**
  * Whether navigation belongs at the side rather than along the bottom.
  *
- * Width alone was the wrong test. A rail earns its place when the window is *short and* wide:
- * there the bottom edge is scarce vertical room and the thumbs already rest at the sides. A
- * tablet held upright is wide too — 840dp is portrait for anything 11" and up — but it has
- * height to spare and its bottom edge is exactly where a thumb sits, so it was getting a side
- * rail in both orientations and a bottom bar in neither.
+ * A normal tablet is roughly 4:3, 3:2 or 16:10. Even in landscape, putting the primary tabs on
+ * its short edge makes the controls feel pinned to the wrong side and steals content width. Keep
+ * those shapes on the bottom edge. A rail is reserved for genuinely desktop-like, extra-wide
+ * windows where vertical room is scarce and the side edge is the more useful place for navigation.
  */
 fun useNavigationRail(
     width: Dp,
     height: Dp,
-): Boolean = windowWidthTier(width) == WindowWidthTier.Expanded && width > height
+): Boolean =
+    windowWidthTier(width) == WindowWidthTier.Expanded &&
+        width >= NavigationRailMinWidth &&
+        width > height * NavigationRailMinAspectRatio

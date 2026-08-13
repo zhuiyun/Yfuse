@@ -327,6 +327,11 @@ fun App(root: RootComponent) {
                 ) {
                     BoxWithConstraints(Modifier.fillMaxSize()) {
                         val expandedNavigation = useNavigationRail(maxWidth, maxHeight)
+                        // A rail reserves horizontal space only while the rail itself belongs to
+                        // the current route. Detail/grid/player pages hide root navigation and must
+                        // immediately reclaim the full width; otherwise the stale inset is visible
+                        // as a plain strip beside artwork-backed pages.
+                        val navigationRailActive = expandedNavigation && showBottomBar
                         val onSelectTab: (Tab) -> Unit = { tab ->
                             if (tab == active) {
                                 root.reselectTab(tab, atRoot)
@@ -349,12 +354,17 @@ fun App(root: RootComponent) {
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                .padding(start = if (expandedNavigation) 104.dp else 0.dp)
-                                // One connection for the whole shell rather than a hook every
-                                // screen has to remember to install: nested scroll reaches this
-                                // node from any scrollable inside any tab, including ones added
-                                // later.
-                                .then(if (expandedNavigation) Modifier else Modifier.nestedScroll(navScroll))
+                                .padding(start = if (navigationRailActive) 104.dp else 0.dp)
+                                // Only root pages with the bottom dock need scroll-to-collapse.
+                                // Secondary pages own the whole screen and have no root navigation
+                                // to collapse or expand.
+                                .then(
+                                    if (expandedNavigation || !showBottomBar) {
+                                        Modifier
+                                    } else {
+                                        Modifier.nestedScroll(navScroll)
+                                    },
+                                )
                                 .backdropSource(backdrop),
                         ) {
                             // Top-level tabs are a real Navigation 3 back stack, while each tab's
