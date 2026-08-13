@@ -186,17 +186,18 @@ class AndroidHttpEnginePolicyTest {
         }
 
     @Test
-    fun non_shared_public_hosts_remain_https_only_in_network_security_config() {
+    fun network_security_config_allows_cleartext_for_all_hosts() {
         val config = projectFile("src/androidMain/res/xml/network_security_config.xml").readText()
-        val httpsOnlyDomains = httpsOnlyDomains(config)
 
-        listOf("yfuse.zhuiyun.site", "themoviedb.org").forEach { domain ->
-            assertEquals(
-                1,
-                httpsOnlyDomains.count { it == domain },
-                "$domain must appear exactly once inside an HTTPS-only domain config",
-            )
-        }
+        assertTrue(
+            Regex("""<base-config\s+cleartextTrafficPermitted="true"\s*/>""")
+                .containsMatchIn(config),
+            "HTTP must remain available for arbitrary user-configured hosts",
+        )
+        assertTrue(
+            httpsOnlyDomains(config).isEmpty(),
+            "Network security config must not add host-level HTTP restrictions",
+        )
     }
 
     @Test
