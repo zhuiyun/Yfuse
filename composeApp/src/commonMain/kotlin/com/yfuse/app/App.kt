@@ -364,8 +364,7 @@ fun App(root: RootComponent) {
                                     } else {
                                         Modifier.nestedScroll(navScroll)
                                     },
-                                )
-                                .backdropSource(backdrop),
+                                ).backdropSource(backdrop),
                         ) {
                             // Top-level tabs are a real Navigation 3 back stack, while each tab's
                             // nested host continues to own its child routes. Back navigation remains

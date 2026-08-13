@@ -23,8 +23,8 @@ fun windowWidthTier(width: Dp): WindowWidthTier =
         else -> WindowWidthTier.Expanded
     }
 
-private val NavigationRailMinWidth = 1_200.dp
-private const val NavigationRailMinAspectRatio = 1.75f
+private val NAVIGATION_RAIL_MIN_WIDTH = 1_200.dp
+private const val NAVIGATION_RAIL_MIN_ASPECT_RATIO = 1.75f
 
 /**
  * Whether navigation belongs at the side rather than along the bottom.
@@ -39,5 +39,5 @@ fun useNavigationRail(
     height: Dp,
 ): Boolean =
     windowWidthTier(width) == WindowWidthTier.Expanded &&
-        width >= NavigationRailMinWidth &&
-        width > height * NavigationRailMinAspectRatio
+        width >= NAVIGATION_RAIL_MIN_WIDTH &&
+        width > height * NAVIGATION_RAIL_MIN_ASPECT_RATIO
