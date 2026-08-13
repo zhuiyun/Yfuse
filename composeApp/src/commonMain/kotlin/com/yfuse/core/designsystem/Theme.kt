@@ -15,50 +15,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 
 /**
- * Per-item accent. The prototype derives it from the artwork; this stays as the
- * fallback used before a poster's dominant colour resolves.
- */
-enum class AccentColor(
-    val label: String,
-    val value: Long,
-) {
-    Blue("蓝", 0xFF3D64C9),
-    Purple("紫", 0xFF8B6FAE),
-    Teal("青", 0xFF3FA89A),
-    Orange("橙", 0xFFC07A4A),
-    Pink("粉", 0xFFC98FA4),
-    Green("绿", 0xFF5F9F6F),
-
-    // The second row. Six swatches left obvious gaps — no red, no yellow, nothing between
-    // 蓝 and 紫 — and a colour preference is picked by eye from what is on offer, so the
-    // gaps were the answer for anyone who wanted one of them. New entries only ever append:
-    // the choice persists by enum name, and reordering would repaint everyone's app.
-    Red("红", 0xFFC2564C),
-    Amber("黄", 0xFFC0982F),
-    Sky("天蓝", 0xFF4E93C4),
-    Indigo("靛", 0xFF5B5FB0),
-
-    /**
-     * Not a colour — the answer "don't pick one".
-     *
-     * Every other entry paints every emphasis in the app the same hue, whatever is on
-     * screen. This one hands that decision to the artwork: buttons, selected states and
-     * highlights take the colour of the poster or backdrop the page is currently showing,
-     * which is what 影视详情页 has always done for its own controls. [value] is only the
-     * fallback for pages that have no artwork to take a colour from — settings, servers,
-     * search — and it is the design's own brand blue, so those pages look like the app
-     * shipped rather than like a page whose colour failed to load.
-     */
-    Artwork("跟随封面", 0xFF3D64C9),
-    ;
-
-    val color: Color get() = Color(value)
-
-    /** True for the entry that defers to what is on screen instead of naming a colour. */
-    val followsArtwork: Boolean get() = this == Artwork
-}
-
-/**
  * Which glass the app is made of.
  *
  * Both were already implemented and in use — [Modifier.glass] draws a soft diagonal sheen,
@@ -148,13 +104,11 @@ fun ThemeMode.resolveDark(systemDark: Boolean): Boolean =
 val LocalPalette = staticCompositionLocalOf { LightPalette }
 
 /**
- * The user's semantic emphasis colours, resolved for the active light/dark surface.
+ * Fixed semantic emphasis colours for interactive controls.
  *
- * [Brand] remains the immutable product identity used by the logo and artwork-derived
- * treatments. Interactive controls consume this object instead, so changing the user's
- * [AccentColor] changes buttons and selected states without recolouring the brand itself.
- * [accent] and [onAccent] clear 4.5:1 against their intended surfaces; [container] is an
- * opaque quiet selection fill, and [border] is the visible selected/focus edge.
+ * The product uses one stable brand emphasis outside artwork-driven pages. Detail/media
+ * surfaces may temporarily derive the same semantic roles from their artwork through
+ * [ArtworkAccent], but there is no user-selectable theme colour.
  */
 @Immutable
 data class AccentColors(
@@ -177,7 +131,7 @@ private fun contrastRatio(
     return (light + 0.05f) / (dark + 0.05f)
 }
 
-/** Pure resolver for semantic accents used by theme code, previews and tests. */
+/** Pure resolver for semantic emphasis used by theme code, artwork pages and tests. */
 fun resolveAccentColors(
     base: Color,
     dark: Boolean,
@@ -206,15 +160,10 @@ fun resolveAccentColors(
     )
 }
 
-fun AccentColor.resolveColors(dark: Boolean): AccentColors = resolveAccentColors(color, dark)
-
 val LocalAccentColors =
     staticCompositionLocalOf {
-        AccentColor.Blue.resolveColors(dark = false)
+        resolveAccentColors(Brand.Primary, dark = false) // design-system: brand-identity
     }
-
-/** Compatibility local for preference and preview UIs that need the selected enum itself. */
-val LocalAccent = staticCompositionLocalOf { AccentColor.Blue }
 
 /**
  * The colour of whatever the page currently on screen is showing, or null where it shows no
@@ -223,21 +172,16 @@ val LocalAccent = staticCompositionLocalOf { AccentColor.Blue }
 val LocalArtworkAccent = staticCompositionLocalOf<Color?> { null }
 
 /**
- * Runs [content] with the interactive accent taken from [color] while 跟随封面 is the user's
- * choice; a no-op under every other choice, and under any choice when [color] is null.
- *
- * Re-providing [LocalAccentColors] rather than asking each control to look up the artwork is
- * what makes this reach all of them: buttons, chips, switches, selected tabs and focus rings
- * already read that local, so a page publishes one colour and its whole surface follows.
+ * Runs [content] with semantic emphasis derived from [color]. Pages without artwork keep
+ * the fixed product emphasis.
  */
 @Composable
 fun ArtworkAccent(
     color: Color?,
     content: @Composable () -> Unit,
 ) {
-    val choice = LocalAccent.current
     val dark = LocalPalette.current.isDark
-    if (!choice.followsArtwork || color == null) {
+    if (color == null) {
         content()
         return
     }
@@ -250,18 +194,13 @@ fun ArtworkAccent(
 }
 
 /**
- * Resolves the selected accent for a surface whose luminance contract is independent from the
- * app theme. The player is the canonical example: its chrome always sits on a dark video
- * surface, even while the rest of the app is using the light theme.
+ * Resolves semantic emphasis for a surface whose luminance contract is independent from the
+ * app theme. The player is always dark; media pages can publish an artwork colour.
  */
 @Composable
 fun rememberAccentColorsForSurface(dark: Boolean): AccentColors {
-    val accent = LocalAccent.current
-    // 跟随封面 reaches this path too, for surfaces composed inside a page that publishes an
-    // artwork colour. The player is its own activity and publishes none, so its chrome uses
-    // the fallback — which is the right answer there anyway: it sits on video, not a poster.
     val artwork = LocalArtworkAccent.current
-    val base = if (accent.followsArtwork && artwork != null) artwork else accent.color
+    val base = artwork ?: Brand.Primary // design-system: brand-identity
     return remember(base, dark) { resolveAccentColors(base, dark) }
 }
 
@@ -327,13 +266,14 @@ private fun lightScheme(accent: AccentColors) =
 @Composable
 fun YfuseTheme(
     dark: Boolean,
-    accent: AccentColor,
     accessibility: AccessibilityOptions = AccessibilityOptions(),
     glassStyle: GlassStyle = GlassStyle.Liquid,
     content: @Composable () -> Unit,
 ) {
     val palette = if (dark) DarkPalette else LightPalette
-    val accentColors = remember(accent, dark) { accent.resolveColors(dark) }
+    val accentColors = remember(dark) {
+        resolveAccentColors(Brand.Primary, dark) // design-system: brand-identity
+    }
     val density = LocalDensity.current
     val adjustedDensity =
         if (accessibility.largeText) {
@@ -343,7 +283,6 @@ fun YfuseTheme(
         }
     CompositionLocalProvider(
         LocalPalette provides palette,
-        LocalAccent provides accent,
         LocalAccentColors provides accentColors,
         LocalAccessibilityOptions provides accessibility,
         LocalGlassStyle provides glassStyle,
