@@ -8,17 +8,28 @@ import kotlin.test.assertTrue
 
 class EmbyStreamTest {
     @Test
-    fun negotiated_public_http_url_is_rejected_before_credentials_are_added() {
-        val result =
+    fun negotiated_public_http_url_requires_explicit_confirmation_before_credentials_are_added() {
+        val raw = "http://media.example/video"
+
+        assertNull(
             EmbyStream.negotiatedUrl(
                 baseUrl = "https://emby.example",
-                rawUrl = "http://media.example/video",
+                rawUrl = raw,
+                token = "secret-token",
+                playSessionId = "session",
+            ),
+        )
+        val confirmed =
+            EmbyStream.negotiatedUrl(
+                baseUrl = "https://emby.example",
+                rawUrl = raw,
                 token = "secret-token",
                 playSessionId = "session",
                 localCleartextConfirmed = true,
             )
 
-        assertNull(result)
+        assertTrue(confirmed?.startsWith(raw) == true, confirmed.orEmpty())
+        assertTrue("api_key=secret-token" in confirmed.orEmpty(), confirmed.orEmpty())
     }
 
     @Test

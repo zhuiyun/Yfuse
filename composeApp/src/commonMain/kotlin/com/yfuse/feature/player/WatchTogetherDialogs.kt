@@ -292,7 +292,8 @@ internal fun WatchTogetherDialog(
     }
 
     kickCandidate?.let { participant ->
-        ConfirmDialog(liquidButtons = false,
+        ConfirmDialog(
+            liquidButtons = false,
             title = "移出成员",
             message = "确定将 ${participant.name} 移出房间吗？对方将无法再次加入当前房间。",
             confirmLabel = "移出",
