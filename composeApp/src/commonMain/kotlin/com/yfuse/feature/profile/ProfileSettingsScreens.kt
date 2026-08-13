@@ -2,7 +2,6 @@ package com.yfuse.feature.profile
 
 import androidx.compose.runtime.Composable
 import com.yfuse.core.data.VideoCacheSize
-import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.SettingTint
@@ -109,9 +108,6 @@ internal fun PlaybackSettingsScreen(
                         onChange = onSmartCrossServerSource,
                     )
                     SettingsDivider()
-                    // The 「继续上次播放？」 dialog a cold start opens when the previous process
-                    // died mid-film. Off still records the checkpoint — 我的 → 播放恢复与同步
-                    // keeps it — it only stops the app opening on a question.
                     SwitchRow("启动时询问继续播放", resumePrompt, true, onChange = onResumePrompt)
                     SettingsDivider()
                     SettingRow("视频缓存大小", "${videoCacheSize.label} ›", true, onVideoCache)
@@ -243,7 +239,6 @@ internal fun WatchTogetherSettingsScreen(
 internal fun AppearanceSettingsScreen(
     onBack: () -> Unit,
     mode: ThemeMode,
-    accent: AccentColor,
     glassStyle: GlassStyle,
     brandSummary: String,
     backgroundSummary: String,
@@ -252,7 +247,6 @@ internal fun AppearanceSettingsScreen(
     largeText: Boolean,
     reduceMotion: Boolean,
     onThemeMode: (ThemeMode) -> Unit,
-    onAccent: (AccentColor) -> Unit,
     onGlassStyle: (GlassStyle) -> Unit,
     onBackground: () -> Unit,
     onBrand: () -> Unit,
@@ -263,15 +257,12 @@ internal fun AppearanceSettingsScreen(
 ) {
     SettingsPage(
         title = "外观与辅助",
-        subtitle = "主题、颜色与辅助显示",
+        subtitle = "主题、材质与辅助显示",
         onBack = onBack,
     ) {
         item {
             Section(title = "外观") {
                 SettingsCard {
-                    // 浅色 / 跟随系统 / 深色, answered where it is asked. The enum's own order
-                    // puts 跟随系统 first; the control reads light-to-dark, which is the order
-                    // the two end states suggest and the one every other app uses.
                     SettingSegmentRow(
                         title = "主题",
                         options = ThemeModeOrder.map { it.label },
@@ -280,8 +271,6 @@ internal fun AppearanceSettingsScreen(
                         icon = AppIcons.Cloud,
                         iconTint = SettingTint.appearance,
                     )
-                    SettingsDivider()
-                    AccentPickerRow(selected = accent, onSelect = onAccent)
                     SettingsDivider()
                     SettingSegmentRow(
                         title = "视觉效果",
@@ -292,9 +281,6 @@ internal fun AppearanceSettingsScreen(
                         iconTint = SettingTint.components,
                     )
                     SettingsDivider()
-                    // One row, because it is one decision: the launcher icon and the launch
-                    // animation are two halves of the same brand, and choosing them on
-                    // separate pages let them end up describing different logos.
                     SettingRow(
                         "Logo 与开屏动画",
                         brandSummary,
@@ -313,9 +299,6 @@ internal fun AppearanceSettingsScreen(
                         iconTint = SettingTint.library,
                     )
                     SettingsDivider()
-                    // Which tab a cold start lands on. It sits under 外观 rather than in a
-                    // section of its own because it is the same kind of choice as the
-                    // theme: what the app looks like the moment it opens.
                     SettingRow(
                         "启动进入",
                         startupSummary,
