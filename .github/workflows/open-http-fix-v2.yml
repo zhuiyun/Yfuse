@@ -98,3 +98,5 @@ jobs:
           git add -A
           git commit -m "完全放开 HTTP 并发布 0.2.59"
           git push origin HEAD:fix-open-http
+
+# retry: HTTP policy cleanup after neutral transport diagnostics
