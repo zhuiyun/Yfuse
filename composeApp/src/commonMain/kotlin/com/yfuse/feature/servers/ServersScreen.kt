@@ -346,16 +346,12 @@ private fun HttpRiskNotice(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            if (publicCleartextRejected) "公网 HTTP 已禁用" else "HTTP 连接未加密",
+            "HTTP 连接未加密",
             style = AppTypography.caption.strong,
             color = palette.error,
         )
         Text(
-            if (publicCleartextRejected) {
-                "公网 Emby 服务器必须使用 HTTPS；HTTP 只允许可信局域网地址。"
-            } else {
-                "用户名、密码和访问令牌可能被同一网络中的他人读取；仅限可信局域网。"
-            },
+            "用户名、密码和访问令牌会以明文传输；请仅在你了解风险时继续。",
             style = AppTypography.caption.regular,
             color = palette.sub,
         )

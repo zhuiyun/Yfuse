@@ -53,7 +53,7 @@ import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
-import com.yfuse.core.designsystem.flatGlass as glass
+import com.yfuse.core.designsystem.liquidGlass as glass
 
 /**
  * 添加服务器.
@@ -374,7 +374,7 @@ private fun EmbyHttpRiskNotice(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            if (publicCleartextRejected) "公网 HTTP 已禁用" else "局域网 HTTP 未加密",
+            "HTTP 未加密",
             style = AppTypography.caption.strong,
             color = palette.error,
         )
@@ -404,7 +404,7 @@ private fun EmbyHttpRiskNotice(
                     modifier = Modifier.size(18.dp),
                 )
                 Text(
-                    "我确认这是可信局域网，继续使用 HTTP",
+                    "我已了解明文传输风险，继续使用 HTTP",
                     style = AppTypography.caption.strong,
                     color = if (enabled) palette.text else palette.hint,
                     modifier = Modifier.weight(1f),

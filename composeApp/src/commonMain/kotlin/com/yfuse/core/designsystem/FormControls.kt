@@ -166,19 +166,36 @@ fun YfLinkButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    Text(
-        text = label,
-        style = AppTypography.caption.strong,
-        color = if (destructive) palette.error else accent.accent,
-        modifier = modifier
+    val fill = if (destructive) palette.errorContainer else palette.card2
+    val border = if (destructive) palette.error else palette.border
+    val content = if (destructive) palette.error else accent.accent
+    Row(
+        modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
             .graphicsLayer { alpha = if (enabled) 1f else 0.42f }
             .pressable(
                 enabled = enabled,
+                haptic = HapticSignal.Confirm.takeIf { destructive },
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,
             )
-            .touchTarget()
-            .padding(horizontal = 12.dp, vertical = 9.dp),
-    )
+            .liquidGlass(
+                shape = AppShapes.control,
+                fill = fill,
+                border = border,
+                over = palette.background,
+                sheen = if (destructive) 0.74f else 0.62f,
+            )
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = AppTypography.body.strong,
+            color = content,
+        )
+    }
 }

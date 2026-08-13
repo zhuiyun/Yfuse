@@ -85,7 +85,7 @@ internal fun WatchTogetherDialog(
     val palette = LocalPalette.current
     val accent = rememberAccentColorsForSurface(dark = true)
 
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
         OverlayHeader(
             title = "一起看",
             subtitle =
@@ -292,7 +292,7 @@ internal fun WatchTogetherDialog(
     }
 
     kickCandidate?.let { participant ->
-        ConfirmDialog(
+        ConfirmDialog(liquidButtons = false,
             title = "移出成员",
             message = "确定将 ${participant.name} 移出房间吗？对方将无法再次加入当前房间。",
             confirmLabel = "移出",
@@ -319,7 +319,7 @@ internal fun ControlRequestDialog(
     onGrant: () -> Unit,
     onDeny: () -> Unit,
 ) {
-    GlassDialog(onDismiss = onDeny) {
+    GlassDialog(liquidButtons = false, onDismiss = onDeny) {
         OverlayHeader(
             title = "控制权请求",
             subtitle = "$requesterName 想要控制这个房间。交出后由对方掌握播放、暂停、进度和集数，你会跟随他们。",

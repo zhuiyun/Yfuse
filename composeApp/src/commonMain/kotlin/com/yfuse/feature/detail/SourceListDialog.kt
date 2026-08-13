@@ -70,7 +70,7 @@ internal fun SourceListDialog(
                 ?.serverId
         }
 
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
         OverlayHeader(
             title = "资源",
             subtitle = "${available.size} 个媒体库有这个片子 · 再点已选项即可播放",

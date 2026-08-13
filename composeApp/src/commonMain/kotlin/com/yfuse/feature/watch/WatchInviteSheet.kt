@@ -234,7 +234,7 @@ fun WatchInviteShareSheet(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss, liquidButtons = false) {
         OverlayHeader(
             title = "邀请一起看",
             subtitle =

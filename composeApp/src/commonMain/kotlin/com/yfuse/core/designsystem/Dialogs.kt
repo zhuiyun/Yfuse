@@ -142,6 +142,7 @@ fun GlassDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     scrollable: Boolean = true,
+    liquidButtons: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // The dismissal the *caller* asked for, held until the exit animation has played.
@@ -174,7 +175,10 @@ fun GlassDialog(
         val progress = rememberOverlayTransition(leaving = leaving, onLeft = onDismiss)
         // Everything inside gets the animated way out, so 取消 and 关闭 leave the same way
         // the scrim does — see [LocalOverlayDismiss].
-        CompositionLocalProvider(LocalOverlayDismiss provides requestDismiss) {
+        CompositionLocalProvider(
+            LocalOverlayDismiss provides requestDismiss,
+            LocalOverlayLiquidButtons provides liquidButtons,
+        ) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -257,6 +261,7 @@ fun GlassDialog(
  * fades politely.
  */
 private val LocalOverlayDismiss = staticCompositionLocalOf<(() -> Unit)?> { null }
+private val LocalOverlayLiquidButtons = staticCompositionLocalOf { true }
 
 /**
  * [fallback], unless an overlay is up and has an exit animation to play first.
@@ -350,8 +355,19 @@ fun OverlayHeader(
                         // The chip stays 28dp; the region that answers to it is 44.
                         .touchTarget()
                         .size(28.dp)
-                        .flatGlass(CircleShape, palette.card2, palette.border)
-                        .padding(8.dp),
+                        .then(
+                            if (LocalOverlayLiquidButtons.current) {
+                                Modifier.liquidGlass(
+                                    shape = CircleShape,
+                                    fill = palette.card2,
+                                    border = palette.border,
+                                    over = palette.background,
+                                    sheen = 0.62f,
+                                )
+                            } else {
+                                Modifier.flatGlass(CircleShape, palette.card2, palette.border)
+                            },
+                        ).padding(8.dp),
             )
         }
     }
@@ -392,6 +408,18 @@ fun OverlayButton(
             OverlayButtonTone.Destructive -> palette.error
             OverlayButtonTone.Plain -> palette.text
         }
+    val surface =
+        if (LocalOverlayLiquidButtons.current) {
+            Modifier.liquidGlass(
+                shape = shape,
+                fill = fill,
+                border = border,
+                over = palette.background,
+                sheen = if (tone == OverlayButtonTone.Plain) 0.62f else 0.82f,
+            )
+        } else {
+            Modifier.flatGlass(shape, fill, border)
+        }
     Box(
         modifier
             .height(46.dp)
@@ -401,7 +429,7 @@ fun OverlayButton(
                 // out of a dialog is not an event worth a buzz.
                 haptic = if (tone == OverlayButtonTone.Plain) null else HapticSignal.Confirm,
                 onClick = onClick,
-            ).flatGlass(shape, fill, border),
+            ).then(surface),
         contentAlignment = Alignment.Center,
     ) {
         if (loading) {
@@ -459,9 +487,10 @@ fun ConfirmDialog(
     onDismiss: () -> Unit,
     dismissLabel: String = "取消",
     destructive: Boolean = false,
+    liquidButtons: Boolean = true,
 ) {
     val palette = LocalPalette.current
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss, liquidButtons = liquidButtons) {
         Text(title, style = AppTypography.section.strong, color = palette.text)
         Spacer(Modifier.height(8.dp))
         Text(
@@ -545,8 +574,19 @@ fun OverlayOptionRow(
             // and these rows are stacked, so a miss lands on the neighbouring choice rather
             // than on nothing.
             .heightIn(min = MinTouchTarget)
-            .flatGlass(GlassShapes.chip, fill, border)
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .then(
+                if (LocalOverlayLiquidButtons.current) {
+                    Modifier.liquidGlass(
+                        shape = GlassShapes.chip,
+                        fill = fill,
+                        border = border,
+                        over = palette.background,
+                        sheen = 0.62f,
+                    )
+                } else {
+                    Modifier.flatGlass(GlassShapes.chip, fill, border)
+                },
+            ).padding(horizontal = 14.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

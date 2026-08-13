@@ -724,7 +724,7 @@ fun DetailScreen(component: DetailComponent) {
             }
 
             if (moreSheetOpen && detail != null) {
-                GlassDialog(onDismiss = { moreSheetOpen = false }) {
+                GlassDialog(liquidButtons = false, onDismiss = { moreSheetOpen = false }) {
                     OverlayHeader(
                         title = detail.title,
                         subtitle = "更多操作",
@@ -940,7 +940,7 @@ private fun OfflineDownloadDialog(
             if (batchCount > 0 && bytes > Long.MAX_VALUE / batchCount) Long.MAX_VALUE else bytes * batchCount
         }
 
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
         OverlayHeader(
             title = "智能离线",
             subtitle =
@@ -1060,7 +1060,7 @@ private fun OrganizationContainerDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    GlassDialog(onDismiss = onDismiss, scrollable = false) {
+    GlassDialog(liquidButtons = false, onDismiss = onDismiss, scrollable = false) {
         OverlayHeader(
             title = "加入合集或播放列表",
             subtitle = "使用服务器上已有的容器",
