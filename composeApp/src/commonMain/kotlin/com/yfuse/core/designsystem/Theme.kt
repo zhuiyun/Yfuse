@@ -166,6 +166,28 @@ val LocalAccentColors =
     }
 
 /**
+ * Transitional source compatibility for old call sites that only read `.color`.
+ * This value is fixed product identity, not a setting and not persisted anywhere.
+ */
+@Immutable
+internal data class FixedBrandEmphasis(
+    val color: Color,
+)
+
+internal val LocalAccent =
+    staticCompositionLocalOf {
+        FixedBrandEmphasis(Brand.Primary) // design-system: brand-identity
+    }
+
+/**
+ * Transitional source compatibility for the Android player. This is a fixed brand value,
+ * not the removed selectable theme-colour enum.
+ */
+internal object AccentColor {
+    val Blue: Color = Brand.Primary // design-system: brand-identity
+}
+
+/**
  * The colour of whatever the page currently on screen is showing, or null where it shows no
  * artwork at all. Published by the screens that already derive one — see [ArtworkAccent].
  */
@@ -266,14 +288,13 @@ private fun lightScheme(accent: AccentColors) =
 @Composable
 fun YfuseTheme(
     dark: Boolean,
+    accent: Color = Brand.Primary,
     accessibility: AccessibilityOptions = AccessibilityOptions(),
     glassStyle: GlassStyle = GlassStyle.Liquid,
     content: @Composable () -> Unit,
 ) {
     val palette = if (dark) DarkPalette else LightPalette
-    val accentColors = remember(dark) {
-        resolveAccentColors(Brand.Primary, dark) // design-system: brand-identity
-    }
+    val accentColors = remember(dark, accent) { resolveAccentColors(accent, dark) }
     val density = LocalDensity.current
     val adjustedDensity =
         if (accessibility.largeText) {
