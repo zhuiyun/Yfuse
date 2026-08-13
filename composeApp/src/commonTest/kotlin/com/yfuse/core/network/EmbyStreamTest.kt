@@ -3,57 +3,39 @@ package com.yfuse.core.network
 import com.yfuse.core.model.PlaybackQuality
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EmbyStreamTest {
     @Test
-    fun negotiated_public_http_url_requires_explicit_confirmation_before_credentials_are_added() {
+    fun negotiated_public_http_url_is_usable_without_confirmation() {
         val raw = "http://media.example/video"
-
-        assertNull(
+        val negotiated =
             EmbyStream.negotiatedUrl(
                 baseUrl = "https://emby.example",
                 rawUrl = raw,
                 token = "secret-token",
                 playSessionId = "session",
-            ),
-        )
-        val confirmed =
-            EmbyStream.negotiatedUrl(
-                baseUrl = "https://emby.example",
-                rawUrl = raw,
-                token = "secret-token",
-                playSessionId = "session",
-                localCleartextConfirmed = true,
             )
 
-        assertTrue(confirmed?.startsWith(raw) == true, confirmed.orEmpty())
-        assertTrue("api_key=secret-token" in confirmed.orEmpty(), confirmed.orEmpty())
+        assertTrue(negotiated?.startsWith(raw) == true, negotiated.orEmpty())
+        assertTrue("api_key=secret-token" in negotiated.orEmpty(), negotiated.orEmpty())
+        assertTrue("PlaySessionId=session" in negotiated.orEmpty(), negotiated.orEmpty())
     }
 
     @Test
-    fun negotiated_local_http_url_requires_the_servers_local_confirmation() {
+    fun negotiated_local_http_url_is_usable_without_confirmation() {
         val raw = "http://192.168.1.20/video"
-
-        assertNull(
+        val negotiated =
             EmbyStream.negotiatedUrl(
                 baseUrl = "https://emby.example",
                 rawUrl = raw,
                 token = "secret-token",
                 playSessionId = "session",
-            ),
-        )
-        val confirmed =
-            EmbyStream.negotiatedUrl(
-                baseUrl = "https://emby.example",
-                rawUrl = raw,
-                token = "secret-token",
-                playSessionId = "session",
-                localCleartextConfirmed = true,
             )
-        assertTrue(confirmed?.startsWith(raw) == true, confirmed.orEmpty())
-        assertTrue("api_key=secret-token" in confirmed.orEmpty(), confirmed.orEmpty())
+
+        assertTrue(negotiated?.startsWith(raw) == true, negotiated.orEmpty())
+        assertTrue("api_key=secret-token" in negotiated.orEmpty(), negotiated.orEmpty())
+        assertTrue("PlaySessionId=session" in negotiated.orEmpty(), negotiated.orEmpty())
     }
 
     @Test
