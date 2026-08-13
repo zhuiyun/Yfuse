@@ -180,15 +180,13 @@ fun YfLinkButton(
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,
-            )
-            .liquidGlass(
+            ).liquidGlass(
                 shape = AppShapes.control,
                 fill = fill,
                 border = border,
                 over = palette.background,
                 sheen = if (destructive) 0.74f else 0.62f,
-            )
-            .padding(horizontal = 16.dp, vertical = 11.dp),
+            ).padding(horizontal = 16.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
