@@ -39,6 +39,9 @@ internal data class EpisodeCard(
     val caption: String?,
     val stillUrl: String?,
     val progress: Float?,
+    /** Cross-server identities are also used by the room playlist to jump into this queue. */
+    val watchKey: String,
+    val watchMatchKeys: List<String>,
 )
 
 internal fun List<PlayerMediaItem>.toEpisodeCards(): List<EpisodeCard> = mapIndexed { index, item ->
@@ -47,6 +50,8 @@ internal fun List<PlayerMediaItem>.toEpisodeCards(): List<EpisodeCard> = mapInde
         caption = item.caption,
         stillUrl = item.stillUrl,
         progress = item.progress?.takeIf { it > 0.01f },
+        watchKey = item.watchKey,
+        watchMatchKeys = item.matchKeys,
     )
 }
 
