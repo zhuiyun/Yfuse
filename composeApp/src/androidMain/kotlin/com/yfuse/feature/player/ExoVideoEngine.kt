@@ -21,13 +21,13 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsTrackMetadataEntry
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.koin.core.context.GlobalContext
 
 private const val TAG = "YfusePlayer"
 
@@ -225,6 +226,9 @@ class ExoVideoEngine(
 ) : VideoEngine {
     /** Keep quality enforcement inside the engine as well as at the launcher boundary. */
     private val items = items.map { it.withPlaybackQuality(quality) }.toMutableList()
+    private val outputPreferences = GlobalContext.get().get<PlaybackPreferences>()
+    internal val frameRateMatchMode = outputPreferences.frameRateMatch.value.toPlayerMode()
+    private val audioPassthroughMode = outputPreferences.audioPassthrough.value.toPlayerMode()
     private val startTranscoding =
         this.items
             .getOrNull(startIndex)
@@ -291,7 +295,7 @@ class ExoVideoEngine(
                     MediaCodecSelector.DEFAULT
                 }
             val renderersFactory =
-                DefaultRenderersFactory(context)
+                ExoOutputRenderersFactory(context, audioPassthroughMode)
                     .setMediaCodecSelector(selector)
                     .setEnableDecoderFallback(decoderMode != DecoderMode.Hardware)
 
@@ -323,6 +327,7 @@ class ExoVideoEngine(
                 .Builder(context, renderersFactory)
                 .setLoadControl(loadControl)
                 .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+                .setVideoChangeFrameRateStrategy(exoVideoChangeFrameRateStrategy(frameRateMatchMode))
                 // Declare what this output is, so the system routes and mixes it as a film
                 // rather than as the unspecified default. Focus itself is claimed once for the
                 // whole player (see PlayerActivity) because the other two engines can't ask
@@ -663,6 +668,16 @@ class ExoVideoEngine(
     private var ticker: Job? = null
 
     init {
+        AppLog.info(
+            category = "player.exo",
+            event = "output_preferences_applied",
+            message = "ExoPlayer output preferences were applied",
+            attributes =
+                mapOf(
+                    "frameRateMatch" to frameRateMatchMode.toString(),
+                    "audioPassthrough" to audioPassthroughMode.toString(),
+                ),
+        )
         player.addListener(listener)
         player.addAnalyticsListener(analyticsListener)
         player.setMediaItems(
