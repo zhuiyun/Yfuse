@@ -108,4 +108,14 @@ class PlaybackOutputCapabilitiesTest {
             mpvAudioPassthroughStatus(AudioPassthroughMode.Compatible, "spdif-eac3", "spdif_eac3"),
         )
     }
+
+    @Test
+    fun mpv_inactive_status_uses_decoder_when_output_format_is_missing() {
+        val status =
+            assertIs<PlaybackOutputStatus.Inactive>(
+                mpvAudioPassthroughStatus(AudioPassthroughMode.Compatible, null, "aac"),
+            )
+
+        assertEquals("mpv is decoding the current track to aac", status.detail)
+    }
 }

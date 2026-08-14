@@ -62,13 +62,13 @@ internal fun mpvAudioPassthroughStatus(
     if (mode == AudioPassthroughMode.Disabled) return PlaybackOutputStatus.Disabled
     val output = audioOutputFormat?.trim().orEmpty()
     val decoder = audioDecoder?.trim().orEmpty()
+    val detectedOutput = output.ifBlank { decoder }
     val active =
         output.startsWith("spdif", ignoreCase = true) ||
             decoder.startsWith("spdif", ignoreCase = true)
     return when {
-        active -> PlaybackOutputStatus.Active(output.ifBlank { decoder })
-        output.isBlank() && decoder.isBlank() ->
-            PlaybackOutputStatus.Configured("waiting for mpv audio output")
-        else -> PlaybackOutputStatus.Inactive("mpv is decoding the current track to $output")
+        active -> PlaybackOutputStatus.Active(detectedOutput)
+        detectedOutput.isBlank() -> PlaybackOutputStatus.Configured("waiting for mpv audio output")
+        else -> PlaybackOutputStatus.Inactive("mpv is decoding the current track to $detectedOutput")
     }
 }
