@@ -523,6 +523,7 @@ class WatchTogetherClient(
     val state: StateFlow<WatchTogetherState> = _state.asStateFlow()
     private val _timeline = MutableStateFlow<WatchTimeline?>(null)
     val timeline: StateFlow<WatchTimeline?> = _timeline.asStateFlow()
+    val roomPlaylist = WatchRoomPlaylistController(::send)
 
     private val outgoingMessages =
         WatchOutgoingQueue<DefaultClientWebSocketSession, WatchWireMessage>(
@@ -871,6 +872,7 @@ class WatchTogetherClient(
         leaveInternal()
         _state.value = WatchTogetherState()
         _timeline.value = null
+        roomPlaylist.reset()
     }
 
     private fun leaveInternal() {
@@ -924,6 +926,7 @@ class WatchTogetherClient(
         }
         leaveInternal()
         clock.reset()
+        roomPlaylist.reset()
         everWelcomed = false
         reconnectAttempt = 0
         authenticationRetryUsed = false
@@ -1267,6 +1270,8 @@ class WatchTogetherClient(
                                     _state.update {
                                         it.copy(chatError = wire.message ?: "消息发送失败")
                                     }
+                                } else if (wire.errorCode?.startsWith("playlist_") == true) {
+                                    roomPlaylist.applyServerError(wire)
                                 } else {
                                     _state.update {
                                         it.copy(error = wire.message ?: "一起看服务返回错误")
@@ -1332,9 +1337,11 @@ class WatchTogetherClient(
         authenticationRetryUsed = false
         _state.value = WatchTogetherState(error = "登录已失效，请重新登录后使用一起看")
         _timeline.value = null
+        roomPlaylist.reset()
     }
 
     private fun applyRoomSnapshot(wire: WatchWireMessage) {
+        roomPlaylist.applySnapshot(wire)
         // Only `welcome` used to be logged, and a host is alone at welcome by definition — so
         // every host's diagnostics read `participantCount=1` for the whole session and there
         // was no way to tell a room nobody joined from one that filled up and emptied again.
