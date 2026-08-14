@@ -152,9 +152,6 @@ jobs:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Reject vulnerable dependency changes
-        # Dependency Review requires repository security features that are not enabled here.
-        # Keep the check visible/advisory; lockfile resolution in verify remains mandatory.
-        continue-on-error: true
         uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
         with:
           fail-on-severity: high
