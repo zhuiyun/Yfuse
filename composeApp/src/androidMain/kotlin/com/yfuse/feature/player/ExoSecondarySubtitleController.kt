@@ -9,8 +9,6 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
-import androidx.media3.common.text.Cue
-import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -26,76 +24,6 @@ import androidx.media3.exoplayer.text.TextRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 import com.yfuse.core.logging.AppLog
 import kotlin.math.abs
-
-/**
- * Combines the normal ExoPlayer text output with a separately decoded secondary subtitle stream.
- *
- * The primary renderer still owns timing and PlayerView integration. Secondary text cues with no
- * authored position are moved two lines above the normal bottom row; explicitly positioned ASS/SSA
- * cues and bitmap subtitles keep their authored coordinates.
- */
-@UnstableApi
-internal class ExoDualSubtitleCueMerger {
-    private var primary = CueGroup.EMPTY_TIME_ZERO
-    private var secondary = CueGroup.EMPTY_TIME_ZERO
-    private var downstream: TextOutput? = null
-
-    fun primaryOutput(output: TextOutput): TextOutput {
-        synchronized(this) { downstream = output }
-        return TextOutput { cues -> updatePrimary(cues) }
-    }
-
-    fun secondaryOutput(): TextOutput = TextOutput { cues -> updateSecondary(cues) }
-
-    fun clearSecondary() {
-        val snapshot =
-            synchronized(this) {
-                secondary = CueGroup.EMPTY_TIME_ZERO
-                downstream to mergedLocked()
-            }
-        snapshot.first?.onCues(snapshot.second)
-    }
-
-    private fun updatePrimary(cues: CueGroup) {
-        val snapshot =
-            synchronized(this) {
-                primary = cues
-                downstream to mergedLocked()
-            }
-        snapshot.first?.onCues(snapshot.second)
-    }
-
-    private fun updateSecondary(cues: CueGroup) {
-        val snapshot =
-            synchronized(this) {
-                secondary = cues
-                downstream to mergedLocked()
-            }
-        snapshot.first?.onCues(snapshot.second)
-    }
-
-    private fun mergedLocked(): CueGroup {
-        if (secondary.cues.isEmpty()) return primary
-        if (primary.cues.isEmpty()) {
-            return CueGroup(
-                secondary.cues.map(::secondaryDisplayCue),
-                secondary.presentationTimeUs,
-            )
-        }
-        return CueGroup(
-            primary.cues + secondary.cues.map(::secondaryDisplayCue),
-            maxOf(primary.presentationTimeUs, secondary.presentationTimeUs),
-        )
-    }
-}
-
-@UnstableApi
-private fun secondaryDisplayCue(cue: Cue): Cue =
-    if (cue.text != null && cue.line == Cue.DIMEN_UNSET) {
-        cue.buildUpon().setLine(SECONDARY_SUBTITLE_LINE, Cue.LINE_TYPE_NUMBER).build()
-    } else {
-        cue
-    }
 
 /** Stable-enough identity for finding the same subtitle in the text-only secondary player. */
 @UnstableApi
@@ -247,15 +175,13 @@ internal class ExoSecondarySubtitleController(
         if (mediaItems.isEmpty()) return false
         desiredTrack = identity
         enabled = true
+        val safeIndex = currentIndex.coerceIn(0, mediaItems.lastIndex)
+        val safePositionMs = positionMs.coerceAtLeast(0L)
         if (player.mediaItemCount == 0 || player.mediaItemCount != mediaItems.size) {
-            player.setMediaItems(
-                mediaItems,
-                currentIndex.coerceIn(0, mediaItems.lastIndex),
-                positionMs.coerceAtLeast(0L),
-            )
+            player.setMediaItems(mediaItems, safeIndex, safePositionMs)
             prepared = false
-        } else if (player.currentMediaItemIndex != currentIndex) {
-            player.seekTo(currentIndex.coerceIn(0, mediaItems.lastIndex), positionMs.coerceAtLeast(0L))
+        } else if (player.currentMediaItemIndex != safeIndex) {
+            player.seekTo(safeIndex, safePositionMs)
         }
         if (!prepared) {
             player.prepare()
@@ -289,12 +215,13 @@ internal class ExoSecondarySubtitleController(
         mainPlayWhenReady: Boolean,
     ) {
         if (!enabled || !prepared) return
+        val safePositionMs = mainPositionMs.coerceAtLeast(0L)
         if (player.currentMediaItemIndex != mainIndex) {
-            player.seekTo(mainIndex, mainPositionMs.coerceAtLeast(0L))
+            player.seekTo(mainIndex, safePositionMs)
         } else if (abs(player.currentPosition - mainPositionMs) > SECONDARY_DRIFT_TOLERANCE_MS) {
-            player.seekTo(mainPositionMs.coerceAtLeast(0L))
+            player.seekTo(safePositionMs)
         }
-        if (abs(player.playbackParameters.speed - mainSpeed) > 0.001f) {
+        if (abs(player.playbackParameters.speed - mainSpeed) > PLAYBACK_SPEED_TOLERANCE) {
             player.setPlaybackSpeed(mainSpeed)
         }
         player.playWhenReady = mainPlayWhenReady
@@ -359,5 +286,5 @@ internal class ExoSecondarySubtitleController(
     }
 }
 
-private const val SECONDARY_SUBTITLE_LINE = -3f
 private const val SECONDARY_DRIFT_TOLERANCE_MS = 350L
+private const val PLAYBACK_SPEED_TOLERANCE = 0.001f
