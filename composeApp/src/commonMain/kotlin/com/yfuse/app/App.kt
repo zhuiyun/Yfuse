@@ -127,13 +127,11 @@ private data class TabItem(
 )
 
 /**
- * The four destinations in the bar.
+ * Five equal root destinations in one calm glass capsule.
  *
- * 搜索 left the row and became [SearchButton], a control of its own beside it. It was the odd
- * one out: the other four are places the app can be in — each keeps a back stack, each is
- * where you end up and stay — while search is a thing you do to get somewhere and leave. As a
- * fifth equal cell it also cost the other four a fifth of the bar, and made the row a set of
- * five narrow targets rather than four comfortable ones.
+ * Search stays visually related to the rest of the app while retaining its own back stack
+ * and semantics. The dedicated icon family keeps every destination recognisable without
+ * labels or decorative containers around individual glyphs.
  */
 private val tabs =
     listOf(
@@ -141,6 +139,7 @@ private val tabs =
         TabItem(Tab.Browse, "库", AppIcons.TabLibrary),
         TabItem(Tab.Servers, "服务器", AppIcons.TabServers),
         TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
+        TabItem(Tab.Search, "搜索", AppIcons.SearchTab),
     )
 
 /**
@@ -776,14 +775,10 @@ private fun rememberNavCollapseConnection(
 }
 
 /**
- * The bottom furniture: the four destinations, and 搜索 as its own control beside them.
+ * The bottom furniture: five fine-line destinations in one floating capsule.
  *
- * Two shapes for one row. Expanded, the tabs fill a capsule and search is a circle at its
- * end. Collapsed, the capsule contracts to a single button carrying the icon of wherever the
- * user is — enough to say "navigation lives here" without spending a bar's worth of screen on
- * four destinations nobody is looking at while reading — and tapping it brings the row back.
- * Search does not collapse: it is one tap from anywhere, and that is the point of moving it
- * out of the row.
+ * During reading the dock still collapses to the active destination plus a persistent search
+ * shortcut. Expanded, all five roots return to one uninterrupted glass surface.
  */
 @Composable
 private fun BottomNavigationDock(
@@ -808,6 +803,11 @@ private fun BottomNavigationDock(
         if (collapsed) {
             CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
             Spacer(Modifier.weight(1f))
+            SearchButton(
+                selected = active == Tab.Search,
+                backdrop = backdrop,
+                onClick = onSearch,
+            )
         } else {
             GlassTabBar(
                 active = active,
@@ -816,11 +816,6 @@ private fun BottomNavigationDock(
                 modifier = Modifier.weight(1f),
             )
         }
-        SearchButton(
-            selected = active == Tab.Search,
-            backdrop = backdrop,
-            onClick = onSearch,
-        )
     }
 }
 
@@ -936,7 +931,7 @@ private fun GlassTabBar(
     // The accent stays on the icon/label so theme colours remain expressive without tinting
     // the whole selected cell. Dark mode keeps the same hierarchy with a stronger dark glass.
     val barFill = palette.glassStrong.copy(alpha = if (palette.isDark) 0.86f else 0.92f)
-    val selectionFill = palette.text.copy(alpha = if (palette.isDark) 0.12f else 0.08f)
+    val selectionFill = accent.container.copy(alpha = if (palette.isDark) 0.46f else 0.72f)
     // The pill travels between cells rather than appearing under the new one. Tabs are
     // equal-weight quarters of the bar, so its position is the animated index and nothing
     // has to be measured.
@@ -974,8 +969,8 @@ private fun GlassTabBar(
                 // artwork-heavy roots and plain roots without turning into a filled button.
                 // The selected region nearly fills its cell, matching the broad soft island
                 // in the reference instead of reading as a small Material indicator.
-                val pillWidth = cell * 0.92f
-                val pillHeight = size.height * 0.88f
+                val pillWidth = cell * 0.82f
+                val pillHeight = size.height * 0.86f
                 drawRoundRect(
                     color = selectionFill,
                     topLeft =
@@ -1121,70 +1116,24 @@ private fun LiquidGlassTabIcon(
     tint: Color,
     compact: Boolean = false,
 ) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val boxSize = if (compact) 36.dp else 40.dp
+    val boxSize = if (compact) 34.dp else 38.dp
     val iconSize =
         when {
-            compact && selected -> 29.dp
-            compact -> 27.dp
-            selected -> 31.dp
-            else -> 29.dp
-        }
-    // Keep the glass chroma quiet: one hue per state, with only luminance changing along
-    // the stroke. The previous white/accent/text mix produced a muddy rainbow edge.
-    val body = tint
-    val highlight =
-        if (palette.isDark) {
-            body.copy(alpha = if (selected) 1f else 0.92f)
-        } else {
-            lerp(body, Color.White, if (selected) 0.30f else 0.20f)
-        }
-    val depth =
-        if (palette.isDark) {
-            lerp(body, Color.Black, 0.18f)
-        } else {
-            lerp(body, Color.Black, 0.12f)
+            compact -> 25.dp
+            selected -> 28.dp
+            else -> 27.dp
         }
 
     Box(
         Modifier.size(boxSize),
         contentAlignment = Alignment.Center,
     ) {
-        // A restrained lower refraction keeps the glass depth without visually doubling
-        // the stroke. It is the same size as the foreground and displaced by only half a dp.
-        Icon(
-            item.icon,
-            contentDescription = null,
-            tint = depth.copy(alpha = if (palette.isDark) 0.20f else 0.14f),
-            modifier =
-                Modifier
-                    .offset(y = 0.5.dp)
-                    .size(iconSize),
-        )
         Icon(
             item.icon,
             contentDescription = item.label,
-            tint = Color.White,
-            modifier =
-                Modifier
-                    .size(iconSize)
-                    // SrcIn needs an offscreen layer; otherwise the mask can tint siblings in
-                    // the tab cell on some Android renderers.
-                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-                    .drawWithCache {
-                        val glassInk =
-                            Brush.verticalGradient(
-                                0f to highlight,
-                                0.30f to body,
-                                0.82f to body,
-                                1f to depth,
-                            )
-                        onDrawWithContent {
-                            drawContent()
-                            drawRect(glassInk, blendMode = BlendMode.SrcIn)
-                        }
-                    },
+            tint = tint,
+            modifier = Modifier.size(iconSize),
         )
     }
+
 }
