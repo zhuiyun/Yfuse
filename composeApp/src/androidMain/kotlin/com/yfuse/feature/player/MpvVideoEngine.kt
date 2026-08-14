@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import android.content.Context
 import android.util.Log
 import android.view.Surface
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
@@ -16,82 +17,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.koin.core.context.GlobalContext
 
 private const val TAG = "YfusePlayer"
 
 /** mpv pushes `time-pos` per frame; only forward moves of at least this much. */
 private const val POSITION_STEP_MS = 200L
-
-internal fun mpvDynamicRange(gamma: String): String =
-    when (gamma.trim().lowercase()) {
-        "pq" -> "HDR10 / PQ"
-        "hlg" -> "HLG"
-        "linear", "gamma1.8", "gamma2.0", "gamma2.2", "gamma2.4", "bt.1886", "srgb" -> "SDR"
-        else -> gamma.uppercase()
-    }
-
-/**
- * Distinguishes mpv's expected END_FILE for `loadfile replace`/`stop` from a failed stream.
- *
- * The Java facade exposes only the event id, not `mpv_event_end_file.reason`. Commands and
- * events are ordered, so one expected end per logical replacement is enough. The state is
- * synchronized because commands originate on UI/coroutine threads while events come from
- * mpv's native callback thread.
- */
-internal class MpvEndFileTracker {
-    private var hasFileOrPending = false
-    private var expectedEnds = 0
-
-    /** Returns whether this load replaces an earlier current/pending load. */
-    @Synchronized
-    fun beforeLoad(): Boolean {
-        val replacing = hasFileOrPending
-        hasFileOrPending = true
-        if (replacing) expectedEnds++
-        return replacing
-    }
-
-    @Synchronized
-    fun rollbackLoad(replacing: Boolean) {
-        if (replacing) {
-            if (expectedEnds > 0) expectedEnds--
-            hasFileOrPending = true
-        } else {
-            hasFileOrPending = false
-        }
-    }
-
-    /** Returns whether stopping should produce an END_FILE to consume. */
-    @Synchronized
-    fun beforeStop(): Boolean {
-        val stopping = hasFileOrPending
-        hasFileOrPending = false
-        if (stopping) expectedEnds++
-        return stopping
-    }
-
-    @Synchronized
-    fun rollbackStop(stopping: Boolean) {
-        if (!stopping) return
-        if (expectedEnds > 0) expectedEnds--
-        hasFileOrPending = true
-    }
-
-    /** True means this END_FILE belongs to an intentional replacement and must be ignored. */
-    @Synchronized
-    fun consumeExpectedEnd(): Boolean {
-        if (expectedEnds <= 0) {
-            hasFileOrPending = false
-            return false
-        }
-        expectedEnds--
-        return true
-    }
-
-    @get:Synchronized
-    internal val pendingExpectedEnds: Int
-        get() = expectedEnds
-}
 
 /**
  * libmpv behind the engine-agnostic [VideoEngine] contract.
@@ -114,6 +45,12 @@ class MpvVideoEngine(
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
     private val items = items.map { it.withPlaybackQuality(quality) }
+    private val audioPassthroughMode =
+        GlobalContext
+            .get()
+            .get<PlaybackPreferences>()
+            .audioPassthrough.value
+            .toPlayerMode()
 
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
@@ -126,6 +63,9 @@ class MpvVideoEngine(
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private var fallbackJob: Job? = null
     private val endFileTracker = MpvEndFileTracker()
+
+    @Volatile
+    private var pauseAtEndOfCurrentItem = false
 
     private val _state =
         MutableStateFlow(
@@ -346,6 +286,10 @@ class MpvVideoEngine(
                     "eof-reached" ->
                         when {
                             !value -> _state.update { it.copy(ended = false) }
+                            pauseAtEndOfCurrentItem -> {
+                                playRequested = false
+                                _state.update { it.copy(playing = false, buffering = false, ended = true) }
+                            }
                             autoNext && _state.value.hasNext -> playNextIfAny()
                             else -> _state.update { it.copy(playing = false, buffering = false, ended = true) }
                         }
@@ -514,6 +458,9 @@ class MpvVideoEngine(
             // Use Android's media stream deterministically. This keeps native
             // playback on the same STREAM_MUSIC volume path as ExoPlayer/MDK.
             instance.requireOption("ao", "audiotrack")
+            mpvAudioSpdifOption(audioPassthroughMode)?.let { codecs ->
+                instance.optionalOption("audio-spdif", codecs)
+            }
             customUserAgent.trim().takeIf { it.isNotEmpty() }?.let { value ->
                 instance.requireOption("user-agent", value)
             }
@@ -558,6 +505,7 @@ class MpvVideoEngine(
             instance.observeProperty("decoder-frame-drop-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("aid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("secondary-sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
 
             instance.attachSurface(surface)
             instance.setPropertyString("force-window", "yes")
@@ -571,6 +519,7 @@ class MpvVideoEngine(
                     mapOf(
                         "itemIndex" to _state.value.currentIndex.toString(),
                         "decoderMode" to decoderMode.name,
+                        "audioPassthrough" to audioPassthroughMode.toString(),
                     ),
             )
         }.onFailure {
@@ -663,16 +612,46 @@ class MpvVideoEngine(
 
     override fun selectSubtitleTrack(id: String) = selectTrack("sid", id)
 
+    override val supportsSecondarySubtitleTrack: Boolean = true
+
+    override fun selectSecondarySubtitleTrack(id: String): Boolean =
+        withMpvResult { instance ->
+            if (id == EngineTrack.OFF) {
+                instance.setPropertyString("secondary-sid", "no")
+            } else {
+                val ordinal = id.toIntOrNull() ?: error("Invalid mpv subtitle id")
+                instance.setPropertyInt("secondary-sid", ordinal)
+            }
+        }
+
     override fun setSubtitleOffsetMs(offsetMs: Long): Boolean {
         val instance = mpv ?: return false
         instance.setPropertyDouble("sub-delay", offsetMs / 1000.0)
         return true
     }
 
-    override fun setSubtitleScale(scale: Float): Boolean {
-        val instance = mpv ?: return false
-        instance.setPropertyDouble("sub-scale", scale.coerceIn(0.6f, 1.8f).toDouble())
-        return true
+    override fun setSubtitleScale(scale: Float): Boolean =
+        withMpvResult { instance ->
+            val normalized = scale.coerceIn(0.6f, 1.8f).toDouble()
+            instance.setPropertyDouble("sub-scale", normalized)
+            instance.setPropertyDouble("secondary-sub-scale", normalized)
+        }
+
+    override fun setSubtitleBrightness(brightness: Float): Boolean =
+        withMpvResult { instance ->
+            val luminance = brightness.coerceIn(MIN_SUBTITLE_BRIGHTNESS, 1f)
+            instance.setPropertyString("sub-color", subtitleBrightnessMpvColor(luminance))
+            // Embedded ASS colours otherwise bypass sub-color. Only force them while the user
+            // has deliberately lowered HDR caption luminance; 100% restores authored styling.
+            instance.setPropertyString("sub-ass-override", if (luminance < 0.999f) "force" else "yes")
+            instance.setPropertyString(
+                "secondary-sub-ass-override",
+                if (luminance < 0.999f) "force" else "strip",
+            )
+        }
+
+    override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
+        pauseAtEndOfCurrentItem = enabled
     }
 
     override fun selectItem(index: Int) {
@@ -912,6 +891,8 @@ class MpvVideoEngine(
         val instance = mpv ?: return
         runCatching {
             val count = instance.getPropertyInt("track-list/count") ?: 0
+            val selectedAudio = instance.getPropertyString("aid")
+            val selectedSubtitle = instance.getPropertyString("sid")
             val audio = mutableListOf<EngineTrack>()
             val subtitles = mutableListOf<EngineTrack>()
 
@@ -928,7 +909,7 @@ class MpvVideoEngine(
                         id = id.toString(),
                         label = title ?: language ?: "${if (type == "audio") "音轨" else "字幕"} ${bucket.size + 1}",
                         language = language,
-                        selected = instance.getPropertyBoolean("track-list/$i/selected") ?: false,
+                        selected = id.toString() == if (type == "audio") selectedAudio else selectedSubtitle,
                         codec = codec,
                     )
             }
@@ -956,6 +937,14 @@ class MpvVideoEngine(
     private fun logAudioOutput() {
         val instance = mpv ?: return
         runCatching {
+            val outputFormat = instance.getPropertyString("audio-params/format")
+            val decoder = instance.getPropertyString("audio-codec-name")
+            val passthroughStatus =
+                mpvAudioPassthroughStatus(
+                    mode = audioPassthroughMode,
+                    audioOutputFormat = outputFormat,
+                    audioDecoder = decoder,
+                )
             AppLog.info(
                 category = "player.mpv",
                 event = "audio_output_configured",
@@ -963,8 +952,10 @@ class MpvVideoEngine(
                 attributes =
                     mapOf(
                         "output" to (instance.getPropertyString("current-ao") ?: "unknown"),
-                        "codec" to (instance.getPropertyString("audio-codec-name") ?: "unknown"),
+                        "format" to (outputFormat ?: "unknown"),
+                        "codec" to (decoder ?: "unknown"),
                         "track" to (instance.getPropertyString("aid") ?: "unknown"),
+                        "passthrough" to passthroughStatus.toString(),
                     ),
             )
         }.onFailure {

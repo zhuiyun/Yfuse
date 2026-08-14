@@ -36,4 +36,18 @@ class ServerBackupPayloadTest {
             decodeQrPayload("YFUSE1:H4sIAAAAAAAA")
         }
     }
+
+    @Test
+    fun corruptedCompressedPayloadIsRejected() {
+        assertFailsWith<IllegalStateException> {
+            decodeQrPayload("YFUSE3:not-valid-gzip")
+        }
+    }
+
+    @Test
+    fun oversizedPlainPayloadIsRejectedBeforeImport() {
+        assertFailsWith<IllegalArgumentException> {
+            decodeQrPayload("x".repeat(512 * 1_024 + 1))
+        }
+    }
 }

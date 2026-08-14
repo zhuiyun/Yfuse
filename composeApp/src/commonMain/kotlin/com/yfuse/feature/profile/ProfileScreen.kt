@@ -131,6 +131,7 @@ private enum class Sheet {
 private enum class ProfilePage {
     Root,
     Account,
+    AccountSessions,
     Playback,
     Danmaku,
     WatchTogether,
@@ -229,6 +230,13 @@ fun ProfileScreen(component: ProfileComponent) {
                     AccountSettingsScreen(
                         account = component.account,
                         onBack = ::closePage,
+                        onOpenSessions = { openPage(ProfilePage.AccountSessions) },
+                    )
+
+                ProfilePage.AccountSessions ->
+                    AccountSessionsScreen(
+                        account = component.account,
+                        onBack = ::closePage,
                     )
 
                 ProfilePage.Playback ->
@@ -292,6 +300,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         AccountSettingsScreen(
                             account = component.account,
                             onBack = ::closePage,
+                            onOpenSessions = { openPage(ProfilePage.AccountSessions) },
                         )
                     }
 

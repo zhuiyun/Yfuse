@@ -7,8 +7,8 @@ import kotlin.test.assertTrue
 
 class EmbyStreamTest {
     @Test
-    fun negotiatedPublicHttpUrlIsUsableWithoutConfirmation() {
-        val raw = "http://media.example/video"
+    fun negotiatedPublicHttpCdnUrlIsUsableWithoutLeakingServerCredentials() {
+        val raw = "http://media.example/video?signature=abc%2B123"
         val negotiated =
             EmbyStream.negotiatedUrl(
                 baseUrl = "https://emby.example",
@@ -17,13 +17,14 @@ class EmbyStreamTest {
                 playSessionId = "session",
             )
 
-        assertTrue(negotiated?.startsWith(raw) == true, negotiated.orEmpty())
-        assertTrue("api_key=secret-token" in negotiated.orEmpty(), negotiated.orEmpty())
-        assertTrue("PlaySessionId=session" in negotiated.orEmpty(), negotiated.orEmpty())
+        assertEquals(raw, negotiated)
+        assertTrue("secret-token" !in negotiated.orEmpty(), negotiated.orEmpty())
+        assertTrue("PlaySessionId" !in negotiated.orEmpty(), negotiated.orEmpty())
+        assertTrue("DeviceId" !in negotiated.orEmpty(), negotiated.orEmpty())
     }
 
     @Test
-    fun negotiatedLocalHttpUrlIsUsableWithoutConfirmation() {
+    fun negotiatedLocalHttpCdnUrlIsAlsoKeptCredentialFree() {
         val raw = "http://192.168.1.20/video"
         val negotiated =
             EmbyStream.negotiatedUrl(
@@ -33,9 +34,9 @@ class EmbyStreamTest {
                 playSessionId = "session",
             )
 
-        assertTrue(negotiated?.startsWith(raw) == true, negotiated.orEmpty())
-        assertTrue("api_key=secret-token" in negotiated.orEmpty(), negotiated.orEmpty())
-        assertTrue("PlaySessionId=session" in negotiated.orEmpty(), negotiated.orEmpty())
+        assertEquals(raw, negotiated)
+        assertTrue("secret-token" !in negotiated.orEmpty(), negotiated.orEmpty())
+        assertTrue("PlaySessionId" !in negotiated.orEmpty(), negotiated.orEmpty())
     }
 
     @Test
@@ -57,6 +58,25 @@ class EmbyStreamTest {
 
         assertTrue(https?.startsWith("https://cdn.example/video") == true, https.orEmpty())
         assertTrue(relative?.startsWith("http://emby.local/Videos/item/stream") == true, relative.orEmpty())
+        assertEquals("https://cdn.example/video", https)
+        assertTrue("api_key=token" in relative.orEmpty(), relative.orEmpty())
+        assertTrue("PlaySessionId=session" in relative.orEmpty(), relative.orEmpty())
+    }
+
+    @Test
+    fun same_origin_absolute_url_keeps_authentication_and_normalizes_default_port() {
+        val negotiated =
+            EmbyStream.negotiatedUrl(
+                baseUrl = "https://emby.example:443/base",
+                rawUrl = "https://EMBY.EXAMPLE/Videos/item/stream",
+                token = "secret-token",
+                playSessionId = "session",
+            )
+
+        assertTrue(negotiated?.startsWith("https://EMBY.EXAMPLE/Videos/item/stream") == true, negotiated.orEmpty())
+        assertTrue("api_key=secret-token" in negotiated.orEmpty(), negotiated.orEmpty())
+        assertTrue("PlaySessionId=session" in negotiated.orEmpty(), negotiated.orEmpty())
+        assertTrue("DeviceId=" in negotiated.orEmpty(), negotiated.orEmpty())
     }
 
     @Test

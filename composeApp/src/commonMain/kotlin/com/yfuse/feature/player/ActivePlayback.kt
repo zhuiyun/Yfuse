@@ -17,21 +17,24 @@ data class MiniPlaybackState(
  * media URLs, tokens or persisted credentials.
  */
 object ActivePlayback {
+    private data class Actions(
+        val toggle: () -> Unit,
+        val open: () -> Unit,
+        val close: () -> Unit,
+    )
+
     private val _state = MutableStateFlow(MiniPlaybackState())
     val state = _state.asStateFlow()
 
-    private var toggleAction: (() -> Unit)? = null
-    private var openAction: (() -> Unit)? = null
-    private var closeAction: (() -> Unit)? = null
+    /** One immutable binding snapshot, so callbacks can never come from different owners. */
+    private var actions: Actions? = null
 
     fun bind(
         toggle: () -> Unit,
         open: () -> Unit,
         close: () -> Unit,
     ) {
-        toggleAction = toggle
-        openAction = open
-        closeAction = close
+        actions = Actions(toggle = toggle, open = open, close = close)
     }
 
     fun update(
@@ -48,22 +51,20 @@ object ActivePlayback {
             )
     }
 
-    fun toggle() = toggleAction?.invoke()
+    fun toggle() = actions?.toggle?.invoke()
 
-    fun open() = openAction?.invoke()
+    fun open() = actions?.open?.invoke()
 
     fun close() {
-        val action = closeAction
-        // Hide the long mini controller before finishing the player task. This
-        // also prevents its parent tap handler from reopening a closing player.
+        val close = actions?.close
+        // Hide the mini controller before finishing the player task. Capturing the callback before
+        // clear keeps this operation tied to the same immutable binding snapshot.
         clear()
-        action?.invoke()
+        close?.invoke()
     }
 
     fun clear() {
         _state.value = MiniPlaybackState()
-        toggleAction = null
-        openAction = null
-        closeAction = null
+        actions = null
     }
 }

@@ -69,7 +69,7 @@ only the update directory and has no sudo (`docs/android-release.md`).
 Date-stamped so the previous one stays on disk to roll back to:
 
 ```bash
-release="/opt/yfuse-watch/releases/$(date -u +%Y%m%d-%H%M%S)-<git-sha>-v5"
+release="/opt/yfuse-watch/releases/$(date -u +%Y%m%d-%H%M%S)-<git-sha>-v6"
 sudo mkdir -p "$release"
 sudo tar xzf /tmp/yfuse-watch.tar.gz -C "$release" --strip-components=1
 sudo chown -R root:root "$release"
@@ -137,6 +137,8 @@ sudo systemctl daemon-reload
 sudo systemctl restart yfuse-update
 sudo systemctl status yfuse-update --no-pager
 sudo systemctl show yfuse-update -p EnvironmentFiles --no-pager
+sudo systemctl show yfuse-update \
+  -p LimitNOFILE -p TasksMax -p MemoryHigh -p MemoryMax --no-pager
 ```
 
 `ln` + `mv -T` rather than `ln -sfn` straight onto `current`: the rename is atomic, so
@@ -145,6 +147,13 @@ there is no instant where `current` does not resolve.
 Restarting drops every open watch-together socket. Clients reconnect on their own
 (`reconnecting` keeps the room on screen while they do), but anyone mid-film gets a brief
 resync — so prefer a quiet moment.
+
+The unit does not become active until `ExecStartPost` can reach the loopback `/health`
+endpoint. It allows up to 45 seconds for JVM startup, raises the file-descriptor limit
+to 16,384 for WebSockets, caps tasks at 256, and applies `MemoryHigh=256M` /
+`MemoryMax=384M` around the existing `-Xmx128m` heap. A readiness failure is therefore
+a failed start and is handled by the unit's bounded restart policy instead of exposing
+a half-started backend through Caddy.
 
 ### 5. Verify
 
@@ -158,13 +167,13 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' http://47.112.219.60/watch)" = 4
 journalctl -u yfuse-update -n 50 --no-pager
 ```
 
-`/watch/version` must report `protocolVersion: 5`. Protocol v5 requires a valid Yfuse
-account access token for every room connection, binds membership to the authenticated user id,
-and retains authenticated resume, host capabilities, strict wire validation, and
-session-generation checks. Anonymous users cannot create or join rooms, and clients must not
-downgrade to v4. Deploy and verify the v5 server before publishing a v5 client. The Android
-publish workflow enforces this server-first order and stops if production still advertises an
-older protocol.
+`/watch/version` must report `protocolVersion: 6` and `minProtocolVersion: 5`. Version 6 keeps
+the authenticated v5 wire shape so the server can be deployed first while installed v5 clients
+continue to create, join, and reconnect. Both versions require a valid Yfuse account access token,
+bind membership to the authenticated user id, and retain authenticated resume, host capabilities,
+strict wire validation, and session-generation checks. Version 4 predates mandatory account
+authentication and remains rejected. Deploy and verify the v6 server before publishing a v6
+client, and keep the minimum at v5 until the installed v5 population has aged out.
 
 The legacy HTTP site may serve only old update metadata and APKs. Its `/api/*` and `/watch`
 matchers must return `426` before the catch-all reverse proxy, so access tokens and watch-room

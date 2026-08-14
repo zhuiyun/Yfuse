@@ -3,9 +3,19 @@ package com.yfuse.feature.player
 import android.content.Context
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.cache.CacheKeyFactory
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import com.yfuse.core.network.mediaCacheKeyForUrl
 import java.io.Closeable
+
+/** Prevents authenticated playback URLs from being written to Media3's cache index. */
+@UnstableApi
+internal object SecureMediaCacheKeyFactory : CacheKeyFactory {
+    override fun buildCacheKey(dataSpec: DataSpec): String =
+        mediaCacheKeyForUrl(dataSpec.key ?: dataSpec.uri.toString())
+}
 
 /**
  * Shares one Media3 cache between player rebuilds.
@@ -30,7 +40,7 @@ internal object VideoCachePool {
             cache?.release()
             cache =
                 SimpleCache(
-                    context.cacheDir.resolve("video_cache"),
+                    context.cacheDir.resolve("video_cache_v2"),
                     LeastRecentlyUsedCacheEvictor(maxBytes),
                     StandaloneDatabaseProvider(context.applicationContext),
                 )

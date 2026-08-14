@@ -24,8 +24,6 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
-        // MDK / libmpv Android builds are published here.
-        maven("https://jitpack.io")
     }
 }
 

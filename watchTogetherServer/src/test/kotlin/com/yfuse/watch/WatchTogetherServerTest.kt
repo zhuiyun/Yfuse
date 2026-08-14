@@ -81,6 +81,86 @@ class WatchTogetherServerTest {
     }
 
     @Test
+    fun connectionGateEnforcesGlobalIpAndAccountLimitsAndReleasesIdempotently() {
+        val gate = WatchConnectionGate(globalLimit = 2, perIpLimit = 1, perAccountLimit = 1)
+        val first = checkNotNull(gate.tryAcquire("198.51.100.1"))
+        assertTrue(gate.tryAcquire("198.51.100.1") == null)
+        val second = checkNotNull(gate.tryAcquire("198.51.100.2"))
+        assertTrue(gate.tryAcquire("198.51.100.3") == null)
+
+        assertTrue(first.tryBindAccount("account-a"))
+        assertFalse(second.tryBindAccount("account-a"))
+        first.close()
+        first.close()
+        assertTrue(second.tryBindAccount("account-a"))
+        second.close()
+
+        val replacement = checkNotNull(gate.tryAcquire("198.51.100.1"))
+        assertTrue(replacement.tryBindAccount("account-a"))
+        replacement.close()
+    }
+
+    @Test
+    fun rejectedHandshakeReleasesItsConnectionAdmissionLease() =
+        testApplication {
+            val gate = WatchConnectionGate(globalLimit = 1, perIpLimit = 1, perAccountLimit = 1)
+            val backend =
+                com.yfuse.watch.account.AccountBackend
+                    .inMemoryForTests()
+            val registered =
+                backend.execute {
+                    register(
+                        com.yfuse.watch.account.RegisterRequest(
+                            username = "admission-watcher",
+                            password = "Watch-Test-42",
+                        ),
+                    )
+                }
+            application {
+                watchTogetherModule(
+                    accountBackend = backend,
+                    requireWatchAuthentication = true,
+                    maxWatchConnections = 1,
+                    maxWatchConnectionsPerIp = 1,
+                    maxWatchConnectionsPerAccount = 1,
+                    connectionGate = gate,
+                )
+            }
+            val socketClient = createClient { install(WebSockets) }
+            val rejected = socketClient.webSocketSession("/watch")
+            val rejectedReason =
+                withTimeout(2_000L) {
+                    (rejected as DefaultWebSocketSession).closeReason.await()
+                }
+            assertEquals("account_auth_required", rejectedReason?.message)
+
+            withTimeout(2_000L) {
+                while (true) {
+                    val probe = gate.tryAcquire("probe")
+                    if (probe != null) {
+                        probe.close()
+                        break
+                    }
+                    delay(5L)
+                }
+            }
+
+            val accepted =
+                socketClient.webSocketSession("/watch") {
+                    headers.append(HttpHeaders.Authorization, "Bearer ${registered.accessToken}")
+                }
+            accepted.send(
+                """{"type":"hello","protocolVersion":5,"clientId":"admitted","mediaKey":"tmdb:45"}""",
+            )
+            val welcome =
+                withTimeout(2_000L) {
+                    (accepted.incoming.receive() as Frame.Text).readText().asJson()
+                }
+            assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
+            accepted.close()
+        }
+
+    @Test
     fun silentWatchSocketIsClosedAfterItsAccountSessionIsRevoked() = testApplication {
         val backend = com.yfuse.watch.account.AccountBackend.inMemoryForTests()
         application {
@@ -262,18 +342,21 @@ class WatchTogetherServerTest {
             )
         }
         val attempts = AtomicInteger()
+        val authenticator: suspend (String) -> com.yfuse.watch.account.AuthenticatedAccount =
+            { token ->
+                val attempt = attempts.incrementAndGet()
+                if (attempt in 2..5) {
+                    throw com.yfuse.watch.account.AccountWorkRejectedException()
+                }
+                backend.validateAccessToken(token)
+            }
         application {
             watchTogetherModule(
                 accountBackend = backend,
                 requireWatchAuthentication = true,
                 watchAuthRevalidationMs = 25L,
-                watchAccountAuthenticator = { token ->
-                    val attempt = attempts.incrementAndGet()
-                    if (attempt in 2..5) {
-                        throw com.yfuse.watch.account.AccountWorkRejectedException()
-                    }
-                    backend.authenticateAccessToken(token)
-                },
+                watchAccountAuthenticator = authenticator,
+                watchAccountRevalidator = authenticator,
                 watchAuthRetryDelayMs = { 1L },
             )
         }
@@ -305,26 +388,29 @@ class WatchTogetherServerTest {
         val backend = com.yfuse.watch.account.AccountBackend.inMemoryForTests()
         var nowEpochMs = 1_000L
         val attempts = AtomicInteger()
+        val authenticator: suspend (String) -> com.yfuse.watch.account.AuthenticatedAccount =
+            {
+                val attempt = attempts.incrementAndGet()
+                if (attempt == 1) {
+                    com.yfuse.watch.account.AuthenticatedAccount(
+                        userId = "expiring-user",
+                        sessionId = "expiring-session",
+                        username = "expiring",
+                        nickname = "Expiring",
+                        avatarId = 0,
+                        accessExpiresAtEpochMs = 1_005L,
+                    )
+                } else {
+                    throw com.yfuse.watch.account.AccountWorkRejectedException()
+                }
+            }
         application {
             watchTogetherModule(
                 accountBackend = backend,
                 requireWatchAuthentication = true,
                 watchAuthRevalidationMs = 25L,
-                watchAccountAuthenticator = {
-                    val attempt = attempts.incrementAndGet()
-                    if (attempt == 1) {
-                        com.yfuse.watch.account.AuthenticatedAccount(
-                            userId = "expiring-user",
-                            sessionId = "expiring-session",
-                            username = "expiring",
-                            nickname = "Expiring",
-                            avatarId = 0,
-                            accessExpiresAtEpochMs = 1_005L,
-                        )
-                    } else {
-                        throw com.yfuse.watch.account.AccountWorkRejectedException()
-                    }
-                },
+                watchAccountAuthenticator = authenticator,
+                watchAccountRevalidator = authenticator,
                 watchAuthRetryDelayMs = { 1L },
                 watchAuthClock = {
                     nowEpochMs++
@@ -371,7 +457,9 @@ class WatchTogetherServerTest {
 
                 val protocol = client.get("/watch/version")
                 assertEquals(HttpStatusCode.OK, protocol.status)
-                assertEquals(5, protocol.bodyAsText().asJson()["protocolVersion"]!!.jsonPrimitive.int)
+                val advertised = protocol.bodyAsText().asJson()
+                assertEquals(6, advertised["protocolVersion"]!!.jsonPrimitive.int)
+                assertEquals(5, advertised["minProtocolVersion"]!!.jsonPrimitive.int)
 
                 val update = client.get("/yfuse/update.json")
                 assertEquals(HttpStatusCode.OK, update.status)
@@ -1109,42 +1197,51 @@ class WatchTogetherServerTest {
     }
 
     @Test
-    fun protocol_version_is_advertised_and_future_clients_are_rejected() = testApplication {
-        application { watchTogetherModule() }
-        val socketClient = createClient {
-            install(WebSockets)
-        }
+    fun protocol_version_range_is_negotiated_and_outside_versions_are_rejected() =
+        testApplication {
+            application { watchTogetherModule() }
+            val socketClient = createClient {
+                install(WebSockets)
+            }
 
-        socketClient.webSocket("/watch") {
-            send(
-                """{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:30"}""",
-            )
-            val welcome = (incoming.receive() as Frame.Text).readText().asJson()
-            assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
-            assertEquals(5, welcome["protocolVersion"]?.jsonPrimitive?.int)
-        }
-
-        socketClient.webSocket("/watch") {
-            send(
-                """{"type":"hello","protocolVersion":99,"clientId":"future","mediaKey":"tmdb:31"}""",
-            )
-            val error = (incoming.receive() as Frame.Text).readText().asJson()
-            assertEquals("protocol_incompatible", error["errorCode"]?.jsonPrimitive?.content)
-            assertEquals(5, error["protocolVersion"]?.jsonPrimitive?.int)
-        }
-
-        listOf(
-            """{"type":"hello","clientId":"missing","mediaKey":"tmdb:31"}""",
-            """{"type":"hello","protocolVersion":3,"clientId":"legacy","mediaKey":"tmdb:31"}""",
-            """{"type":"hello","protocolVersion":4,"clientId":"previous","mediaKey":"tmdb:31"}""",
-        ).forEach { rejectedHello ->
             socketClient.webSocket("/watch") {
-                send(rejectedHello)
+                send(
+                    """{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:30"}""",
+                )
+                val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
+                assertEquals(5, welcome["protocolVersion"]?.jsonPrimitive?.int)
+            }
+
+            socketClient.webSocket("/watch") {
+                send(
+                    """{"type":"hello","protocolVersion":6,"clientId":"current","mediaKey":"tmdb:30"}""",
+                )
+                val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
+                assertEquals(6, welcome["protocolVersion"]?.jsonPrimitive?.int)
+            }
+
+            socketClient.webSocket("/watch") {
+                send(
+                    """{"type":"hello","protocolVersion":99,"clientId":"future","mediaKey":"tmdb:31"}""",
+                )
                 val error = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("protocol_incompatible", error["errorCode"]?.jsonPrimitive?.content)
+                assertEquals(6, error["protocolVersion"]?.jsonPrimitive?.int)
+            }
+
+            listOf(
+                """{"type":"hello","clientId":"missing","mediaKey":"tmdb:31"}""",
+                """{"type":"hello","protocolVersion":4,"clientId":"legacy","mediaKey":"tmdb:31"}""",
+            ).forEach { rejectedHello ->
+                socketClient.webSocket("/watch") {
+                    send(rejectedHello)
+                    val error = (incoming.receive() as Frame.Text).readText().asJson()
+                    assertEquals("protocol_incompatible", error["errorCode"]?.jsonPrimitive?.content)
+                }
             }
         }
-    }
 
     @Test
     fun malformed_unknown_and_invalid_payloads_are_explicitly_rejected() = testApplication {
@@ -1189,6 +1286,23 @@ class WatchTogetherServerTest {
             )
         }
     }
+
+    @Test
+    fun binaryDataFrameIsRejectedWithPolicyViolation() =
+        testApplication {
+            application { watchTogetherModule() }
+            val socketClient = createClient { install(WebSockets) }
+            val session = socketClient.webSocketSession("/watch")
+
+            session.send(Frame.Binary(fin = true, data = byteArrayOf(1, 2, 3)))
+
+            val reason =
+                withTimeout(2_000L) {
+                    (session as DefaultWebSocketSession).closeReason.await()
+                }
+            assertEquals(1008, reason?.code?.toInt())
+            assertEquals("binary_frames_not_supported", reason?.message)
+        }
 
     @Test
     fun chat_client_message_id_acknowledges_and_deduplicates_retries() = testApplication {
@@ -1426,6 +1540,105 @@ class WatchTogetherServerTest {
     }
 
     @Test
+    fun authenticatedAccountCannotAllocateFreshMembershipsOrBypassKickWithNewClientId() =
+        testApplication {
+            val backend =
+                com.yfuse.watch.account.AccountBackend
+                    .inMemoryForTests()
+            val hostAuth =
+                backend.service.register(
+                    com.yfuse.watch.account.RegisterRequest(
+                        username = "account-host",
+                        password = "Watch-Test-42",
+                    ),
+                )
+            val guestAuth =
+                backend.service.register(
+                    com.yfuse.watch.account.RegisterRequest(
+                        username = "account-guest",
+                        password = "Watch-Test-42",
+                    ),
+                )
+            application {
+                watchTogetherModule(
+                    accountBackend = backend,
+                    requireWatchAuthentication = true,
+                )
+            }
+            val socketClient = createClient { install(WebSockets) }
+            val host =
+                socketClient.webSocketSession("/watch") {
+                    headers.append(HttpHeaders.Authorization, "Bearer ${hostAuth.accessToken}")
+                }
+            host.send(
+                """{"type":"hello","protocolVersion":5,"clientId":"host-device","mediaKey":"tmdb:351"}""",
+            )
+            val hostWelcome =
+                (host.incoming.receive() as Frame.Text)
+                    .readText()
+                    .asJson()
+            val roomCode = hostWelcome.getValue("roomCode").jsonPrimitive.content
+
+            val guest =
+                socketClient.webSocketSession("/watch") {
+                    headers.append(HttpHeaders.Authorization, "Bearer ${guestAuth.accessToken}")
+                }
+            guest.send(
+                """{"type":"hello","protocolVersion":5,"roomCode":"$roomCode","clientId":"guest-device"}""",
+            )
+            val guestWelcome =
+                (guest.incoming.receive() as Frame.Text)
+                    .readText()
+                    .asJson()
+            assertEquals("welcome", guestWelcome["type"]?.jsonPrimitive?.content)
+
+            val conflictingIdentity =
+                socketClient.webSocketSession("/watch") {
+                    headers.append(HttpHeaders.Authorization, "Bearer ${guestAuth.accessToken}")
+                }
+            conflictingIdentity.send(
+                """{"type":"hello","protocolVersion":5,"roomCode":"$roomCode","clientId":"guest-device-2"}""",
+            )
+            val conflict =
+                (conflictingIdentity.incoming.receive() as Frame.Text)
+                    .readText()
+                    .asJson()
+            assertEquals("account_membership_conflict", conflict["errorCode"]?.jsonPrimitive?.content)
+            val conflictCloseReason =
+                withTimeout(2_000L) {
+                    (conflictingIdentity as DefaultWebSocketSession).closeReason.await()
+                }
+            assertEquals(1008, conflictCloseReason?.code?.toInt())
+
+            host.send("""{"type":"kickParticipant","targetClientId":"guest-device"}""")
+            withTimeout(2_000L) {
+                while (true) {
+                    val payload = (guest.incoming.receive() as Frame.Text).readText().asJson()
+                    if (payload["type"]?.jsonPrimitive?.content == "kicked") break
+                }
+            }
+
+            val rejoin =
+                socketClient.webSocketSession("/watch") {
+                    headers.append(HttpHeaders.Authorization, "Bearer ${guestAuth.accessToken}")
+                }
+            rejoin.send(
+                """{"type":"hello","protocolVersion":5,"roomCode":"$roomCode","clientId":"brand-new-id"}""",
+            )
+            val removed =
+                (rejoin.incoming.receive() as Frame.Text)
+                    .readText()
+                    .asJson()
+            assertEquals("removed_by_host", removed["errorCode"]?.jsonPrimitive?.content)
+            val rejoinCloseReason =
+                withTimeout(2_000L) {
+                    (rejoin as DefaultWebSocketSession).closeReason.await()
+                }
+            assertEquals(1008, rejoinCloseReason?.code?.toInt())
+            host.close()
+        }
+
+    @Test
     fun active_room_creation_is_limited_per_ip_without_blocking_other_ips() = testApplication {
         application {
             watchTogetherModule(
@@ -1542,14 +1755,14 @@ class WatchTogetherServerTest {
     }
 
     @Test
-    fun removed_client_tombstones_have_a_strict_capacity() {
+    fun removed_account_tombstones_have_a_strict_capacity() {
         val removed = linkedSetOf<String>()
 
-        assertTrue(rememberRemovedClientId(removed, "one", limit = 3))
-        assertTrue(rememberRemovedClientId(removed, "two", limit = 3))
-        assertTrue(rememberRemovedClientId(removed, "three", limit = 3))
-        assertFalse(rememberRemovedClientId(removed, "four", limit = 3))
-        assertTrue(rememberRemovedClientId(removed, "one", limit = 3))
+        assertTrue(rememberRemovedAccountUserId(removed, "one", limit = 3))
+        assertTrue(rememberRemovedAccountUserId(removed, "two", limit = 3))
+        assertTrue(rememberRemovedAccountUserId(removed, "three", limit = 3))
+        assertFalse(rememberRemovedAccountUserId(removed, "four", limit = 3))
+        assertTrue(rememberRemovedAccountUserId(removed, "one", limit = 3))
         assertEquals(setOf("one", "two", "three"), removed)
     }
 }

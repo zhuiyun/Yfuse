@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.concurrent.atomic.AtomicInteger
 
 private const val MDK_TAG = "YfuseMdk"
 private const val MDK_POLL_MS = 250L
@@ -26,26 +25,6 @@ private const val MDK_POLL_MS = 250L
 /** Polls to let a freshly-loaded fallback settle before its status is trusted again. */
 private const val FALLBACK_SETTLE_POLLS = 12
 private const val TRACK_SEPARATOR = '\u001F'
-
-/** Thread-safe because MDK polling runs on Default while encoder cleanup resumes on Main. */
-internal class FallbackSettleWindow(
-    private val requiredPolls: Int,
-) {
-    private val polls = AtomicInteger(Int.MAX_VALUE)
-
-    val ready: Boolean
-        get() = polls.get() >= requiredPolls
-
-    fun tick() {
-        polls.getAndUpdate { current ->
-            if (current == Int.MAX_VALUE) current else current + 1
-        }
-    }
-
-    fun restart() {
-        polls.set(0)
-    }
-}
 
 /** Official libmdk Android facade adapted to Yfuse's engine-neutral player contract. */
 class MdkVideoEngine(
@@ -110,6 +89,13 @@ class MdkVideoEngine(
     private var tracksLoadedForIndex = -1
     private var endHandled = false
     private var fill = false
+    private var primarySubtitleOrdinal = 0
+    private var secondarySubtitleOrdinal = -1
+    private var subtitleScale = 1f
+    private var subtitleBrightness = 1f
+
+    @Volatile
+    private var pauseAtEndOfCurrentItem = false
     private var wasBuffering = true
     private val fallbackSettleWindow = FallbackSettleWindow(FALLBACK_SETTLE_POLLS)
 
@@ -194,7 +180,9 @@ class MdkVideoEngine(
 
     override fun selectSubtitleTrack(id: String) {
         val ordinal = if (id == EngineTrack.OFF) -1 else id.toIntOrNull() ?: return
-        runMdk { it.setActiveTrack(MDKPlayer.MEDIA_TYPE_SUBTITLE, ordinal) }
+        primarySubtitleOrdinal = ordinal
+        if (secondarySubtitleOrdinal == ordinal) secondarySubtitleOrdinal = -1
+        applySubtitleTracks()
         _state.update { state ->
             state.copy(
                 subtitleTracks =
@@ -205,11 +193,40 @@ class MdkVideoEngine(
         }
     }
 
+    override val supportsSecondarySubtitleTrack: Boolean = true
+
+    override fun selectSecondarySubtitleTrack(id: String): Boolean {
+        val ordinal = if (id == EngineTrack.OFF) -1 else id.toIntOrNull() ?: return false
+        if (ordinal >= 0 && ordinal == primarySubtitleOrdinal) return false
+        secondarySubtitleOrdinal = ordinal
+        return applySubtitleTracks()
+    }
+
+    override fun setSubtitleScale(scale: Float): Boolean {
+        subtitleScale = scale.coerceIn(0.6f, 1.8f)
+        val instance = player ?: return true
+        return runMdkResult(instance) { it.setProperty("subtitle.scale", subtitleScale.toString()) }
+    }
+
+    override fun setSubtitleBrightness(brightness: Float): Boolean {
+        subtitleBrightness = brightness.coerceIn(MIN_SUBTITLE_BRIGHTNESS, 1f)
+        val instance = player ?: return true
+        return runMdkResult(instance) {
+            it.setProperty("subtitle.color", subtitleBrightnessRgba(subtitleBrightness))
+        }
+    }
+
+    override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
+        pauseAtEndOfCurrentItem = enabled
+    }
+
     override fun selectItem(index: Int) {
         if (index !in items.indices || released) return
         pendingSeekMs = 0L
         tracksLoadedForIndex = -1
         endHandled = false
+        primarySubtitleOrdinal = 0
+        secondarySubtitleOrdinal = -1
         val transcoding = index in transcodedIndices
         val nextItem = items.getOrNull(index)
         _state.update {
@@ -292,6 +309,8 @@ class MdkVideoEngine(
                     instance.setProperty("avio.user_agent", value)
                 }
                 instance.setFill(fill)
+                instance.setProperty("subtitle.scale", subtitleScale.toString())
+                instance.setProperty("subtitle.color", subtitleBrightnessRgba(subtitleBrightness))
                 player = instance
             }
         }.onFailure {
@@ -387,7 +406,7 @@ class MdkVideoEngine(
 
             if (ended && !endHandled) {
                 endHandled = true
-                if (autoNext && _state.value.hasNext) {
+                if (!pauseAtEndOfCurrentItem && autoNext && _state.value.hasNext) {
                     selectItem(_state.value.currentIndex + 1)
                     return
                 }
@@ -476,6 +495,21 @@ class MdkVideoEngine(
                 selected = fields.getOrNull(3) == "1",
             )
         }
+
+    private fun applySubtitleTracks(): Boolean {
+        val active =
+            listOf(primarySubtitleOrdinal, secondarySubtitleOrdinal)
+                .filter { it >= 0 }
+                .distinct()
+                .toIntArray()
+        return runMdkResult {
+            it.setActiveTracks(
+                MDKPlayer.MEDIA_TYPE_SUBTITLE,
+                primarySubtitleOrdinal,
+                active,
+            )
+        }
+    }
 
     /** Whichever step of the fallback chain [index] has been pushed to so far. */
     private fun playbackUrl(
@@ -605,15 +639,30 @@ class MdkVideoEngine(
     }
 
     private inline fun runMdk(block: (MDKPlayer) -> Unit) {
-        val instance = player ?: return
-        runCatching { block(instance) }.onFailure {
-            safeLogcat(Log.WARN, MDK_TAG, "MDK call failed", it)
-            AppLog.warning(
-                category = "player.mdk",
-                event = "engine_call_failed",
-                message = "MDK engine call failed",
-                throwable = it,
-            )
-        }
+        runMdkResult(block)
     }
+
+    private inline fun runMdkResult(block: (MDKPlayer) -> Unit): Boolean {
+        val instance = player ?: return false
+        return runMdkResult(instance, block)
+    }
+
+    private inline fun runMdkResult(
+        instance: MDKPlayer,
+        block: (MDKPlayer) -> Unit,
+    ): Boolean =
+        runCatching { block(instance) }
+            .fold(
+                onSuccess = { true },
+                onFailure = {
+                    safeLogcat(Log.WARN, MDK_TAG, "MDK call failed", it)
+                    AppLog.warning(
+                        category = "player.mdk",
+                        event = "engine_call_failed",
+                        message = "MDK engine call failed",
+                        throwable = it,
+                    )
+                    false
+                },
+            )
 }

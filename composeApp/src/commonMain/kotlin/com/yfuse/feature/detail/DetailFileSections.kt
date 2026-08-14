@@ -528,12 +528,6 @@ private fun VersionCard(
     onSelect: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val edge =
-        when {
-            selected -> accent
-            palette.isDark -> Color.White.copy(alpha = 0.16f)
-            else -> Color(0xFF141A26).copy(alpha = 0.10f)
-        }
     Column(
         Modifier
             .width(150.dp)
@@ -549,10 +543,15 @@ private fun VersionCard(
                         Color.White.copy(alpha = 0.06f)
                     } else {
                         Color.White.copy(alpha = 0.82f)
-                    },
+                },
                 border = null,
-            ).border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
-            .padding(horizontal = 12.dp, vertical = 11.dp),
+            ).then(
+                if (selected) {
+                    Modifier.border(1.5.dp, accent, GlassShapes.card)
+                } else {
+                    Modifier
+                },
+            ).padding(horizontal = 12.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -684,12 +683,6 @@ private fun SourceCard(
     // 1.5dp on the selected ring, so switching sources moves the edge as well as the
     // colour. The body keeps its glass-card sheen; the edge itself is always one solid
     // colour and is drawn separately so it can become heavier for the selected source.
-    val edge =
-        when {
-            selected -> accent
-            palette.isDark -> Color.White.copy(alpha = 0.16f)
-            else -> Color(0xFF141A26).copy(alpha = 0.10f)
-        }
     Column(
         Modifier
             .width(width)
@@ -705,10 +698,15 @@ private fun SourceCard(
                         Color.White.copy(alpha = 0.06f)
                     } else {
                         Color.White.copy(alpha = 0.82f)
-                    },
+                },
                 border = null,
-            ).border(if (selected) 1.5.dp else Dimens.hairline, edge, GlassShapes.card)
-            .padding(horizontal = 11.dp, vertical = 11.dp),
+            ).then(
+                if (selected) {
+                    Modifier.border(1.5.dp, accent, GlassShapes.card)
+                } else {
+                    Modifier
+                },
+            ).padding(horizontal = 11.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         Row(

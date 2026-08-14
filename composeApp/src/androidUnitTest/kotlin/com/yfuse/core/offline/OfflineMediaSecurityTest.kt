@@ -7,10 +7,14 @@ import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.security.TestSecureStore
 import kotlinx.serialization.json.Json
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -449,6 +453,87 @@ class OfflineMediaSecurityTest {
         assertTrue(isOfflineArtifactName("ab.4.subtitle.part"))
         assertFalse(isOfflineArtifactName("ab.jpg"))
         assertFalse(isOfflineArtifactName("notes.txt"))
+    }
+
+    @Test
+    fun startup_cleanup_keeps_the_revision_specific_completed_video() {
+        val directory = Files.createTempDirectory("yfuse-offline-startup-").toFile()
+        try {
+            // "e" is encoded as 65 by the deterministic offline filename scheme.
+            val completed = File(directory, "65.4.media").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+            val staleRevision = File(directory, "65.3.media").apply { writeBytes(byteArrayOf(4)) }
+            val unrelated = File(directory, "orphan.1.media").apply { writeBytes(byteArrayOf(5)) }
+            val item =
+                OfflineMedia(
+                    id = "e",
+                    serverId = "server",
+                    itemId = "episode",
+                    title = "Episode",
+                    localPath = completed.absolutePath,
+                    downloadRevision = 4L,
+                    status = DownloadStatus.Completed,
+                )
+
+            cleanupOrphanedOfflineArtifacts(directory, listOf(item))
+
+            assertTrue(completed.isFile)
+            assertEquals(3L, completed.length())
+            assertFalse(staleRevision.exists())
+            assertFalse(unrelated.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun startup_cleanup_keeps_the_indexed_completed_path_after_reenqueue_advances_revision() {
+        val directory = Files.createTempDirectory("yfuse-offline-revision-").toFile()
+        try {
+            val retained = File(directory, "65.4.media").apply { writeBytes(byteArrayOf(1)) }
+            val item =
+                OfflineMedia(
+                    id = "e",
+                    serverId = "server",
+                    itemId = "episode",
+                    title = "Episode",
+                    localPath = retained.absolutePath,
+                    downloadRevision = 5L,
+                    status = DownloadStatus.Completed,
+                )
+
+            cleanupOrphanedOfflineArtifacts(directory, listOf(item))
+
+            assertTrue(retained.isFile)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun subtitle_content_length_rejects_a_declared_oversized_body() {
+        validateOfflineSubtitleContentLength(-1L)
+        validateOfflineSubtitleContentLength(MAX_OFFLINE_SUBTITLE_BYTES)
+
+        assertFailsWith<IOException> {
+            validateOfflineSubtitleContentLength(MAX_OFFLINE_SUBTITLE_BYTES + 1L)
+        }
+    }
+
+    @Test
+    fun unknown_length_subtitle_is_stopped_when_streamed_bytes_cross_the_limit() {
+        val maxBytes = 32L * 1024L
+        val output = ByteArrayOutputStream()
+
+        assertFailsWith<IOException> {
+            copyOfflineSubtitleBounded(
+                input = ByteArrayInputStream(ByteArray(maxBytes.toInt() + 1)),
+                output = output,
+                maxBytes = maxBytes,
+            )
+        }
+
+        // The first chunk may be written, but the byte that crosses the cumulative bound is not.
+        assertEquals(maxBytes, output.size().toLong())
     }
 
     @Test

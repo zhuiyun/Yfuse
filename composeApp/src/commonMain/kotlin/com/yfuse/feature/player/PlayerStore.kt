@@ -280,6 +280,7 @@ data class PlayerMediaItem(
     /** Applies a resolved version instance, including a freshly rotated playback session. */
     fun withVersion(version: PlayerMediaVersion): PlayerMediaItem {
         if (versions.none { it.id == version.id }) return this
+        val previousMediaSourceId = activeVersion?.id ?: versionId ?: id
         return copy(
             url = version.url,
             transcodeUrl = version.transcodeUrl,
@@ -289,6 +290,9 @@ data class PlayerMediaItem(
             // and reporting one session's id against another's stream ends the wrong job.
             playSessionId = version.playSessionId,
             playMethod = version.playMethod,
+            // A storyboard tile URL is qualified by MediaSourceId. Carrying it to another
+            // physical file shows wrong/missing thumbnails; PlayerActivity lazily reloads it.
+            trickplay = trickplay.takeIf { version.id == previousMediaSourceId },
         )
     }
 
@@ -349,6 +353,28 @@ data class TrickplayFrame(
     val column: Int,
     val row: Int,
 )
+
+internal data class TrickplayCacheKey(
+    val serverId: String,
+    val itemId: String,
+    val mediaSourceId: String,
+)
+
+/** Keeps viewed-episode storyboards (including misses) without prefetching an entire season. */
+internal fun Map<TrickplayCacheKey, TrickplayStoryboard?>.withTrickplayResult(
+    key: TrickplayCacheKey,
+    storyboard: TrickplayStoryboard?,
+    maxEntries: Int = MAX_TRICKPLAY_CACHE_ENTRIES,
+): Map<TrickplayCacheKey, TrickplayStoryboard?> {
+    require(maxEntries > 0)
+    return (filterKeys { it != key } + (key to storyboard))
+        .entries
+        .toList()
+        .takeLast(maxEntries)
+        .associate { it.toPair() }
+}
+
+internal const val MAX_TRICKPLAY_CACHE_ENTRIES = 8
 
 private fun String.withPlaySessionId(sessionId: String): String {
     if (isBlank()) return this
@@ -745,7 +771,8 @@ class PlayerStoreFactory(
                 negotiatedTrickplay = repo.trickplayInfo(server, effectiveItemId).getOrNull()
                 val seriesId = detail?.seriesId
                 val serverFallbacks =
-                    failoverPlan?.let { plan ->
+                    failoverPlan
+                        ?.let { plan ->
                         resolveServerFallbacks(
                             serverIds = remainingFallbackServerIds,
                             mediaKey = plan.mediaKey,

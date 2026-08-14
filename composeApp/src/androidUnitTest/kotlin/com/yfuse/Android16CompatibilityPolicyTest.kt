@@ -1,5 +1,6 @@
 package com.yfuse
 
+import com.yfuse.core.util.shouldLockCompactScreenOrientation
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -35,18 +36,39 @@ class Android16CompatibilityPolicyTest {
     @Test
     fun phone_orientation_is_preserved_while_api_36_large_screens_can_override_it() {
         val manifest = projectFile("src/androidMain/AndroidManifest.xml").readText()
-        val playerBlock =
-            manifest
-                .substringAfter("com.yfuse.feature.player.PlayerActivity")
-                .substringBefore("</activity>")
-        val scannerBlock =
-            manifest
-                .substringAfter("com.yfuse.feature.profile.QrScannerActivity")
-                .substringBefore("</activity>")
+        val player =
+            projectFile(
+                "src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
+            ).readText()
+        val scanner =
+            projectFile(
+                "src/androidMain/kotlin/com/yfuse/feature/profile/QrScannerActivity.kt",
+            ).readText()
 
-        assertTrue("android:screenOrientation=\"sensorLandscape\"" in playerBlock)
-        assertTrue("android:screenOrientation=\"portrait\"" in scannerBlock)
-        assertTrue("smallestScreenSize" in playerBlock)
+        assertTrue("android:screenOrientation" !in manifest)
+        assertTrue("SCREEN_ORIENTATION_SENSOR_LANDSCAPE" in player)
+        assertTrue("SCREEN_ORIENTATION_PORTRAIT" in scanner)
+        assertTrue(shouldLockCompactScreenOrientation(599))
+        assertTrue(!shouldLockCompactScreenOrientation(600))
+    }
+
+    @Test
+    fun large_downloads_use_android_allocatable_storage_instead_of_raw_filesystem_space() {
+        val updateManager =
+            projectFile(
+                "src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt",
+            ).readText()
+        val offlineManager =
+            projectFile(
+                "src/androidMain/kotlin/com/yfuse/core/offline/OfflineMedia.android.kt",
+            ).readText()
+
+        listOf(updateManager, offlineManager).forEach { source ->
+            assertTrue("getAllocatableBytes" in source)
+            val codeWithoutLineComments =
+                source.lineSequence().joinToString("\n") { line -> line.substringBefore("//") }
+            assertTrue(!Regex("""\.\s*usableSpace\b""").containsMatchIn(codeWithoutLineComments))
+        }
     }
 
     private fun projectFile(moduleRelativePath: String): File =

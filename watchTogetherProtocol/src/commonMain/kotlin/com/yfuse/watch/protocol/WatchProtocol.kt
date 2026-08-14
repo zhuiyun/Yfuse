@@ -5,7 +5,8 @@ import kotlinx.serialization.Serializable
 /**
  * The single wire contract used by both the Android client and the relay.
  *
- * Version 5 additionally requires an authenticated Yfuse account for every watch socket.
+ * Version 6 keeps the version 5 wire shape so the server can roll out first and negotiate with
+ * installed v5 clients. Version 5 introduced an authenticated Yfuse account for every watch socket.
  * Version 4 deliberately broke compatibility with the old client-id-only reconnect flow:
  * [clientId] is public profile data, while [resumeCapability] and [hostCapability] are private,
  * room-scoped bearer capabilities that must never be copied into participant/chat payloads.
@@ -46,6 +47,11 @@ data class WatchWireMessage(
     val clientMessageId: String? = null,
     val chat: WatchWireChatMessage? = null,
     val chatHistory: List<WatchWireChatMessage>? = null,
+    val playlist: List<WatchWirePlaylistEntry>? = null,
+    val playlistRevision: Long? = null,
+    val playlistEntry: WatchWirePlaylistEntry? = null,
+    val playlistEntryId: String? = null,
+    val playlistIndex: Int? = null,
     val message: String? = null,
     val errorCode: String? = null,
 )
@@ -77,8 +83,24 @@ data class WatchWireChatMessage(
     val clientMessageId: String? = null,
 )
 
+/**
+ * A room-scoped reference to media already known to Yfuse. Deliberately excludes URLs,
+ * authorization tokens, and provider credentials so room snapshots are safe to broadcast.
+ */
+@Serializable
+data class WatchWirePlaylistEntry(
+    val id: String,
+    val mediaKey: String,
+    val title: String,
+)
+
 object WatchProtocol {
-    const val VERSION = 5
+    const val VERSION = 6
+
+    /**
+     * Version 6 is deliberately wire-compatible with authenticated version 5. Version 4 predates
+     * mandatory account bearers and must not be admitted as a nominally compatible downgrade.
+     */
     const val MIN_SUPPORTED_VERSION = 5
 
     const val CAPABILITY_REACTIONS = "reactions"
@@ -86,6 +108,8 @@ object WatchProtocol {
     const val CAPABILITY_HOST_CREDENTIAL = "hostCapability"
     const val CAPABILITY_STRICT_VALIDATION = "strictWireValidation"
     const val CAPABILITY_ACCOUNT_AUTH = "accountAuth"
+    const val CAPABILITY_VERSION_RANGE = "protocolVersionRange"
+    const val CAPABILITY_ROOM_PLAYLIST = "roomPlaylist"
 
     val SERVER_CAPABILITIES =
         listOf(
@@ -94,7 +118,11 @@ object WatchProtocol {
             CAPABILITY_HOST_CREDENTIAL,
             CAPABILITY_STRICT_VALIDATION,
             CAPABILITY_ACCOUNT_AUTH,
+            CAPABILITY_VERSION_RANGE,
+            CAPABILITY_ROOM_PLAYLIST,
         )
+
+    fun isSupportedVersion(version: Int?): Boolean = version != null && version in MIN_SUPPORTED_VERSION..VERSION
 
     const val ROOM_CODE_LENGTH = 6
     const val ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -106,6 +134,10 @@ object WatchProtocol {
     const val MAX_CHAT_GRAPHEMES = 30
     const val MAX_CHAT_BYTES = 768
     const val MAX_CLIENT_MESSAGE_ID_BYTES = 128
+    const val MAX_PLAYLIST_ENTRIES = 64
+    const val MAX_PLAYLIST_ENTRY_ID_BYTES = 64
+    const val MAX_PLAYLIST_TITLE_BYTES = 192
+    const val MAX_PLAYLIST_TITLE_GRAPHEMES = 80
     const val CAPABILITY_LENGTH = 43
     const val MAX_TIMELINE_POSITION_MS = 30L * 24L * 60L * 60L * 1_000L
     const val MIN_PLAYBACK_RATE = 0.25f
@@ -118,6 +150,7 @@ object WatchProtocol {
     private val graphemeRegex = Regex("\\X")
     private val providerPrefixRegex = Regex("[A-Za-z][A-Za-z0-9_-]{0,31}")
     private val capabilityRegex = Regex("[A-Za-z0-9_-]{$CAPABILITY_LENGTH}")
+    private val playlistEntryIdRegex = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
 
     val CLIENT_MESSAGE_TYPES =
         setOf(
@@ -133,6 +166,10 @@ object WatchProtocol {
             "playbackStatus",
             "chat",
             "reaction",
+            "playlistAdd",
+            "playlistUpdate",
+            "playlistRemove",
+            "playlistReorder",
             "ping",
         )
 
@@ -174,6 +211,32 @@ object WatchProtocol {
         if (separator <= 0 || separator == value.lastIndex) return false
         return providerPrefixRegex.matches(value.substring(0, separator))
     }
+
+    fun isValidPlaylistEntryId(value: String?): Boolean =
+        value != null &&
+            value.encodeToByteArray().size <= MAX_PLAYLIST_ENTRY_ID_BYTES &&
+            playlistEntryIdRegex.matches(value)
+
+    fun isValidPlaylistTitle(value: String?): Boolean {
+        if (value.isNullOrEmpty() || value.isBlank() || value != value.trim()) return false
+        if (value.hasControlCharacters()) return false
+        if (value.encodeToByteArray().size > MAX_PLAYLIST_TITLE_BYTES) return false
+        return graphemeRegex.findAll(value).count() <= MAX_PLAYLIST_TITLE_GRAPHEMES
+    }
+
+    fun isValidPlaylistEntry(value: WatchWirePlaylistEntry?): Boolean =
+        value != null &&
+            isValidPlaylistEntryId(value.id) &&
+            isValidMediaKey(value.mediaKey) &&
+            isValidPlaylistTitle(value.title)
+
+    fun isValidPlaylist(value: List<WatchWirePlaylistEntry>?): Boolean {
+        if (value == null || value.size > MAX_PLAYLIST_ENTRIES) return false
+        if (value.any { !isValidPlaylistEntry(it) }) return false
+        return value.mapTo(hashSetOf()) { it.id }.size == value.size
+    }
+
+    fun isValidPlaylistRevision(value: Long?): Boolean = value != null && value >= 0L
 
     fun isValidTimeline(
         positionMs: Long?,

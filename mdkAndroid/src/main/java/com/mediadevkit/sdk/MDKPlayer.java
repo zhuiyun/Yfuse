@@ -113,6 +113,17 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
         if (nativePtr != 0) nativeSetActiveTrack(nativePtr, mediaType, ordinal);
     }
 
+    /** Selects multiple tracks of one type; primaryOrdinal is the row marked as primary. */
+    public synchronized void setActiveTracks(
+            int mediaType,
+            int primaryOrdinal,
+            int[] ordinals
+    ) {
+        if (nativePtr != 0) {
+            nativeSetActiveTracks(nativePtr, mediaType, primaryOrdinal, ordinals);
+        }
+    }
+
     public synchronized void setSurfaceView(SurfaceView view) {
         SurfaceHolder next = view == null ? null : view.getHolder();
         if (surfaceHolder == next) return;
@@ -183,6 +194,12 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
     private static native void nativeSetFill(long ptr, boolean fill);
     private static native String[] nativeTracks(long ptr, int mediaType);
     private static native void nativeSetActiveTrack(long ptr, int mediaType, int ordinal);
+    private static native void nativeSetActiveTracks(
+            long ptr,
+            int mediaType,
+            int primaryOrdinal,
+            int[] ordinals
+    );
     private static native void nativeSetSurface(
             long ptr,
             Surface surface,

@@ -1,5 +1,7 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.data.RememberedPlaybackTrack
+
 /** Stable track identity used while an engine or physical media version is rebuilt. */
 internal data class TrackRestorePreference(
     val language: String?,
@@ -8,6 +10,20 @@ internal data class TrackRestorePreference(
 )
 
 internal fun EngineTrack.toRestorePreference(): TrackRestorePreference =
+    TrackRestorePreference(
+        language = language?.trim()?.takeIf(String::isNotEmpty),
+        label = label.trim(),
+        codec = codec?.trim()?.takeIf(String::isNotEmpty),
+    )
+
+internal fun EngineTrack.toRememberedPlaybackTrack(): RememberedPlaybackTrack =
+    RememberedPlaybackTrack(
+        language = language?.trim()?.takeIf(String::isNotEmpty),
+        label = label.trim(),
+        codec = codec?.trim()?.takeIf(String::isNotEmpty),
+    )
+
+internal fun RememberedPlaybackTrack.toRestorePreference(): TrackRestorePreference =
     TrackRestorePreference(
         language = language?.trim()?.takeIf(String::isNotEmpty),
         label = label.trim(),

@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class GlassButtonStyleTest {
@@ -19,6 +20,17 @@ class GlassButtonStyleTest {
         assertTrue(destructive.fill.alpha < 1f)
         assertEquals(accent.accent, primary.content)
         assertEquals(LightPalette.error, destructive.content)
+        assertNull(primary.border)
+        assertNull(destructive.border)
+    }
+
+    @Test
+    fun neutral_action_keeps_only_the_palette_highlight_edge() {
+        val accent = resolveAccentColors(Brand.Primary, dark = false)
+
+        val neutral = resolveGlassButtonVisuals(GlassButtonEmphasis.Neutral, LightPalette, accent)
+
+        assertEquals(LightPalette.border, neutral.border)
     }
 
     @Test

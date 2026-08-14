@@ -124,6 +124,25 @@ private fun reducedTransparencyBorder(
     }
 
 /**
+ * Glass owns a neutral luminous edge, never a semantic/dark outline.
+ *
+ * Callers may still decide whether an edge is present, but its colour is resolved here so
+ * accent, error and artwork colours cannot turn a translucent surface into an outlined card.
+ * Focus and selection rings are separate interaction modifiers and are intentionally not
+ * routed through this material resolver.
+ */
+internal fun resolveGlassMaterialBorder(
+    requested: Color?,
+    palette: Palette,
+): Color? =
+    when {
+        requested == null -> null
+        requested == palette.border || requested == palette.tabbarBorder -> requested
+        requested.luminance() >= 0.72f -> requested
+        else -> null
+    }
+
+/**
  * A visibly diffused pane for 毛玻璃.
  *
  * Simply removing the liquid specular left the same translucent fill underneath, which made
@@ -153,7 +172,7 @@ private fun frostedSurfaceFill(
 fun Modifier.glass(
     shape: Shape = GlassShapes.card,
     fill: Color = LocalPalette.current.card,
-    border: Color? = LocalPalette.current.border,
+    border: Color? = null,
 ): Modifier {
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
@@ -163,11 +182,12 @@ fun Modifier.glass(
         } else {
             fill
         }
+    val materialBorder = resolveGlassMaterialBorder(border, palette)
     val resolvedBorder =
         if (accessibility.reduceTransparency) {
-            reducedTransparencyBorder(border, palette)
+            reducedTransparencyBorder(materialBorder, palette)
         } else {
-            border
+            materialBorder
         }
     val sheen =
         if (palette.isDark) {
@@ -213,7 +233,7 @@ fun Modifier.glass(
 fun Modifier.flatGlass(
     shape: Shape = GlassShapes.card,
     fill: Color = LocalPalette.current.card,
-    border: Color? = LocalPalette.current.border,
+    border: Color? = null,
 ): Modifier {
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
@@ -223,11 +243,12 @@ fun Modifier.flatGlass(
         } else {
             fill
         }
+    val materialBorder = resolveGlassMaterialBorder(border, palette)
     val resolvedBorder =
         if (accessibility.reduceTransparency) {
-            reducedTransparencyBorder(border, palette)
+            reducedTransparencyBorder(materialBorder, palette)
         } else {
-            border
+            materialBorder
         }
     val surface =
         when {
@@ -274,7 +295,7 @@ fun Modifier.flatGlass(
 fun Modifier.solidGlass(
     shape: Shape = GlassShapes.card,
     fill: Color = LocalPalette.current.card,
-    border: Color? = LocalPalette.current.border,
+    border: Color? = null,
 ): Modifier {
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
@@ -284,11 +305,12 @@ fun Modifier.solidGlass(
         } else {
             fill
         }
+    val materialBorder = resolveGlassMaterialBorder(border, palette)
     val resolvedBorder =
         if (accessibility.reduceTransparency) {
-            reducedTransparencyBorder(border, palette)
+            reducedTransparencyBorder(materialBorder, palette)
         } else {
-            border
+            materialBorder
         }
     val surface =
         when {
@@ -348,22 +370,37 @@ fun Modifier.solidGlass(
 fun Modifier.liquidGlass(
     shape: Shape = GlassShapes.chip,
     fill: Color = LocalPalette.current.glassStrong,
-    border: Color = LocalPalette.current.border,
+    border: Color? = null,
     over: Color = if (LocalPalette.current.isDark) LocalPalette.current.background else Color.White,
     sheen: Float = 1f,
 ): Modifier {
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
+    val materialBorder = resolveGlassMaterialBorder(border, palette)
     if (accessibility.reduceTransparency) {
         val flat = reducedTransparencyFill(fill, palette, over)
-        val edge = reducedTransparencyBorder(border, palette) ?: border
-        return this.clip(shape).background(flat).border(Dimens.hairline, edge, shape)
+        val edge = reducedTransparencyBorder(materialBorder, palette)
+        return this
+            .clip(shape)
+            .background(flat)
+            .let { modifier ->
+                if (edge != null) modifier.border(Dimens.hairline, edge, shape) else modifier
+            }
     }
     // 毛玻璃: no specular, no body ramp — a flat translucent pane and its edge. Routing to
     // glass() was not enough, because that variant has a diagonal sheen of its own.
     if (frostedGlass()) {
         val frost = frostedSurfaceFill(fill, palette)
-        return this.clip(shape).background(frost).border(Dimens.hairline, border, shape)
+        return this
+            .clip(shape)
+            .background(frost)
+            .let { modifier ->
+                if (materialBorder != null) {
+                    modifier.border(Dimens.hairline, materialBorder, shape)
+                } else {
+                    modifier
+                }
+            }
     }
     // The theme is the wrong signal here — the play key is pale glass under both, and 返回
     // is dense glass over artwork on the light one. What the fill composites to is the right
@@ -396,7 +433,9 @@ fun Modifier.liquidGlass(
             onDrawBehind {
                 drawOutline(outline, brush = body)
                 drawOutline(outline, brush = gloss)
-                drawOutline(outline, color = border, style = stroke)
+                if (materialBorder != null) {
+                    drawOutline(outline, color = materialBorder, style = stroke)
+                }
             }
         }
 }
@@ -440,7 +479,7 @@ object GlassLift {
 fun Modifier.overlayGlass(
     shape: Shape = GlassShapes.sheet,
     fill: Color = LocalPalette.current.glass,
-    border: Color? = LocalPalette.current.border,
+    border: Color? = null,
 ): Modifier =
     glass(
         shape = shape,
@@ -449,15 +488,24 @@ fun Modifier.overlayGlass(
     )
 
 /** Same, for surfaces whose fill is a gradient (hero cards, artwork tiles). */
+@Composable
 fun Modifier.glass(
     shape: Shape,
     fill: Brush,
     border: Color? = null,
-): Modifier =
-    this
+): Modifier {
+    val materialBorder = resolveGlassMaterialBorder(border, LocalPalette.current)
+    return this
         .clip(shape)
         .background(fill)
-        .let { if (border != null) it.border(Dimens.hairline, border, shape) else it }
+        .let {
+            if (materialBorder != null) {
+                it.border(Dimens.hairline, materialBorder, shape)
+            } else {
+                it
+            }
+        }
+}
 
 /**
  * Content-layer liquid glass card.
@@ -467,7 +515,7 @@ fun GlassCard(
     modifier: Modifier = Modifier,
     shape: Shape = GlassShapes.card,
     fill: Color = LocalPalette.current.card,
-    border: Color? = LocalPalette.current.border,
+    border: Color? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     Box(modifier.glass(shape, fill, border), content = content)

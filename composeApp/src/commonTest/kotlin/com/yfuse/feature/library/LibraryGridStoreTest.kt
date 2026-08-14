@@ -102,14 +102,16 @@ class LibraryGridStoreTest {
                     "lib1",
                     mainContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
-            store.states.first { !it.loading && it.items.isNotEmpty() }
+            advanceUntilIdle()
+            assertTrue(!store.state.loading && store.state.items.size == 2)
 
             store.accept(GridIntent.LoadMore)
 
-            val merged = store.states.first { it.items.size > 2 }
+            advanceUntilIdle()
+            val merged = store.state
             assertEquals(listOf("m0", "m1", "m2"), merged.items.map { it.id })
             store.dispose()
-            runCurrent()
+            advanceUntilIdle()
         }
 
     @Test

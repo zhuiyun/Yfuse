@@ -10,9 +10,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.database.ContentObserver
+import android.graphics.Color as AndroidColor
 import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.media.AudioAttributes
@@ -49,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
@@ -62,6 +65,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.yfuse.core.cast.CastCapability
 import com.yfuse.core.cast.CastManager
@@ -83,6 +87,7 @@ import com.yfuse.core.data.DanmakuSpeed
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackRecoveryStore
+import com.yfuse.core.data.SeriesPlaybackPreference
 import com.yfuse.core.data.dataEstimateLabel
 import com.yfuse.core.data.lowerPlaybackQuality
 import com.yfuse.core.data.PlaybackTrackRequest
@@ -111,11 +116,13 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchMatchKeys
+import com.yfuse.core.util.lockOrientationOnCompactScreens
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -125,8 +132,8 @@ import kotlin.time.TimeSource
 import android.media.session.PlaybackState as PlatformPlaybackState
 
 /**
- * Fullscreen playback lives in its own activity so landscape is declared in the
- * manifest rather than forced at runtime (which misbehaves on some devices).
+ * Fullscreen playback lives in its own activity. Phones retain the landscape-first experience,
+ * while Android 16 large screens stay adaptive and may rotate or resize freely.
  */
 class PlayerActivity : ComponentActivity() {
     private var completedOfflineKey: String? = null
@@ -338,6 +345,7 @@ class PlayerActivity : ComponentActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        lockOrientationOnCompactScreens(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
         super.onCreate(savedInstanceState)
 
         // The player is watched, not touched — nothing here should let the screen time out
@@ -493,6 +501,7 @@ class PlayerActivity : ComponentActivity() {
                     initialQuality = quality,
                     autoQualityDowngrade = playbackPreferences.autoQualityDowngrade.value,
                     qualityLocked = playbackPreferences.qualityLocked.value,
+                    playbackPreferences = playbackPreferences,
                     onQualityChanged = { selected, serverId ->
                         preferences?.setQuality(selected)
                         serverId?.let { playbackPreferences.rememberQuality(it, selected) }
@@ -1285,6 +1294,7 @@ private const val RATE_EPSILON = 0.001f
  */
 private const val AUTO_SKIP_COUNTDOWN_SECONDS = 5
 private const val AUTO_QUALITY_DOWNGRADE_BUFFER_STRIKES = 2
+private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 
 /**
  * Owns the live engine and the shared control layer. Switching engines reads
@@ -1305,6 +1315,7 @@ private fun PlayerRoot(
     initialQuality: PlaybackQuality,
     autoQualityDowngrade: Boolean,
     qualityLocked: Boolean,
+    playbackPreferences: PlaybackPreferences,
     onQualityChanged: (PlaybackQuality, String?) -> Unit,
     inPictureInPicture: Boolean,
     playbackSinkFor: (PlaybackReportingTarget) -> PlaybackEventSink?,
@@ -1360,9 +1371,16 @@ private fun PlayerRoot(
     var handoverItemId by remember { mutableStateOf<String?>(null) }
     var audioRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
     var subtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
+    var secondarySubtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
+    var secondarySubtitleTrackId by remember { mutableStateOf<String?>(null) }
     var restoreSubtitlesOff by remember { mutableStateOf(false) }
     var scaleMode by remember { mutableStateOf(VideoScaleMode.Fit) }
     var subtitleControls by remember { mutableStateOf(SubtitleControlState()) }
+    var sleepTimerOption by remember { mutableStateOf(SleepTimerOption.Off) }
+    var sleepTimerEndIndex by remember { mutableStateOf<Int?>(null) }
+    var sleepTimerEndSessionRevision by remember { mutableStateOf<Long?>(null) }
+    var sleepTimerArmedItemReachedEnd by remember { mutableStateOf(false) }
+    var sleepTimerRevision by remember { mutableIntStateOf(0) }
     var pendingSubtitleLanguage by remember { mutableStateOf<String?>(null) }
     val playbackSinkCache =
         remember {
@@ -1530,6 +1548,68 @@ private fun PlayerRoot(
             localState
         }
 
+    val latestEngineForSleep by rememberUpdatedState(engine)
+    val latestCastStateForSleep by rememberUpdatedState(castState)
+
+    fun pauseForSleepTimer(message: String) {
+        latestEngineForSleep.pause()
+        val pauseCast = latestCastStateForSleep.hasActiveSession
+        sleepTimerOption = SleepTimerOption.Off
+        sleepTimerEndIndex = null
+        sleepTimerEndSessionRevision = null
+        sleepTimerArmedItemReachedEnd = false
+        if (pauseCast) scope.launch { castManager.pause() }
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    LaunchedEffect(engine, sleepTimerOption) {
+        engine.setPauseAtEndOfCurrentItem(sleepTimerOption == SleepTimerOption.EndOfEpisode)
+    }
+    LaunchedEffect(sleepTimerOption, sleepTimerRevision) {
+        val durationMs = sleepTimerOption.durationMs ?: return@LaunchedEffect
+        delay(durationMs)
+        pauseForSleepTimer("睡眠定时已到，播放已暂停")
+    }
+    LaunchedEffect(
+        sleepTimerOption,
+        sleepTimerEndIndex,
+        localState.currentIndex,
+        localState.positionMs,
+        localState.durationMs,
+    ) {
+        if (
+            sleepTimerOption == SleepTimerOption.EndOfEpisode &&
+            sleepTimerEndIndex == localState.currentIndex &&
+            localState.durationMs > 0L &&
+            localState.durationMs - localState.positionMs <= END_OF_EPISODE_ARM_WINDOW_MS
+        ) {
+            sleepTimerArmedItemReachedEnd = true
+        }
+    }
+    LaunchedEffect(
+        sleepTimerOption,
+        sleepTimerEndIndex,
+        sleepTimerArmedItemReachedEnd,
+        localState.currentIndex,
+        localState.ended,
+        localState.playing,
+    ) {
+        if (sleepTimerOption != SleepTimerOption.EndOfEpisode || castState.hasActiveSession) {
+            return@LaunchedEffect
+        }
+        if (
+            shouldCompleteLocalEndOfEpisodeTimer(
+                armedIndex = sleepTimerEndIndex,
+                currentIndex = localState.currentIndex,
+                ended = localState.ended,
+                playing = localState.playing,
+                armedItemReachedEnd = sleepTimerArmedItemReachedEnd,
+            )
+        ) {
+            pauseForSleepTimer("本集已结束，播放已暂停")
+        }
+    }
+
     LaunchedEffect(castState.sessionRevision, castState.termination) {
         val decision =
             castRecoveryDecision(
@@ -1610,6 +1690,41 @@ private fun PlayerRoot(
     var danmakuEpisodeId by remember { mutableStateOf<String?>(null) }
     val danmakuSource = danmakuSources.activeOr(danmakuActiveSourceId)
     val currentItem = activeItems.getOrNull(state.currentIndex)
+    LaunchedEffect(currentItem?.serverId, currentItem?.seriesId, currentItem?.id) {
+        val item = currentItem ?: return@LaunchedEffect
+        val remembered =
+            playbackPreferences.rememberedSeriesPlayback(
+                serverId = item.serverId,
+                seriesId = item.seriesId,
+            )
+        handoverItemId = item.id
+        audioRestore = remembered?.audio?.toRestorePreference()
+        subtitleRestore = remembered?.primarySubtitle?.toRestorePreference()
+        secondarySubtitleRestore = remembered?.secondarySubtitle?.toRestorePreference()
+        secondarySubtitleTrackId = null
+        restoreSubtitlesOff = remembered?.primarySubtitlesOff == true
+        requestedPlaybackSpeed = remembered?.speed ?: 1f
+        scaleMode =
+            remembered
+                ?.aspectMode
+                ?.let { stored -> VideoScaleMode.entries.firstOrNull { it.name == stored } }
+                ?: VideoScaleMode.Fit
+        subtitleControls =
+            subtitleControls.copy(
+                offsetMs = remembered?.subtitleOffsetMs ?: 0L,
+                scale = remembered?.subtitleScale ?: 1f,
+                brightness = remembered?.subtitleBrightness ?: 1f,
+            )
+    }
+
+    fun rememberSeriesPlayback(transform: (SeriesPlaybackPreference) -> SeriesPlaybackPreference) {
+        playbackPreferences.updateSeriesPlayback(
+            serverId = currentItem?.serverId,
+            seriesId = currentItem?.seriesId,
+            transform = transform,
+        )
+    }
+
     val reportingTarget = playbackReportingTarget(currentItem)
     val playbackSink =
         remember(reportingTarget) {
@@ -1617,6 +1732,57 @@ private fun PlayerRoot(
         }
     val remoteSubtitleRepository = remember { GlobalContext.get().get<EmbyRepository>() }
     val remoteSubtitleRegistry = remember { GlobalContext.get().get<ServerRegistry>() }
+    var trickplayCache by remember {
+        mutableStateOf(emptyMap<TrickplayCacheKey, TrickplayStoryboard?>())
+    }
+    val trickplayKey =
+        currentItem?.let { item ->
+            val serverId = item.serverId ?: return@let null
+            TrickplayCacheKey(
+                serverId = serverId,
+                itemId = item.id,
+                mediaSourceId = item.activeVersion?.id ?: item.versionId ?: item.id,
+            )
+        }
+    LaunchedEffect(trickplayKey, currentItem?.trickplay) {
+        val key = trickplayKey ?: return@LaunchedEffect
+        val item = currentItem ?: return@LaunchedEffect
+        if (item.trickplay != null || trickplayCache.containsKey(key)) return@LaunchedEffect
+        val server = remoteSubtitleRegistry.serverById(key.serverId) ?: return@LaunchedEffect
+        remoteSubtitleRepository
+            .trickplayInfo(server, key.itemId)
+            .onSuccess { info ->
+                val storyboard =
+                    info?.let {
+                        TrickplayStoryboard(
+                            urlPattern =
+                                EmbyStream.trickplayTilePattern(
+                                    baseUrl = server.baseUrl,
+                                    itemId = key.itemId,
+                                    mediaSourceId = key.mediaSourceId,
+                                    width = it.width,
+                                    token = server.accessToken,
+                                ),
+                            width = it.width,
+                            height = it.height,
+                            tileColumns = it.tileColumns,
+                            tileRows = it.tileRows,
+                            intervalMs = it.intervalMs,
+                            thumbnailCount = it.thumbnailCount,
+                        )
+                    }
+                trickplayCache = trickplayCache.withTrickplayResult(key, storyboard)
+            }.onFailure { failure ->
+                AppLog.warning(
+                    category = "player.trickplay",
+                    event = "lazy_load_failed",
+                    message = "Current episode storyboard could not be loaded",
+                    throwable = failure,
+                    attributes = mapOf("itemId" to key.itemId),
+                )
+            }
+    }
+    val currentTrickplay = currentItem?.trickplay ?: trickplayKey?.let(trickplayCache::get)
     var remoteSubtitles by remember(currentItem?.serverId, currentItem?.id) {
         mutableStateOf(RemoteSubtitlePanelState())
     }
@@ -2269,23 +2435,44 @@ private fun PlayerRoot(
         remember(playbackSink) {
             playbackSink?.let { PlaybackProgressReporter(activeItems, it) }
         }
-    LaunchedEffect(state, activeItems, reporter) {
-        reporter?.rebind(activeItems, state)
-        reporter?.update(state)
-        onPlaybackState(state, activeItems.getOrNull(state.currentIndex))
-        playbackGate.onPlaybackIndexChanged(state.currentIndex)
-        val item = activeItems.getOrNull(state.currentIndex)
-        when {
-            state.ended -> playbackRecovery.clear()
-            item != null && state.positionMs >= 2_000L ->
-                playbackRecovery.record(
-                    itemId = item.id,
-                    title = item.title,
-                    serverId = item.serverId,
-                    positionMs = state.positionMs,
-                    durationMs = state.durationMs,
-                    engine = state.diagnostics.engine,
-                )
+    // Keep one reporting collector alive instead of cancelling and recreating a LaunchedEffect
+    // for every 500 ms position tick. The snapshot still follows local/cast authority changes.
+    LaunchedEffect(engine, castManager, activeItems, reporter) {
+        snapshotFlow {
+            val currentLocal = localState
+            val currentCast = castState
+            val authoritative =
+                currentCast.hasActiveSession ||
+                    (
+                        currentCast.termination == CastTermination.Unexpected &&
+                            completedCastHandoffRevision != currentCast.sessionRevision
+                    )
+            val item = activeItems.getOrNull(currentLocal.currentIndex)
+            val playMethod =
+                if (item?.transcodeUrl?.isNotBlank() == true) {
+                    PlaybackMethod.Transcode.label
+                } else {
+                    item?.playMethod?.label ?: PlaybackMethod.DirectPlay.label
+                }
+            if (authoritative) currentLocal.withRemoteCast(currentCast, playMethod) else currentLocal
+        }.collect { observedState ->
+            reporter?.rebind(activeItems, observedState)
+            reporter?.update(observedState)
+            onPlaybackState(observedState, activeItems.getOrNull(observedState.currentIndex))
+            playbackGate.onPlaybackIndexChanged(observedState.currentIndex)
+            val item = activeItems.getOrNull(observedState.currentIndex)
+            when {
+                observedState.ended -> playbackRecovery.clear()
+                item != null && observedState.positionMs >= 2_000L ->
+                    playbackRecovery.record(
+                        itemId = item.id,
+                        title = item.title,
+                        serverId = item.serverId,
+                        positionMs = observedState.positionMs,
+                        durationMs = observedState.durationMs,
+                        engine = observedState.diagnostics.engine,
+                    )
+            }
         }
     }
     DisposableEffect(reporter) {
@@ -2539,6 +2726,31 @@ private fun PlayerRoot(
                 ?: return@LaunchedEffect
         if (!target.selected) engine.selectSubtitleTrack(target.id)
     }
+    LaunchedEffect(
+        engine,
+        currentItem?.id,
+        state.subtitleTracks,
+        secondarySubtitleRestore,
+        engine.supportsSecondarySubtitleTrack,
+    ) {
+        if (currentItem?.id != handoverItemId || state.subtitleTracks.isEmpty()) {
+            return@LaunchedEffect
+        }
+        if (!engine.supportsSecondarySubtitleTrack) {
+            secondarySubtitleTrackId = null
+            return@LaunchedEffect
+        }
+        val target =
+            secondarySubtitleRestore?.let(state.subtitleTracks::bestRestoreMatch)
+        if (target == null || target.selected) {
+            engine.selectSecondarySubtitleTrack(EngineTrack.OFF)
+            secondarySubtitleTrackId = null
+            return@LaunchedEffect
+        }
+        if (engine.selectSecondarySubtitleTrack(target.id)) {
+            secondarySubtitleTrackId = target.id
+        }
+    }
 
     LaunchedEffect(engine, kind, subtitleControls.offsetMs) {
         val applied = engine.setSubtitleOffsetMs(subtitleControls.offsetMs)
@@ -2552,6 +2764,12 @@ private fun PlayerRoot(
             if (!applied && subtitleControls.scale != 1f && kind != PlayerEngine.Mpv) {
                 switchEngine(PlayerEngine.Mpv)
             }
+        }
+    }
+    LaunchedEffect(engine, kind, subtitleControls.brightness) {
+        val applied = engine.setSubtitleBrightness(subtitleControls.brightness)
+        if (!applied && subtitleControls.brightness != 1f && kind != PlayerEngine.Mpv) {
+            switchEngine(PlayerEngine.Mpv)
         }
     }
     LaunchedEffect(engine, scaleMode) {
@@ -2666,6 +2884,11 @@ private fun PlayerRoot(
         if (!loaded) return false
         if (localState.currentIndex != index) engine.selectItem(index)
         engine.pause()
+        if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
+            sleepTimerEndIndex = index
+            sleepTimerEndSessionRevision = castManager.state.value.sessionRevision
+            sleepTimerArmedItemReachedEnd = false
+        }
         return true
     }
 
@@ -2675,7 +2898,24 @@ private fun PlayerRoot(
         castState.sessionRevision,
         localState.currentIndex,
         autoNext,
+        sleepTimerOption,
+        sleepTimerEndIndex,
+        sleepTimerEndSessionRevision,
     ) {
+        if (
+            sleepTimerOption == SleepTimerOption.EndOfEpisode &&
+            shouldCompleteCastEndOfEpisodeTimer(
+                armedIndex = sleepTimerEndIndex,
+                armedSessionRevision = sleepTimerEndSessionRevision,
+                currentIndex = localState.currentIndex,
+                currentSessionRevision = castState.sessionRevision,
+                castEnded = castState.status == CastPlaybackStatus.Ended,
+            )
+        ) {
+            autoAdvancedCastRevision = castState.sessionRevision
+            pauseForSleepTimer("本集已结束，投屏已暂停")
+            return@LaunchedEffect
+        }
         if (
             !autoNext ||
             castState.status != CastPlaybackStatus.Ended ||
@@ -2714,6 +2954,7 @@ private fun PlayerRoot(
                     engine = engine,
                     scaleMode = scaleMode,
                     subtitleScale = subtitleControls.scale,
+                    subtitleBrightness = subtitleControls.brightness,
                     modifier = Modifier.fillMaxSize(),
                 )
         }
@@ -2774,6 +3015,12 @@ private fun PlayerRoot(
                     }
                 },
                 onSelectItem = { index ->
+                    if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
+                        sleepTimerEndIndex = index
+                        sleepTimerEndSessionRevision =
+                            castState.sessionRevision.takeIf { castState.hasActiveSession }
+                        sleepTimerArmedItemReachedEnd = false
+                    }
                     val deviceId = castState.activeDeviceId
                     if (castState.hasActiveSession && deviceId != null) {
                         scope.launch { loadCastItem(deviceId, index, 0L) }
@@ -2783,6 +3030,12 @@ private fun PlayerRoot(
                 },
                 onPreviousItem = {
                     val previous = state.currentIndex - 1
+                    if (sleepTimerOption == SleepTimerOption.EndOfEpisode && previous in activeItems.indices) {
+                        sleepTimerEndIndex = previous
+                        sleepTimerEndSessionRevision =
+                            castState.sessionRevision.takeIf { castState.hasActiveSession }
+                        sleepTimerArmedItemReachedEnd = false
+                    }
                     val deviceId = castState.activeDeviceId
                     if (castState.hasActiveSession && deviceId != null && previous in activeItems.indices) {
                         scope.launch { loadCastItem(deviceId, previous, 0L) }
@@ -2793,6 +3046,12 @@ private fun PlayerRoot(
                 },
                 onNextItem = {
                     val next = state.currentIndex + 1
+                    if (sleepTimerOption == SleepTimerOption.EndOfEpisode && next in activeItems.indices) {
+                        sleepTimerEndIndex = next
+                        sleepTimerEndSessionRevision =
+                            castState.sessionRevision.takeIf { castState.hasActiveSession }
+                        sleepTimerArmedItemReachedEnd = false
+                    }
                     val deviceId = castState.activeDeviceId
                     if (castState.hasActiveSession && deviceId != null && next in activeItems.indices) {
                         scope.launch { loadCastItem(deviceId, next, 0L) }
@@ -2806,6 +3065,9 @@ private fun PlayerRoot(
                     state.audioTracks.firstOrNull { it.id == id }?.let { track ->
                         handoverItemId = currentItem?.id
                         audioRestore = track.toRestorePreference()
+                        rememberSeriesPlayback { remembered ->
+                            remembered.copy(audio = track.toRememberedPlaybackTrack())
+                        }
                     }
                     engine.selectAudioTrack(id)
                 },
@@ -2816,40 +3078,148 @@ private fun PlayerRoot(
                         subtitleRestore = null
                         restoreSubtitlesOff = true
                         engine.selectSubtitleTrack(id)
+                        rememberSeriesPlayback { remembered ->
+                            remembered.copy(
+                                primarySubtitlesOff = true,
+                                primarySubtitle = null,
+                            )
+                        }
                     } else if (track?.requiresStyledRenderer == true && kind != PlayerEngine.Mpv) {
                         pendingSubtitleLanguage = track.language ?: track.label
                         switchEngine(PlayerEngine.Mpv)
                         handoverItemId = currentItem?.id
                         subtitleRestore = track.toRestorePreference()
                         restoreSubtitlesOff = false
+                        if (secondarySubtitleTrackId == id) {
+                            secondarySubtitleTrackId = null
+                            secondarySubtitleRestore = null
+                        }
+                        rememberSeriesPlayback { remembered ->
+                            remembered.copy(
+                                primarySubtitlesOff = false,
+                                primarySubtitle = track.toRememberedPlaybackTrack(),
+                                secondarySubtitle =
+                                    remembered.secondarySubtitle.takeUnless {
+                                        it == track.toRememberedPlaybackTrack()
+                                    },
+                            )
+                        }
                     } else {
                         track?.let {
                             handoverItemId = currentItem?.id
                             subtitleRestore = it.toRestorePreference()
                             restoreSubtitlesOff = false
+                            if (secondarySubtitleTrackId == id) {
+                                engine.selectSecondarySubtitleTrack(EngineTrack.OFF)
+                                secondarySubtitleTrackId = null
+                                secondarySubtitleRestore = null
+                            }
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(
+                                    primarySubtitlesOff = false,
+                                    primarySubtitle = it.toRememberedPlaybackTrack(),
+                                    secondarySubtitle =
+                                        remembered.secondarySubtitle.takeUnless { secondary ->
+                                            secondary == it.toRememberedPlaybackTrack()
+                                        },
+                                )
+                            }
                         }
                         engine.selectSubtitleTrack(id)
                     }
                 },
-                subtitleControls = subtitleControls,
+                subtitleControls =
+                    subtitleControls.copy(
+                        secondaryTrackId = secondarySubtitleTrackId,
+                        secondarySupported = engine.supportsSecondarySubtitleTrack,
+                        secondaryUnavailableReason =
+                            if (engine.supportsSecondarySubtitleTrack) {
+                                null
+                            } else {
+                                "ExoPlayer 当前仅支持单字幕；切换至 MPV 或 MDK 可启用副字幕。"
+                            },
+                    ),
                 subtitleActions =
                     SubtitleControlActions(
-                        onOffset = { subtitleControls = subtitleControls.copy(offsetMs = it) },
-                        onScale = { subtitleControls = subtitleControls.copy(scale = it) },
+                        onOffset = {
+                            subtitleControls = subtitleControls.copy(offsetMs = it)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(subtitleOffsetMs = it)
+                            }
+                        },
+                        onScale = {
+                            subtitleControls = subtitleControls.copy(scale = it)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(subtitleScale = it)
+                            }
+                        },
+                        onBrightness = {
+                            subtitleControls = subtitleControls.copy(brightness = it)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(subtitleBrightness = it)
+                            }
+                        },
+                        onSecondaryTrack = secondary@{ id ->
+                            if (id == EngineTrack.OFF) {
+                                engine.selectSecondarySubtitleTrack(EngineTrack.OFF)
+                                secondarySubtitleTrackId = null
+                                secondarySubtitleRestore = null
+                                rememberSeriesPlayback { remembered ->
+                                    remembered.copy(secondarySubtitle = null)
+                                }
+                                return@secondary
+                            }
+                            val track =
+                                state.subtitleTracks.firstOrNull { it.id == id }
+                                    ?: return@secondary
+                            if (track.selected) {
+                                Toast.makeText(context, "主字幕和副字幕不能选择同一轨", Toast.LENGTH_SHORT).show()
+                                return@secondary
+                            }
+                            if (!engine.selectSecondarySubtitleTrack(id)) {
+                                Toast.makeText(context, "当前播放器内核不支持副字幕", Toast.LENGTH_SHORT).show()
+                                return@secondary
+                            }
+                            handoverItemId = currentItem?.id
+                            secondarySubtitleTrackId = id
+                            secondarySubtitleRestore = track.toRestorePreference()
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(secondarySubtitle = track.toRememberedPlaybackTrack())
+                            }
+                        },
                     ),
                 remoteSubtitles = remoteSubtitles,
                 remoteSubtitleActions = remoteSubtitleActions,
                 onSpeed = { newSpeed ->
                     requestedPlaybackSpeed = newSpeed
                     playbackGate.setSpeed(newSpeed)
+                    rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
                 },
+                sleepTimer = SleepTimerState(sleepTimerOption),
+                sleepTimerActions =
+                    SleepTimerActions(
+                        onSelect = { option ->
+                            sleepTimerOption = option
+                            sleepTimerEndIndex =
+                                state.currentIndex.takeIf { option == SleepTimerOption.EndOfEpisode }
+                            sleepTimerEndSessionRevision =
+                                castState.sessionRevision.takeIf {
+                                    option == SleepTimerOption.EndOfEpisode && castState.hasActiveSession
+                                }
+                            sleepTimerArmedItemReachedEnd = false
+                            sleepTimerRevision++
+                        },
+                    ),
                 onToggleFill = {
                     scaleMode = scaleMode.next()
                     (engine as? MpvVideoEngine)?.setScaleMode(scaleMode)
                     (engine as? MdkVideoEngine)?.setFill(scaleMode != VideoScaleMode.Fit)
+                    rememberSeriesPlayback { remembered ->
+                        remembered.copy(aspectMode = scaleMode.name)
+                    }
                     Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
                 },
-                trickplay = currentItem?.trickplay,
+                trickplay = currentTrickplay,
                 volume = castState.volume?.takeIf { castState.hasActiveSession } ?: volume,
                 onVolume = { requestedVolume ->
                     if (castState.hasActiveSession) {
@@ -3244,6 +3614,7 @@ private fun ExoSurface(
     engine: ExoVideoEngine,
     scaleMode: VideoScaleMode,
     subtitleScale: Float,
+    subtitleBrightness: Float,
     modifier: Modifier = Modifier,
 ) {
     AndroidView(
@@ -3257,7 +3628,25 @@ private fun ExoSurface(
         update = { view ->
             // Reassigned on update too: a fresh engine reuses this same view.
             if (view.player !== engine.player) view.player = engine.player
-            view.subtitleView?.setFractionalTextSize(0.0533f * subtitleScale.coerceIn(0.6f, 1.8f))
+            view.subtitleView?.apply {
+                setFractionalTextSize(0.0533f * subtitleScale.coerceIn(0.6f, 1.8f))
+                val channel = subtitleBrightnessByte(subtitleBrightness)
+                // Authored ASS colours can be painfully bright on an HDR surface. Exo cannot
+                // transform those colours, so the explicit user control owns caption styling.
+                val preserveAuthoredStyle = subtitleBrightness >= 0.999f
+                setApplyEmbeddedStyles(preserveAuthoredStyle)
+                setApplyEmbeddedFontSizes(preserveAuthoredStyle)
+                setStyle(
+                    CaptionStyleCompat(
+                        AndroidColor.rgb(channel, channel, channel),
+                        AndroidColor.TRANSPARENT,
+                        AndroidColor.TRANSPARENT,
+                        CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                        AndroidColor.BLACK,
+                        null,
+                    ),
+                )
+            }
             view.resizeMode =
                 when (scaleMode) {
                     VideoScaleMode.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT

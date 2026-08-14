@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.StatFs
+import android.os.storage.StorageManager
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.FileProvider
 import com.russhwolf.settings.Settings
@@ -1308,7 +1310,7 @@ class AppUpdateManager(
             }
 
             val remaining = manifest.size - existing
-            val usableSpace = directory.usableSpace
+            val usableSpace = allocatableUpdateBytes(appContext, directory)
             if (!hasSufficientUpdateStorage(usableSpace, remaining)) {
                 val missingBytes = missingUpdateStorageBytes(usableSpace, remaining).coerceAtLeast(1L)
                 val bytesPerMb = 1024L * 1024L
@@ -1859,5 +1861,17 @@ private fun File.sha256(): String {
     }
     return digest.digest().joinToString("") { "%02x".format(it) }
 }
+
+/** Includes cache bytes Android can reclaim, with a conservative filesystem fallback. */
+private fun allocatableUpdateBytes(
+    context: Context,
+    directory: File,
+): Long =
+    runCatching {
+        val storage = context.getSystemService(StorageManager::class.java)
+        storage.getAllocatableBytes(storage.getUuidForPath(directory))
+    }.getOrElse {
+        runCatching { StatFs(directory.absolutePath).availableBytes }.getOrDefault(0L)
+    }
 
 private fun URL.portOrDefault(): Int = port.takeIf { it >= 0 } ?: defaultPort

@@ -2,6 +2,8 @@ package com.yfuse.core.network
 
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.deviceId
+import io.ktor.http.URLProtocol
+import io.ktor.http.Url
 import io.ktor.http.encodeURLParameter
 import kotlin.random.Random
 
@@ -18,6 +20,31 @@ data class StreamUrls(
     val progressiveTranscode: String,
     val playSessionId: String,
 )
+
+private data class NegotiatedStreamOrigin(
+    val protocol: URLProtocol,
+    val host: String,
+    val port: Int,
+)
+
+private fun Url.negotiatedStreamOrigin(): NegotiatedStreamOrigin? =
+    takeIf { protocol.name.lowercase() in setOf("http", "https") }
+        ?.let { url ->
+            NegotiatedStreamOrigin(
+                protocol = url.protocol,
+                host = url.host.trimEnd('.').lowercase(),
+                port = if (url.specifiedPort == 0) url.protocol.defaultPort else url.specifiedPort,
+            )
+        }
+
+private fun String.negotiatedStreamOrigin(): NegotiatedStreamOrigin? =
+    runCatching { Url(this) }.getOrNull()?.negotiatedStreamOrigin()
+
+private fun Url.transportValidationEndpoint(): String {
+    val endpointHost = if (':' in host) "[$host]" else host
+    val endpointPort = specifiedPort.takeIf { it != 0 }?.let { ":$it" }.orEmpty()
+    return "${protocol.name}://$endpointHost$endpointPort"
+}
 
 /** Builds Emby playback URLs. */
 object EmbyStream {
@@ -45,9 +72,10 @@ object EmbyStream {
 
     /**
      * Resolves a URL returned by PlaybackInfo and completes its authentication.
-     * Absolute HTTP and HTTPS URLs are accepted as returned by the user's server; a relative
-     * URL remains on that server. Servers differ on whether they include the token and session
-     * in DirectStreamUrl; adding only missing parameters keeps both Emby and Jellyfin usable.
+     * Relative and same-origin absolute URLs remain authenticated against the saved server.
+     * A server may legitimately negotiate an absolute CDN URL, but appending the Emby credential
+     * or internal session identifiers to that different authority would disclose them and can
+     * also invalidate a signed CDN URL, so a cross-origin address is returned unmodified.
      */
     fun negotiatedUrl(
         baseUrl: String,
@@ -62,23 +90,52 @@ object EmbyStream {
             trimmedUrl
                 .substringBefore("://", missingDelimiterValue = "")
                 .lowercase() in setOf("http", "https")
-        var value =
+        val parsedAbsoluteUrl =
             if (absoluteWebUrl) {
-                val validation = validateEmbyServerEndpoint(trimmedUrl, localCleartextConfirmed)
+                runCatching { Url(trimmedUrl) }
+                    .getOrNull()
+                    ?.takeIf {
+                        it.negotiatedStreamOrigin() != null &&
+                            it.user == null &&
+                            it.password == null &&
+                            it.fragment.isEmpty()
+                    } ?: return null
+            } else {
+                null
+            }
+        val value =
+            if (parsedAbsoluteUrl != null) {
+                // Validate only the authority. PlaybackInfo stream URLs legitimately carry query
+                // parameters, while the endpoint policy owns the unchanged HTTP/HTTPS decision.
+                val validation =
+                    validateEmbyServerEndpoint(
+                        parsedAbsoluteUrl.transportValidationEndpoint(),
+                        localCleartextConfirmed,
+                    )
                 trimmedUrl.takeIf { validation.allowed } ?: return null
             } else {
                 "${normalizeBaseUrl(baseUrl)}/${trimmedUrl.trimStart('/')}"
             }
-        if (addApiKey && !value.hasQueryParameter("api_key") && !value.hasQueryParameter("X-Emby-Token")) {
-            value = value.withQueryParameter("api_key", token.queryValue())
+        val targetOrigin = parsedAbsoluteUrl?.negotiatedStreamOrigin() ?: value.negotiatedStreamOrigin()
+        val serverOrigin = normalizeBaseUrl(baseUrl).negotiatedStreamOrigin()
+        val sameServerOrigin = !absoluteWebUrl || (targetOrigin != null && targetOrigin == serverOrigin)
+        if (!sameServerOrigin) return value
+
+        var authenticatedValue = value
+        if (
+            addApiKey &&
+            !authenticatedValue.hasQueryParameter("api_key") &&
+            !authenticatedValue.hasQueryParameter("X-Emby-Token")
+        ) {
+            authenticatedValue = authenticatedValue.withQueryParameter("api_key", token.queryValue())
         }
-        if (!value.hasQueryParameter("DeviceId")) {
-            value = value.withQueryParameter("DeviceId", deviceId().queryValue())
+        if (!authenticatedValue.hasQueryParameter("DeviceId")) {
+            authenticatedValue = authenticatedValue.withQueryParameter("DeviceId", deviceId().queryValue())
         }
-        if (playSessionId.isNotBlank() && !value.hasQueryParameter("PlaySessionId")) {
-            value = value.withQueryParameter("PlaySessionId", playSessionId.queryValue())
+        if (playSessionId.isNotBlank() && !authenticatedValue.hasQueryParameter("PlaySessionId")) {
+            authenticatedValue = authenticatedValue.withQueryParameter("PlaySessionId", playSessionId.queryValue())
         }
-        return value
+        return authenticatedValue
     }
 
     /**

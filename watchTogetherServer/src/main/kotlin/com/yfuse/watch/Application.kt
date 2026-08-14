@@ -1,9 +1,11 @@
 package com.yfuse.watch
 
 import com.yfuse.watch.account.AccountBackend
+import com.yfuse.watch.account.AccountExecutionPolicy
 import com.yfuse.watch.account.AccountProblem
 import com.yfuse.watch.account.AccountRateLimiter
 import com.yfuse.watch.account.AccountServiceException
+import com.yfuse.watch.account.AccountWorkExecutor
 import com.yfuse.watch.account.AccountWorkRejectedException
 import com.yfuse.watch.account.AuthenticatedAccount
 import com.yfuse.watch.account.accountRoutes
@@ -13,6 +15,7 @@ import com.yfuse.watch.protocol.WatchProtocol
 import com.yfuse.watch.protocol.WatchWireChatMessage
 import com.yfuse.watch.protocol.WatchWireMessage
 import com.yfuse.watch.protocol.WatchWireParticipant
+import com.yfuse.watch.protocol.WatchWirePlaylistEntry
 import io.ktor.http.ContentType
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
@@ -46,14 +49,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 
 /**
- * Wire protocol v5. The DTO and its validation limits live in `:watchTogetherProtocol`, so
- * client and relay cannot silently drift. Version 5 requires an authenticated Yfuse account for
+ * Wire protocol v6, wire-compatible with authenticated v5 for a rolling server-first upgrade.
+ * The DTO and its validation limits live in `:watchTogetherProtocol`, so client and relay cannot
+ * silently drift. Version 5 requires an authenticated Yfuse account for
  * every room connection and binds membership to its immutable account id. Room-scoped resume and
  * host capabilities continue to protect reconnection and host authority; public client ids never
  * authenticate either operation.
@@ -142,13 +148,17 @@ private class Room(
     var timeline: Timeline,
     var controlMode: ControlMode = ControlMode.HostOnly,
     val moderatorIds: MutableSet<String> = linkedSetOf(),
-    /** Client ids removed by the host cannot reconnect until this room expires. */
-    val removedClientIds: MutableSet<String> = linkedSetOf(),
+    /** Account ids removed by the host cannot re-enter under a fresh public client id. */
+    val removedAccountUserIds: MutableSet<String> = linkedSetOf(),
+    /** Keyed by immutable account id in production, and by a client-scoped test id otherwise. */
     val memberships: LinkedHashMap<String, Membership> = linkedMapOf(),
     val participants: LinkedHashMap<String, Participant> = linkedMapOf(),
     /** Recent text only; discarded with the room and bounded independently of frame size. */
     val chatHistory: ArrayDeque<WatchWireChatMessage> = ArrayDeque(),
     var nextChatId: Long = 0L,
+    /** Ephemeral, room-scoped media references. Discarded with the in-memory room. */
+    val playlist: MutableList<WatchWirePlaylistEntry> = mutableListOf(),
+    var playlistRevision: Long = 0L,
     /** Null while occupied; set to the moment the last participant left. */
     var emptySinceMs: Long? = null,
     /**
@@ -166,6 +176,10 @@ private class Room(
         ControlMode.Everyone -> participants[participant.id] === participant
         ControlMode.Moderators -> isAuthorizedHost(participant) || participant.id in moderatorIds
     }
+
+    /** Playlist editing stays privileged even when ordinary playback control is open to everyone. */
+    fun canEditPlaylist(participant: Participant): Boolean =
+        isAuthorizedHost(participant) || participant.id in moderatorIds
 
     /** Revokes the previous host credential before granting a private replacement. */
     fun transferHostTo(participant: Participant): String {
@@ -268,9 +282,13 @@ private const val HOST_GRACE_MS = 20_000L
  */
 private const val MAX_ROOMS = 500
 private const val DEFAULT_MAX_ACTIVE_ROOMS_PER_IP = 8
+private const val DEFAULT_MAX_WATCH_CONNECTIONS = 256
+private const val DEFAULT_MAX_WATCH_CONNECTIONS_PER_IP = 32
+private const val DEFAULT_MAX_WATCH_CONNECTIONS_PER_ACCOUNT = 8
+private const val MAX_CONFIGURED_WATCH_CONNECTIONS = 10_000
 private const val MAX_PARTICIPANTS_PER_ROOM = 12
 private const val MAX_MEMBERSHIPS_PER_ROOM = 64
-private const val MAX_REMOVED_CLIENT_IDS_PER_ROOM = 256
+private const val MAX_REMOVED_ACCOUNT_IDS_PER_ROOM = 256
 private const val MAX_MESSAGES_PER_WINDOW = 240
 private const val RATE_WINDOW_MS = 10_000L
 private const val MAX_CHAT_HISTORY = 50
@@ -297,6 +315,75 @@ private const val ACCOUNT_AUTH_RETRY_MAX_EXPONENT = 6
 private const val ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS = 10_000L
 private const val ACCOUNT_INITIAL_AUTH_MAX_TRANSIENT_FAILURES = 8
 private val graphemeRegex = Regex("\\X")
+
+/**
+ * Bounds both handshakes and established sockets. A lease first consumes the global and network
+ * identity budgets, then binds the authenticated account before any per-socket watchdog starts.
+ * Every mutation is under one small lock and [Lease.close] is idempotent, so normal cleanup and the
+ * WebSocket coroutine's completion callback can safely converge on the same release path.
+ */
+internal class WatchConnectionGate(
+    private val globalLimit: Int,
+    private val perIpLimit: Int,
+    private val perAccountLimit: Int,
+) {
+    private val lock = Any()
+    private var active = 0
+    private val activeByIp = mutableMapOf<String, Int>()
+    private val activeByAccount = mutableMapOf<String, Int>()
+
+    init {
+        require(globalLimit > 0)
+        require(perIpLimit in 1..globalLimit)
+        require(perAccountLimit in 1..globalLimit)
+    }
+
+    fun tryAcquire(clientIp: String): Lease? =
+        synchronized(lock) {
+            val ipCount = activeByIp[clientIp] ?: 0
+            if (active >= globalLimit || ipCount >= perIpLimit) return@synchronized null
+            active++
+            activeByIp[clientIp] = ipCount + 1
+            Lease(clientIp)
+        }
+
+    internal inner class Lease internal constructor(
+        private val clientIp: String,
+    ) : AutoCloseable {
+        private var accountUserId: String? = null
+        private var released = false
+
+        fun tryBindAccount(userId: String): Boolean =
+            synchronized(lock) {
+                check(!released) { "connection lease is already released" }
+                val current = accountUserId
+                if (current != null) return@synchronized current == userId
+                val accountCount = activeByAccount[userId] ?: 0
+                if (accountCount >= perAccountLimit) return@synchronized false
+                activeByAccount[userId] = accountCount + 1
+                accountUserId = userId
+                true
+            }
+
+        override fun close() {
+            synchronized(lock) {
+                if (released) return
+                released = true
+                active--
+                decrement(activeByIp, clientIp)
+                accountUserId?.let { decrement(activeByAccount, it) }
+            }
+        }
+    }
+
+    private fun decrement(
+        counts: MutableMap<String, Int>,
+        key: String,
+    ) {
+        val remaining = checkNotNull(counts[key]) - 1
+        if (remaining == 0) counts.remove(key) else counts[key] = remaining
+    }
+}
 
 private sealed interface WatchAccountAuthentication {
     data class Accepted(val account: AuthenticatedAccount) : WatchAccountAuthentication
@@ -360,7 +447,44 @@ private val AUTHENTICATED_MESSAGE_TYPES = setOf(
     "playbackStatus",
     "chat",
     "reaction",
+    "playlistAdd",
+    "playlistUpdate",
+    "playlistRemove",
+    "playlistReorder",
 )
+
+private enum class PlaylistMutationResult {
+    Changed,
+    Forbidden,
+    Stale,
+    Full,
+    Duplicate,
+    NotFound,
+    IndexInvalid,
+    Unchanged,
+    RevisionExhausted,
+}
+
+private fun Room.mutatePlaylist(
+    clientId: String,
+    session: WebSocketSession,
+    expectedRevision: Long,
+    mutation: (MutableList<WatchWirePlaylistEntry>) -> PlaylistMutationResult,
+): PlaylistMutationResult =
+    synchronized(this) {
+        val actor =
+            participants[clientId]
+                ?.takeIf { it.session === session }
+                ?: return@synchronized PlaylistMutationResult.Forbidden
+        if (!canEditPlaylist(actor)) return@synchronized PlaylistMutationResult.Forbidden
+        if (playlistRevision != expectedRevision) return@synchronized PlaylistMutationResult.Stale
+        if (playlistRevision == Long.MAX_VALUE) {
+            return@synchronized PlaylistMutationResult.RevisionExhausted
+        }
+        mutation(playlist).also { result ->
+            if (result == PlaylistMutationResult.Changed) playlistRevision++
+        }
+    }
 
 fun main() {
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
@@ -397,6 +521,30 @@ internal fun Application.watchTogetherModule(
         ?.toIntOrNull()
         ?.coerceIn(1, MAX_ROOMS)
         ?: DEFAULT_MAX_ACTIVE_ROOMS_PER_IP,
+    maxWatchConnections: Int =
+        System
+            .getenv("WATCH_MAX_CONNECTIONS")
+            ?.toIntOrNull()
+            ?.coerceIn(1, MAX_CONFIGURED_WATCH_CONNECTIONS)
+            ?: DEFAULT_MAX_WATCH_CONNECTIONS,
+    maxWatchConnectionsPerIp: Int =
+        System
+            .getenv("WATCH_MAX_CONNECTIONS_PER_IP")
+            ?.toIntOrNull()
+            ?.coerceIn(1, maxWatchConnections)
+            ?: minOf(DEFAULT_MAX_WATCH_CONNECTIONS_PER_IP, maxWatchConnections),
+    maxWatchConnectionsPerAccount: Int =
+        System
+            .getenv("WATCH_MAX_CONNECTIONS_PER_ACCOUNT")
+            ?.toIntOrNull()
+            ?.coerceIn(1, maxWatchConnections)
+            ?: minOf(DEFAULT_MAX_WATCH_CONNECTIONS_PER_ACCOUNT, maxWatchConnections),
+    connectionGate: WatchConnectionGate =
+        WatchConnectionGate(
+            globalLimit = maxWatchConnections,
+            perIpLimit = maxWatchConnectionsPerIp,
+            perAccountLimit = maxWatchConnectionsPerAccount,
+        ),
     /** Only enable when the reverse proxy overwrites client-supplied forwarding headers. */
     trustProxyHeaders: Boolean = System.getenv("WATCH_TRUST_PROXY_HEADERS")
         ?.equals("true", ignoreCase = true)
@@ -408,6 +556,10 @@ internal fun Application.watchTogetherModule(
     /** Authentication limiter is application-local and injectable for deterministic tests. */
     accountRateLimiter: AccountRateLimiter = AccountRateLimiter(),
     migrationRelayBackend: MigrationRelayBackend = MigrationRelayBackend.inMemory(),
+    migrationRelayWorkExecutor: AccountWorkExecutor =
+        AccountWorkExecutor(
+            AccountExecutionPolicy(workerThreads = 2, maxConcurrentOperations = 2),
+        ),
     /** Test-only seam for exercising the room protocol independently; production stays true. */
     requireWatchAuthentication: Boolean = false,
     /** Independent watchdog interval; keeps silent sockets subject to session revocation. */
@@ -415,6 +567,9 @@ internal fun Application.watchTogetherModule(
     /** Test seam for deterministic account-store failure and recovery scenarios. */
     watchAccountAuthenticator: suspend (String) -> AuthenticatedAccount =
         accountBackend::authenticateAccessToken,
+    /** Revocation checks deliberately avoid touching session activity every ten seconds. */
+    watchAccountRevalidator: suspend (String) -> AuthenticatedAccount =
+        accountBackend::validateAccessToken,
     /** Test seam; production retries transient account-store failures with capped jitter. */
     watchAuthRetryDelayMs: (Int) -> Long = ::watchAuthTransientRetryDelayMs,
     /** Test seam shared by expiry checks; production uses the wall clock encoded in tokens. */
@@ -424,6 +579,9 @@ internal fun Application.watchTogetherModule(
     require(maxActiveRoomsPerIp in 1..MAX_ROOMS) {
         "maxActiveRoomsPerIp must be between 1 and $MAX_ROOMS"
     }
+    require(maxWatchConnections in 1..MAX_CONFIGURED_WATCH_CONNECTIONS)
+    require(maxWatchConnectionsPerIp in 1..maxWatchConnections)
+    require(maxWatchConnectionsPerAccount in 1..maxWatchConnections)
     require(watchAuthRevalidationMs > 0L) { "watchAuthRevalidationMs must be positive" }
     val roomStore = RoomStore(
         roomGraceMs = roomGraceMs,
@@ -433,8 +591,15 @@ internal fun Application.watchTogetherModule(
     // whose loss starts the clock is precisely the one that can't run the timer.
     val appScope: CoroutineScope = this
     monitor.subscribe(ApplicationStopped) {
-        accountBackend.close()
-        migrationRelayBackend.close()
+        try {
+            accountBackend.close()
+        } finally {
+            try {
+                migrationRelayBackend.close()
+            } finally {
+                migrationRelayWorkExecutor.close()
+            }
+        }
     }
     install(WebSockets) {
         pingPeriodMillis = 20_000L
@@ -446,6 +611,7 @@ internal fun Application.watchTogetherModule(
         accountRoutes(accountBackend, accountRateLimiter)
         migrationRelayRoutes(
             backend = migrationRelayBackend,
+            workExecutor = migrationRelayWorkExecutor,
             clientIpResolver = clientIpResolver,
             trustProxyHeaders = trustProxyHeaders,
         )
@@ -464,6 +630,28 @@ internal fun Application.watchTogetherModule(
                 close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "secure_transport_required"))
                 return@webSocket
             }
+            val clientIp =
+                clientIpResolver
+                    ?.invoke(call)
+                    ?.trim()
+                    ?.take(128)
+                    ?.ifBlank { null }
+                    ?: resolveClientIp(
+                        remoteHost = call.request.origin.remoteHost,
+                        xForwardedFor = call.request.headers["X-Forwarded-For"],
+                        forwarded = call.request.headers["Forwarded"],
+                        trustProxyHeaders = trustProxyHeaders,
+                    )
+            val connectionLease = connectionGate.tryAcquire(clientIp)
+            if (connectionLease == null) {
+                close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "connection_limit"))
+                return@webSocket
+            }
+            currentCoroutineContext()
+                .job
+                .invokeOnCompletion {
+                    connectionLease.close()
+                }
             val accessToken = call.request.headers["Authorization"]
                 ?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
                 ?.substringAfter(' ')
@@ -529,6 +717,13 @@ internal fun Application.watchTogetherModule(
                     accessExpiresAtEpochMs = Long.MAX_VALUE,
                 )
             }
+            if (
+                requireWatchAuthentication &&
+                !connectionLease.tryBindAccount(authenticatedAccount.userId)
+            ) {
+                close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "account_connection_limit"))
+                return@webSocket
+            }
             val authWatchdog = if (requireWatchAuthentication) {
                 launch {
                     var transientFailures = 0
@@ -561,7 +756,7 @@ internal fun Application.watchTogetherModule(
                         }
                         when (
                             val authentication = authenticateWatchAccount(
-                                watchAccountAuthenticator,
+                                watchAccountRevalidator,
                                 checkNotNull(accessToken),
                             )
                         ) {
@@ -608,17 +803,6 @@ internal fun Application.watchTogetherModule(
             } else {
                 null
             }
-            val clientIp = clientIpResolver
-                ?.invoke(call)
-                ?.trim()
-                ?.take(128)
-                ?.ifBlank { null }
-                ?: resolveClientIp(
-                    remoteHost = call.request.origin.remoteHost,
-                    xForwardedFor = call.request.headers["X-Forwarded-For"],
-                    forwarded = call.request.headers["Forwarded"],
-                    trustProxyHeaders = trustProxyHeaders,
-                )
             var joinedRoom: Room? = null
             var joinedClientId: String? = null
             var windowStartedAtMs = System.currentTimeMillis()
@@ -628,10 +812,11 @@ internal fun Application.watchTogetherModule(
             var lastProfileUpdateAtMs = 0L
             try {
                 incoming.consumeEach { frame ->
-                    if (frame !is Frame.Text) return@consumeEach
+                    if (frame !is Frame.Text && frame !is Frame.Binary) return@consumeEach
 
                     // Flood guard, counted per connection over a rolling window rather than
-                    // per message type — a runaway client is a problem whatever it sends.
+                    // per message type — unsupported binary data consumes the same budget before
+                    // the connection is rejected, so it cannot bypass text-message admission.
                     val receivedAtMs = System.currentTimeMillis()
                     if (receivedAtMs - windowStartedAtMs > RATE_WINDOW_MS) {
                         windowStartedAtMs = receivedAtMs
@@ -641,9 +826,19 @@ internal fun Application.watchTogetherModule(
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "rate limit"))
                         return@consumeEach
                     }
+                    if (frame is Frame.Binary) {
+                        close(
+                            CloseReason(
+                                CloseReason.Codes.VIOLATED_POLICY,
+                                "binary_frames_not_supported",
+                            ),
+                        )
+                        return@consumeEach
+                    }
+                    val textFrame = frame as Frame.Text
 
                     val message = runCatching {
-                        json.decodeFromString(WatchWireMessage.serializer(), frame.readText())
+                        json.decodeFromString(WatchWireMessage.serializer(), textFrame.readText())
                     }.getOrNull() ?: return@consumeEach sendError(
                         "消息格式无效",
                         "message_invalid",
@@ -675,17 +870,27 @@ internal fun Application.watchTogetherModule(
                     when (message.type) {
                         "hello" -> {
                             if (joinedRoom != null) return@consumeEach
-                            if (message.protocolVersion != WatchProtocol.VERSION) {
+                            if (!WatchProtocol.isSupportedVersion(message.protocolVersion)) {
                                 return@consumeEach sendError(
                                     "一起看协议版本不兼容，请更新 App 或服务器",
                                     "protocol_incompatible",
                                 )
                             }
+                            val negotiatedProtocolVersion = checkNotNull(message.protocolVersion)
                             val clientId = normalizeClientId(message.clientId)
                                 ?: return@consumeEach sendError(
                                     "客户端标识无效",
                                     "client_id_invalid",
                                 )
+                            val membershipAccountUserId =
+                                if (requireWatchAuthentication) {
+                                    authenticatedAccount.userId
+                                } else {
+                                    // The unauthenticated mode exists only for protocol tests. Give
+                                    // each public id a distinct synthetic identity so legacy tests can
+                                    // still model multiple people without weakening production rules.
+                                    "test-client:$clientId"
+                                }
                             val name = if (requireWatchAuthentication) {
                                 authenticatedAccount.nickname
                             } else {
@@ -695,6 +900,17 @@ internal fun Application.watchTogetherModule(
                                 authenticatedAccount.avatarId
                             } else {
                                 normalizeAvatarId(message.avatarId, clientId)
+                            }
+                            if (
+                                message.playlistRevision != null ||
+                                message.playlistEntry != null ||
+                                message.playlistEntryId != null ||
+                                message.playlistIndex != null
+                            ) {
+                                return@consumeEach sendError(
+                                    "建房播放列表字段无效",
+                                    "playlist_invalid",
+                                )
                             }
 
                             roomStore.sweepExpiredRooms()
@@ -709,11 +925,19 @@ internal fun Application.watchTogetherModule(
                                         "媒体标识无效",
                                         "media_key_invalid",
                                     )
+                                val initialPlaylist = message.playlist ?: emptyList()
+                                if (!WatchProtocol.isValidPlaylist(initialPlaylist)) {
+                                    return@consumeEach sendError(
+                                        "房间播放列表无效",
+                                        "playlist_invalid",
+                                    )
+                                }
                                 when (
                                     val created = roomStore.createRoom(
                                         mediaKey = mediaKey,
                                         hostId = clientId,
                                         creatorIp = clientIp,
+                                        initialPlaylist = initialPlaylist,
                                     )
                                 ) {
                                     is RoomCreationResult.Created -> created.room
@@ -731,6 +955,12 @@ internal fun Application.watchTogetherModule(
                                     }
                                 }
                             } else {
+                                if (message.playlist != null) {
+                                    return@consumeEach sendError(
+                                        "仅创建房间时可以设置初始播放列表",
+                                        "playlist_initial_only",
+                                    )
+                                }
                                 val requestedRoomCode = message.roomCode
                                     ?: return@consumeEach sendError(
                                         "房间码无效",
@@ -746,20 +976,19 @@ internal fun Application.watchTogetherModule(
                             var roomFull = false
                             var removedByHost = false
                             var authenticationFailed = false
+                            var accountIdentityConflict = false
                             var hostAuthenticationFailed = false
                             var staleSession: WebSocketSession? = null
                             var issuedResumeCapability: String? = null
                             var issuedHostCapability: String? = null
                             val roomStillCurrent = roomStore.mutateIfCurrent(room) {
-                                if (clientId in room.removedClientIds) {
+                                if (membershipAccountUserId in room.removedAccountUserIds) {
                                     removedByHost = true
                                     return@mutateIfCurrent
                                 }
-                                val membership = room.memberships[clientId]
-                                if (membership != null &&
-                                    membership.accountUserId != authenticatedAccount.userId
-                                ) {
-                                    authenticationFailed = true
+                                val membership = room.memberships[membershipAccountUserId]
+                                if (membership != null && membership.clientId != clientId) {
+                                    accountIdentityConflict = true
                                     return@mutateIfCurrent
                                 }
                                 if (membership != null && !capabilityMatches(
@@ -806,9 +1035,9 @@ internal fun Application.watchTogetherModule(
                                 val activeMembership = membership ?: newMembership(
                                     roomCode = room.code,
                                     clientId = clientId,
-                                    accountUserId = authenticatedAccount.userId,
+                                    accountUserId = membershipAccountUserId,
                                 ).let { (createdMembership, capability) ->
-                                    room.memberships[clientId] = createdMembership
+                                    room.memberships[membershipAccountUserId] = createdMembership
                                     issuedResumeCapability = capability
                                     createdMembership
                                 }
@@ -819,7 +1048,7 @@ internal fun Application.watchTogetherModule(
                                     avatarId,
                                     this,
                                     sessionGeneration = activeMembership.sessionGeneration,
-                                    accountUserId = authenticatedAccount.userId,
+                                    accountUserId = membershipAccountUserId,
                                     authorizedHostEpoch = if (isHost) room.hostEpoch else null,
                                 )
                                 room.participants[clientId] = participant
@@ -856,6 +1085,19 @@ internal fun Application.watchTogetherModule(
                                 )
                                 return@consumeEach
                             }
+                            if (accountIdentityConflict) {
+                                sendError(
+                                    "当前账号已使用另一个客户端身份加入房间",
+                                    "account_membership_conflict",
+                                )
+                                close(
+                                    CloseReason(
+                                        CloseReason.Codes.VIOLATED_POLICY,
+                                        "account membership conflict",
+                                    ),
+                                )
+                                return@consumeEach
+                            }
                             if (authenticationFailed || hostAuthenticationFailed) {
                                 sendError(
                                     if (hostAuthenticationFailed) "主持人凭据无效" else "重连凭据无效",
@@ -883,6 +1125,7 @@ internal fun Application.watchTogetherModule(
                                     clientId = clientId,
                                     resumeCapability = issuedResumeCapability,
                                     hostCapability = issuedHostCapability,
+                                    protocolVersion = negotiatedProtocolVersion,
                                 ),
                             )
                             broadcastRoomUpdate(room)
@@ -1070,6 +1313,158 @@ internal fun Application.watchTogetherModule(
                             if (changed) broadcastRoomUpdate(room)
                         }
 
+                        "playlistAdd" -> {
+                            val room = joinedRoom ?: return@consumeEach
+                            val clientId = joinedClientId ?: return@consumeEach
+                            val entry = message.playlistEntry
+                            val expectedRevision = message.playlistRevision
+                            if (
+                                !WatchProtocol.isValidPlaylistEntry(entry) ||
+                                !WatchProtocol.isValidPlaylistRevision(expectedRevision) ||
+                                message.playlist != null ||
+                                message.playlistEntryId != null
+                            ) {
+                                return@consumeEach sendError(
+                                    "播放列表新增请求无效",
+                                    "playlist_invalid",
+                                )
+                            }
+                            val result =
+                                room.mutatePlaylist(
+                                    clientId = clientId,
+                                    session = this,
+                                    expectedRevision = expectedRevision!!,
+                                ) { playlist ->
+                                    when {
+                                        playlist.any { it.id == entry!!.id } ->
+                                            PlaylistMutationResult.Duplicate
+                                        playlist.size >= WatchProtocol.MAX_PLAYLIST_ENTRIES ->
+                                            PlaylistMutationResult.Full
+                                        message.playlistIndex != null &&
+                                            message.playlistIndex !in 0..playlist.size ->
+                                            PlaylistMutationResult.IndexInvalid
+                                        else -> {
+                                            playlist.add(
+                                                message.playlistIndex ?: playlist.size,
+                                                entry!!,
+                                            )
+                                            PlaylistMutationResult.Changed
+                                        }
+                                    }
+                                }
+                            finishPlaylistMutation(room, result)
+                        }
+
+                        "playlistUpdate" -> {
+                            val room = joinedRoom ?: return@consumeEach
+                            val clientId = joinedClientId ?: return@consumeEach
+                            val entry = message.playlistEntry
+                            val expectedRevision = message.playlistRevision
+                            if (
+                                !WatchProtocol.isValidPlaylistEntry(entry) ||
+                                !WatchProtocol.isValidPlaylistRevision(expectedRevision) ||
+                                message.playlist != null ||
+                                message.playlistEntryId != null ||
+                                message.playlistIndex != null
+                            ) {
+                                return@consumeEach sendError(
+                                    "播放列表更新请求无效",
+                                    "playlist_invalid",
+                                )
+                            }
+                            val result =
+                                room.mutatePlaylist(
+                                    clientId = clientId,
+                                    session = this,
+                                    expectedRevision = expectedRevision!!,
+                                ) { playlist ->
+                                    val index = playlist.indexOfFirst { it.id == entry!!.id }
+                                    when {
+                                        index < 0 -> PlaylistMutationResult.NotFound
+                                        playlist[index] == entry -> PlaylistMutationResult.Unchanged
+                                        else -> {
+                                            playlist[index] = entry!!
+                                            PlaylistMutationResult.Changed
+                                        }
+                                    }
+                                }
+                            finishPlaylistMutation(room, result)
+                        }
+
+                        "playlistRemove" -> {
+                            val room = joinedRoom ?: return@consumeEach
+                            val clientId = joinedClientId ?: return@consumeEach
+                            val entryId = message.playlistEntryId
+                            val expectedRevision = message.playlistRevision
+                            if (
+                                !WatchProtocol.isValidPlaylistEntryId(entryId) ||
+                                !WatchProtocol.isValidPlaylistRevision(expectedRevision) ||
+                                message.playlist != null ||
+                                message.playlistEntry != null ||
+                                message.playlistIndex != null
+                            ) {
+                                return@consumeEach sendError(
+                                    "播放列表删除请求无效",
+                                    "playlist_invalid",
+                                )
+                            }
+                            val result =
+                                room.mutatePlaylist(
+                                    clientId = clientId,
+                                    session = this,
+                                    expectedRevision = expectedRevision!!,
+                                ) { playlist ->
+                                    val index = playlist.indexOfFirst { it.id == entryId }
+                                    if (index < 0) {
+                                        PlaylistMutationResult.NotFound
+                                    } else {
+                                        playlist.removeAt(index)
+                                        PlaylistMutationResult.Changed
+                                    }
+                                }
+                            finishPlaylistMutation(room, result)
+                        }
+
+                        "playlistReorder" -> {
+                            val room = joinedRoom ?: return@consumeEach
+                            val clientId = joinedClientId ?: return@consumeEach
+                            val entryId = message.playlistEntryId
+                            val destination = message.playlistIndex
+                            val expectedRevision = message.playlistRevision
+                            if (
+                                !WatchProtocol.isValidPlaylistEntryId(entryId) ||
+                                destination == null ||
+                                !WatchProtocol.isValidPlaylistRevision(expectedRevision) ||
+                                message.playlist != null ||
+                                message.playlistEntry != null
+                            ) {
+                                return@consumeEach sendError(
+                                    "播放列表排序请求无效",
+                                    "playlist_invalid",
+                                )
+                            }
+                            val result =
+                                room.mutatePlaylist(
+                                    clientId = clientId,
+                                    session = this,
+                                    expectedRevision = expectedRevision!!,
+                                ) { playlist ->
+                                    val source = playlist.indexOfFirst { it.id == entryId }
+                                    when {
+                                        source < 0 -> PlaylistMutationResult.NotFound
+                                        destination !in playlist.indices ->
+                                            PlaylistMutationResult.IndexInvalid
+                                        source == destination -> PlaylistMutationResult.Unchanged
+                                        else -> {
+                                            val entryToMove = playlist.removeAt(source)
+                                            playlist.add(destination, entryToMove)
+                                            PlaylistMutationResult.Changed
+                                        }
+                                    }
+                                }
+                            finishPlaylistMutation(room, result)
+                        }
+
                         "kickParticipant" -> {
                             val room = joinedRoom ?: return@consumeEach
                             val clientId = joinedClientId ?: return@consumeEach
@@ -1087,12 +1482,17 @@ internal fun Application.watchTogetherModule(
                                 if (target == room.hostId) return@synchronized null
                                 val participant = room.participants[target]
                                     ?: return@synchronized null
-                                if (!rememberRemovedClientId(room.removedClientIds, target)) {
+                                if (
+                                    !rememberRemovedAccountUserId(
+                                        room.removedAccountUserIds,
+                                        participant.accountUserId,
+                                    )
+                                ) {
                                     removalLimitReached = true
                                     return@synchronized null
                                 }
                                 room.participants.remove(target)
-                                room.memberships.remove(target)
+                                room.memberships.remove(participant.accountUserId)
                                 room.moderatorIds.remove(target)
                                 participant.session
                             }
@@ -1354,6 +1754,7 @@ internal fun Application.watchTogetherModule(
                     }
                     if (removedNow && room.participants.isNotEmpty()) broadcastRoomUpdate(room)
                 }
+                connectionLease.close()
             }
         }
     }
@@ -1437,6 +1838,7 @@ private class RoomStore(
         mediaKey: String,
         hostId: String,
         creatorIp: String,
+        initialPlaylist: List<WatchWirePlaylistEntry>,
     ): RoomCreationResult = synchronized(creationLock) {
         sweepExpiredRoomsLocked(System.currentTimeMillis())
         if (rooms.size >= MAX_ROOMS) return@synchronized RoomCreationResult.ServiceFull
@@ -1470,6 +1872,7 @@ private class RoomStore(
                     anchorPositionMs = 0L,
                     anchorAtServerMs = System.currentTimeMillis(),
                 ),
+                playlist = initialPlaylist.toMutableList(),
             )
             if (rooms.putIfAbsent(code, room) == null) {
                 return@synchronized RoomCreationResult.Created(room)
@@ -1559,9 +1962,11 @@ private fun Room.welcomeMessage(
     clientId: String,
     resumeCapability: String?,
     hostCapability: String?,
+    protocolVersion: Int,
 ): WatchWireMessage = synchronized(this) {
     WatchWireMessage(
         type = "welcome",
+        protocolVersion = protocolVersion,
         capabilities = WatchProtocol.SERVER_CAPABILITIES,
         roomCode = code,
         resumeCapability = resumeCapability,
@@ -1572,6 +1977,8 @@ private fun Room.welcomeMessage(
         participantCount = participants.size,
         participants = wireParticipants(),
         chatHistory = chatHistory.toList(),
+        playlist = playlist.toList(),
+        playlistRevision = playlistRevision,
         mediaKey = timeline.mediaKey,
         positionMs = timeline.anchorPositionMs,
         paused = timeline.paused,
@@ -1586,7 +1993,7 @@ private suspend fun WebSocketSession.sendMessage(message: WatchWireMessage) {
         json.encodeToString(
             WatchWireMessage.serializer(),
             message.copy(
-                protocolVersion = WatchProtocol.VERSION,
+                protocolVersion = message.protocolVersion ?: WatchProtocol.VERSION,
                 serverAtMs = System.currentTimeMillis(),
             ),
         ),
@@ -1608,6 +2015,41 @@ private suspend fun WebSocketSession.sendError(
     )
 }
 
+private suspend fun WebSocketSession.finishPlaylistMutation(
+    room: Room,
+    result: PlaylistMutationResult,
+) {
+    if (result == PlaylistMutationResult.Changed) {
+        broadcastRoomUpdate(room)
+        return
+    }
+    val (message, errorCode) =
+        when (result) {
+            PlaylistMutationResult.Forbidden ->
+                "仅主持人和管理员可以编辑播放列表" to "playlist_forbidden"
+            PlaylistMutationResult.Stale ->
+                "播放列表已更新，请基于最新版本重试" to "playlist_stale"
+            PlaylistMutationResult.Full -> "播放列表已满" to "playlist_full"
+            PlaylistMutationResult.Duplicate -> "播放列表项目已存在" to "playlist_duplicate"
+            PlaylistMutationResult.NotFound -> "播放列表项目不存在" to "playlist_not_found"
+            PlaylistMutationResult.IndexInvalid -> "播放列表位置无效" to "playlist_index_invalid"
+            PlaylistMutationResult.Unchanged -> "播放列表没有变化" to "playlist_unchanged"
+            PlaylistMutationResult.RevisionExhausted ->
+                "播放列表版本已耗尽" to "playlist_revision_exhausted"
+            PlaylistMutationResult.Changed -> error("handled above")
+        }
+    val snapshot = synchronized(room) { room.playlist.toList() to room.playlistRevision }
+    sendMessage(
+        WatchWireMessage(
+            type = "error",
+            message = message,
+            errorCode = errorCode,
+            playlist = snapshot.first,
+            playlistRevision = snapshot.second,
+        ),
+    )
+}
+
 /** Membership or host changed; every member gets the current timeline too so a client that missed a `sync` can resync from this alone. */
 private suspend fun broadcastRoomUpdate(room: Room) {
     val snapshot = synchronized(room) {
@@ -1617,6 +2059,8 @@ private suspend fun broadcastRoomUpdate(room: Room) {
             timeline = room.timeline,
             hostId = room.hostId,
             controlMode = room.controlMode,
+            playlist = room.playlist.toList(),
+            playlistRevision = room.playlistRevision,
             canControlIds = room.participants.keys
                 .filterTo(linkedSetOf()) { id ->
                     room.participants[id]?.let(room::canControl) == true
@@ -1632,6 +2076,8 @@ private suspend fun broadcastRoomUpdate(room: Room) {
             controlMode = snapshot.controlMode.wireValue,
             participantCount = snapshot.members.size,
             participants = snapshot.participants,
+            playlist = snapshot.playlist,
+            playlistRevision = snapshot.playlistRevision,
             mediaKey = snapshot.timeline.mediaKey,
             positionMs = snapshot.timeline.anchorPositionMs,
             paused = snapshot.timeline.paused,
@@ -1649,6 +2095,8 @@ private data class RoomBroadcastSnapshot(
     val timeline: Timeline,
     val hostId: String,
     val controlMode: ControlMode,
+    val playlist: List<WatchWirePlaylistEntry>,
+    val playlistRevision: Long,
     val canControlIds: Set<String>,
 )
 
@@ -1723,15 +2171,15 @@ internal fun normalizeClientId(raw: String?): String? {
     return raw?.takeIf(WatchProtocol::isValidClientId)
 }
 
-internal fun rememberRemovedClientId(
-    removedClientIds: MutableSet<String>,
-    clientId: String,
-    limit: Int = MAX_REMOVED_CLIENT_IDS_PER_ROOM,
+internal fun rememberRemovedAccountUserId(
+    removedAccountUserIds: MutableSet<String>,
+    accountUserId: String,
+    limit: Int = MAX_REMOVED_ACCOUNT_IDS_PER_ROOM,
 ): Boolean {
     require(limit > 0) { "limit must be positive" }
-    if (clientId in removedClientIds) return true
-    if (removedClientIds.size >= limit) return false
-    removedClientIds.add(clientId)
+    if (accountUserId in removedAccountUserIds) return true
+    if (removedAccountUserIds.size >= limit) return false
+    removedAccountUserIds.add(accountUserId)
     return true
 }
 

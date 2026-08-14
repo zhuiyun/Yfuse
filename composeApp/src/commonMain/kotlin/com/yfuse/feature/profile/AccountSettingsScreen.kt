@@ -1,5 +1,8 @@
 package com.yfuse.feature.profile
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,19 +13,24 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,22 +44,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 import com.yfuse.app.TabBarInset
-import com.yfuse.core.account.AccountDeviceSession
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.IssuedInviteCode
 import com.yfuse.core.account.canIssueInvites
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
@@ -63,11 +77,13 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
+import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.YfLinkButton
+import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.rememberShareHandler
@@ -81,6 +97,7 @@ private const val MIN_PASSWORD_LENGTH = 8
 internal fun AccountSettingsScreen(
     account: AccountRepository,
     onBack: () -> Unit,
+    onOpenSessions: () -> Unit,
 ) {
     val state by account.state.collectAsState()
     val palette = LocalPalette.current
@@ -133,7 +150,7 @@ internal fun AccountSettingsScreen(
 
             is AccountState.SignedIn ->
                 item {
-                    SignedInAccountCard(account, current)
+                    SignedInAccountCard(account, current, onOpenSessions)
                 }
         }
 
@@ -273,6 +290,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
 private fun SignedInAccountCard(
     account: AccountRepository,
     state: AccountState.SignedIn,
+    onOpenSessions: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -295,10 +313,7 @@ private fun SignedInAccountCard(
     // flashing.
     var uploading by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
-    var sessions by remember { mutableStateOf<List<AccountDeviceSession>>(emptyList()) }
-    var sessionsLoading by remember { mutableStateOf(false) }
-    var confirmRevokeOthers by remember { mutableStateOf(false) }
-    var confirmRevokeAll by remember { mutableStateOf(false) }
+    var sessionCount by remember(user.id) { mutableStateOf<Int?>(null) }
     var confirmDeleteAccount by remember { mutableStateOf(false) }
     var deletePassword by remember { mutableStateOf("") }
     // Invite plaintext is intentionally not saveable and is discarded as soon as its dialog
@@ -307,20 +322,15 @@ private fun SignedInAccountCard(
     var inviteBusy by remember { mutableStateOf(false) }
     val share = rememberShareHandler()
 
-    fun reloadSessions() {
-        sessionsLoading = true
-        scope.launch {
-            account
-                .sessions()
-                .onSuccess { sessions = it }
-                .onFailure { localError = it.message ?: "无法读取登录设备" }
-            sessionsLoading = false
-        }
-    }
-
     LaunchedEffect(user.updatedAtEpochMs) {
         nickname = user.nickname
         avatarId = user.avatarId
+    }
+
+    LaunchedEffect(user.id) {
+        account.sessions().onSuccess { loaded ->
+            sessionCount = deduplicateAccountSessions(loaded).size
+        }
     }
 
     AccountCard {
@@ -491,64 +501,37 @@ private fun SignedInAccountCard(
     }
 
     AccountCard {
-        Text("登录设备与会话", style = AppTypography.body.strong, color = palette.text)
-        Spacer(Modifier.height(5.dp))
-        Text(
-            if (sessions.isEmpty()) "点下方按钮读取当前有效会话" else "共 ${sessions.size} 个有效会话",
-            style = AppTypography.caption.regular,
-            color = palette.sub2,
-        )
-        sessions.forEach { session ->
-            Spacer(Modifier.height(9.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        session.deviceName + if (session.current) " · 当前设备" else "",
-                        style = AppTypography.caption.strong,
-                        color = if (session.current) Brand.Online else palette.text,
-                    )
-                    Text(
-                        "最近活动 ${formatSessionActivity(session.lastSeenAtEpochMs)}",
-                        style = AppTypography.caption.regular,
-                        color = palette.sub2,
-                    )
-                }
-                YfLinkButton(
-                    label = "撤销",
-                    onClick = {
-                        busy = true
-                        scope.launch {
-                            account
-                                .revokeSession(session.id)
-                                .onSuccess { sessions = sessions.filterNot { it.id == session.id } }
-                                .onFailure { localError = it.message ?: "撤销失败" }
-                            busy = false
-                        }
-                    },
-                    enabled = !busy,
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .pressable(
+                        haptic = HapticSignal.Select,
+                        onClickLabel = "打开登录与会话",
+                        onClick = onOpenSessions,
+                    ).touchTarget()
+                    .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("登录与会话", style = AppTypography.body.strong, color = palette.text)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    sessionCount?.let { "$it 个会话" } ?: "查看与管理",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
+            Spacer(Modifier.width(12.dp))
+            Icon(
+                imageVector = AppIcons.ChevronRight,
+                contentDescription = null,
+                tint = accent.accent,
+                modifier = Modifier.size(18.dp),
+            )
         }
-        Spacer(Modifier.height(10.dp))
-        YfButton(
-            label = if (sessionsLoading) "正在读取…" else "刷新登录设备",
-            onClick = ::reloadSessions,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !busy && !sessionsLoading,
-            loading = sessionsLoading,
-        )
-        YfLinkButton(
-            label = "退出其他设备",
-            onClick = { confirmRevokeOthers = true },
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-            enabled = !busy,
-        )
-        YfLinkButton(
-            label = "全部设备退出（包括当前设备）",
-            onClick = { confirmRevokeAll = true },
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-            enabled = !busy,
-        )
     }
 
     Spacer(Modifier.height(16.dp))
@@ -734,34 +717,6 @@ private fun SignedInAccountCard(
         )
     }
 
-    if (confirmRevokeOthers) {
-        ConfirmDialog(
-            title = "退出其他设备？",
-            message = "其他设备的访问令牌和刷新令牌会立即失效，当前设备保持登录。",
-            confirmLabel = "确认退出",
-            destructive = true,
-            onConfirm = {
-                confirmRevokeOthers = false
-                scope.launch { account.revokeOtherSessions().onSuccess { reloadSessions() } }
-            },
-            onDismiss = { confirmRevokeOthers = false },
-        )
-    }
-
-    if (confirmRevokeAll) {
-        ConfirmDialog(
-            title = "全部设备退出？",
-            message = "包括当前设备在内的所有会话都会立即失效，需要重新登录。",
-            confirmLabel = "全部退出",
-            destructive = true,
-            onConfirm = {
-                confirmRevokeAll = false
-                scope.launch { account.revokeAllSessions() }
-            },
-            onDismiss = { confirmRevokeAll = false },
-        )
-    }
-
     if (confirmDeleteAccount) {
         GlassDialog(onDismiss = {
             deletePassword = ""
@@ -803,48 +758,201 @@ private fun SignedInAccountCard(
     }
 
     issuedInvite?.let { invite ->
-        GlassDialog(
+        InviteCredentialSheet(
+            invite = invite,
             onDismiss = { issuedInvite = null },
+            onCopyAndClose = {
+                share.copySensitiveText(invite.code)
+                issuedInvite = null
+            },
+        )
+    }
+}
+
+/**
+ * A generated invite is a one-time credential, not an ordinary confirmation message. Keeping it
+ * in a bottom layer gives the code a stable, selectable reading area and makes the destructive
+ * effect of dismissing it explicit without framing the glass with another dark outline.
+ */
+@Composable
+internal fun InviteCredentialSheet(
+    invite: IssuedInviteCode,
+    onCopyAndClose: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    var keepingOpen by remember(invite.code) { mutableStateOf(false) }
+    val sheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties =
+            DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+                securePolicy = SecureFlagPolicy.SecureOff,
+            ),
+    ) {
+        ReportOverlayVisible()
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0A0E16).copy(alpha = 0.46f))
+                    .pointerInput(onDismiss) { detectTapGestures { onDismiss() } }
+                    .statusBarsPadding(),
+            contentAlignment = Alignment.BottomCenter,
         ) {
-            Text("邀请码已生成", style = AppTypography.section.strong, color = palette.text)
-            Spacer(Modifier.height(7.dp))
-            Text(
-                "这是一次性明文，关闭后无法再次查看。",
-                style = AppTypography.caption.medium,
-                color = palette.error,
-            )
-            Spacer(Modifier.height(12.dp))
-            SelectionContainer {
+            Column(
+                modifier =
+                    Modifier
+                        .widthIn(max = 560.dp)
+                        .fillMaxWidth()
+                        .liquidGlass(
+                            shape = sheetShape,
+                            fill = palette.card,
+                            border = null,
+                            over = palette.background,
+                            sheen = 0.55f,
+                        ).pointerInput(Unit) { detectTapGestures { } }
+                        .verticalScroll(rememberScrollState())
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+            ) {
+                Box(
+                    Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .width(38.dp)
+                        .height(4.dp)
+                        .clip(AppShapes.pill)
+                        .background(palette.sub2.copy(alpha = 0.42f)),
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(42.dp)
+                                .liquidGlass(
+                                    shape = AppShapes.control,
+                                    fill = accent.accent.copy(alpha = 0.13f),
+                                    border = null,
+                                    over = palette.card,
+                                    sheen = 0.4f,
+                                ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.Lock,
+                            contentDescription = null,
+                            tint = accent.accent,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    Column {
+                        Text("邀请码已生成", style = AppTypography.section.strong, color = palette.text)
+                        Spacer(Modifier.height(2.dp))
+                        Text("一次性安全凭证", style = AppTypography.caption.medium, color = palette.sub2)
+                    }
+                }
+                Spacer(Modifier.height(7.dp))
                 Text(
-                    invite.code,
-                    modifier = Modifier.fillMaxWidth(),
+                    "这是一次性明文。关闭后无法再次查看，请现在复制并通过可信渠道发送。",
+                    style = AppTypography.body.regular,
+                    color = palette.error,
+                )
+                Spacer(Modifier.height(16.dp))
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .liquidGlass(
+                                shape = AppShapes.control,
+                                fill = palette.card2,
+                                border = null,
+                                over = palette.card,
+                                sheen = 0.42f,
+                            ).padding(horizontal = 16.dp, vertical = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("一次性邀请码", style = AppTypography.caption.medium, color = palette.sub2)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        formatInviteCodeForDisplay("00fkGXQc35Ma6egzQ5lcLuWlqAxAKgSGJk7lfc7qAvk"),
+                        modifier = Modifier.fillMaxWidth(),
+                        style = AppTypography.body.strong.copy(fontFamily = FontFamily.Monospace),
+                        color = accent.accent,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(9.dp))
+                    Text(
+                        "有效期至 ${formatInviteExpiryUtc(invite.expiresAtEpochMs)}",
+                        modifier = Modifier.fillMaxWidth(),
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                InvitePrimaryAction(
+                    label = "复制并关闭",
+                    onClick = onCopyAndClose,
+                )
+                Text(
+                    text = if (keepingOpen) "已保留在当前页面" else "暂不关闭",
+                    modifier =
+                        Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .pressable(
+                                haptic = HapticSignal.Select,
+                                onClickLabel = "暂不关闭",
+                                onClick = { keepingOpen = true },
+                            ).touchTarget()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                     style = AppTypography.body.strong,
-                    color = accent.accent,
-                    textAlign = TextAlign.Center,
+                    color = if (keepingOpen) palette.sub2 else accent.accent,
                 )
             }
-            Spacer(Modifier.height(7.dp))
-            Text(
-                "有效期至 ${formatInviteExpiryUtc(invite.expiresAtEpochMs)}",
-                modifier = Modifier.fillMaxWidth(),
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(13.dp))
-            YfButton(
-                label = "复制邀请码",
-                onClick = { share.copyText(invite.code) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            YfLinkButton(
-                label = "关闭（不再显示）",
-                onClick = { issuedInvite = null },
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
         }
     }
 }
+
+@Composable
+private fun InvitePrimaryAction(
+    label: String,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
+                .pressable(
+                    haptic = HapticSignal.Confirm,
+                    onClickLabel = label,
+                    onClick = onClick,
+                ).touchTarget()
+                .liquidGlass(
+                    shape = AppShapes.control,
+                    fill = accent.accent.copy(alpha = 0.90f),
+                    border = null,
+                    over = palette.card,
+                    sheen = 0.50f,
+                ).padding(horizontal = 18.dp, vertical = 13.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = AppTypography.body.strong, color = Color.White)
+    }
+}
+
+internal fun formatInviteCodeForDisplay(code: String): String = code.trim().chunked(8).joinToString("  ")
 
 internal fun formatInviteExpiryUtc(epochMs: Long): String {
     val dayMs = 86_400_000L
@@ -878,7 +986,7 @@ internal fun formatInviteExpiryUtc(epochMs: Long): String {
     }
 }
 
-private fun formatSessionActivity(
+internal fun formatSessionActivity(
     epochMs: Long,
     nowEpochMs: Long = System.currentTimeMillis(),
 ): String {

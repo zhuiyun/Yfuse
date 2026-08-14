@@ -73,6 +73,8 @@ internal fun SettingsPanel(
     remoteSubtitleActions: RemoteSubtitleActions,
     onSelectAudio: (String) -> Unit,
     onSpeed: (Float) -> Unit,
+    sleepTimer: SleepTimerState,
+    sleepTimerActions: SleepTimerActions,
     filled: Boolean,
     onToggleFill: () -> Unit,
     onSelectEngine: (Int) -> Unit,
@@ -176,7 +178,7 @@ internal fun SettingsPanel(
 
                 Tab.Tracks -> {
                     if (state.subtitleTracks.isNotEmpty()) {
-                        GroupLabel("字幕")
+                        GroupLabel("主字幕")
                         OptionRow(
                             "关闭",
                             state.subtitleTracks.none { it.selected },
@@ -184,6 +186,28 @@ internal fun SettingsPanel(
                         )
                         state.subtitleTracks.forEach { track ->
                             OptionRow(track.label, track.selected, onClick = { onSelectSubtitle(track.id) })
+                        }
+                        GroupLabel("副字幕")
+                        if (subtitleControls.secondarySupported) {
+                            OptionRow(
+                                "关闭",
+                                subtitleControls.secondaryTrackId == null,
+                                onClick = { subtitleActions.onSecondaryTrack(EngineTrack.OFF) },
+                            )
+                            state.subtitleTracks.forEach { track ->
+                                OptionRow(
+                                    track.label,
+                                    subtitleControls.secondaryTrackId == track.id,
+                                    onClick = { subtitleActions.onSecondaryTrack(track.id) },
+                                )
+                            }
+                        } else {
+                            Text(
+                                subtitleControls.secondaryUnavailableReason
+                                    ?: "当前播放器内核不支持双字幕。",
+                                style = AppTypography.caption.medium,
+                                color = Color.White.copy(alpha = 0.68f),
+                            )
                         }
                         GroupLabel("字幕时间偏移")
                         listOf(-5_000L, -2_000L, 0L, 2_000L, 5_000L).forEach { offset ->
@@ -206,6 +230,15 @@ internal fun SettingsPanel(
                                     label,
                                     subtitleControls.scale == scale,
                                     onClick = { subtitleActions.onScale(scale) },
+                                )
+                            }
+                        GroupLabel("HDR 字幕亮度")
+                        listOf(0.4f to "40%", 0.6f to "60%", 0.8f to "80%", 1f to "100%")
+                            .forEach { (brightness, label) ->
+                                OptionRow(
+                                    label,
+                                    subtitleControls.brightness == brightness,
+                                    onClick = { subtitleActions.onBrightness(brightness) },
                                 )
                             }
                     } else {
@@ -276,6 +309,15 @@ internal fun SettingsPanel(
                     GroupLabel("播放速度")
                     speeds.forEach { speed ->
                         OptionRow(speedLabel(speed), speed == state.speed, onClick = { onSpeed(speed) })
+                    }
+
+                    GroupLabel("睡眠定时")
+                    SleepTimerOption.entries.forEach { option ->
+                        OptionRow(
+                            option.label,
+                            sleepTimer.selected == option,
+                            onClick = { sleepTimerActions.onSelect(option) },
+                        )
                     }
 
                     if (qualityOptions.isNotEmpty()) {

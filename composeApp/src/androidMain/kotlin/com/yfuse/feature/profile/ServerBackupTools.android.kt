@@ -13,7 +13,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,8 +22,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,27 +35,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.DecodeHintType
-import com.google.zxing.EncodeHintType
-import com.google.zxing.MultiFormatReader
-import com.google.zxing.RGBLuminanceSource
-import com.google.zxing.common.BitMatrix
-import com.google.zxing.common.HybridBinarizer
-import com.google.zxing.qrcode.QRCodeWriter
-import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
@@ -64,20 +54,14 @@ import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.flatGlass as glass
 import com.yfuse.core.designsystem.mr
-import com.yfuse.core.designsystem.sc
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.sc
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.migration.MigrationRelayApi
 import com.yfuse.core.security.RelayMigrationDescriptor
 import com.yfuse.core.security.RelayMigrationPackage
 import com.yfuse.core.security.ServerMigrationCrypto
 import com.yfuse.core.security.toBase64Url
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.InputStream
-import java.util.Base64
-import java.util.zip.GZIPInputStream
-import java.util.zip.GZIPOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -105,8 +89,6 @@ actual fun ServerBackupTools(
     var activeMigrationCode by remember { mutableStateOf<String?>(null) }
     val relayApi = migrationRelayApi
 
-    // The passphrase fields and generated QR are sensitive even though the on-disk package is
-    // encrypted. Keep screenshots/recents previews disabled for this sub-screen.
     DisposableEffect(activity) {
         val existingFlags = activity?.window?.attributes?.flags ?: 0
         val wasAlreadySecure = existingFlags.and(WindowManager.LayoutParams.FLAG_SECURE) != 0
@@ -615,91 +597,6 @@ private fun MigrationDivider() {
             .background(palette.border.copy(alpha = if (palette.isDark) 0.24f else 0.48f)),
     )
 }
-
-private fun qrBitmap(value: String): Bitmap {
-    val hints =
-        mapOf(
-            EncodeHintType.CHARACTER_SET to "UTF-8",
-            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L,
-            EncodeHintType.MARGIN to 2,
-        )
-    val matrix: BitMatrix = QRCodeWriter().encode(value, BarcodeFormat.QR_CODE, 768, 768, hints)
-    val pixels =
-        IntArray(matrix.width * matrix.height) { index ->
-            if (matrix[index % matrix.width, index / matrix.width]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
-        }
-    return Bitmap.createBitmap(pixels, matrix.width, matrix.height, Bitmap.Config.ARGB_8888)
-}
-
-private fun decodeQrBitmap(bitmap: Bitmap): String {
-    val pixels = IntArray(bitmap.width * bitmap.height)
-    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-    val source = RGBLuminanceSource(bitmap.width, bitmap.height, pixels)
-    return MultiFormatReader()
-        .decode(
-            BinaryBitmap(HybridBinarizer(source)),
-            mapOf(DecodeHintType.CHARACTER_SET to "UTF-8", DecodeHintType.TRY_HARDER to true),
-        ).text
-}
-
-internal fun encodeQrPayload(raw: String): String {
-    require(raw.length <= MAX_MIGRATION_TEXT_CHARS) { "受保护迁移包过大" }
-    val bytes =
-        ByteArrayOutputStream().use { output ->
-            GZIPOutputStream(output).use { it.write(raw.encodeToByteArray()) }
-            output.toByteArray()
-        }
-    val prefix = if (raw.contains("\"v\":3")) "YFUSE3:" else "YFUSE2:"
-    return prefix + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-}
-
-internal fun decodeQrPayload(value: String): String {
-    val trimmed = value.trim()
-    if (trimmed.startsWith("YFUSE1:")) {
-        error("旧版二维码包含未保护凭据，已停止导入；请在原设备重新生成")
-    }
-    val prefix =
-        when {
-            trimmed.startsWith("YFUSE3:") -> "YFUSE3:"
-            trimmed.startsWith("YFUSE2:") -> "YFUSE2:"
-            else -> null
-        }
-    if (prefix == null) {
-        require(trimmed.length <= MAX_MIGRATION_TEXT_CHARS) { "受保护迁移包过大" }
-        return trimmed
-    }
-    require(trimmed.length <= MAX_QR_ENCODED_CHARS) { "迁移二维码数据过大" }
-    val bytes =
-        try {
-            Base64.getUrlDecoder().decode(trimmed.removePrefix(prefix))
-        } catch (e: IllegalArgumentException) {
-            error("不是有效的迁移二维码（编码格式不匹配）")
-        }
-    return try {
-        GZIPInputStream(ByteArrayInputStream(bytes)).use(::readLimitedText)
-    } catch (e: java.util.zip.ZipException) {
-        error("不是有效的迁移二维码（数据已损坏）")
-    } catch (e: java.io.IOException) {
-        error("不是有效的迁移二维码（数据已损坏）")
-    }
-}
-
-private fun readLimitedText(input: InputStream): String {
-    val output = ByteArrayOutputStream()
-    val buffer = ByteArray(8 * 1_024)
-    var total = 0
-    while (true) {
-        val read = input.read(buffer)
-        if (read < 0) break
-        total += read
-        require(total <= MAX_MIGRATION_TEXT_CHARS) { "受保护迁移包过大" }
-        output.write(buffer, 0, read)
-    }
-    return output.toByteArray().decodeToString()
-}
-
-private const val MAX_MIGRATION_TEXT_CHARS = 512 * 1_024
-private const val MAX_QR_ENCODED_CHARS = 768 * 1_024
 
 private tailrec fun Context.findActivity(): Activity? =
     when (this) {
