@@ -48,36 +48,30 @@ internal class ExoDualSubtitleCueMerger {
     fun secondaryOutput(): TextOutput = TextOutput { cues -> updateSecondary(cues) }
 
     fun clearSecondary() {
-        val output: TextOutput?
-        val merged: CueGroup
-        synchronized(this) {
-            secondary = CueGroup.EMPTY_TIME_ZERO
-            output = downstream
-            merged = mergedLocked()
-        }
-        output?.onCues(merged)
+        val snapshot =
+            synchronized(this) {
+                secondary = CueGroup.EMPTY_TIME_ZERO
+                downstream to mergedLocked()
+            }
+        snapshot.first?.onCues(snapshot.second)
     }
 
     private fun updatePrimary(cues: CueGroup) {
-        val output: TextOutput?
-        val merged: CueGroup
-        synchronized(this) {
-            primary = cues
-            output = downstream
-            merged = mergedLocked()
-        }
-        output?.onCues(merged)
+        val snapshot =
+            synchronized(this) {
+                primary = cues
+                downstream to mergedLocked()
+            }
+        snapshot.first?.onCues(snapshot.second)
     }
 
     private fun updateSecondary(cues: CueGroup) {
-        val output: TextOutput?
-        val merged: CueGroup
-        synchronized(this) {
-            secondary = cues
-            output = downstream
-            merged = mergedLocked()
-        }
-        output?.onCues(merged)
+        val snapshot =
+            synchronized(this) {
+                secondary = cues
+                downstream to mergedLocked()
+            }
+        snapshot.first?.onCues(snapshot.second)
     }
 
     private fun mergedLocked(): CueGroup {
@@ -250,17 +244,18 @@ internal class ExoSecondarySubtitleController(
         speed: Float,
         playWhenReady: Boolean,
     ): Boolean {
+        if (mediaItems.isEmpty()) return false
         desiredTrack = identity
         enabled = true
         if (player.mediaItemCount == 0 || player.mediaItemCount != mediaItems.size) {
             player.setMediaItems(
                 mediaItems,
-                currentIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0)),
+                currentIndex.coerceIn(0, mediaItems.lastIndex),
                 positionMs.coerceAtLeast(0L),
             )
             prepared = false
         } else if (player.currentMediaItemIndex != currentIndex) {
-            player.seekTo(currentIndex, positionMs.coerceAtLeast(0L))
+            player.seekTo(currentIndex.coerceIn(0, mediaItems.lastIndex), positionMs.coerceAtLeast(0L))
         }
         if (!prepared) {
             player.prepare()
