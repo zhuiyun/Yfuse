@@ -19,6 +19,8 @@ import com.yfuse.core.sync.WatchReaction
  * the player's signature rather than three.
  */
 data class WatchRoomState(
+    /** Account-backed Watch is hidden until an authenticated Yfuse session is available. */
+    val available: Boolean = false,
     val endpoint: String = "",
     val connecting: Boolean = false,
     val connected: Boolean = false,

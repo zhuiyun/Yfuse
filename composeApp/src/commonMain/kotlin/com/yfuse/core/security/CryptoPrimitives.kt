@@ -3,6 +3,8 @@ package com.yfuse.core.security
 internal interface CryptoPrimitives {
     fun randomBytes(size: Int): ByteArray
 
+    fun sha256(value: ByteArray): ByteArray
+
     fun aesGcmEncrypt(
         key: ByteArray,
         nonce: ByteArray,

@@ -3,39 +3,47 @@ package com.yfuse.core.network
 import com.yfuse.core.model.PlaybackQuality
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EmbyStreamTest {
     @Test
-    fun negotiated_public_http_url_is_usable_without_confirmation() {
-        val raw = "http://media.example/video"
-        val negotiated =
+    fun negotiatedPublicHttpUrlIsRejectedBeforeCredentialsAreAdded() {
+        val result =
             EmbyStream.negotiatedUrl(
                 baseUrl = "https://emby.example",
-                rawUrl = raw,
+                rawUrl = "http://media.example/video",
                 token = "secret-token",
                 playSessionId = "session",
+                localCleartextConfirmed = true,
             )
 
-        assertTrue(negotiated?.startsWith(raw) == true, negotiated.orEmpty())
-        assertTrue("api_key=secret-token" in negotiated.orEmpty(), negotiated.orEmpty())
-        assertTrue("PlaySessionId=session" in negotiated.orEmpty(), negotiated.orEmpty())
+        assertNull(result)
     }
 
     @Test
-    fun negotiated_local_http_url_is_usable_without_confirmation() {
+    fun negotiatedLocalHttpUrlRequiresTheServersLocalConfirmation() {
         val raw = "http://192.168.1.20/video"
-        val negotiated =
+
+        assertNull(
             EmbyStream.negotiatedUrl(
                 baseUrl = "https://emby.example",
                 rawUrl = raw,
                 token = "secret-token",
                 playSessionId = "session",
+            ),
+        )
+        val confirmed =
+            EmbyStream.negotiatedUrl(
+                baseUrl = "https://emby.example",
+                rawUrl = raw,
+                token = "secret-token",
+                playSessionId = "session",
+                localCleartextConfirmed = true,
             )
 
-        assertTrue(negotiated?.startsWith(raw) == true, negotiated.orEmpty())
-        assertTrue("api_key=secret-token" in negotiated.orEmpty(), negotiated.orEmpty())
-        assertTrue("PlaySessionId=session" in negotiated.orEmpty(), negotiated.orEmpty())
+        assertTrue(confirmed?.startsWith(raw) == true, confirmed.orEmpty())
+        assertTrue("api_key=secret-token" in confirmed.orEmpty(), confirmed.orEmpty())
     }
 
     @Test

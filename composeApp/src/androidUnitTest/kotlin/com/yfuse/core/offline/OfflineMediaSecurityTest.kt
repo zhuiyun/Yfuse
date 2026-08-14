@@ -7,6 +7,8 @@ import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.security.TestSecureStore
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -82,6 +84,37 @@ class OfflineMediaSecurityTest {
     }
 
     @Test
+    fun raw_offline_transfer_rejects_public_cleartext_before_opening_a_socket() {
+        val rejected =
+            runCatching {
+                requireAllowedOfflineTransferUrl(
+                    "http://media.example/Videos/episode/stream?api_key=secret",
+                    localCleartextConfirmed = true,
+                )
+            }
+
+        assertTrue(rejected.isFailure)
+    }
+
+    @Test
+    fun raw_offline_transfer_allows_https_and_confirmed_lan_cleartext() {
+        assertEquals(
+            "https",
+            requireAllowedOfflineTransferUrl(
+                "https://media.example/Videos/episode/stream?api_key=secret",
+                localCleartextConfirmed = false,
+            ).protocol,
+        )
+        assertEquals(
+            "http",
+            requireAllowedOfflineTransferUrl(
+                "http://192.168.1.20:8096/Videos/episode/stream?api_key=secret",
+                localCleartextConfirmed = true,
+            ).protocol,
+        )
+    }
+
+    @Test
     fun switching_media_source_resets_files_progress_validator_and_generation() {
         val old =
             OfflineMedia(
@@ -150,6 +183,36 @@ class OfflineMediaSecurityTest {
                 null,
             ),
         )
+    }
+
+    @Test
+    fun reenqueueing_the_same_variant_keeps_its_verified_resume_state() {
+        val old =
+            OfflineMedia(
+                id = "server#episode",
+                serverId = "server",
+                itemId = "episode",
+                title = "Episode",
+                mediaSourceId = "source",
+                downloadedBytes = 4_096L,
+                totalBytes = 8_192L,
+                downloadRevision = 5L,
+                resumeValidator = "etag:\"same\"",
+                status = DownloadStatus.Paused,
+            )
+
+        val plan =
+            planOfflineEnqueue(
+                old = old,
+                request = OfflineDownloadRequest("server", "episode", "Episode", "source"),
+                nowMs = 200L,
+            )
+
+        assertFalse(plan.sourceChanged)
+        assertEquals(4_096L, plan.item.downloadedBytes)
+        assertEquals(8_192L, plan.item.totalBytes)
+        assertEquals("etag:\"same\"", plan.item.resumeValidator)
+        assertEquals(DownloadStatus.Queued, plan.item.status)
     }
 
     @Test
@@ -353,4 +416,167 @@ class OfflineMediaSecurityTest {
             missingOfflineStorageBytes(Long.MAX_VALUE - 100L, Long.MAX_VALUE, reserveBytes = reserve),
         )
     }
+
+    @Test
+    fun an_interrupted_post_finalize_download_keeps_its_verified_video_for_resume() {
+        val finalized =
+            OfflineMedia(
+                id = "server#episode",
+                serverId = "server",
+                itemId = "episode",
+                title = "Episode",
+                mediaSourceId = "source",
+                localPath = "/offline/episode.4.media",
+                downloadedBytes = 123L,
+                totalBytes = 123L,
+                downloadRevision = 4L,
+                status = DownloadStatus.Paused,
+            )
+
+        val plan =
+            planOfflineEnqueue(
+                old = finalized,
+                request = OfflineDownloadRequest("server", "episode", "Episode", "source"),
+                nowMs = 100L,
+            )
+
+        assertFalse(plan.sourceChanged)
+        assertEquals("/offline/episode.4.media", plan.item.localPath)
+        assertEquals(123L, plan.item.downloadedBytes)
+        assertEquals(123L, plan.item.totalBytes)
+        assertEquals(DownloadStatus.Queued, plan.item.status)
+    }
+
+    @Test
+    fun only_known_offline_artifact_suffixes_are_cleaned_without_an_index_entry() {
+        assertTrue(isOfflineArtifactName("ab.media"))
+        assertTrue(isOfflineArtifactName("ab.part"))
+        assertTrue(isOfflineArtifactName("ab.srt"))
+        assertTrue(isOfflineArtifactName("ab.4.subtitle.part"))
+        assertFalse(isOfflineArtifactName("ab.jpg"))
+        assertFalse(isOfflineArtifactName("notes.txt"))
+    }
+
+    @Test
+    fun removing_an_item_while_its_subtitle_is_prepared_cannot_publish_an_orphan() {
+        val directory = Files.createTempDirectory("yfuse-offline-remove-").toFile()
+        try {
+            val snapshot = downloadingItem(revision = 4L)
+            val video = File(directory, "episode.media").apply { writeBytes(byteArrayOf(1)) }
+            val subtitlePart = File(directory, "episode.4.subtitle.part").apply { writeText("old subtitle") }
+            val subtitleTarget = File(directory, "episode.srt")
+
+            val completed =
+                publishOfflineCompletionLocked(
+                    current = null,
+                    snapshot = snapshot,
+                    videoTarget = video,
+                    subtitlePart = subtitlePart,
+                    subtitleTarget = subtitleTarget,
+                    nowMs = 100L,
+                )
+
+            assertNull(completed)
+            assertFalse(subtitlePart.exists())
+            assertFalse(subtitleTarget.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun reenqueue_during_subtitle_download_rejects_the_old_revision() {
+        val directory = Files.createTempDirectory("yfuse-offline-reenqueue-").toFile()
+        try {
+            val snapshot = downloadingItem(revision = 7L)
+            val replacement = downloadingItem(revision = 8L)
+            val video = File(directory, "episode.media").apply { writeBytes(byteArrayOf(1)) }
+            val oldPart = File(directory, "episode.7.subtitle.part").apply { writeText("old subtitle") }
+            val subtitleTarget = File(directory, "episode.srt").apply { writeText("replacement subtitle") }
+
+            val completed =
+                publishOfflineCompletionLocked(
+                    current = replacement,
+                    snapshot = snapshot,
+                    videoTarget = video,
+                    subtitlePart = oldPart,
+                    subtitleTarget = subtitleTarget,
+                    nowMs = 100L,
+                )
+
+            assertNull(completed)
+            assertFalse(oldPart.exists())
+            assertEquals("replacement subtitle", subtitleTarget.readText())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun completed_is_created_only_after_the_sidecar_is_atomically_visible() {
+        val directory = Files.createTempDirectory("yfuse-offline-complete-").toFile()
+        try {
+            val snapshot = downloadingItem(revision = 11L)
+            val video = File(directory, "episode.media").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+            val subtitlePart = File(directory, "episode.11.subtitle.part").apply { writeText("subtitle") }
+            val subtitleTarget = File(directory, "episode.srt")
+
+            val completed =
+                publishOfflineCompletionLocked(
+                    current = snapshot,
+                    snapshot = snapshot,
+                    videoTarget = video,
+                    subtitlePart = subtitlePart,
+                    subtitleTarget = subtitleTarget,
+                    nowMs = 200L,
+                )
+
+            assertEquals(DownloadStatus.Completed, completed?.status)
+            assertEquals(subtitleTarget.absolutePath, completed?.subtitlePath)
+            assertTrue(subtitleTarget.isFile)
+            assertEquals("subtitle", subtitleTarget.readText())
+            assertFalse(subtitlePart.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun failed_selected_subtitle_is_an_explicit_playable_degradation() {
+        val directory = Files.createTempDirectory("yfuse-offline-subtitle-failed-").toFile()
+        try {
+            val snapshot = downloadingItem(revision = 12L)
+            val video = File(directory, "episode.media").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+            val staleSubtitle = File(directory, "episode.srt").apply { writeText("stale") }
+
+            val completed =
+                publishOfflineCompletionLocked(
+                    current = snapshot,
+                    snapshot = snapshot,
+                    videoTarget = video,
+                    subtitlePart = null,
+                    subtitleTarget = staleSubtitle,
+                    nowMs = 200L,
+                )
+
+            assertEquals(DownloadStatus.Completed, completed?.status)
+            assertTrue(completed?.playable == true)
+            assertNull(completed?.subtitlePath)
+            assertEquals("视频已完成，但所选字幕未能保存", completed?.error)
+            assertFalse(staleSubtitle.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    private fun downloadingItem(revision: Long) =
+        OfflineMedia(
+            id = "server#episode",
+            serverId = "server",
+            itemId = "episode",
+            title = "Episode",
+            subtitleStreamIndex = 2,
+            downloadRevision = revision,
+            status = DownloadStatus.Downloading,
+        )
 }

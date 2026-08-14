@@ -250,9 +250,11 @@ class AndroidHttpEnginePolicyTest {
             "The account client must reject cleartext origins at runtime",
         )
         assertTrue(
-            Regex("""DEFAULT_ENDPOINT\s*=\s*"https://47\.112\.219\.60"""")
-                .containsMatchIn(watchPreferencesSource),
-            "The built-in watch-together endpoint must stay on HTTPS",
+            Regex("""DEFAULT_ENDPOINT\s*=\s*ACCOUNT_BASE_URL""")
+                .containsMatchIn(watchPreferencesSource) &&
+                Regex("""ACCOUNT_BASE_URL[^=]*=\s*"https://47\.112\.219\.60"""")
+                    .containsMatchIn(accountModelsSource),
+            "The built-in watch-together endpoint must share the HTTPS account origin",
         )
     }
 

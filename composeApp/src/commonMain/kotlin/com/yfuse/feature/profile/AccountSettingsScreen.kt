@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,6 +49,8 @@ import com.yfuse.app.TabBarInset
 import com.yfuse.core.account.AccountDeviceSession
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
+import com.yfuse.core.account.IssuedInviteCode
+import com.yfuse.core.account.canIssueInvites
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -298,6 +301,10 @@ private fun SignedInAccountCard(
     var confirmRevokeAll by remember { mutableStateOf(false) }
     var confirmDeleteAccount by remember { mutableStateOf(false) }
     var deletePassword by remember { mutableStateOf("") }
+    // Invite plaintext is intentionally not saveable and is discarded as soon as its dialog
+    // closes. The service cannot show the same code again.
+    var issuedInvite by remember { mutableStateOf<IssuedInviteCode?>(null) }
+    var inviteBusy by remember { mutableStateOf(false) }
     val share = rememberShareHandler()
 
     fun reloadSessions() {
@@ -452,6 +459,37 @@ private fun SignedInAccountCard(
     }
 
     Spacer(Modifier.height(16.dp))
+    if (user.canIssueInvites()) {
+        AccountCard {
+            Text("注册邀请", style = AppTypography.body.strong, color = palette.text)
+            Spacer(Modifier.height(5.dp))
+            Text(
+                "生成一次性邀请码。明文只会显示这一次，请立即复制并安全发送。",
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+            )
+            Spacer(Modifier.height(10.dp))
+            YfButton(
+                label = if (inviteBusy) "正在生成…" else "生成邀请码",
+                onClick = {
+                    inviteBusy = true
+                    localError = null
+                    scope.launch {
+                        account
+                            .issueInvite()
+                            .onSuccess { issuedInvite = it }
+                            .onFailure { localError = it.message ?: "生成邀请码失败" }
+                        inviteBusy = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy && !state.syncing && !inviteBusy,
+                loading = inviteBusy,
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+    }
+
     AccountCard {
         Text("登录设备与会话", style = AppTypography.body.strong, color = palette.text)
         Spacer(Modifier.height(5.dp))
@@ -566,7 +604,7 @@ private fun SignedInAccountCard(
         // tall it is.
         Spacer(Modifier.height(7.dp))
         Text(
-            text = localError ?: state.message ?: syncIdleHint,
+            text = localError ?: state.message ?: SYNC_IDLE_HINT,
             style = AppTypography.caption.medium,
             color =
                 when {
@@ -763,9 +801,87 @@ private fun SignedInAccountCard(
             )
         }
     }
+
+    issuedInvite?.let { invite ->
+        GlassDialog(
+            onDismiss = { issuedInvite = null },
+        ) {
+            Text("邀请码已生成", style = AppTypography.section.strong, color = palette.text)
+            Spacer(Modifier.height(7.dp))
+            Text(
+                "这是一次性明文，关闭后无法再次查看。",
+                style = AppTypography.caption.medium,
+                color = palette.error,
+            )
+            Spacer(Modifier.height(12.dp))
+            SelectionContainer {
+                Text(
+                    invite.code,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = AppTypography.body.strong,
+                    color = accent.accent,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            Spacer(Modifier.height(7.dp))
+            Text(
+                "有效期至 ${formatInviteExpiryUtc(invite.expiresAtEpochMs)}",
+                modifier = Modifier.fillMaxWidth(),
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(13.dp))
+            YfButton(
+                label = "复制邀请码",
+                onClick = { share.copyText(invite.code) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            YfLinkButton(
+                label = "关闭（不再显示）",
+                onClick = { issuedInvite = null },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+        }
+    }
 }
 
-private fun formatSessionActivity(epochMs: Long, nowEpochMs: Long = System.currentTimeMillis()): String {
+internal fun formatInviteExpiryUtc(epochMs: Long): String {
+    val dayMs = 86_400_000L
+    val hourMs = 3_600_000L
+    val minuteMs = 60_000L
+    var days = epochMs.coerceAtLeast(0L) / dayMs + 719_468L
+    val era = days / 146_097L
+    val dayOfEra = days - era * 146_097L
+    val yearOfEra =
+        (dayOfEra - dayOfEra / 1_460L + dayOfEra / 36_524L - dayOfEra / 146_096L) / 365L
+    var year = yearOfEra + era * 400L
+    val dayOfYear = dayOfEra - (365L * yearOfEra + yearOfEra / 4L - yearOfEra / 100L)
+    val monthPrime = (5L * dayOfYear + 2L) / 153L
+    val day = dayOfYear - (153L * monthPrime + 2L) / 5L + 1L
+    val month = monthPrime + if (monthPrime < 10L) 3L else -9L
+    if (month <= 2L) year++
+    val withinDay = epochMs.coerceAtLeast(0L) % dayMs
+    val hour = withinDay / hourMs
+    val minute = (withinDay % hourMs) / minuteMs
+    return buildString {
+        append(year.toString().padStart(4, '0'))
+        append('-')
+        append(month.toString().padStart(2, '0'))
+        append('-')
+        append(day.toString().padStart(2, '0'))
+        append(' ')
+        append(hour.toString().padStart(2, '0'))
+        append(':')
+        append(minute.toString().padStart(2, '0'))
+        append(" UTC")
+    }
+}
+
+private fun formatSessionActivity(
+    epochMs: Long,
+    nowEpochMs: Long = System.currentTimeMillis(),
+): String {
     val elapsedMs = (nowEpochMs - epochMs).coerceAtLeast(0L)
     return when {
         elapsedMs < 60_000L -> "刚刚"
@@ -784,7 +900,7 @@ private fun formatSessionActivity(epochMs: Long, nowEpochMs: Long = System.curre
  * the thing you are already looking at when you reach for them, and it keeps that slot from
  * being empty — see the card for why the height has to be constant.
  */
-private const val syncIdleHint =
+private const val SYNC_IDLE_HINT =
     "不会自动上传或恢复。上传会用本机数据覆盖云端；恢复会用云端数据覆盖本机。"
 
 @Composable

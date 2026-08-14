@@ -49,6 +49,8 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayButtonRow
+import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageHint
@@ -393,19 +395,13 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     color = palette.sub,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
-                Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-                    OverlayOptionRow(
-                        label = "确认移除",
-                        selected = false,
-                        destructive = true,
-                        onClick = { component.store.accept(GridIntent.ConfirmRemove) },
-                    )
-                    OverlayOptionRow(
-                        label = "取消",
-                        selected = false,
-                        onClick = { component.store.accept(GridIntent.CancelRemove) },
-                    )
-                }
+                OverlayButtonRow(
+                    dismissLabel = "取消",
+                    confirmLabel = "确认移除",
+                    onDismiss = { component.store.accept(GridIntent.CancelRemove) },
+                    onConfirm = { component.store.accept(GridIntent.ConfirmRemove) },
+                    confirmTone = OverlayButtonTone.Destructive,
+                )
             }
         }
 

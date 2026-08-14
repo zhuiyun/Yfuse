@@ -62,13 +62,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
+import com.yfuse.core.account.AccountState
+import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.PlaybackRecoveryEligibility
+import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
@@ -215,18 +219,21 @@ fun App(root: RootComponent) {
         // indication anywhere in the app.
         val watchTogether = root.dependencies.watchTogether
         val inviteResolver = root.dependencies.inviteResolver
-        val watchPreferences = root.dependencies.watchTogetherPreferences
         val watchState by watchTogether.state.collectAsState()
-        val watchEndpoint by watchPreferences.endpoint.collectAsState()
         val pendingInvite by root.pendingInvite.collectAsState()
+        val accountState by root.dependencies.account.state.collectAsState()
+        val watchAvailable = accountState.canUseWatchTogether()
 
         var inviteResolution by remember {
             mutableStateOf<InviteResolution>(InviteResolution.Resolving)
         }
-        LaunchedEffect(pendingInvite) {
+        LaunchedEffect(pendingInvite, watchAvailable) {
             val invite = pendingInvite ?: return@LaunchedEffect
+            if (!watchAvailable) return@LaunchedEffect
             inviteResolution = InviteResolution.Resolving
-            inviteResolution = inviteResolver.resolve(invite)
+            if (invite.unsupportedEndpoint == null) {
+                inviteResolution = inviteResolver.resolve(invite)
+            }
         }
 
         // Following a room that was joined by code alone (「我的」→ 加入一起看).
@@ -458,36 +465,47 @@ fun App(root: RootComponent) {
                         }
 
                         pendingInvite?.let { invite ->
-                            WatchInviteSheet(
-                                roomCode = invite.roomCode,
-                                resolution = inviteResolution,
-                                unfamiliarEndpoint =
-                                    invite.endpoint
-                                        ?.takeIf { it.trimEnd('/') != watchEndpoint.trimEnd('/') },
-                                onJoin = {
-                                    // Join, and let the room say what it is playing.
-                                    //
-                                    // This used to resolve `invite.mediaKey` and navigate to that.
-                                    // A link is written when the room is created, which for a show
-                                    // is before the host has started an episode — so its key names
-                                    // the *show*, and resolving it landed the guest on the series,
-                                    // which auto-plays whatever episode *they* were up to. Two
-                                    // people, two different episodes, every time.
-                                    //
-                                    // The room's own timeline names the episode, and the shell
-                                    // already follows it (see the effect above), so joining is the
-                                    // whole of the work. The invite's key keeps its other job:
-                                    // naming the title in the sheet before any of this happens.
-                                    watchTogether.joinRoomFromInvite(
-                                        endpoint = invite.endpoint ?: watchEndpoint,
-                                        roomCode = invite.roomCode,
-                                        mediaKey = invite.mediaKey.orEmpty(),
-                                    )
-                                    root.dismissInvite()
-                                },
-                                onSearchByName = root::openSearchForInvite,
-                                onDismiss = root::dismissInvite,
-                            )
+                            if (invite.unsupportedEndpoint != null || watchAvailable) {
+                                WatchInviteSheet(
+                                    roomCode = invite.roomCode,
+                                    resolution = inviteResolution,
+                                    unsupportedEndpoint = invite.unsupportedEndpoint,
+                                    onJoin = {
+                                        // Join, and let the room say what it is playing.
+                                        //
+                                        // This used to resolve `invite.mediaKey` and navigate to that.
+                                        // A link is written when the room is created, which for a show
+                                        // is before the host has started an episode — so its key names
+                                        // the *show*, and resolving it landed the guest on the series,
+                                        // which auto-plays whatever episode *they* were up to. Two
+                                        // people, two different episodes, every time.
+                                        //
+                                        // The room's own timeline names the episode, and the shell
+                                        // already follows it (see the effect above), so joining is the
+                                        // whole of the work. The invite's key keeps its other job:
+                                        // naming the title in the sheet before any of this happens.
+                                        watchTogether.joinRoomFromInvite(
+                                            endpoint = WatchTogetherPreferences.DEFAULT_ENDPOINT,
+                                            roomCode = invite.roomCode,
+                                            mediaKey = invite.mediaKey.orEmpty(),
+                                        )
+                                        root.dismissInvite()
+                                    },
+                                    onSearchByName = root::openSearchForInvite,
+                                    onDismiss = root::dismissInvite,
+                                )
+                            } else if (accountState !is AccountState.Restoring) {
+                                ConfirmDialog(
+                                    title = "登录后使用一起看",
+                                    message = "一起看房间会绑定你的 Yfuse 账号。请先到“我的”登录，再重新打开邀请。",
+                                    confirmLabel = "去登录",
+                                    onConfirm = {
+                                        root.dismissInvite()
+                                        root.selectTab(Tab.Profile)
+                                    },
+                                    onDismiss = root::dismissInvite,
+                                )
+                            }
                         }
 
                         recoveryPrompt

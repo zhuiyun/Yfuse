@@ -36,7 +36,19 @@ class AccountRegistrationPolicyTest {
         val policy = AccountRegistrationPolicy.fromEnvironment(
             mapOf("ACCOUNT_REGISTRATION_INVITE_CODES" to "first-code-2026, second-code-2026"),
         )
-        assertTrue(policy.enabled)
+        assertFalse(policy.enabled)
         assertEquals(setOf("first-code-2026", "second-code-2026"), policy.invitationCodes)
+    }
+
+    @Test
+    fun issuerAndTtlConfigurationAreExplicitAndNormalized() {
+        val policy = AccountRegistrationPolicy.fromEnvironment(
+            mapOf(
+                "ACCOUNT_INVITE_ISSUER_USERNAMES" to " ZHUIYUN, operator ",
+                "ACCOUNT_ISSUED_INVITE_TTL_HOURS" to "48",
+            ),
+        )
+        assertEquals(setOf("zhuiyun", "operator"), policy.inviteIssuerUsernames)
+        assertEquals(48L * 60 * 60_000L, policy.issuedInviteTtlMs)
     }
 }

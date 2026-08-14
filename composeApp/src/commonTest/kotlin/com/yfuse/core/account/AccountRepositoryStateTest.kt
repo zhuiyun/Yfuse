@@ -357,11 +357,54 @@ class AccountRepositoryStateTest {
             assertEquals(0, secureStore.clearCount)
         }
 
+    @Test
+    fun forbidden_invite_issue_removes_server_capability_from_the_live_session() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val tokenSource = AccountAccessTokenSource()
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH ->
+                                respondAccountJson(
+                                    json.encodeToString(
+                                        authResponse(capabilities = listOf(INVITE_ISSUE_CAPABILITY)),
+                                    ),
+                                )
+                            SYNC_PATH -> respondAccountJson(json.encodeToString(SyncResponse(version = 0)))
+                            INVITES_PATH ->
+                                respondAccountJson(
+                                    json.encodeToString(ErrorEnvelope(ErrorBody("forbidden", "denied"))),
+                                    HttpStatusCode.Forbidden,
+                                )
+                            else -> error("Unexpected path ${request.url.encodedPath}")
+                        }
+                    },
+                )
+            val repository = accountRepository(api, secureStore, tokenSource)
+            repository.start()
+            val restored =
+                assertIs<AccountState.SignedIn>(
+                    awaitAccountState(repository) {
+                        it is AccountState.SignedIn && it.session.user.canIssueInvites()
+                    },
+                )
+            assertTrue(restored.session.user.canIssueInvites())
+
+            val result = repository.issueInvite()
+
+            assertTrue(result.isFailure)
+            val current = assertIs<AccountState.SignedIn>(repository.state.value)
+            assertFalse(current.session.user.canIssueInvites())
+        }
+
     private fun accountApi(engine: MockEngine): AccountApi = AccountApi(createAccountClient(engine))
 
     private fun authResponse(
         accessToken: String = "restored-access",
         refreshToken: String = "rotated-refresh-token",
+        capabilities: List<String> = emptyList(),
     ) = AuthResponse(
         user =
             AccountUser(
@@ -371,6 +414,7 @@ class AccountRepositoryStateTest {
                 avatarId = 3,
                 createdAtEpochMs = 1_700_000_000_000,
                 updatedAtEpochMs = 1_700_000_000_000,
+                capabilities = capabilities,
             ),
         accessToken = accessToken,
         accessExpiresAtEpochMs = 9_000_000_000_000,
@@ -403,6 +447,7 @@ class AccountRepositoryStateTest {
         const val REFRESH_PATH = "/api/v1/auth/refresh"
         const val SYNC_PATH = "/api/v1/account/sync"
         const val PASSWORD_PATH = "/api/v1/account/password"
+        const val INVITES_PATH = "/api/v1/account/invites"
     }
 }
 
@@ -417,6 +462,7 @@ private suspend fun awaitAccountState(
 private fun accountRepository(
     api: AccountApi,
     secureStore: SecureStore,
+    accessTokenSource: AccountAccessTokenSource = AccountAccessTokenSource(),
 ): AccountRepository {
     val settings = MapSettings()
     val registry = ServerRegistry(settings, TestSecureStore())
@@ -436,6 +482,7 @@ private fun accountRepository(
                 settings,
             ),
         nowEpochMs = { 1_700_000_000_000 },
+        accessTokenSource = accessTokenSource,
     )
 }
 
@@ -490,6 +537,9 @@ private class RecordingAccountSecureStore : SecureStore {
 }
 
 private class FastAccountCryptoPrimitives : CryptoPrimitives {
+    override fun sha256(value: ByteArray): ByteArray =
+        java.security.MessageDigest.getInstance("SHA-256").digest(value)
+
     private var nextRandomByte = 1
 
     override fun randomBytes(size: Int): ByteArray =

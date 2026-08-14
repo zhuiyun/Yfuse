@@ -1,8 +1,14 @@
 package com.yfuse.watch
 
 import com.yfuse.watch.account.AccountBackend
+import com.yfuse.watch.account.AccountProblem
 import com.yfuse.watch.account.AccountRateLimiter
+import com.yfuse.watch.account.AccountServiceException
+import com.yfuse.watch.account.AccountWorkRejectedException
+import com.yfuse.watch.account.AuthenticatedAccount
 import com.yfuse.watch.account.accountRoutes
+import com.yfuse.watch.migration.MigrationRelayBackend
+import com.yfuse.watch.migration.migrationRelayRoutes
 import com.yfuse.watch.protocol.WatchProtocol
 import com.yfuse.watch.protocol.WatchWireChatMessage
 import com.yfuse.watch.protocol.WatchWireMessage
@@ -31,18 +37,26 @@ import io.ktor.websocket.send
 import java.io.File
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.sql.SQLTransientException
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ThreadLocalRandom
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 
 /**
- * Wire protocol v4. The DTO and its validation limits live in `:watchTogetherProtocol`, so
- * client and relay cannot silently drift. Version 4 is intentionally not backwards compatible:
- * public client ids no longer authenticate reconnections; room-scoped bearer capabilities do.
+ * Wire protocol v5. The DTO and its validation limits live in `:watchTogetherProtocol`, so
+ * client and relay cannot silently drift. Version 5 requires an authenticated Yfuse account for
+ * every room connection and binds membership to its immutable account id. Room-scoped resume and
+ * host capabilities continue to protect reconnection and host authority; public client ids never
+ * authenticate either operation.
  *
  * The core change from v1 is that the server is the **timeline authority**: instead of the
  * host broadcasting its position once a second and guests correcting toward a moving
@@ -81,6 +95,7 @@ private class Participant(
     var avatarId: Int,
     val session: WebSocketSession,
     val sessionGeneration: Long,
+    val accountUserId: String,
     var authorizedHostEpoch: Long? = null,
     var statusKnown: Boolean = false,
     var ready: Boolean = false,
@@ -93,6 +108,7 @@ private class Participant(
 /** Long-lived room membership. The digest is never sent or logged. */
 private class Membership(
     val clientId: String,
+    val accountUserId: String,
     var resumeCapabilityDigest: ByteArray,
     var sessionGeneration: Long = 0L,
 )
@@ -209,10 +225,15 @@ private fun capabilityMatches(
     )
 }
 
-private fun newMembership(roomCode: String, clientId: String): Pair<Membership, String> {
+private fun newMembership(
+    roomCode: String,
+    clientId: String,
+    accountUserId: String,
+): Pair<Membership, String> {
     val capability = newCapability()
     return Membership(
         clientId = clientId,
+        accountUserId = accountUserId,
         resumeCapabilityDigest = capabilityDigest(
             roomCode,
             clientId,
@@ -269,7 +290,63 @@ private val REACTIONS = setOf("😂", "😮", "😍", "😭", "👏", "🔥", "�
 private const val MAX_REACTIONS_PER_WINDOW = 6
 private const val REACTION_RATE_WINDOW_MS = 3_000L
 private const val PROFILE_UPDATE_COOLDOWN_MS = 1_000L
+private const val ACCOUNT_REVALIDATION_MS = 10_000L
+private const val ACCOUNT_AUTH_RETRY_BASE_MS = 100L
+private const val ACCOUNT_AUTH_RETRY_MAX_MS = 5_000L
+private const val ACCOUNT_AUTH_RETRY_MAX_EXPONENT = 6
+private const val ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS = 10_000L
+private const val ACCOUNT_INITIAL_AUTH_MAX_TRANSIENT_FAILURES = 8
 private val graphemeRegex = Regex("\\X")
+
+private sealed interface WatchAccountAuthentication {
+    data class Accepted(val account: AuthenticatedAccount) : WatchAccountAuthentication
+
+    data object Rejected : WatchAccountAuthentication
+
+    data object TemporarilyUnavailable : WatchAccountAuthentication
+
+    data object Failed : WatchAccountAuthentication
+}
+
+private suspend fun authenticateWatchAccount(
+    authenticator: suspend (String) -> AuthenticatedAccount,
+    accessToken: String,
+): WatchAccountAuthentication = try {
+    WatchAccountAuthentication.Accepted(
+        withTimeout(ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS) {
+            authenticator(accessToken)
+        },
+    )
+} catch (failure: AccountServiceException) {
+    if (failure.problem == AccountProblem.Unauthorized) {
+        WatchAccountAuthentication.Rejected
+    } else {
+        WatchAccountAuthentication.Failed
+    }
+} catch (_: AccountWorkRejectedException) {
+    WatchAccountAuthentication.TemporarilyUnavailable
+} catch (_: TimeoutCancellationException) {
+    WatchAccountAuthentication.TemporarilyUnavailable
+} catch (_: SQLTransientException) {
+    WatchAccountAuthentication.TemporarilyUnavailable
+} catch (failure: CancellationException) {
+    throw failure
+} catch (_: Exception) {
+    WatchAccountAuthentication.Failed
+}
+
+private fun nextWatchAuthFailureCount(current: Int): Int =
+    (current + 1).coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_EXPONENT + 1)
+
+/** Full-jitter exponential retry, bounded so an account outage cannot create a retry storm. */
+internal fun watchAuthTransientRetryDelayMs(failureCount: Int): Long {
+    require(failureCount > 0) { "failureCount must be positive" }
+    val exponent = (failureCount - 1).coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_EXPONENT)
+    val ceiling = (ACCOUNT_AUTH_RETRY_BASE_MS shl exponent)
+        .coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_MS)
+    val floor = (ceiling / 2L).coerceAtLeast(1L)
+    return ThreadLocalRandom.current().nextLong(floor, ceiling + 1L)
+}
 
 private val AUTHENTICATED_MESSAGE_TYPES = setOf(
     "sync",
@@ -291,8 +368,13 @@ fun main() {
     val accountBackend = AccountBackend.sqlite(
         File(System.getenv("ACCOUNT_DB_PATH") ?: "/var/lib/yfuse/account.db"),
     )
+    val migrationRelayBackend = MigrationRelayBackend.fromEnvironment()
     embeddedServer(CIO, host = host, port = port) {
-        watchTogetherModule(accountBackend = accountBackend)
+        watchTogetherModule(
+            accountBackend = accountBackend,
+            migrationRelayBackend = migrationRelayBackend,
+            requireWatchAuthentication = true,
+        )
     }.start(wait = true)
 }
 
@@ -305,7 +387,7 @@ internal fun resolveServerHost(raw: String?): String {
     return value
 }
 
-fun Application.watchTogetherModule(
+internal fun Application.watchTogetherModule(
     updateRoot: File = File(System.getenv("UPDATE_ROOT") ?: "/srv/yfuse-update/yfuse"),
     /** Injectable so tests can exercise the handover without waiting out the real window. */
     hostGraceMs: Long = HOST_GRACE_MS,
@@ -325,11 +407,24 @@ fun Application.watchTogetherModule(
     accountBackend: AccountBackend = AccountBackend.inMemory(),
     /** Authentication limiter is application-local and injectable for deterministic tests. */
     accountRateLimiter: AccountRateLimiter = AccountRateLimiter(),
+    migrationRelayBackend: MigrationRelayBackend = MigrationRelayBackend.inMemory(),
+    /** Test-only seam for exercising the room protocol independently; production stays true. */
+    requireWatchAuthentication: Boolean = false,
+    /** Independent watchdog interval; keeps silent sockets subject to session revocation. */
+    watchAuthRevalidationMs: Long = ACCOUNT_REVALIDATION_MS,
+    /** Test seam for deterministic account-store failure and recovery scenarios. */
+    watchAccountAuthenticator: suspend (String) -> AuthenticatedAccount =
+        accountBackend::authenticateAccessToken,
+    /** Test seam; production retries transient account-store failures with capped jitter. */
+    watchAuthRetryDelayMs: (Int) -> Long = ::watchAuthTransientRetryDelayMs,
+    /** Test seam shared by expiry checks; production uses the wall clock encoded in tokens. */
+    watchAuthClock: () -> Long = System::currentTimeMillis,
 ) {
     require(roomGraceMs >= 0L) { "roomGraceMs must not be negative" }
     require(maxActiveRoomsPerIp in 1..MAX_ROOMS) {
         "maxActiveRoomsPerIp must be between 1 and $MAX_ROOMS"
     }
+    require(watchAuthRevalidationMs > 0L) { "watchAuthRevalidationMs must be positive" }
     val roomStore = RoomStore(
         roomGraceMs = roomGraceMs,
         maxActiveRoomsPerIp = maxActiveRoomsPerIp,
@@ -337,7 +432,10 @@ fun Application.watchTogetherModule(
     // Outlives any one socket, which is what a delayed host handover needs: the connection
     // whose loss starts the clock is precisely the one that can't run the timer.
     val appScope: CoroutineScope = this
-    monitor.subscribe(ApplicationStopped) { accountBackend.close() }
+    monitor.subscribe(ApplicationStopped) {
+        accountBackend.close()
+        migrationRelayBackend.close()
+    }
     install(WebSockets) {
         pingPeriodMillis = 20_000L
         timeoutMillis = 40_000L
@@ -346,6 +444,11 @@ fun Application.watchTogetherModule(
     }
     routing {
         accountRoutes(accountBackend, accountRateLimiter)
+        migrationRelayRoutes(
+            backend = migrationRelayBackend,
+            clientIpResolver = clientIpResolver,
+            trustProxyHeaders = trustProxyHeaders,
+        )
         get("/health") {
             call.respondText("ok")
         }
@@ -357,6 +460,154 @@ fun Application.watchTogetherModule(
         }
         staticFiles("/yfuse", updateRoot)
         webSocket("/watch") {
+            if (!call.isSecureServiceTransport(trustProxyHeaders)) {
+                close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "secure_transport_required"))
+                return@webSocket
+            }
+            val accessToken = call.request.headers["Authorization"]
+                ?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
+                ?.substringAfter(' ')
+                ?.takeIf { it.isNotBlank() && it.none(Char::isWhitespace) }
+            if (requireWatchAuthentication && accessToken == null) {
+                close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "account_auth_required"))
+                return@webSocket
+            }
+            val authenticatedAccount = if (requireWatchAuthentication) {
+                var transientFailures = 0
+                var acceptedAccount: AuthenticatedAccount? = null
+                while (acceptedAccount == null) {
+                    when (
+                        val authentication = authenticateWatchAccount(
+                            watchAccountAuthenticator,
+                            checkNotNull(accessToken),
+                        )
+                    ) {
+                        is WatchAccountAuthentication.Accepted -> {
+                            acceptedAccount = authentication.account
+                        }
+                        WatchAccountAuthentication.Rejected -> {
+                            close(
+                                CloseReason(
+                                    CloseReason.Codes.VIOLATED_POLICY,
+                                    "account_auth_expired",
+                                ),
+                            )
+                            return@webSocket
+                        }
+                        WatchAccountAuthentication.TemporarilyUnavailable -> {
+                            transientFailures++
+                            if (transientFailures >= ACCOUNT_INITIAL_AUTH_MAX_TRANSIENT_FAILURES) {
+                                close(
+                                    CloseReason(
+                                        CloseReason.Codes.TRY_AGAIN_LATER,
+                                        "account_auth_temporarily_unavailable",
+                                    ),
+                                )
+                                return@webSocket
+                            }
+                            delay(watchAuthRetryDelayMs(transientFailures).coerceAtLeast(1L))
+                        }
+                        WatchAccountAuthentication.Failed -> {
+                            close(
+                                CloseReason(
+                                    CloseReason.Codes.INTERNAL_ERROR,
+                                    "account_auth_unavailable",
+                                ),
+                            )
+                            return@webSocket
+                        }
+                    }
+                }
+                checkNotNull(acceptedAccount)
+            } else {
+                AuthenticatedAccount(
+                    userId = "watch-test-account",
+                    sessionId = "watch-test-session",
+                    username = "watch-test",
+                    nickname = "Watch Test",
+                    avatarId = 0,
+                    accessExpiresAtEpochMs = Long.MAX_VALUE,
+                )
+            }
+            val authWatchdog = if (requireWatchAuthentication) {
+                launch {
+                    var transientFailures = 0
+                    while (true) {
+                        val untilExpiry = authenticatedAccount.accessExpiresAtEpochMs -
+                            watchAuthClock()
+                        if (untilExpiry <= 0L) {
+                            close(
+                                CloseReason(
+                                    CloseReason.Codes.VIOLATED_POLICY,
+                                    "account_auth_expired",
+                                ),
+                            )
+                            break
+                        }
+                        val delayMs = if (transientFailures == 0) {
+                            watchAuthRevalidationMs
+                        } else {
+                            watchAuthRetryDelayMs(transientFailures).coerceAtLeast(1L)
+                        }
+                        delay(minOf(delayMs, untilExpiry))
+                        if (watchAuthClock() >= authenticatedAccount.accessExpiresAtEpochMs) {
+                            close(
+                                CloseReason(
+                                    CloseReason.Codes.VIOLATED_POLICY,
+                                    "account_auth_expired",
+                                ),
+                            )
+                            break
+                        }
+                        when (
+                            val authentication = authenticateWatchAccount(
+                                watchAccountAuthenticator,
+                                checkNotNull(accessToken),
+                            )
+                        ) {
+                            is WatchAccountAuthentication.Accepted -> {
+                                if (
+                                    authentication.account.sessionId !=
+                                    authenticatedAccount.sessionId ||
+                                    authentication.account.userId != authenticatedAccount.userId
+                                ) {
+                                    close(
+                                        CloseReason(
+                                            CloseReason.Codes.VIOLATED_POLICY,
+                                            "account_auth_expired",
+                                        ),
+                                    )
+                                    break
+                                }
+                                transientFailures = 0
+                            }
+                            WatchAccountAuthentication.Rejected -> {
+                                close(
+                                    CloseReason(
+                                        CloseReason.Codes.VIOLATED_POLICY,
+                                        "account_auth_expired",
+                                    ),
+                                )
+                                break
+                            }
+                            WatchAccountAuthentication.TemporarilyUnavailable -> {
+                                transientFailures = nextWatchAuthFailureCount(transientFailures)
+                            }
+                            WatchAccountAuthentication.Failed -> {
+                                close(
+                                    CloseReason(
+                                        CloseReason.Codes.INTERNAL_ERROR,
+                                        "account_auth_unavailable",
+                                    ),
+                                )
+                                break
+                            }
+                        }
+                    }
+                }
+            } else {
+                null
+            }
             val clientIp = clientIpResolver
                 ?.invoke(call)
                 ?.trim()
@@ -435,14 +686,16 @@ fun Application.watchTogetherModule(
                                     "客户端标识无效",
                                     "client_id_invalid",
                                 )
-                            if (!WatchProtocol.isValidOptionalName(message.name)) {
-                                return@consumeEach sendError("昵称无效", "profile_invalid")
+                            val name = if (requireWatchAuthentication) {
+                                authenticatedAccount.nickname
+                            } else {
+                                normalizeName(message.name)
                             }
-                            if (!WatchProtocol.isValidAvatarId(message.avatarId)) {
-                                return@consumeEach sendError("头像无效", "profile_invalid")
+                            val avatarId = if (requireWatchAuthentication) {
+                                authenticatedAccount.avatarId
+                            } else {
+                                normalizeAvatarId(message.avatarId, clientId)
                             }
-                            val name = normalizeName(message.name)
-                            val avatarId = normalizeAvatarId(message.avatarId, clientId)
 
                             roomStore.sweepExpiredRooms()
 
@@ -503,6 +756,12 @@ fun Application.watchTogetherModule(
                                     return@mutateIfCurrent
                                 }
                                 val membership = room.memberships[clientId]
+                                if (membership != null &&
+                                    membership.accountUserId != authenticatedAccount.userId
+                                ) {
+                                    authenticationFailed = true
+                                    return@mutateIfCurrent
+                                }
                                 if (membership != null && !capabilityMatches(
                                         room.code,
                                         clientId,
@@ -547,6 +806,7 @@ fun Application.watchTogetherModule(
                                 val activeMembership = membership ?: newMembership(
                                     roomCode = room.code,
                                     clientId = clientId,
+                                    accountUserId = authenticatedAccount.userId,
                                 ).let { (createdMembership, capability) ->
                                     room.memberships[clientId] = createdMembership
                                     issuedResumeCapability = capability
@@ -559,6 +819,7 @@ fun Application.watchTogetherModule(
                                     avatarId,
                                     this,
                                     sessionGeneration = activeMembership.sessionGeneration,
+                                    accountUserId = authenticatedAccount.userId,
                                     authorizedHostEpoch = if (isHost) room.hostEpoch else null,
                                 )
                                 room.participants[clientId] = participant
@@ -868,8 +1129,8 @@ fun Application.watchTogetherModule(
                         "updateProfile" -> {
                             val room = joinedRoom ?: return@consumeEach
                             val clientId = joinedClientId ?: return@consumeEach
-                            if (!WatchProtocol.isValidOptionalName(message.name) ||
-                                !WatchProtocol.isValidAvatarId(message.avatarId)
+                            if (requireWatchAuthentication &&
+                                (message.name != null || message.avatarId != null)
                             ) {
                                 return@consumeEach sendError("个人资料无效", "profile_invalid")
                             }
@@ -882,8 +1143,16 @@ fun Application.watchTogetherModule(
                                 val current = room.participants[clientId]
                                     ?.takeIf { it.session === this }
                                     ?: return@synchronized
-                                current.name = normalizeName(message.name)
-                                current.avatarId = normalizeAvatarId(message.avatarId, clientId)
+                                current.name = if (requireWatchAuthentication) {
+                                    authenticatedAccount.nickname
+                                } else {
+                                    normalizeName(message.name)
+                                }
+                                current.avatarId = if (requireWatchAuthentication) {
+                                    authenticatedAccount.avatarId
+                                } else {
+                                    normalizeAvatarId(message.avatarId, clientId)
+                                }
                             }
                             broadcastRoomUpdate(room)
                         }
@@ -1054,6 +1323,7 @@ fun Application.watchTogetherModule(
                     }
                 }
             } finally {
+                authWatchdog?.cancelAndJoin()
                 val room = joinedRoom
                 val clientId = joinedClientId
                 if (room != null && clientId != null) {
@@ -1259,6 +1529,16 @@ internal fun resolveClientIp(
                     ?.let(::normalizeForwardedAddress)
             }
     return forwardedFor ?: direct
+}
+
+/** Sensitive account credentials may only enter through TLS or the trusted local proxy. */
+internal fun ApplicationCall.isSecureServiceTransport(trustProxyHeaders: Boolean): Boolean {
+    if (request.origin.scheme.equals("https", ignoreCase = true)) return true
+    val directIsLoopback = com.yfuse.watch.account.isLoopbackHost(request.origin.remoteHost)
+    if (!directIsLoopback) return false
+    val forwardedProto = request.headers["X-Forwarded-Proto"] ?: return true
+    if (!trustProxyHeaders || ',' in forwardedProto) return false
+    return forwardedProto.trim().equals("https", ignoreCase = true)
 }
 
 private fun normalizeForwardedAddress(raw: String): String? {

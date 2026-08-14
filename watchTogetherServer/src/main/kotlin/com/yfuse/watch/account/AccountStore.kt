@@ -17,7 +17,21 @@ internal interface AccountStore : AutoCloseable {
         session: NewSession,
         maxUsers: Int,
         invitationDigest: ByteArray? = null,
+        invitationKind: InvitationKind? = null,
     ): RegistrationWriteResult
+
+    fun issueInvite(
+        authenticatedSessionId: String,
+        invite: NewIssuedInvite,
+        nowEpochMs: Long,
+    ): InviteIssueWriteResult
+
+    fun permissionsForUser(userId: String): Set<String>
+
+    fun synchronizeInviteIssuerPermissions(
+        normalizedUsernames: Set<String>,
+        nowEpochMs: Long,
+    )
 
     fun findUserByNormalizedUsername(normalizedUsername: String): StoredCredentials?
 
@@ -143,6 +157,38 @@ internal class SqliteAccountStore private constructor(
                 )
                 statement.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS account_permissions (
+                        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        permission TEXT NOT NULL,
+                        granted_at_ms INTEGER NOT NULL,
+                        managed_by_config INTEGER NOT NULL DEFAULT 0 CHECK(managed_by_config IN (0, 1)),
+                        PRIMARY KEY(user_id, permission)
+                    )
+                    """.trimIndent(),
+                )
+                statement.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS account_invites (
+                        invite_hash BLOB PRIMARY KEY CHECK(length(invite_hash) = 32),
+                        issuer_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        created_at_ms INTEGER NOT NULL,
+                        expires_at_ms INTEGER NOT NULL,
+                        redeemed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+                        redeemed_at_ms INTEGER,
+                        revoked_at_ms INTEGER,
+                        CHECK(expires_at_ms > created_at_ms),
+                        CHECK(redeemed_at_ms IS NOT NULL OR redeemed_by_user_id IS NULL)
+                    )
+                    """.trimIndent(),
+                )
+                statement.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS account_invites_issuer_idx
+                    ON account_invites(issuer_user_id, created_at_ms)
+                    """.trimIndent(),
+                )
+                statement.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS sessions (
                         id TEXT PRIMARY KEY,
                         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -204,6 +250,7 @@ internal class SqliteAccountStore private constructor(
                     """.trimIndent(),
                 )
             }
+            migrateInviteRedemptionAuthorityLocked()
             ensureColumnLocked("sync_records", "wrap_version", "INTEGER")
             ensureColumnLocked("sync_records", "wrap_kdf", "TEXT")
             ensureColumnLocked("sync_records", "wrap_iterations", "INTEGER")
@@ -214,6 +261,11 @@ internal class SqliteAccountStore private constructor(
             )
             ensureColumnLocked("sessions", "device_name", "TEXT NOT NULL DEFAULT '未知设备'")
             ensureColumnLocked("sessions", "last_seen_at_ms", "INTEGER NOT NULL DEFAULT 0")
+            ensureColumnLocked(
+                "account_permissions",
+                "managed_by_config",
+                "INTEGER NOT NULL DEFAULT 0",
+            )
             connection.createStatement().use { statement ->
                 statement.executeUpdate(
                     "UPDATE sessions SET last_seen_at_ms = created_at_ms WHERE last_seen_at_ms = 0",
@@ -279,11 +331,29 @@ internal class SqliteAccountStore private constructor(
         session: NewSession,
         maxUsers: Int,
         invitationDigest: ByteArray?,
+        invitationKind: InvitationKind?,
     ): RegistrationWriteResult =
         synchronized(lock) {
             val user = credentials.user
             transaction {
-                if (invitationDigest != null) {
+                if (invitationDigest != null && invitationKind == InvitationKind.Issued) {
+                    val available = connection.prepareStatement(
+                        """
+                        SELECT 1 FROM account_invites
+                        WHERE invite_hash = ?
+                          AND redeemed_at_ms IS NULL
+                          AND revoked_at_ms IS NULL
+                          AND expires_at_ms > ?
+                        LIMIT 1
+                        """.trimIndent(),
+                    ).use { statement ->
+                        statement.setBytes(1, invitationDigest)
+                        statement.setLong(2, user.createdAtEpochMs)
+                        statement.executeQuery().use(ResultSet::next)
+                    }
+                    if (!available) return@transaction RegistrationWriteResult.InviteUnavailable
+                }
+                if (invitationDigest != null && invitationKind == InvitationKind.Static) {
                     val alreadyRedeemed = connection.prepareStatement(
                         "SELECT 1 FROM account_invite_redemptions WHERE invite_hash = ? LIMIT 1",
                     ).use { statement ->
@@ -300,7 +370,7 @@ internal class SqliteAccountStore private constructor(
                 if (findUserByNormalizedUsernameLocked(user.normalizedUsername) != null) {
                     return@transaction RegistrationWriteResult.UsernameUnavailable
                 }
-                if (invitationDigest != null) {
+                if (invitationDigest != null && invitationKind == InvitationKind.Static) {
                     connection.prepareStatement(
                         """
                         INSERT INTO account_invite_redemptions(
@@ -334,6 +404,25 @@ internal class SqliteAccountStore private constructor(
                     statement.setLong(10, user.updatedAtEpochMs)
                     statement.executeUpdate()
                 }
+                if (invitationDigest != null && invitationKind == InvitationKind.Issued) {
+                    val consumed = connection.prepareStatement(
+                        """
+                        UPDATE account_invites
+                        SET redeemed_by_user_id = ?, redeemed_at_ms = ?
+                        WHERE invite_hash = ?
+                          AND redeemed_at_ms IS NULL
+                          AND revoked_at_ms IS NULL
+                          AND expires_at_ms > ?
+                        """.trimIndent(),
+                    ).use { statement ->
+                        statement.setString(1, user.id)
+                        statement.setLong(2, user.createdAtEpochMs)
+                        statement.setBytes(3, invitationDigest)
+                        statement.setLong(4, user.createdAtEpochMs)
+                        statement.executeUpdate()
+                    }
+                    check(consumed == 1) { "issued invite changed inside registration transaction" }
+                }
                 insertSessionLocked(session)
                 trimActiveSessionsForUserLocked(
                     session.userId,
@@ -342,6 +431,95 @@ internal class SqliteAccountStore private constructor(
                 RegistrationWriteResult.Created
             }
         }
+
+    override fun issueInvite(
+        authenticatedSessionId: String,
+        invite: NewIssuedInvite,
+        nowEpochMs: Long,
+    ): InviteIssueWriteResult = synchronized(lock) {
+        transaction {
+            val active = connection.prepareStatement(
+                """
+                SELECT 1 FROM sessions
+                WHERE id = ? AND user_id = ? AND revoked_at_ms IS NULL
+                  AND access_expires_at_ms > ?
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, authenticatedSessionId)
+                statement.setString(2, invite.issuerUserId)
+                statement.setLong(3, nowEpochMs)
+                statement.executeQuery().use(ResultSet::next)
+            }
+            if (!active) return@transaction InviteIssueWriteResult.SessionInvalid
+            val permitted = connection.prepareStatement(
+                """
+                SELECT 1 FROM account_permissions
+                WHERE user_id = ? AND permission = ?
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, invite.issuerUserId)
+                statement.setString(2, INVITE_ISSUE_CAPABILITY)
+                statement.executeQuery().use(ResultSet::next)
+            }
+            if (!permitted) return@transaction InviteIssueWriteResult.Forbidden
+            connection.prepareStatement(
+                """
+                INSERT INTO account_invites(
+                    invite_hash, issuer_user_id, created_at_ms, expires_at_ms
+                ) VALUES (?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setBytes(1, invite.digest)
+                statement.setString(2, invite.issuerUserId)
+                statement.setLong(3, invite.createdAtEpochMs)
+                statement.setLong(4, invite.expiresAtEpochMs)
+                check(statement.executeUpdate() == 1)
+            }
+            InviteIssueWriteResult.Created
+        }
+    }
+
+    override fun permissionsForUser(userId: String): Set<String> = synchronized(lock) {
+        connection.prepareStatement(
+            "SELECT permission FROM account_permissions WHERE user_id = ? ORDER BY permission",
+        ).use { statement ->
+            statement.setString(1, userId)
+            statement.executeQuery().use { result ->
+                buildSet { while (result.next()) add(result.getString("permission")) }
+            }
+        }
+    }
+
+    override fun synchronizeInviteIssuerPermissions(
+        normalizedUsernames: Set<String>,
+        nowEpochMs: Long,
+    ) {
+        synchronized(lock) {
+            transaction {
+                connection.prepareStatement(
+                    "DELETE FROM account_permissions WHERE permission = ? AND managed_by_config = 1",
+                ).use { statement ->
+                    statement.setString(1, INVITE_ISSUE_CAPABILITY)
+                    statement.executeUpdate()
+                }
+                normalizedUsernames.forEach { normalizedUsername ->
+                    connection.prepareStatement(
+                        """
+                        INSERT OR IGNORE INTO account_permissions(
+                            user_id, permission, granted_at_ms, managed_by_config
+                        )
+                        SELECT id, ?, ?, 1 FROM users WHERE username_normalized = ?
+                        """.trimIndent(),
+                    ).use { statement ->
+                        statement.setString(1, INVITE_ISSUE_CAPABILITY)
+                        statement.setLong(2, nowEpochMs)
+                        statement.setString(3, normalizedUsername)
+                        statement.executeUpdate()
+                    }
+                }
+            }
+        }
+    }
 
     override fun findUserByNormalizedUsername(normalizedUsername: String): StoredCredentials? =
         synchronized(lock) { findUserByNormalizedUsernameLocked(normalizedUsername) }
@@ -369,7 +547,7 @@ internal class SqliteAccountStore private constructor(
     ): AuthenticatedSession? = synchronized(lock) {
         connection.prepareStatement(
             """
-            SELECT s.id AS session_id, $USER_COLUMNS
+            SELECT s.id AS session_id, s.access_expires_at_ms, $USER_COLUMNS
             FROM sessions s
             JOIN users u ON u.id = s.user_id
             WHERE s.access_token_hash = ?
@@ -384,6 +562,7 @@ internal class SqliteAccountStore private constructor(
                 if (!result.next()) null else AuthenticatedSession(
                     sessionId = result.getString("session_id"),
                     user = result.readUser(),
+                    accessExpiresAtEpochMs = result.getLong("access_expires_at_ms"),
                 ).also {
                     connection.prepareStatement(
                         "UPDATE sessions SET last_seen_at_ms = ? WHERE id = ?",
@@ -405,7 +584,7 @@ internal class SqliteAccountStore private constructor(
         transaction {
             val current = connection.prepareStatement(
                 """
-                SELECT s.id AS session_id, $USER_COLUMNS
+                SELECT s.id AS session_id, s.access_expires_at_ms, $USER_COLUMNS
                 FROM sessions s
                 JOIN users u ON u.id = s.user_id
                 WHERE s.refresh_token_hash = ?
@@ -420,6 +599,7 @@ internal class SqliteAccountStore private constructor(
                     if (!result.next()) null else AuthenticatedSession(
                         sessionId = result.getString("session_id"),
                         user = result.readUser(),
+                        accessExpiresAtEpochMs = result.getLong("access_expires_at_ms"),
                     )
                 }
             } ?: return@transaction null
@@ -445,7 +625,10 @@ internal class SqliteAccountStore private constructor(
                 statement.setBytes(10, currentRefreshHash)
                 statement.executeUpdate()
             }
-            if (changed != 1) null else current.copy(sessionId = replacement.id)
+            if (changed != 1) null else current.copy(
+                sessionId = replacement.id,
+                accessExpiresAtEpochMs = replacement.accessExpiresAtEpochMs,
+            )
         }
     }
 
@@ -1050,6 +1233,71 @@ internal class SqliteAccountStore private constructor(
         if (!exists) {
             connection.createStatement().use { statement ->
                 statement.execute("ALTER TABLE $table ADD COLUMN $column $definition")
+            }
+        }
+    }
+
+    /**
+     * The first invite schema treated the optional redeemer id as the redemption marker. That
+     * conflicts with `ON DELETE SET NULL`: deleting the invited account either violated the old
+     * CHECK constraint or, without it, made a consumed code look unused. Rebuild that one schema
+     * in-place so the immutable redemption timestamp is authoritative and the user id can be
+     * anonymized without reviving the invitation.
+     */
+    private fun migrateInviteRedemptionAuthorityLocked() {
+        val schema = connection.prepareStatement(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'account_invites'",
+        ).use { statement ->
+            statement.executeQuery().use { result ->
+                check(result.next()) { "account_invites schema is missing" }
+                result.getString("sql")
+            }
+        }
+        val normalized = schema.lowercase().replace(Regex("\\s+"), " ")
+        val currentConstraint =
+            "check(redeemed_at_ms is not null or redeemed_by_user_id is null)"
+        if (currentConstraint in normalized) return
+
+        val legacyConstraint =
+            "check((redeemed_by_user_id is null) = (redeemed_at_ms is null))"
+        check(legacyConstraint in normalized) { "Unsupported account_invites schema" }
+
+        transaction {
+            connection.createStatement().use { statement ->
+                statement.execute(
+                    """
+                    CREATE TABLE account_invites_v2 (
+                        invite_hash BLOB PRIMARY KEY CHECK(length(invite_hash) = 32),
+                        issuer_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        created_at_ms INTEGER NOT NULL,
+                        expires_at_ms INTEGER NOT NULL,
+                        redeemed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+                        redeemed_at_ms INTEGER,
+                        revoked_at_ms INTEGER,
+                        CHECK(expires_at_ms > created_at_ms),
+                        CHECK(redeemed_at_ms IS NOT NULL OR redeemed_by_user_id IS NULL)
+                    )
+                    """.trimIndent(),
+                )
+                statement.executeUpdate(
+                    """
+                    INSERT INTO account_invites_v2(
+                        invite_hash, issuer_user_id, created_at_ms, expires_at_ms,
+                        redeemed_by_user_id, redeemed_at_ms, revoked_at_ms
+                    )
+                    SELECT invite_hash, issuer_user_id, created_at_ms, expires_at_ms,
+                           redeemed_by_user_id, redeemed_at_ms, revoked_at_ms
+                    FROM account_invites
+                    """.trimIndent(),
+                )
+                statement.execute("DROP TABLE account_invites")
+                statement.execute("ALTER TABLE account_invites_v2 RENAME TO account_invites")
+                statement.execute(
+                    """
+                    CREATE INDEX account_invites_issuer_idx
+                    ON account_invites(issuer_user_id, created_at_ms)
+                    """.trimIndent(),
+                )
             }
         }
     }

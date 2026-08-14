@@ -2,6 +2,10 @@ package com.yfuse.core.offline
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.model.AudioTrackInfo
+import com.yfuse.core.model.Episode
+import com.yfuse.core.model.MediaVersion
+import com.yfuse.core.model.SubtitleTrackInfo
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -73,6 +77,8 @@ data class OfflineDownloadSelection(
     val subtitleStreamIndex: Int? = null,
     val subtitleCodec: String? = null,
     val subtitleLanguage: String? = null,
+    val subtitleDefault: Boolean = false,
+    val subtitleForced: Boolean = false,
 )
 
 /** Stable batch filtering shared by the dialog and tests. */
@@ -259,8 +265,8 @@ fun buildOfflineDownloadRequests(
     currentItemId: String,
     currentTitle: String,
     currentRuntimeMinutes: Int?,
-    currentVersions: List<com.yfuse.core.model.MediaVersion>,
-    seasonEpisodes: List<com.yfuse.core.model.Episode>,
+    currentVersions: List<MediaVersion>,
+    seasonEpisodes: List<Episode>,
     selection: OfflineDownloadSelection,
 ): List<OfflineDownloadRequest> {
     val episodeIds =
@@ -269,12 +275,51 @@ fun buildOfflineDownloadRequests(
             currentItemId = currentItemId,
             seasonItems = seasonEpisodes.map { OfflineBatchItem(it.id, it.played) },
         )
-    return episodeIds.map { itemId ->
+    val referenceVersion =
+        currentVersions.firstOrNull { it.id == selection.mediaSourceId }
+            ?: currentVersions.firstOrNull()
+    val strictSiblingMatch = selection.mediaSourceId != null && referenceVersion != null
+    return episodeIds.mapNotNull { itemId ->
         val episode = seasonEpisodes.firstOrNull { it.id == itemId }
         val versions = if (itemId == currentItemId) currentVersions else episode?.versions.orEmpty()
         val selectedVersion =
-            versions.firstOrNull { it.id == selection.mediaSourceId }
-                ?: versions.firstOrNull()
+            if (itemId == currentItemId) {
+                versions.firstOrNull { it.id == selection.mediaSourceId }
+                    ?: versions.firstOrNull()
+            } else {
+                if (strictSiblingMatch) {
+                    matchOfflineMediaVersion(referenceVersion, versions)
+                } else {
+                    versions.firstOrNull()
+                }
+            }
+        // A batch request must never silently fall back to Emby's default file when the
+        // sibling exposes media sources but none resembles the version the user chose.
+        // Skipping that item is safer than downloading an unrelated cut, commentary track,
+        // or unexpectedly large remux. A genuinely source-less item keeps the legacy null
+        // fallback because there is nothing meaningful to compare.
+        if (
+            itemId != currentItemId &&
+            strictSiblingMatch &&
+            versions.isNotEmpty() &&
+            selectedVersion == null
+        ) {
+            return@mapNotNull null
+        }
+        val selectedSubtitle =
+            if (itemId == currentItemId || selection.subtitleStreamIndex == null) {
+                null
+            } else {
+                matchOfflineSubtitleTrack(
+                    tracks = selectedVersion?.subtitleTracks.orEmpty(),
+                    language = selection.subtitleLanguage,
+                    codec = selection.subtitleCodec,
+                    default = selection.subtitleDefault,
+                    forced = selection.subtitleForced,
+                )
+            }
+        val subtitleIndex =
+            if (itemId == currentItemId) selection.subtitleStreamIndex else selectedSubtitle?.index
         OfflineDownloadRequest(
             serverId = serverId,
             itemId = itemId,
@@ -288,21 +333,185 @@ fun buildOfflineDownloadRequests(
                 } ?: currentTitle,
             mediaSourceId = selectedVersion?.id,
             quality = selection.quality,
-            // A track index belongs to one MediaSource. Siblings may not have the same
-            // subtitle layout, so only the explicitly inspected current item carries it.
-            subtitleStreamIndex = selection.subtitleStreamIndex.takeIf { itemId == currentItemId },
-            subtitleCodec = selection.subtitleCodec.takeIf { itemId == currentItemId },
-            subtitleLanguage = selection.subtitleLanguage.takeIf { itemId == currentItemId },
+            // Stream indices are local to one MediaSource. Sibling episodes therefore carry
+            // their own matched index instead of reusing the current episode's number.
+            subtitleStreamIndex = subtitleIndex,
+            subtitleCodec =
+                if (itemId == currentItemId) selection.subtitleCodec else selectedSubtitle?.codec,
+            subtitleLanguage =
+                if (itemId == currentItemId) selection.subtitleLanguage else selectedSubtitle?.language,
             estimatedBytes =
                 estimateOfflineBytes(
                     sourceSizeBytes = selectedVersion?.sizeBytes,
                     sourceBitrateBps = selectedVersion?.bitrateBps,
                     runtimeMinutes = episode?.runtimeMinutes ?: currentRuntimeMinutes,
                     quality = selection.quality,
-                    includeSubtitle = itemId == currentItemId && selection.subtitleStreamIndex != null,
+                    includeSubtitle = subtitleIndex != null,
                 ),
         )
     }
+}
+
+/**
+ * Select the sibling file that most closely resembles the version chosen on the current
+ * episode. MediaSource ids and ordering are deliberately excluded: both commonly change per
+ * episode even when every file came from the same release/encode.
+ */
+internal fun matchOfflineMediaVersion(
+    reference: MediaVersion?,
+    candidates: List<MediaVersion>,
+): MediaVersion? {
+    if (reference == null) return candidates.firstOrNull()
+    return candidates
+        .map { candidate -> candidate to candidate.offlineSimilarityTo(reference) }
+        .maxByOrNull { (_, score) -> score }
+        ?.takeIf { (_, score) -> score > 0 }
+        ?.first
+}
+
+private fun MediaVersion.offlineSimilarityTo(reference: MediaVersion): Int {
+    var score = 0
+    val nameSimilarity =
+        offlineNameSimilarity(
+            name.normalizedOfflineFeature(),
+            reference.name.normalizedOfflineFeature(),
+        )
+    score += (nameSimilarity * 20).toInt()
+    if (container.sameOfflineFeature(reference.container)) score += 12
+
+    val height = videoHeight ?: video?.height
+    val referenceHeight = reference.videoHeight ?: reference.video?.height
+    if (height != null && referenceHeight != null) {
+        score +=
+            when {
+                height == referenceHeight -> 32
+                resolutionBand(height) == resolutionBand(referenceHeight) -> 16
+                else -> 0
+            }
+    }
+    if ((videoCodec ?: video?.codec).sameOfflineFeature(reference.videoCodec ?: reference.video?.codec)) {
+        score += 16
+    }
+    if ((videoRange ?: video?.videoRange).sameOfflineFeature(reference.videoRange ?: reference.video?.videoRange)) {
+        score += 8
+    }
+    score += offlineAudioSimilarity(audioTracks, reference.audioTracks)
+
+    val bitrate = bitrateBps?.takeIf { it > 0 }
+    val referenceBitrate = reference.bitrateBps?.takeIf { it > 0 }
+    if (bitrate != null && referenceBitrate != null) {
+        val difference = if (bitrate >= referenceBitrate) bitrate - referenceBitrate else referenceBitrate - bitrate
+        val relativeDifference = difference.toDouble() / referenceBitrate.toDouble()
+        score +=
+            when {
+                relativeDifference <= 0.10 -> 12
+                relativeDifference <= 0.25 -> 8
+                relativeDifference <= 0.50 -> 4
+                else -> 0
+            }
+    }
+    return score
+}
+
+private fun resolutionBand(height: Int): Int =
+    when {
+        height >= 1600 -> 4
+        height >= 1000 -> 3
+        height >= 700 -> 2
+        else -> 1
+    }
+
+private fun String?.sameOfflineFeature(other: String?): Boolean {
+    val value = this?.normalizedOfflineFeature()?.takeIf(String::isNotEmpty) ?: return false
+    return value == other?.normalizedOfflineFeature()
+}
+
+private fun String.normalizedOfflineFeature(): String = trim().lowercase()
+
+private fun offlineNameSimilarity(
+    candidate: String,
+    reference: String,
+): Double {
+    if (candidate == reference) return 1.0
+    val candidateTokens = candidate.offlineNameTokens()
+    val referenceTokens = reference.offlineNameTokens()
+    if (candidateTokens.isEmpty() || referenceTokens.isEmpty()) return 0.0
+    val union = candidateTokens union referenceTokens
+    return (candidateTokens intersect referenceTokens).size.toDouble() / union.size.toDouble()
+}
+
+private fun String.offlineNameTokens(): Set<String> =
+    split(Regex("[^a-z0-9\\p{L}]+"))
+        .asSequence()
+        .filter(String::isNotBlank)
+        .toSet()
+
+private fun offlineAudioSimilarity(
+    candidates: List<AudioTrackInfo>,
+    references: List<AudioTrackInfo>,
+): Int {
+    if (candidates.isEmpty() || references.isEmpty()) return 0
+    val referenceSignatures = references.map(AudioTrackInfo::offlineSignature).toSet()
+    val candidateSignatures = candidates.map(AudioTrackInfo::offlineSignature).toSet()
+    val exactMatches = (referenceSignatures intersect candidateSignatures).size
+    val referenceLanguages = references.mapNotNull { it.language?.normalizedOfflineFeature() }.toSet()
+    val candidateLanguages = candidates.mapNotNull { it.language?.normalizedOfflineFeature() }.toSet()
+    return exactMatches * 12 + (referenceLanguages intersect candidateLanguages).size * 6
+}
+
+private fun AudioTrackInfo.offlineSignature(): String =
+    listOf(
+        language?.normalizedOfflineFeature().orEmpty(),
+        codec?.normalizedOfflineFeature().orEmpty(),
+        channelCount?.toString() ?: channels?.normalizedOfflineFeature().orEmpty(),
+        default?.toString().orEmpty(),
+    ).joinToString("|")
+
+/** Match only compatible language/codec tracks, then preserve default/forced intent. */
+internal fun matchOfflineSubtitleTrack(
+    tracks: List<SubtitleTrackInfo>,
+    language: String?,
+    codec: String?,
+    default: Boolean,
+    forced: Boolean,
+): SubtitleTrackInfo? {
+    val normalizedLanguage = language?.normalizedOfflineFeature()?.takeIf(String::isNotEmpty)
+        ?: return null
+    val normalizedCodec = codec?.normalizedOfflineFeature()?.takeIf(String::isNotEmpty)
+    return tracks
+        .asSequence()
+        .filter { it.index != null }
+        .filter { track -> track.language?.normalizedOfflineFeature() == normalizedLanguage }
+        .filter { track -> track.forced == forced }
+        .maxByOrNull { track ->
+            (if (track.codec?.normalizedOfflineFeature() == normalizedCodec) 4 else 0) +
+                (if (track.default == default) 2 else 0) +
+                (if (!track.external) 1 else 0)
+        }
+}
+
+/** Sum the actual per-episode choices; unknown metadata keeps the estimate unknown. */
+fun estimateOfflineDownloadBytes(
+    currentItemId: String,
+    currentTitle: String,
+    currentRuntimeMinutes: Int?,
+    currentVersions: List<MediaVersion>,
+    seasonEpisodes: List<Episode>,
+    selection: OfflineDownloadSelection,
+): Long? {
+    var total = 0L
+    buildOfflineDownloadRequests(
+        serverId = "",
+        currentItemId = currentItemId,
+        currentTitle = currentTitle,
+        currentRuntimeMinutes = currentRuntimeMinutes,
+        currentVersions = currentVersions,
+        seasonEpisodes = seasonEpisodes,
+        selection = selection,
+    ).forEach { request ->
+        total = total.saturatingAdd(request.estimatedBytes ?: return null)
+    }
+    return total
 }
 
 internal data class OfflineQueueSummary(

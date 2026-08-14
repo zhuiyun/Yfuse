@@ -14,12 +14,16 @@ Read off `watchTogetherServer/deploy/yfuse-watch.service`, which is the source o
 
 | | |
 | --- | --- |
-| Service | `yfuse-watch.service` |
+| Service | `yfuse-update.service` |
 | Runs as | `yfuse:yfuse` |
 | Binary | `/opt/yfuse-watch/current/bin/watchTogetherServer` |
 | Port | `8080`, behind Caddy — never exposed publicly |
 | Update files | `/srv/yfuse-update/yfuse` (read-only to the service) |
 | Account DB | `/var/lib/yfuse/account.db` (the one writable path) |
+
+The repository template is named `deploy/yfuse-watch.service` for clarity, but production
+installs it as `/etc/systemd/system/yfuse-update.service` to preserve the existing unit identity.
+Do not start a second `yfuse-watch.service`; both units would contend for port 8080.
 
 `current` is a path the unit points at rather than a build output, so the deployment shape
 is "unpack a new directory, then move `current` onto it". The steps below assume it is a
@@ -65,12 +69,49 @@ only the update directory and has no sudo (`docs/android-release.md`).
 Date-stamped so the previous one stays on disk to roll back to:
 
 ```bash
-release="/opt/yfuse-watch/$(date -u +%Y%m%d-%H%M%S)"
+release="/opt/yfuse-watch/releases/$(date -u +%Y%m%d-%H%M%S)-<git-sha>-v5"
 sudo mkdir -p "$release"
 sudo tar xzf /tmp/yfuse-watch.tar.gz -C "$release" --strip-components=1
 sudo chown -R root:root "$release"
 sudo test -x "$release/bin/watchTogetherServer"
 ```
+
+Before the first deployment that enables six-digit migration, create the required
+root-only environment file. The relay master key is exactly 32 random bytes encoded as
+unpadded base64url; it must never be committed or printed in routine logs:
+
+```bash
+sudo install -d -o root -g root -m 0700 /etc/yfuse-watch
+key="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')"
+printf 'MIGRATION_RELAY_MASTER_KEY=%s\n' "$key" |
+  sudo tee /etc/yfuse-watch/environment >/dev/null
+unset key
+sudo chown root:root /etc/yfuse-watch/environment
+sudo chmod 0600 /etc/yfuse-watch/environment
+sudo test "$(stat -c '%a:%U:%G' /etc/yfuse-watch/environment)" = "600:root:root"
+```
+
+The installed `yfuse-update.service` declares this `EnvironmentFile` without an optional `-` prefix: a
+missing key is a deployment error and the service must fail closed. Back up this key in the
+operator's secret store. Do not rotate it while an unexpired migration code is outstanding;
+after rotation, restart the service and treat all earlier codes as invalid.
+
+For the first `zhuiyun` registration only, generate a separate high-entropy bootstrap invite
+and append it to the same protected file. Do not commit it or reuse a human six-digit code:
+
+```bash
+bootstrap_invite="$(openssl rand -base64 24 | tr '+/' '-_' | tr -d '=\n')"
+printf 'ACCOUNT_REGISTRATION_INVITE_CODES=%s\n' "$bootstrap_invite" |
+  sudo tee -a /etc/yfuse-watch/environment >/dev/null
+printf '%s\n' "$bootstrap_invite" | sudo tee /root/yfuse-zhuiyun-bootstrap-invite.txt >/dev/null
+unset bootstrap_invite
+sudo chmod 0600 /etc/yfuse-watch/environment /root/yfuse-zhuiyun-bootstrap-invite.txt
+```
+
+After `zhuiyun` registers and the App confirms the `invite:issue` capability, remove only the
+`ACCOUNT_REGISTRATION_INVITE_CODES` line and its root-only handoff file, then restart
+`yfuse-update`. The database also atomically marks the static invite as consumed; removing the
+environment copy minimizes secret residency.
 
 ### 4. Switch and restart
 
@@ -92,8 +133,10 @@ the matching verified snapshot only during an explicit recovery window.
 ```bash
 sudo ln -sfn "$release" /opt/yfuse-watch/current.new
 sudo mv -T /opt/yfuse-watch/current.new /opt/yfuse-watch/current
-sudo systemctl restart yfuse-watch
-sudo systemctl status yfuse-watch --no-pager
+sudo systemctl daemon-reload
+sudo systemctl restart yfuse-update
+sudo systemctl status yfuse-update --no-pager
+sudo systemctl show yfuse-update -p EnvironmentFiles --no-pager
 ```
 
 `ln` + `mv -T` rather than `ln -sfn` straight onto `current`: the rename is atomic, so
@@ -111,14 +154,21 @@ Service is alive:
 curl --fail http://127.0.0.1:8080/health              # on the server
 curl --fail https://47.112.219.60/health              # through Caddy
 curl --fail https://47.112.219.60/watch/version
-journalctl -u yfuse-watch -n 50 --no-pager
+test "$(curl -sS -o /dev/null -w '%{http_code}' http://47.112.219.60/watch)" = 426
+journalctl -u yfuse-update -n 50 --no-pager
 ```
 
-`/watch/version` must report `protocolVersion: 4`. Protocol v4 adds authenticated
-resume, host capabilities, strict wire validation, and session-generation checks;
-those are security boundaries, so clients must not downgrade to v3. Deploy and verify
-the v4 server before publishing a v4 client. The Android publish workflow enforces this
-server-first order and stops if production still advertises an older protocol.
+`/watch/version` must report `protocolVersion: 5`. Protocol v5 requires a valid Yfuse
+account access token for every room connection, binds membership to the authenticated user id,
+and retains authenticated resume, host capabilities, strict wire validation, and
+session-generation checks. Anonymous users cannot create or join rooms, and clients must not
+downgrade to v4. Deploy and verify the v5 server before publishing a v5 client. The Android
+publish workflow enforces this server-first order and stops if production still advertises an
+older protocol.
+
+The legacy HTTP site may serve only old update metadata and APKs. Its `/api/*` and `/watch`
+matchers must return `426` before the catch-all reverse proxy, so access tokens and watch-room
+WebSocket upgrades cannot cross a plaintext public hop.
 
 To verify the reaction feature specifically, use the app: two devices (or one device and a
 second account) in one room, tap a reaction in 一起看 → 聊天面板. The sender always sees
@@ -128,10 +178,10 @@ the server relayed it.**
 ### 6. Roll back
 
 ```bash
-ls -la /opt/yfuse-watch/                    # find the previous timestamped release
-sudo ln -sfn /opt/yfuse-watch/<previous> /opt/yfuse-watch/current.new
+ls -la /opt/yfuse-watch/releases/           # find the previous timestamped release
+sudo ln -sfn /opt/yfuse-watch/releases/<previous> /opt/yfuse-watch/current.new
 sudo mv -T /opt/yfuse-watch/current.new /opt/yfuse-watch/current
-sudo systemctl restart yfuse-watch
+sudo systemctl restart yfuse-update
 ```
 
 The account database lives in `/var/lib/yfuse` and is untouched by any of this, so a
@@ -143,7 +193,7 @@ It can reuse the APK workflow's SSH plumbing, but not its credentials: `yfuse-de
 neither ownership of `/opt/yfuse-watch` nor the sudo rights to restart a unit, and
 widening it would also widen the account that already has write access to the published
 APK path. A separate deployment account with exactly two grants — ownership of
-`/opt/yfuse-watch`, and `NOPASSWD` on `systemctl restart yfuse-watch` — keeps the two
+`/opt/yfuse-watch`, and `NOPASSWD` on `systemctl restart yfuse-update` — keeps the two
 blast radiuses apart.
 
 The build itself is the easy half; the gate worth having is the one this document cannot

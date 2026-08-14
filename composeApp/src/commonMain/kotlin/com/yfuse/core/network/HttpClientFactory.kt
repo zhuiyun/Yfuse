@@ -2,12 +2,15 @@ package com.yfuse.core.network
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.plugin
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
+import io.ktor.http.URLProtocol
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
@@ -93,6 +96,14 @@ fun createEmbyClient(
             customUserAgent().trim().takeIf { it.isNotEmpty() }?.let { value ->
                 header(HttpHeaders.UserAgent, value)
             }
+        }
+    }.also { client ->
+        client.plugin(HttpSend).intercept { request ->
+            val target = request.url
+            check(target.protocol != URLProtocol.HTTP || target.host.isLocalServiceHost()) {
+                "公网 Emby 请求禁止使用 HTTP，请改用 HTTPS: ${target.host}"
+            }
+            execute(request)
         }
     }
 

@@ -1,5 +1,6 @@
 package com.yfuse.core.sync
 
+import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.embyHttpEngine
@@ -8,9 +9,11 @@ import com.yfuse.watch.protocol.WatchWireChatMessage
 import com.yfuse.watch.protocol.WatchWireMessage
 import com.yfuse.watch.protocol.WatchWireParticipant
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.ResponseException
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.client.request.bearerAuth
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
@@ -25,6 +28,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -276,6 +280,10 @@ private class RoomUnavailableException(
     message: String,
 ) : Exception(message)
 
+private class AccountRequiredForWatchException : Exception("请先登录 Yfuse 账号后使用一起看")
+
+private class WatchAuthenticationException : Exception("一起看登录状态已失效")
+
 /**
  * Maps the server's epoch clock onto this process's monotonic clock from `ping`/`pong`
  * round trips. Comparing two device wall clocks directly — what v1 did — breaks when they
@@ -371,6 +379,7 @@ private data class LocalPlaybackStatus(
 
 class WatchTogetherClient(
     private val preferences: WatchTogetherPreferences,
+    private val accountTokens: AccountAccessTokenSource,
 ) {
     private val json =
         Json {
@@ -409,6 +418,7 @@ class WatchTogetherClient(
      *  which retries until it succeeds, the caller [leave]s, or the bounds below are hit. */
     private var everWelcomed = false
     private var reconnectAttempt = 0
+    private var authenticationRetryUsed = false
 
     /**
      * When the current run of failures started, on the wall clock, or null while connected.
@@ -426,6 +436,20 @@ class WatchTogetherClient(
     val state: StateFlow<WatchTogetherState> = _state.asStateFlow()
     private val _timeline = MutableStateFlow<WatchTimeline?>(null)
     val timeline: StateFlow<WatchTimeline?> = _timeline.asStateFlow()
+
+    init {
+        scope.launch {
+            var hadAccountSession = false
+            accountTokens.sessionAvailable.collect { available ->
+                if (available) {
+                    hadAccountSession = true
+                } else if (hadAccountSession) {
+                    hadAccountSession = false
+                    invalidateAccountSession()
+                }
+            }
+        }
+    }
 
     /** Best estimate of the server's clock right now, for projecting [timeline] forward. */
     fun estimatedServerNow(): Long = clock.serverNow()
@@ -448,11 +472,9 @@ class WatchTogetherClient(
     }
 
     /**
-     * Joins using the relay named inside an invite link, for this room only.
-     *
-     * Deliberately not persisted: a link is an untrusted input, and writing its relay to
-     * settings would let one shared link silently repoint every room the user later hosts at
-     * someone else's server — long after the sheet that disclosed it is gone.
+     * Legacy invite entry point. Protocol v5 still parses old links so it can explain why a
+     * third-party relay is unsupported, but [start] accepts only the official account-service
+     * base and therefore never forwards an account token to the endpoint supplied by a link.
      */
     fun joinRoomFromInvite(
         endpoint: String,
@@ -758,6 +780,13 @@ class WatchTogetherClient(
         mediaKey: String,
         name: String?,
     ) {
+        if (!WatchTogetherPreferences.isOfficialEndpoint(endpoint) || !accountTokens.trusts(endpoint)) {
+            _state.value =
+                WatchTogetherState(
+                    error = "一起看协议 v5 仅支持 Yfuse 账号服务的官方 HTTPS 地址",
+                )
+            return
+        }
         val url = endpoint.toWebSocketUrl()
         if (url == null) {
             AppLog.warning(
@@ -772,6 +801,7 @@ class WatchTogetherClient(
         clock.reset()
         everWelcomed = false
         reconnectAttempt = 0
+        authenticationRetryUsed = false
         reconnectingSinceEpochMs = null
         localPlaybackStatus = LocalPlaybackStatus()
         lastSentPlaybackStatus = null
@@ -807,7 +837,22 @@ class WatchTogetherClient(
             val outcome = runCatching { runSession(generation) }
             if (!currentCoroutineContext().isActive) return
 
-            val roomGone = outcome.exceptionOrNull() is RoomUnavailableException
+            val failure = outcome.exceptionOrNull()
+            if (failure != null && failure.isWatchAuthenticationFailure()) {
+                val endpoint = pendingUrl?.substringBeforeLast("/watch")
+                val refreshed =
+                    if (!authenticationRetryUsed && endpoint != null) {
+                        authenticationRetryUsed = true
+                        runCatching { accountTokens.refreshAccessTokenFor(endpoint) }.getOrNull()
+                    } else {
+                        null
+                    }
+                if (refreshed != null) continue
+                invalidateAccountSession()
+                return
+            }
+
+            val roomGone = failure is RoomUnavailableException
             if (roomGone || !everWelcomed) {
                 AppLog.error(
                     category = "watch_together",
@@ -866,8 +911,15 @@ class WatchTogetherClient(
 
     private suspend fun runSession(generation: Long) {
         val url = pendingUrl ?: return
+        val endpoint = url.substringBeforeLast("/watch")
+        val accessToken =
+            accountTokens.validAccessTokenFor(endpoint)
+                ?: throw AccountRequiredForWatchException()
         try {
-            client.webSocket(urlString = url) {
+            client.webSocket(
+                urlString = url,
+                request = { bearerAuth(accessToken) },
+            ) {
                 if (!claimSession(generation, this)) {
                     close(CloseReason(CloseReason.Codes.NORMAL, "superseded"))
                     return@webSocket
@@ -963,6 +1015,7 @@ class WatchTogetherClient(
                                     wire.hostCapability?.let { pendingHostCapability = it }
                                     welcomedThisAttempt = true
                                     everWelcomed = true
+                                    authenticationRetryUsed = false
                                     reconnectAttempt = 0
                                     reconnectingSinceEpochMs = null
                                     AppLog.info(
@@ -1087,6 +1140,12 @@ class WatchTogetherClient(
                             }
                         }
                     }
+                    val closed = closeReason.await()
+                    if (closed?.code == CloseReason.Codes.VIOLATED_POLICY.code &&
+                        closed.message in WATCH_AUTH_CLOSE_REASONS
+                    ) {
+                        throw WatchAuthenticationException()
+                    }
                 } finally {
                     pingJob.cancel()
                 }
@@ -1094,6 +1153,15 @@ class WatchTogetherClient(
         } finally {
             clearSessionIfOwned(generation)
         }
+    }
+
+    private fun Throwable.isWatchAuthenticationFailure(): Boolean {
+        if (this is WatchAuthenticationException || this is AccountRequiredForWatchException) {
+            return true
+        }
+        if (this is ResponseException && response.status.value == 401) return true
+        val detail = message.orEmpty()
+        return "401" in detail || detail.contains("unauthorized", ignoreCase = true)
     }
 
     private fun isCurrentGeneration(generation: Long): Boolean =
@@ -1116,6 +1184,19 @@ class WatchTogetherClient(
             if (sessionOwnership.isCurrent(generation)) currentSession = null
             sessionOwnership.clear(generation)
         }
+    }
+
+    private fun invalidateAccountSession() {
+        leaveInternal()
+        pendingUrl = null
+        pendingRoomCode = null
+        pendingMediaKey = null
+        pendingResumeCapability = null
+        pendingHostCapability = null
+        everWelcomed = false
+        authenticationRetryUsed = false
+        _state.value = WatchTogetherState(error = "登录已失效，请重新登录后使用一起看")
+        _timeline.value = null
     }
 
     private fun applyRoomSnapshot(wire: WatchWireMessage) {
@@ -1383,6 +1464,7 @@ class WatchTogetherClient(
          * would otherwise wake up hours later still holding a room nobody is in.
          */
         const val MAX_RECONNECT_ATTEMPTS = 10
+        val WATCH_AUTH_CLOSE_REASONS = setOf("account_auth_required", "account_auth_expired")
         const val MAX_RECONNECT_WINDOW_MS = 5 * 60 * 1000L
         const val LATENCY_REPORT_BUCKET_MS = 10L
         const val DRIFT_REPORT_BUCKET_MS = 50L

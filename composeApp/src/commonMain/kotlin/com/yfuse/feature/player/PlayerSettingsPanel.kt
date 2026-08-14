@@ -252,15 +252,17 @@ internal fun SettingsPanel(
                     GroupLabel("播放")
                     OptionRow("锁定控制", false, onClick = onLock)
                     OptionRow("手势说明", false, onClick = onOpenGestureHelp)
-                    OptionRow(
-                        if (watch.connected) {
-                            "一起看 · ${watch.roomCode.orEmpty()}"
-                        } else {
-                            "一起看"
-                        },
-                        watch.connected,
-                        onClick = onOpenWatchTogether,
-                    )
+                    if (watch.available || watch.connected) {
+                        OptionRow(
+                            if (watch.connected) {
+                                "一起看 · ${watch.roomCode.orEmpty()}"
+                            } else {
+                                "一起看"
+                            },
+                            watch.connected,
+                            onClick = onOpenWatchTogether,
+                        )
+                    }
 
                     // A single file is not a choice, so the group only appears once
                     // the library actually holds more than one copy of this title.

@@ -1,9 +1,9 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
-import com.yfuse.core.network.EndpointTransportDecision
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WatchTogetherPreferencesTest {
@@ -14,35 +14,48 @@ class WatchTogetherPreferencesTest {
     }
 
     @Test
-    fun public_http_endpoint_can_be_saved_without_confirmation() {
-        val settings = MapSettings()
-        val preferences = WatchTogetherPreferences(settings)
-
-        val saved = preferences.setEndpoint("http://47.112.219.60:8080/")
-
-        assertTrue(saved.allowed)
-        assertEquals(EndpointTransportDecision.Cleartext, saved.decision)
-        assertEquals("http://47.112.219.60:8080", preferences.endpoint.value)
-        assertEquals("http://47.112.219.60:8080", WatchTogetherPreferences(settings).endpoint.value)
+    fun legacy_official_endpoint_is_migrated_to_the_account_service() {
+        val settings = MapSettings().apply { putString("watchTogether.endpoint", "http://47.112.219.60") }
+        assertEquals(WatchTogetherPreferences.DEFAULT_ENDPOINT, WatchTogetherPreferences(settings).endpoint.value)
     }
 
     @Test
-    fun persisted_cleartext_endpoint_is_kept() {
+    fun blocked_domain_endpoint_is_migrated_to_ip_https() {
+        val settings = MapSettings().apply { putString("watchTogether.endpoint", "https://yfuse.zhuiyun.site") }
+        assertEquals(WatchTogetherPreferences.DEFAULT_ENDPOINT, WatchTogetherPreferences(settings).endpoint.value)
+    }
+
+    @Test
+    fun persisted_custom_endpoints_are_always_migrated_even_after_old_migration_markers() {
         val settings =
             MapSettings().apply {
-                putString("watchTogether.endpoint", "http://47.112.219.60:8080")
+                putString("watchTogether.endpoint", "wss://watch.example.com/relay")
+                putBoolean("watchTogether.endpointHttpsMigration.v2", true)
+                putBoolean("watchTogether.endpointCleartextConfirmed.v1", true)
             }
-        assertEquals("http://47.112.219.60:8080", WatchTogetherPreferences(settings).endpoint.value)
+
+        val preferences = WatchTogetherPreferences(settings)
+        assertEquals(WatchTogetherPreferences.DEFAULT_ENDPOINT, preferences.endpoint.value)
+        assertEquals(WatchTogetherPreferences.DEFAULT_ENDPOINT, settings.getString("watchTogether.endpoint", ""))
+        assertFalse(settings.getBoolean("watchTogether.endpointCleartextConfirmed.v1", true))
     }
 
     @Test
-    fun ws_and_wss_custom_endpoints_are_normalized_and_persisted() {
+    fun official_endpoint_policy_rejects_aliases_paths_and_other_transports() {
+        assertTrue(WatchTogetherPreferences.isOfficialEndpoint(" https://47.112.219.60/ "))
+        assertFalse(WatchTogetherPreferences.isOfficialEndpoint("wss://47.112.219.60"))
+        assertFalse(WatchTogetherPreferences.isOfficialEndpoint("https://47.112.219.60/watch"))
+        assertFalse(WatchTogetherPreferences.isOfficialEndpoint("https://47.112.219.60:443"))
+        assertFalse(WatchTogetherPreferences.isOfficialEndpoint("https://watch.example.com"))
+    }
+
+    @Test
+    fun endpoint_state_cannot_be_changed_after_a_legacy_value_is_migrated() {
         val settings = MapSettings()
         val preferences = WatchTogetherPreferences(settings)
-        assertTrue(preferences.setEndpoint("  ws://192.168.1.20:8080/socket/  ").allowed)
-        assertEquals("ws://192.168.1.20:8080/socket", preferences.endpoint.value)
-        assertTrue(preferences.setEndpoint("  wss://watch.example.com/socket/  ").allowed)
-        assertEquals("wss://watch.example.com/socket", preferences.endpoint.value)
+        settings.putString("watchTogether.endpoint", "https://watch.example.com")
+        assertEquals(WatchTogetherPreferences.DEFAULT_ENDPOINT, preferences.endpoint.value)
+        assertEquals(WatchTogetherPreferences.DEFAULT_ENDPOINT, WatchTogetherPreferences(settings).endpoint.value)
     }
 
     @Test

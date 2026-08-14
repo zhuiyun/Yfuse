@@ -131,7 +131,13 @@ internal class SeriesCatalogLoader(
         val episodes =
             allEpisodes
                 ?.filter { selectedSeasonId == null || it.seasonId == selectedSeasonId }
-                ?: repo.episodes(server, seriesId, selectedSeasonId).getOrThrow()
+                ?: repo
+                    .episodes(
+                        server = server,
+                        seriesId = seriesId,
+                        seasonId = selectedSeasonId,
+                        includeMediaSources = true,
+                    ).getOrThrow()
         return SeriesCatalog(seasons, selectedSeasonId, episodes)
     }
 }

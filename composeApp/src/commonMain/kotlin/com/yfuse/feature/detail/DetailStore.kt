@@ -705,7 +705,13 @@ class DetailStoreFactory(
                     preferredEpisode?.let {
                         // Failure is not the same as "this server lacks the episode". Treating both
                         // as an empty list silently selected NextUp and bypassed the retry policy.
-                        repo.episodes(server, sourceDetail.id, seasonId = null).getOrThrow()
+                        repo
+                            .episodes(
+                                server = server,
+                                seriesId = sourceDetail.id,
+                                seasonId = null,
+                                includeMediaSources = true,
+                            ).getOrThrow()
                     }
                 val resolvedTarget =
                     if (preferredEpisode != null) {
@@ -1002,7 +1008,12 @@ class DetailStoreFactory(
                             state().playSourceDetail?.id == playSourceItemId
                     },
                 ) {
-                    repo.episodes(server, seriesId, seasonId)
+                    repo.episodes(
+                        server = server,
+                        seriesId = seriesId,
+                        seasonId = seasonId,
+                        includeMediaSources = true,
+                    )
                 }.onSuccess { episodes ->
                     if (
                         state().selectedSeasonId != seasonId ||

@@ -61,12 +61,12 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.account.AccountState
+import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.VideoCacheSize
-import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.activeOr
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -123,7 +123,6 @@ private enum class Sheet {
     UserAgent,
     WatchTogether,
     WatchProfile,
-    WatchEndpoint,
     VideoCache,
     WifiQuality,
     CellularQuality,
@@ -184,6 +183,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val recoverySnapshot by component.playbackRecovery.snapshot.collectAsState()
     val syncState by component.syncManager.state.collectAsState()
     val accountState by component.account.state.collectAsState()
+    val watchAvailable = accountState.canUseWatchTogether()
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
@@ -208,6 +208,13 @@ fun ProfileScreen(component: ProfileComponent) {
 
     StatusBarIconStyle(darkIcons = !palette.isDark)
     ReportOverlayVisible(enabled = pageStack.isNotEmpty())
+
+    LaunchedEffect(watchAvailable) {
+        if (!watchAvailable) {
+            if (sheet == Sheet.WatchTogether || sheet == Sheet.WatchProfile) sheet = null
+            if (pageStack.lastOrNull() == ProfilePage.WatchTogether.name) closePage()
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         val navigationBackStack = remember(pageStack) { listOf(ProfilePage.Root) + pageStack.map(ProfilePage::valueOf) }
@@ -268,18 +275,25 @@ fun ProfileScreen(component: ProfileComponent) {
                     )
 
                 ProfilePage.WatchTogether ->
-                    WatchTogetherSettingsScreen(
-                        onBack = ::closePage,
-                        connected = watchState.connected,
-                        roomCode = watchState.roomCode,
-                        nickname = watchNickname,
-                        chatDanmaku = watchChatDanmaku,
-                        chatPreview = watchChatPreview,
-                        onJoin = { sheet = Sheet.WatchTogether },
-                        onProfile = { sheet = Sheet.WatchProfile },
-                        onChatDanmaku = component.watchTogetherPreferences::setChatDanmakuEnabled,
-                        onChatPreview = component.watchTogetherPreferences::setChatPreviewEnabled,
-                    )
+                    if (watchAvailable) {
+                        WatchTogetherSettingsScreen(
+                            onBack = ::closePage,
+                            connected = watchState.connected,
+                            roomCode = watchState.roomCode,
+                            nickname = watchNickname,
+                            chatDanmaku = watchChatDanmaku,
+                            chatPreview = watchChatPreview,
+                            onJoin = { sheet = Sheet.WatchTogether },
+                            onProfile = { sheet = Sheet.WatchProfile },
+                            onChatDanmaku = component.watchTogetherPreferences::setChatDanmakuEnabled,
+                            onChatPreview = component.watchTogetherPreferences::setChatPreviewEnabled,
+                        )
+                    } else {
+                        AccountSettingsScreen(
+                            account = component.account,
+                            onBack = ::closePage,
+                        )
+                    }
 
                 ProfilePage.Appearance ->
                     AppearanceSettingsScreen(
@@ -315,11 +329,13 @@ fun ProfileScreen(component: ProfileComponent) {
                         onBack = ::closePage,
                         serverCount = state.servers.size,
                         customUserAgent = customUserAgent,
-                        watchEndpoint = watchEndpoint,
                         onExport = component::exportServers,
                         onImport = component::importServers,
+                        onExportRelay = component::exportRelayServers,
+                        onInspectRelay = component::inspectRelayServers,
+                        onIsRelay = component::isRelayServers,
+                        onImportRelay = component::importRelayServers,
                         onUserAgent = { sheet = Sheet.UserAgent },
-                        onWatchEndpoint = { sheet = Sheet.WatchEndpoint },
                         onClearCache = { confirmClearCache = true },
                     )
 
@@ -423,9 +439,22 @@ fun ProfileScreen(component: ProfileComponent) {
                                     SettingsDivider()
                                     SettingRow(
                                         "一起看",
-                                        if (watchState.connected) "房间 ${watchState.roomCode.orEmpty()} ›" else "$watchNickname ›",
+                                        when {
+                                            !watchAvailable -> "登录后使用 ›"
+                                            watchState.connected ->
+                                                "房间 ${watchState.roomCode.orEmpty()} ›"
+                                            else -> "$watchNickname ›"
+                                        },
                                         embedded = true,
-                                        onClick = { openPage(ProfilePage.WatchTogether) },
+                                        onClick = {
+                                            openPage(
+                                                if (watchAvailable) {
+                                                    ProfilePage.WatchTogether
+                                                } else {
+                                                    ProfilePage.Account
+                                                },
+                                            )
+                                        },
                                         icon = AppIcons.Chat,
                                         iconTint = SettingTint.watchTogether,
                                     )
@@ -653,20 +682,6 @@ fun ProfileScreen(component: ProfileComponent) {
                     onDismiss = { sheet = null },
                 )
 
-            Sheet.WatchEndpoint ->
-                WatchEndpointDialog(
-                    current = watchEndpoint,
-                    onSave = { endpoint, localCleartextConfirmed ->
-                        val result = component.watchTogetherPreferences.setEndpoint(endpoint, localCleartextConfirmed)
-                        if (result.allowed) sheet = null
-                    },
-                    onReset = {
-                        component.watchTogetherPreferences.setEndpoint(WatchTogetherPreferences.DEFAULT_ENDPOINT)
-                        sheet = null
-                    },
-                    onDismiss = { sheet = null },
-                )
-
             Sheet.WatchProfile ->
                 WatchProfileDialog(
                     currentName = watchNickname,
@@ -706,11 +721,13 @@ private fun DataAndDiagnosticsScreen(
     onBack: () -> Unit,
     serverCount: Int,
     customUserAgent: String,
-    watchEndpoint: String,
     onExport: (CharArray, Long) -> Result<String>,
     onImport: (String, CharArray, Long) -> Result<Int>,
+    onExportRelay: (Long) -> Result<com.yfuse.core.security.RelayMigrationPackage>,
+    onInspectRelay: (String) -> com.yfuse.core.security.RelayMigrationDescriptor,
+    onIsRelay: (String) -> Boolean,
+    onImportRelay: (String, ByteArray, Long) -> Result<Int>,
     onUserAgent: () -> Unit,
-    onWatchEndpoint: () -> Unit,
     onClearCache: () -> Unit,
 ) {
     SettingsPage(
@@ -721,20 +738,26 @@ private fun DataAndDiagnosticsScreen(
         item {
             Section(title = "网络与兼容") {
                 SettingsCard {
-                    SettingRow("自定义 User-Agent", if (customUserAgent.isBlank()) "应用默认 ›" else "已启用 ›", true, onUserAgent)
-                    SettingsDivider()
                     SettingRow(
-                        "一起看服务地址",
-                        if (watchEndpoint.trimEnd('/') == WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')) "默认 ›" else "自定义 ›",
+                        "自定义 User-Agent",
+                        if (customUserAgent.isBlank()) "应用默认 ›" else "已启用 ›",
                         true,
-                        onWatchEndpoint,
+                        onUserAgent,
                     )
                 }
             }
         }
         item {
             Box(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
-                ServerBackupTools(serverCount = serverCount, onExport = onExport, onImport = onImport)
+                ServerBackupTools(
+                    serverCount = serverCount,
+                    onExport = onExport,
+                    onImport = onImport,
+                    onExportRelay = onExportRelay,
+                    onInspectRelay = onInspectRelay,
+                    onIsRelay = onIsRelay,
+                    onImportRelay = onImportRelay,
+                )
             }
         }
         item {

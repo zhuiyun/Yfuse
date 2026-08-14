@@ -1,6 +1,7 @@
 package com.yfuse.core.security
 
 import java.security.GeneralSecurityException
+import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.AEADBadTagException
 import javax.crypto.BadPaddingException
@@ -19,6 +20,8 @@ private object AndroidCryptoPrimitives : CryptoPrimitives {
         require(size > 0) { "Random-byte count must be positive" }
         return ByteArray(size).also(secureRandom::nextBytes)
     }
+
+    override fun sha256(value: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(value)
 
     override fun aesGcmEncrypt(
         key: ByteArray,

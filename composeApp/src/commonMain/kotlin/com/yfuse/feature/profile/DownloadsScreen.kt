@@ -571,7 +571,9 @@ private fun downloadStatusText(item: OfflineMedia): String =
             item.downloadedBytes,
         )} / ${formatDownloadBytes(item.totalBytes)}"
         DownloadStatus.Paused -> "已暂停 · ${formatDownloadBytes(item.downloadedBytes)}"
-        DownloadStatus.Completed -> "已完成 · ${formatDownloadBytes(item.downloadedBytes)}"
+        DownloadStatus.Completed ->
+            item.error?.let { "已完成 · $it" }
+                ?: "已完成 · ${formatDownloadBytes(item.downloadedBytes)}"
         DownloadStatus.Failed -> item.error ?: "下载失败，可点按重试"
     }
 

@@ -4,6 +4,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
 import com.yfuse.core.account.AccountApi
+import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.createAccountClient
 import com.yfuse.core.data.DanmakuPreferences
@@ -110,7 +111,8 @@ fun appModule(
     }
     single { DanmakuRepository(createDanmakuClient()) }
     single { ServerSyncManager(get(), get(), get()) }
-    single { WatchTogetherClient(get()) }
+    single { AccountAccessTokenSource() }
+    single { WatchTogetherClient(get(), get()) }
     single { WatchInviteResolver(get(), get()) }
     single<SecureStore> { createSecureStore(get(), namespace = "account") }
     single { AccountApi(createAccountClient()) }
@@ -125,6 +127,7 @@ fun appModule(
             danmaku = get(),
             skip = get(),
             serverSync = get(),
+            accessTokenSource = get(),
             mutationDispatcher = Dispatchers.Main.immediate,
         )
     }

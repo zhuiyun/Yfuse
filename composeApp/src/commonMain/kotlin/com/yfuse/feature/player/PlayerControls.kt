@@ -284,6 +284,13 @@ internal fun PlayerControls(
     val watchLocked = watch.locked
     val latestWatchLocked by rememberUpdatedState(watchLocked)
 
+    LaunchedEffect(watch.available) {
+        if (!watch.available) {
+            watchDialogOpen = false
+            watchChatOpen = false
+        }
+    }
+
     // One instance of the room's callbacks for the whole session, forwarding to whatever the
     // caller last passed.
     //

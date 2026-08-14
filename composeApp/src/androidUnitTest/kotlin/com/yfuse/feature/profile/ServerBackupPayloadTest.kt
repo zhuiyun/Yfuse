@@ -20,6 +20,17 @@ class ServerBackupPayloadTest {
     }
 
     @Test
+    fun v3QrPayloadUsesDedicatedPrefixAndPreservesEnvelope() {
+        val backup =
+            """{"type":"yfuse-server-migration","v":3,"relayId":"opaque","protectedV2":"ciphertext"}"""
+
+        val encoded = encodeQrPayload(backup)
+
+        assertTrue(encoded.startsWith("YFUSE3:"))
+        assertEquals(backup, decodeQrPayload(encoded))
+    }
+
+    @Test
     fun legacyPlaintextQrIsExplicitlyRejected() {
         assertFailsWith<IllegalStateException> {
             decodeQrPayload("YFUSE1:H4sIAAAAAAAA")

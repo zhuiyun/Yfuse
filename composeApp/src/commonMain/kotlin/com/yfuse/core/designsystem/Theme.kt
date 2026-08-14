@@ -288,7 +288,7 @@ private fun lightScheme(accent: AccentColors) =
 @Composable
 fun YfuseTheme(
     dark: Boolean,
-    accent: Color = Brand.Primary,
+    accent: Color = Brand.Primary, // design-system: brand-identity
     accessibility: AccessibilityOptions = AccessibilityOptions(),
     glassStyle: GlassStyle = GlassStyle.Liquid,
     content: @Composable () -> Unit,

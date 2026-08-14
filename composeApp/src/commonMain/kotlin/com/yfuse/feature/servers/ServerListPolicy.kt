@@ -114,7 +114,7 @@ data class TransportDiagnostic(
     val summary: String,
 )
 
-/** User-facing transport diagnosis for every configured server address. */
+/** User-facing HTTPS/LAN diagnosis for every address a server may send credentials to. */
 fun diagnoseServerTransport(server: SavedServer): List<TransportDiagnostic> =
     server.effectiveRoutes.map { route ->
         val validation =
@@ -125,17 +125,15 @@ fun diagnoseServerTransport(server: SavedServer): List<TransportDiagnostic> =
         val severity =
             when (validation.decision) {
                 EndpointTransportDecision.Secure -> TransportDiagnosticSeverity.Secure
-                EndpointTransportDecision.Cleartext,
-                EndpointTransportDecision.LocalCleartextConfirmed,
-                EndpointTransportDecision.LocalCleartextConfirmationRequired,
-                -> TransportDiagnosticSeverity.LocalCleartext
+                EndpointTransportDecision.LocalCleartextConfirmed ->
+                    TransportDiagnosticSeverity.LocalCleartext
                 else -> TransportDiagnosticSeverity.Blocked
             }
         val summary =
             when (severity) {
-                TransportDiagnosticSeverity.Secure -> "HTTPS"
-                TransportDiagnosticSeverity.LocalCleartext -> "HTTP"
-                TransportDiagnosticSeverity.Blocked -> validation.message ?: "地址无效"
+                TransportDiagnosticSeverity.Secure -> "HTTPS 加密正常"
+                TransportDiagnosticSeverity.LocalCleartext -> "局域网 HTTP · 已在本机确认"
+                TransportDiagnosticSeverity.Blocked -> validation.message ?: "不安全的地址，已阻止"
             }
         TransportDiagnostic(route.name, route.url, severity, summary)
     }

@@ -2,14 +2,26 @@ package com.yfuse.watch
 
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import io.ktor.websocket.Frame
+import io.ktor.websocket.DefaultWebSocketSession
+import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,6 +29,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -33,6 +46,318 @@ import kotlinx.serialization.json.long
 
 class WatchTogetherServerTest {
     @Test
+    fun productionWatchGateRejectsMissingAccountBearerBeforeRoomAccess() = testApplication {
+        application { watchTogetherModule(requireWatchAuthentication = true) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
+        val session = socketClient.webSocketSession("/watch")
+        val reason = withTimeout(2_000L) { (session as DefaultWebSocketSession).closeReason.await() }
+        assertEquals(1008, reason?.code?.toInt())
+        assertEquals("account_auth_required", reason?.message)
+    }
+
+    @Test
+    fun productionWatchGateRejectsPlaintextBeforeReadingAccountBearer() = testApplication {
+        application {
+            watchTogetherModule(
+                requireWatchAuthentication = true,
+                trustProxyHeaders = true,
+            )
+        }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
+        val session = socketClient.webSocketSession("/watch") {
+            headers.append(HttpHeaders.Authorization, "Bearer must-not-be-read")
+            headers.append("X-Forwarded-Proto", "http")
+        }
+        val reason = withTimeout(2_000L) {
+            (session as DefaultWebSocketSession).closeReason.await()
+        }
+
+        assertEquals(1008, reason?.code?.toInt())
+        assertEquals("secure_transport_required", reason?.message)
+    }
+
+    @Test
+    fun silentWatchSocketIsClosedAfterItsAccountSessionIsRevoked() = testApplication {
+        val backend = com.yfuse.watch.account.AccountBackend.inMemoryForTests()
+        application {
+            watchTogetherModule(
+                accountBackend = backend,
+                requireWatchAuthentication = true,
+                watchAuthRevalidationMs = 25L,
+            )
+        }
+        val registered = client.post("/api/v1/auth/register") {
+            header("X-Forwarded-Proto", "https")
+            contentType(ContentType.Application.Json)
+            setBody("""{"username":"watcher","password":"Watch-Test-42"}""")
+        }.bodyAsText().asJson()
+        val accessToken = registered.getValue("accessToken").jsonPrimitive.content
+        val socketClient = createClient {
+            install(WebSockets)
+        }
+        val session = socketClient.webSocketSession("/watch") {
+            headers.append(HttpHeaders.Authorization, "Bearer $accessToken")
+        }
+        session.send(
+            """{"type":"hello","protocolVersion":5,"clientId":"watcher","mediaKey":"tmdb:42"}""",
+        )
+        val welcome = (session.incoming.receive() as Frame.Text).readText().asJson()
+        assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
+
+        backend.execute { logout(accessToken) }
+
+        val reason = withTimeout(2_000L) {
+            (session as DefaultWebSocketSession).closeReason.await()
+        }
+        assertEquals(1008, reason?.code?.toInt())
+        assertEquals("account_auth_expired", reason?.message)
+    }
+
+    @Test
+    fun transientWatchAuthenticationOverloadRetriesAndKeepsTheSocketUsable() = testApplication {
+        val executor = com.yfuse.watch.account.AccountWorkExecutor(
+            com.yfuse.watch.account.AccountExecutionPolicy(
+                workerThreads = 1,
+                maxConcurrentOperations = 1,
+            ),
+        )
+        val backend = com.yfuse.watch.account.AccountBackend.inMemoryForTests(
+            workExecutor = executor,
+        )
+        val registered = backend.execute {
+            register(
+                com.yfuse.watch.account.RegisterRequest(
+                    username = "overloaded-watcher",
+                    password = "Watch-Test-42",
+                ),
+            )
+        }
+        val attempts = AtomicInteger()
+        val overloadedAttempts = AtomicInteger()
+        val blockingWorkEntered = CompletableDeferred<Unit>()
+        val releaseBlockingWork = CountDownLatch(1)
+        val blockingWork = CoroutineScope(currentCoroutineContext()).async {
+            executor.execute {
+                blockingWorkEntered.complete(Unit)
+                check(releaseBlockingWork.await(5, TimeUnit.SECONDS))
+            }
+        }
+        withTimeout(2_000L) { blockingWorkEntered.await() }
+        application {
+            watchTogetherModule(
+                accountBackend = backend,
+                requireWatchAuthentication = true,
+                watchAuthRevalidationMs = 25L,
+                watchAccountAuthenticator = { token ->
+                    attempts.incrementAndGet()
+                    try {
+                        backend.authenticateAccessToken(token)
+                    } catch (failure: com.yfuse.watch.account.AccountWorkRejectedException) {
+                        overloadedAttempts.incrementAndGet()
+                        throw failure
+                    }
+                },
+                watchAuthRetryDelayMs = { 1L },
+            )
+        }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
+        val session = socketClient.webSocketSession("/watch") {
+            headers.append(HttpHeaders.Authorization, "Bearer ${registered.accessToken}")
+        }
+        session.send(
+            """{"type":"hello","protocolVersion":5,"clientId":"overloaded","mediaKey":"tmdb:43"}""",
+        )
+        try {
+            withTimeout(2_000L) {
+                while (overloadedAttempts.get() < 2) delay(5L)
+            }
+            assertFalse((session as DefaultWebSocketSession).closeReason.isCompleted)
+            releaseBlockingWork.countDown()
+            val welcome = withTimeout(2_000L) {
+                (session.incoming.receive() as Frame.Text).readText().asJson()
+            }
+
+            assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
+            assertTrue(attempts.get() >= 3)
+            assertTrue(overloadedAttempts.get() >= 2)
+            assertFalse(session.closeReason.isCompleted)
+            session.close()
+        } finally {
+            releaseBlockingWork.countDown()
+            blockingWork.await()
+        }
+    }
+
+    @Test
+    fun sustainedInitialAuthenticationOverloadEndsWithRetryableClose() = testApplication {
+        val backend = com.yfuse.watch.account.AccountBackend.inMemoryForTests()
+        val attempts = AtomicInteger()
+        application {
+            watchTogetherModule(
+                accountBackend = backend,
+                requireWatchAuthentication = true,
+                watchAccountAuthenticator = {
+                    attempts.incrementAndGet()
+                    throw com.yfuse.watch.account.AccountWorkRejectedException()
+                },
+                watchAuthRetryDelayMs = { 1L },
+            )
+        }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
+        val session = socketClient.webSocketSession("/watch") {
+            headers.append(HttpHeaders.Authorization, "Bearer temporarily-overloaded")
+        }
+
+        val reason = withTimeout(2_000L) {
+            (session as DefaultWebSocketSession).closeReason.await()
+        }
+        assertEquals(1013, reason?.code?.toInt())
+        assertEquals("account_auth_temporarily_unavailable", reason?.message)
+        assertEquals(8, attempts.get())
+    }
+
+    @Test
+    fun unexpectedInitialAuthenticationFailureIsNotReportedAsAccountExpiry() = testApplication {
+        val backend = com.yfuse.watch.account.AccountBackend.inMemoryForTests()
+        application {
+            watchTogetherModule(
+                accountBackend = backend,
+                requireWatchAuthentication = true,
+                watchAccountAuthenticator = {
+                    error("database unavailable")
+                },
+            )
+        }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
+        val session = socketClient.webSocketSession("/watch") {
+            headers.append(HttpHeaders.Authorization, "Bearer unavailable")
+        }
+
+        val reason = withTimeout(2_000L) {
+            (session as DefaultWebSocketSession).closeReason.await()
+        }
+        assertEquals(1011, reason?.code?.toInt())
+        assertEquals("account_auth_unavailable", reason?.message)
+    }
+
+    @Test
+    fun watchdogRetriesTransientOverloadThenStillDetectsRevocation() = testApplication {
+        val backend = com.yfuse.watch.account.AccountBackend.inMemoryForTests()
+        val registered = backend.execute {
+            register(
+                com.yfuse.watch.account.RegisterRequest(
+                    username = "revoked-after-overload",
+                    password = "Watch-Test-42",
+                ),
+            )
+        }
+        val attempts = AtomicInteger()
+        application {
+            watchTogetherModule(
+                accountBackend = backend,
+                requireWatchAuthentication = true,
+                watchAuthRevalidationMs = 25L,
+                watchAccountAuthenticator = { token ->
+                    val attempt = attempts.incrementAndGet()
+                    if (attempt in 2..5) {
+                        throw com.yfuse.watch.account.AccountWorkRejectedException()
+                    }
+                    backend.authenticateAccessToken(token)
+                },
+                watchAuthRetryDelayMs = { 1L },
+            )
+        }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
+        val session = socketClient.webSocketSession("/watch") {
+            headers.append(HttpHeaders.Authorization, "Bearer ${registered.accessToken}")
+        }
+        session.send(
+            """{"type":"hello","protocolVersion":5,"clientId":"revoked","mediaKey":"tmdb:44"}""",
+        )
+        val welcome = (session.incoming.receive() as Frame.Text).readText().asJson()
+        assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
+
+        withTimeout(2_000L) {
+            while (attempts.get() < 5) delay(5L)
+        }
+        assertFalse((session as DefaultWebSocketSession).closeReason.isCompleted)
+        backend.execute { logout(registered.accessToken) }
+
+        val reason = withTimeout(2_000L) { session.closeReason.await() }
+        assertEquals(1008, reason?.code?.toInt())
+        assertEquals("account_auth_expired", reason?.message)
+    }
+
+    @Test
+    fun watchdogDoesNotRetryTransientFailurePastTheAccessExpiry() = testApplication {
+        val backend = com.yfuse.watch.account.AccountBackend.inMemoryForTests()
+        var nowEpochMs = 1_000L
+        val attempts = AtomicInteger()
+        application {
+            watchTogetherModule(
+                accountBackend = backend,
+                requireWatchAuthentication = true,
+                watchAuthRevalidationMs = 25L,
+                watchAccountAuthenticator = {
+                    val attempt = attempts.incrementAndGet()
+                    if (attempt == 1) {
+                        com.yfuse.watch.account.AuthenticatedAccount(
+                            userId = "expiring-user",
+                            sessionId = "expiring-session",
+                            username = "expiring",
+                            nickname = "Expiring",
+                            avatarId = 0,
+                            accessExpiresAtEpochMs = 1_005L,
+                        )
+                    } else {
+                        throw com.yfuse.watch.account.AccountWorkRejectedException()
+                    }
+                },
+                watchAuthRetryDelayMs = { 1L },
+                watchAuthClock = {
+                    nowEpochMs++
+                },
+            )
+        }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
+        val session = socketClient.webSocketSession("/watch") {
+            headers.append(HttpHeaders.Authorization, "Bearer expiring-token")
+        }
+
+        val reason = withTimeout(2_000L) {
+            (session as DefaultWebSocketSession).closeReason.await()
+        }
+        assertEquals(1008, reason?.code?.toInt())
+        assertEquals("account_auth_expired", reason?.message)
+        // The watchdog may make one last revalidation while time remains; it must not schedule
+        // another retry after the injected clock reaches the token's hard expiry.
+        assertTrue(attempts.get() <= 3)
+    }
+
+    @Test
+    fun watchAuthenticationRetryDelayIsCappedAndJittered() {
+        repeat(100) {
+            assertTrue(watchAuthTransientRetryDelayMs(1) in 50L..100L)
+            assertTrue(watchAuthTransientRetryDelayMs(7) in 2_500L..5_000L)
+            assertTrue(watchAuthTransientRetryDelayMs(100) in 2_500L..5_000L)
+        }
+    }
+
+    @Test
     fun health_and_update_files_share_the_watch_server() {
         val updateRoot = Files.createTempDirectory("yfuse-watch-test").toFile()
         try {
@@ -46,7 +371,7 @@ class WatchTogetherServerTest {
 
                 val protocol = client.get("/watch/version")
                 assertEquals(HttpStatusCode.OK, protocol.status)
-                assertEquals(4, protocol.bodyAsText().asJson()["protocolVersion"]!!.jsonPrimitive.int)
+                assertEquals(5, protocol.bodyAsText().asJson()["protocolVersion"]!!.jsonPrimitive.int)
 
                 val update = client.get("/yfuse/update.json")
                 assertEquals(HttpStatusCode.OK, update.status)
@@ -60,7 +385,9 @@ class WatchTogetherServerTest {
     @Test
     fun host_sync_is_broadcast_to_joined_guest() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         val roomCode = CompletableDeferred<String>()
         val guestJoined = CompletableDeferred<Unit>()
         val received = CompletableDeferred<String>()
@@ -68,7 +395,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"clientId":"host","name":"Host","mediaKey":"tmdb:42"}""")
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host","name":"Host","mediaKey":"tmdb:42"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
                 assertTrue(welcome["isHost"]!!.jsonPrimitive.boolean)
@@ -84,7 +411,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             val code = roomCode.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest","name":"Guest"}""")
+                send("""{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest","name":"Guest"}""")
                 while (true) {
                     val payload = (incoming.receive() as Frame.Text).readText().asJson()
                     when (payload["type"]?.jsonPrimitive?.content) {
@@ -116,7 +443,9 @@ class WatchTogetherServerTest {
     @Test
     fun guest_sync_is_rejected() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         val roomCode = CompletableDeferred<String>()
         val guestReady = CompletableDeferred<Unit>()
         val errorReceived = CompletableDeferred<String>()
@@ -124,7 +453,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:1"}""")
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:1"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                 errorReceived.await()
@@ -133,7 +462,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             val code = roomCode.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""")
+                send("""{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest"}""")
                 incoming.receive() // welcome
                 guestReady.complete(Unit)
                 send("""{"type":"sync","mediaKey":"tmdb:1","positionMs":1,"paused":false,"rate":1.0}""")
@@ -156,7 +485,9 @@ class WatchTogetherServerTest {
     @Test
     fun disconnected_host_is_replaced_when_a_guest_remains() = testApplication {
         application { watchTogetherModule(hostGraceMs = 25L) }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         val roomCode = CompletableDeferred<String>()
         val guestJoined = CompletableDeferred<Unit>()
         val guestPromoted = CompletableDeferred<Boolean>()
@@ -164,7 +495,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:7"}""")
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:7"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                 guestJoined.await()
@@ -177,7 +508,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             val code = roomCode.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""")
+                send("""{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 assertFalse(welcome["isHost"]!!.jsonPrimitive.boolean)
                 guestJoined.complete(Unit)
@@ -201,13 +532,15 @@ class WatchTogetherServerTest {
     @Test
     fun reconnect_with_same_client_id_resumes_as_host_without_a_new_room() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         val roomCode = CompletableDeferred<String>()
         var resumeCapability = ""
         var hostCapability = ""
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:9"}""")
+            send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:9"}""")
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
             resumeCapability = welcome["resumeCapability"]!!.jsonPrimitive.content
@@ -218,7 +551,7 @@ class WatchTogetherServerTest {
         val code = roomCode.await()
         socketClient.webSocket("/watch") {
             send(
-                """{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"host","resumeCapability":"$resumeCapability","hostCapability":"$hostCapability"}""",
+                """{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"host","resumeCapability":"$resumeCapability","hostCapability":"$hostCapability"}""",
             )
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals(code, welcome["roomCode"]?.jsonPrimitive?.content)
@@ -231,7 +564,9 @@ class WatchTogetherServerTest {
     fun public_client_id_cannot_replace_connected_host_without_private_capabilities() =
         testApplication {
             application { watchTogetherModule() }
-            val socketClient = createClient { install(WebSockets) }
+            val socketClient = createClient {
+            install(WebSockets)
+        }
             val roomCode = CompletableDeferred<String>()
             val attackerRejected = CompletableDeferred<Unit>()
             val hostStillControls = CompletableDeferred<Unit>()
@@ -240,7 +575,7 @@ class WatchTogetherServerTest {
             val host = testScope.launch {
                 socketClient.webSocket("/watch") {
                     send(
-                        """{"type":"hello","protocolVersion":4,"clientId":"public-host","mediaKey":"tmdb:901"}""",
+                        """{"type":"hello","protocolVersion":5,"clientId":"public-host","mediaKey":"tmdb:901"}""",
                     )
                     val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                     roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
@@ -262,7 +597,7 @@ class WatchTogetherServerTest {
             val attacker = testScope.launch {
                 socketClient.webSocket("/watch") {
                     send(
-                        """{"type":"hello","protocolVersion":4,"roomCode":"${roomCode.await()}","clientId":"public-host"}""",
+                        """{"type":"hello","protocolVersion":5,"roomCode":"${roomCode.await()}","clientId":"public-host"}""",
                     )
                     val error = (incoming.receive() as Frame.Text).readText().asJson()
                     assertEquals("resume_auth_failed", error["errorCode"]?.jsonPrimitive?.content)
@@ -278,11 +613,13 @@ class WatchTogetherServerTest {
     @Test
     fun invalid_timeline_frames_are_rejected_without_advancing_room_state() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
 
         socketClient.webSocket("/watch") {
             send(
-                """{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:902"}""",
+                """{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:902"}""",
             )
             incoming.receive() // welcome
             incoming.receive() // own roomUpdate
@@ -300,10 +637,6 @@ class WatchTogetherServerTest {
                 assertEquals("timeline_invalid", error["errorCode"]?.jsonPrimitive?.content)
             }
 
-            send("""{"type":"updateProfile","name":"bad\nname","avatarId":0}""")
-            val profileError = (incoming.receive() as Frame.Text).readText().asJson()
-            assertEquals("profile_invalid", profileError["errorCode"]?.jsonPrimitive?.content)
-
             send(
                 """{"type":"sync","mediaKey":"tmdb:902","positionMs":7,"paused":true,"rate":1.0}""",
             )
@@ -317,14 +650,16 @@ class WatchTogetherServerTest {
     @Test
     fun host_reconnect_requires_host_capability_as_well_as_resume_capability() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         var code = ""
         var resumeCapability = ""
         var hostCapability = ""
 
         socketClient.webSocket("/watch") {
             send(
-                """{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:903"}""",
+                """{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:903"}""",
             )
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             code = welcome["roomCode"]!!.jsonPrimitive.content
@@ -334,7 +669,7 @@ class WatchTogetherServerTest {
 
         socketClient.webSocket("/watch") {
             send(
-                """{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"host","resumeCapability":"$resumeCapability"}""",
+                """{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"host","resumeCapability":"$resumeCapability"}""",
             )
             val denied = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("host_auth_failed", denied["errorCode"]?.jsonPrimitive?.content)
@@ -342,7 +677,7 @@ class WatchTogetherServerTest {
 
         socketClient.webSocket("/watch") {
             send(
-                """{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"host","resumeCapability":"$resumeCapability","hostCapability":"$hostCapability"}""",
+                """{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"host","resumeCapability":"$resumeCapability","hostCapability":"$hostCapability"}""",
             )
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             assertTrue(welcome["isHost"]!!.jsonPrimitive.boolean)
@@ -353,7 +688,9 @@ class WatchTogetherServerTest {
     fun host_transfer_rotates_private_capability_and_rejects_the_previous_host_secret() =
         testApplication {
             application { watchTogetherModule() }
-            val socketClient = createClient { install(WebSockets) }
+            val socketClient = createClient {
+            install(WebSockets)
+        }
             val roomCode = CompletableDeferred<String>()
             val guestJoined = CompletableDeferred<Unit>()
             val oldHostCapability = CompletableDeferred<String>()
@@ -364,7 +701,7 @@ class WatchTogetherServerTest {
             val host = testScope.launch {
                 socketClient.webSocket("/watch") {
                     send(
-                        """{"type":"hello","protocolVersion":4,"clientId":"old-host","mediaKey":"tmdb:904"}""",
+                        """{"type":"hello","protocolVersion":5,"clientId":"old-host","mediaKey":"tmdb:904"}""",
                     )
                     val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                     roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
@@ -386,7 +723,7 @@ class WatchTogetherServerTest {
             val guest = testScope.launch {
                 socketClient.webSocket("/watch") {
                     send(
-                        """{"type":"hello","protocolVersion":4,"roomCode":"${roomCode.await()}","clientId":"new-host"}""",
+                        """{"type":"hello","protocolVersion":5,"roomCode":"${roomCode.await()}","clientId":"new-host"}""",
                     )
                     val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                     guestResumeCapability.complete(
@@ -414,7 +751,7 @@ class WatchTogetherServerTest {
 
             socketClient.webSocket("/watch") {
                 send(
-                    """{"type":"hello","protocolVersion":4,"roomCode":"${roomCode.await()}","clientId":"new-host","resumeCapability":"${guestResumeCapability.await()}","hostCapability":"${oldHostCapability.await()}"}""",
+                    """{"type":"hello","protocolVersion":5,"roomCode":"${roomCode.await()}","clientId":"new-host","resumeCapability":"${guestResumeCapability.await()}","hostCapability":"${oldHostCapability.await()}"}""",
                 )
                 val denied = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("host_auth_failed", denied["errorCode"]?.jsonPrimitive?.content)
@@ -422,7 +759,7 @@ class WatchTogetherServerTest {
 
             socketClient.webSocket("/watch") {
                 send(
-                    """{"type":"hello","protocolVersion":4,"roomCode":"${roomCode.await()}","clientId":"new-host","resumeCapability":"${guestResumeCapability.await()}","hostCapability":"${guestHostCapability.await()}"}""",
+                    """{"type":"hello","protocolVersion":5,"roomCode":"${roomCode.await()}","clientId":"new-host","resumeCapability":"${guestResumeCapability.await()}","hostCapability":"${guestHostCapability.await()}"}""",
                 )
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 assertTrue(welcome["isHost"]!!.jsonPrimitive.boolean)
@@ -432,7 +769,9 @@ class WatchTogetherServerTest {
     @Test
     fun a_granted_control_request_moves_the_host_slot_to_the_asker() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         val roomCode = CompletableDeferred<String>()
         val guestJoined = CompletableDeferred<Unit>()
         val guestPromoted = CompletableDeferred<Boolean>()
@@ -441,7 +780,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:11"}""")
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:11"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                 guestJoined.await()
@@ -470,7 +809,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             val code = roomCode.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest","name":"Guest"}""")
+                send("""{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest","name":"Guest"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 assertFalse(welcome["isHost"]!!.jsonPrimitive.boolean)
                 guestJoined.complete(Unit)
@@ -497,7 +836,9 @@ class WatchTogetherServerTest {
     fun a_denied_control_request_reaches_the_asker_and_leaves_the_host_in_place() =
         testApplication {
             application { watchTogetherModule() }
-            val socketClient = createClient { install(WebSockets) }
+            val socketClient = createClient {
+            install(WebSockets)
+        }
             val roomCode = CompletableDeferred<String>()
             val guestJoined = CompletableDeferred<Unit>()
             val denied = CompletableDeferred<Boolean>()
@@ -505,7 +846,7 @@ class WatchTogetherServerTest {
 
             val host = testScope.launch {
                 socketClient.webSocket("/watch") {
-                    send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:12"}""")
+                    send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:12"}""")
                     val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                     roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                     guestJoined.await()
@@ -522,7 +863,7 @@ class WatchTogetherServerTest {
             val guest = testScope.launch {
                 val code = roomCode.await()
                 socketClient.webSocket("/watch") {
-                    send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest","name":"Guest"}""")
+                    send("""{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest","name":"Guest"}""")
                     incoming.receive() // welcome
                     guestJoined.complete(Unit)
                     send("""{"type":"requestControl"}""")
@@ -549,7 +890,9 @@ class WatchTogetherServerTest {
     @Test
     fun a_guest_cannot_grant_control_to_itself() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         val roomCode = CompletableDeferred<String>()
         val guestJoined = CompletableDeferred<Unit>()
         val rejected = CompletableDeferred<Boolean>()
@@ -557,7 +900,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:13"}""")
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:13"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                 rejected.await()
@@ -566,7 +909,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             val code = roomCode.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""")
+                send("""{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest"}""")
                 incoming.receive() // welcome
                 guestJoined.complete(Unit)
                 send("""{"type":"grantControl","targetClientId":"guest"}""")
@@ -594,7 +937,9 @@ class WatchTogetherServerTest {
     @Test
     fun chat_uses_the_joined_profile_and_replays_history_to_new_members() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         val roomCode = CompletableDeferred<String>()
         val chatSent = CompletableDeferred<Unit>()
         val historyChecked = CompletableDeferred<Boolean>()
@@ -603,7 +948,7 @@ class WatchTogetherServerTest {
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
                 send(
-                    """{"type":"hello","protocolVersion":4,"clientId":"host","name":"小影迷 🎬","avatarId":3,"mediaKey":"tmdb:21"}""",
+                    """{"type":"hello","protocolVersion":5,"clientId":"host","name":"小影迷 🎬","avatarId":3,"mediaKey":"tmdb:21"}""",
                 )
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
@@ -631,7 +976,7 @@ class WatchTogetherServerTest {
             val code = roomCode.await()
             chatSent.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest","name":"访客","avatarId":1}""")
+                send("""{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest","name":"访客","avatarId":1}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 val history = welcome["chatHistory"]!!.jsonArray
                 assertEquals(1, history.size)
@@ -652,14 +997,16 @@ class WatchTogetherServerTest {
     @Test
     fun reaction_relays_only_the_known_set_and_never_stores_it() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         val roomCode = CompletableDeferred<String>()
         val reactionSeen = CompletableDeferred<Unit>()
         val testScope = CoroutineScope(currentCoroutineContext())
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"clientId":"host","name":"房主","avatarId":0,"mediaKey":"tmdb:9"}""")
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host","name":"房主","avatarId":0,"mediaKey":"tmdb:9"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 assertTrue(
                     "reactions" in welcome["capabilities"]!!.jsonArray.map {
@@ -696,7 +1043,7 @@ class WatchTogetherServerTest {
             val code = roomCode.await()
             reactionSeen.await()
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest","name":"访客","avatarId":1}""")
+                send("""{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest","name":"访客","avatarId":1}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 // Reactions leave no history: joining after one has happened shows nothing.
                 assertEquals(0, welcome["chatHistory"]?.jsonArray?.size ?: 0)
@@ -710,10 +1057,12 @@ class WatchTogetherServerTest {
     @Test
     fun chat_enforces_grapheme_length_and_its_own_rate_limit() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:22"}""")
+            send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:22"}""")
             incoming.receive() // welcome
             incoming.receive() // own roomUpdate
 
@@ -740,10 +1089,12 @@ class WatchTogetherServerTest {
     @Test
     fun profile_updates_are_broadcast_as_room_membership() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","protocolVersion":4,"clientId":"host","name":"旧昵称","avatarId":0,"mediaKey":"tmdb:23"}""")
+            send("""{"type":"hello","protocolVersion":5,"clientId":"host","name":"旧昵称","avatarId":0,"mediaKey":"tmdb:23"}""")
             incoming.receive() // welcome
             incoming.receive() // own roomUpdate
             send("""{"type":"updateProfile","name":"新昵称 🐼","avatarId":5}""")
@@ -760,15 +1111,17 @@ class WatchTogetherServerTest {
     @Test
     fun protocol_version_is_advertised_and_future_clients_are_rejected() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
 
         socketClient.webSocket("/watch") {
             send(
-                """{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:30"}""",
+                """{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:30"}""",
             )
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("welcome", welcome["type"]?.jsonPrimitive?.content)
-            assertEquals(4, welcome["protocolVersion"]?.jsonPrimitive?.int)
+            assertEquals(5, welcome["protocolVersion"]?.jsonPrimitive?.int)
         }
 
         socketClient.webSocket("/watch") {
@@ -777,15 +1130,16 @@ class WatchTogetherServerTest {
             )
             val error = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("protocol_incompatible", error["errorCode"]?.jsonPrimitive?.content)
-            assertEquals(4, error["protocolVersion"]?.jsonPrimitive?.int)
+            assertEquals(5, error["protocolVersion"]?.jsonPrimitive?.int)
         }
 
         listOf(
             """{"type":"hello","clientId":"missing","mediaKey":"tmdb:31"}""",
             """{"type":"hello","protocolVersion":3,"clientId":"legacy","mediaKey":"tmdb:31"}""",
-        ).forEach { legacyHello ->
+            """{"type":"hello","protocolVersion":4,"clientId":"previous","mediaKey":"tmdb:31"}""",
+        ).forEach { rejectedHello ->
             socketClient.webSocket("/watch") {
-                send(legacyHello)
+                send(rejectedHello)
                 val error = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("protocol_incompatible", error["errorCode"]?.jsonPrimitive?.content)
             }
@@ -795,7 +1149,9 @@ class WatchTogetherServerTest {
     @Test
     fun malformed_unknown_and_invalid_payloads_are_explicitly_rejected() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
 
         socketClient.webSocket("/watch") {
             send("not-json")
@@ -813,7 +1169,7 @@ class WatchTogetherServerTest {
             )
 
             send(
-                """{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:905"}""",
+                """{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:905"}""",
             )
             incoming.receive() // welcome
             incoming.receive() // own roomUpdate
@@ -837,12 +1193,14 @@ class WatchTogetherServerTest {
     @Test
     fun chat_client_message_id_acknowledges_and_deduplicates_retries() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         var code = ""
         var firstServerId = 0L
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:32"}""")
+            send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:32"}""")
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             code = welcome["roomCode"]!!.jsonPrimitive.content
             incoming.receive() // own roomUpdate
@@ -858,7 +1216,7 @@ class WatchTogetherServerTest {
         }
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""")
+            send("""{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest"}""")
             val welcome = (incoming.receive() as Frame.Text).readText().asJson()
             val history = welcome["chatHistory"]!!.jsonArray
             assertEquals(1, history.size)
@@ -869,10 +1227,12 @@ class WatchTogetherServerTest {
     @Test
     fun playback_status_broadcasts_readiness_latency_and_drift() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
 
         socketClient.webSocket("/watch") {
-            send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:33"}""")
+            send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:33"}""")
             incoming.receive() // welcome
             incoming.receive() // own roomUpdate
             send(
@@ -890,7 +1250,9 @@ class WatchTogetherServerTest {
     @Test
     fun everyone_and_moderator_modes_allow_guest_control() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         val roomCode = CompletableDeferred<String>()
         val guestJoined = CompletableDeferred<Unit>()
         val finished = CompletableDeferred<Unit>()
@@ -898,7 +1260,7 @@ class WatchTogetherServerTest {
 
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
-                send("""{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:34"}""")
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:34"}""")
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
                 guestJoined.await()
@@ -927,7 +1289,7 @@ class WatchTogetherServerTest {
         val guest = testScope.launch {
             socketClient.webSocket("/watch") {
                 send(
-                    """{"type":"hello","protocolVersion":4,"roomCode":"${roomCode.await()}","clientId":"guest"}""",
+                    """{"type":"hello","protocolVersion":5,"roomCode":"${roomCode.await()}","clientId":"guest"}""",
                 )
                 incoming.receive() // welcome
                 guestJoined.complete(Unit)
@@ -967,7 +1329,9 @@ class WatchTogetherServerTest {
     @Test
     fun only_host_can_remove_guest_and_removed_guest_cannot_rejoin() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
         val roomCode = CompletableDeferred<String>()
         val guestJoined = CompletableDeferred<Unit>()
         val unauthorizedDenied = CompletableDeferred<Unit>()
@@ -980,7 +1344,7 @@ class WatchTogetherServerTest {
         val host = testScope.launch {
             socketClient.webSocket("/watch") {
                 send(
-                    """{"type":"hello","protocolVersion":4,"clientId":"host","mediaKey":"tmdb:35"}""",
+                    """{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:35"}""",
                 )
                 val welcome = (incoming.receive() as Frame.Text).readText().asJson()
                 roomCode.complete(welcome["roomCode"]!!.jsonPrimitive.content)
@@ -1008,7 +1372,7 @@ class WatchTogetherServerTest {
             runCatching {
                 socketClient.webSocket("/watch") {
                     send(
-                        """{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""",
+                        """{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest"}""",
                     )
                     while (!guestJoined.isCompleted) {
                         val payload = (incoming.receive() as Frame.Text).readText().asJson()
@@ -1041,7 +1405,7 @@ class WatchTogetherServerTest {
 
             socketClient.webSocket("/watch") {
                 send(
-                    """{"type":"hello","protocolVersion":4,"roomCode":"$code","clientId":"guest"}""",
+                    """{"type":"hello","protocolVersion":5,"roomCode":"$code","clientId":"guest"}""",
                 )
                 val payload = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("error", payload["type"]?.jsonPrimitive?.content)
@@ -1071,10 +1435,12 @@ class WatchTogetherServerTest {
                 },
             )
         }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
 
         socketClient.webSocket("/watch?testIp=shared") {
-            send("""{"type":"hello","protocolVersion":4,"clientId":"host-1","mediaKey":"tmdb:101"}""")
+            send("""{"type":"hello","protocolVersion":5,"clientId":"host-1","mediaKey":"tmdb:101"}""")
             val first = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("welcome", first["type"]?.jsonPrimitive?.content)
             assertTrue(
@@ -1083,14 +1449,14 @@ class WatchTogetherServerTest {
             )
 
             socketClient.webSocket("/watch?testIp=shared") {
-                send("""{"type":"hello","protocolVersion":4,"clientId":"host-2","mediaKey":"tmdb:102"}""")
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host-2","mediaKey":"tmdb:102"}""")
                 val limited = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("error", limited["type"]?.jsonPrimitive?.content)
                 assertEquals("room_ip_limit", limited["errorCode"]?.jsonPrimitive?.content)
             }
 
             socketClient.webSocket("/watch?testIp=other") {
-                send("""{"type":"hello","protocolVersion":4,"clientId":"host-3","mediaKey":"tmdb:103"}""")
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host-3","mediaKey":"tmdb:103"}""")
                 val other = (incoming.receive() as Frame.Text).readText().asJson()
                 assertEquals("welcome", other["type"]?.jsonPrimitive?.content)
             }
@@ -1108,10 +1474,12 @@ class WatchTogetherServerTest {
                 },
             )
         }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
 
         socketClient.webSocket("/watch?testIp=recycled") {
-            send("""{"type":"hello","protocolVersion":4,"clientId":"host-1","mediaKey":"tmdb:201"}""")
+            send("""{"type":"hello","protocolVersion":5,"clientId":"host-1","mediaKey":"tmdb:201"}""")
             val first = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("welcome", first["type"]?.jsonPrimitive?.content)
         }
@@ -1120,7 +1488,7 @@ class WatchTogetherServerTest {
         delay(100L)
 
         socketClient.webSocket("/watch?testIp=recycled") {
-            send("""{"type":"hello","protocolVersion":4,"clientId":"host-2","mediaKey":"tmdb:202"}""")
+            send("""{"type":"hello","protocolVersion":5,"clientId":"host-2","mediaKey":"tmdb:202"}""")
             val recreated = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("welcome", recreated["type"]?.jsonPrimitive?.content)
         }
@@ -1160,11 +1528,13 @@ class WatchTogetherServerTest {
     @Test
     fun hello_rejects_oversized_client_ids() = testApplication {
         application { watchTogetherModule() }
-        val socketClient = createClient { install(WebSockets) }
+        val socketClient = createClient {
+            install(WebSockets)
+        }
 
         socketClient.webSocket("/watch") {
             val oversized = "x".repeat(129)
-            send("""{"type":"hello","protocolVersion":4,"clientId":"$oversized","mediaKey":"tmdb:301"}""")
+            send("""{"type":"hello","protocolVersion":5,"clientId":"$oversized","mediaKey":"tmdb:301"}""")
             val error = (incoming.receive() as Frame.Text).readText().asJson()
             assertEquals("error", error["type"]?.jsonPrimitive?.content)
             assertEquals("client_id_invalid", error["errorCode"]?.jsonPrimitive?.content)

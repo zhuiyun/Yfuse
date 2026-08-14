@@ -9,6 +9,8 @@ import com.yfuse.core.model.normalizedRoutes
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.ServerMigrationCrypto
+import com.yfuse.core.security.RelayMigrationPackage
+import com.yfuse.core.security.ServerMigrationRelayCrypto
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.toBase64Url
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -116,6 +118,7 @@ class ServerRegistry(
             explicitNulls = false
         }
     private val migrationCrypto = ServerMigrationCrypto(crypto)
+    private val migrationRelayCrypto = ServerMigrationRelayCrypto(crypto)
     private val loaded = load()
     private var secretRefs: Map<String, String> = loaded.secretRefs
     private val _data = MutableStateFlow(loaded.data)
@@ -517,6 +520,61 @@ class ServerRegistry(
             )
         }
 
+    /** Creates a v3 package protected by a random key suitable for the online six-digit relay. */
+    fun exportRelayBackup(
+        createdAtEpochSeconds: Long,
+        ttlSeconds: Long = ServerMigrationCrypto.DEFAULT_TTL_SECONDS,
+    ): Result<RelayMigrationPackage> =
+        runCatching {
+            val current = _data.value
+            require(current.servers.isNotEmpty()) { "暂无可迁移的服务器" }
+            require(ttlSeconds in 60..ServerMigrationCrypto.MAX_TTL_SECONDS) { "迁移包有效期无效" }
+            require(createdAtEpochSeconds <= Long.MAX_VALUE - ttlSeconds) { "迁移包时间无效" }
+            val plaintext = portableBackupBytes(current)
+            try {
+                migrationRelayCrypto.protect(
+                    plaintext = plaintext,
+                    createdAtEpochSeconds = createdAtEpochSeconds,
+                    expiresAtEpochSeconds = createdAtEpochSeconds + ttlSeconds,
+                )
+            } finally {
+                plaintext.fill(0)
+            }
+        }
+
+    fun inspectRelayBackup(payload: String) = migrationRelayCrypto.inspect(payload)
+
+    fun isRelayBackup(payload: String): Boolean = migrationRelayCrypto.isRelayEnvelope(payload)
+
+    /** Redeems are performed by the caller; only the random key enters this method. */
+    fun importRelayBackup(
+        payload: String,
+        transferSecret: ByteArray,
+        nowEpochSeconds: Long,
+    ): Result<Int> =
+        runCatching {
+            val plaintext = migrationRelayCrypto.unprotect(payload, transferSecret, nowEpochSeconds)
+            try {
+                importPortableBackup(plaintext)
+            } finally {
+                plaintext.fill(0)
+            }
+        }.onSuccess {
+            AppLog.info(
+                category = "server.migration",
+                event = "relay_backup_imported",
+                message = "One-time relay server backup imported",
+                attributes = mapOf("serverCount" to it.toString()),
+            )
+        }.onFailure {
+            AppLog.warning(
+                category = "server.migration",
+                event = "relay_backup_import_failed",
+                message = "One-time relay server backup import failed",
+                throwable = it,
+            )
+        }
+
     /** Decrypts, validates, and merges a v2 package. Plaintext/v1 packages are rejected. */
     fun importProtectedBackup(
         payload: String,
@@ -526,60 +584,7 @@ class ServerRegistry(
         runCatching {
             val plaintext = migrationCrypto.unprotect(payload, passphrase, nowEpochSeconds)
             try {
-                val backup =
-                    try {
-                        json.decodeFromString(PortableServerBackup.serializer(), plaintext.decodeToString())
-                    } catch (_: Exception) {
-                        // Do not retain the parser exception: malformed plaintext may be echoed in its
-                        // message and later diagnostics must never acquire a bearer-token fragment.
-                        throw IllegalArgumentException("受保护迁移包中的服务器数据已损坏")
-                    }
-                require(backup.version == PORTABLE_BACKUP_VERSION) { "不支持的服务器数据版本" }
-                require(backup.servers.isNotEmpty()) { "迁移包中没有服务器" }
-                require(backup.servers.size <= MAX_SERVERS) { "迁移包中的服务器数量过多" }
-                val current = _data.value
-                val imported =
-                    backup.servers.map { portable ->
-                        val id = SavedServer.idOf(portable.baseUrl.trim().trimEnd('/'), portable.userId.trim())
-                        normalizeImportedServer(
-                            baseUrl = portable.baseUrl,
-                            serverName = portable.serverName,
-                            userId = portable.userId,
-                            userName = portable.userName,
-                            accessToken = portable.accessToken,
-                            previousIds =
-                                current.servers
-                                    .firstOrNull { it.id == id }
-                                    ?.previousIds
-                                    .orEmpty(),
-                            invalidMessagePrefix = "迁移包中的",
-                            routes = portable.routes,
-                            iconEmoji = portable.iconEmoji,
-                            iconTint = portable.iconTint,
-                        )
-                    }
-                require(imported.map { it.id }.distinct().size == imported.size) {
-                    "迁移包中包含重复服务器"
-                }
-                val ids = imported.mapTo(hashSetOf()) { it.id }
-                val merged =
-                    current.servers
-                        .filterNot { it.id in ids }
-                        .map { it.copy(previousIds = it.previousIds - ids) } + imported
-                val importedDefault =
-                    backup.defaultServerId?.let { oldId ->
-                        backup.servers
-                            .firstOrNull {
-                                SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) == oldId
-                            }?.let { SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) }
-                    }
-                commit(
-                    ServersData(
-                        servers = merged,
-                        defaultServerId = current.defaultServerId ?: importedDefault ?: imported.first().id,
-                    ),
-                )
-                imported.size
+                importPortableBackup(plaintext)
             } finally {
                 plaintext.fill(0)
             }
@@ -598,6 +603,69 @@ class ServerRegistry(
                 throwable = it,
             )
         }
+
+    private fun portableBackupBytes(current: ServersData): ByteArray =
+        json.encodeToString(
+            PortableServerBackup.serializer(),
+            PortableServerBackup(
+                defaultServerId = current.defaultServerId,
+                servers = current.servers.map {
+                    PortableServer(
+                        baseUrl = it.primaryUrl,
+                        serverName = it.serverName,
+                        userId = it.userId,
+                        userName = it.userName,
+                        accessToken = it.accessToken,
+                        routes = it.routes,
+                        iconEmoji = it.iconEmoji,
+                        iconTint = it.iconTint,
+                    )
+                },
+            ),
+        ).encodeToByteArray()
+
+    private fun importPortableBackup(plaintext: ByteArray): Int {
+        val backup = try {
+            json.decodeFromString(PortableServerBackup.serializer(), plaintext.decodeToString())
+        } catch (_: Exception) {
+            throw IllegalArgumentException("受保护迁移包中的服务器数据已损坏")
+        }
+        require(backup.version == PORTABLE_BACKUP_VERSION) { "不支持的服务器数据版本" }
+        require(backup.servers.isNotEmpty()) { "迁移包中没有服务器" }
+        require(backup.servers.size <= MAX_SERVERS) { "迁移包中的服务器数量过多" }
+        val current = _data.value
+        val imported = backup.servers.map { portable ->
+            val id = SavedServer.idOf(portable.baseUrl.trim().trimEnd('/'), portable.userId.trim())
+            normalizeImportedServer(
+                baseUrl = portable.baseUrl,
+                serverName = portable.serverName,
+                userId = portable.userId,
+                userName = portable.userName,
+                accessToken = portable.accessToken,
+                previousIds = current.servers.firstOrNull { it.id == id }?.previousIds.orEmpty(),
+                invalidMessagePrefix = "迁移包中的",
+                routes = portable.routes,
+                iconEmoji = portable.iconEmoji,
+                iconTint = portable.iconTint,
+            )
+        }
+        require(imported.map { it.id }.distinct().size == imported.size) { "迁移包中包含重复服务器" }
+        val ids = imported.mapTo(hashSetOf()) { it.id }
+        val merged = current.servers.filterNot { it.id in ids }
+            .map { it.copy(previousIds = it.previousIds - ids) } + imported
+        val importedDefault = backup.defaultServerId?.let { oldId ->
+            backup.servers.firstOrNull {
+                SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) == oldId
+            }?.let { SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) }
+        }
+        commit(
+            ServersData(
+                servers = merged,
+                defaultServerId = current.defaultServerId ?: importedDefault ?: imported.first().id,
+            ),
+        )
+        return imported.size
+    }
 
     private fun commit(data: ServersData) {
         data.servers.forEach {

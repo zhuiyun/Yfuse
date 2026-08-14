@@ -2,6 +2,8 @@ package com.yfuse.watch.account
 
 import kotlinx.serialization.Serializable
 
+internal const val INVITE_ISSUE_CAPABILITY = "invite:issue"
+
 @Serializable
 internal data class RegisterRequest(
     val username: String,
@@ -57,6 +59,13 @@ internal data class UserResponse(
     val avatarId: Int,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    val capabilities: Set<String> = emptySet(),
+)
+
+@Serializable
+internal data class IssuedInviteResponse(
+    val code: String,
+    val expiresAtEpochMs: Long,
 )
 
 @Serializable
@@ -175,7 +184,20 @@ internal data class SessionReplacement(
 internal data class AuthenticatedSession(
     val sessionId: String,
     val user: StoredUser,
+    val accessExpiresAtEpochMs: Long,
 )
+
+internal data class NewIssuedInvite(
+    val digest: ByteArray,
+    val issuerUserId: String,
+    val createdAtEpochMs: Long,
+    val expiresAtEpochMs: Long,
+)
+
+internal sealed interface InviteConsumptionResult {
+    data object Consumed : InviteConsumptionResult
+    data object Unavailable : InviteConsumptionResult
+}
 
 internal data class StoredSession(
     val id: String,
@@ -234,6 +256,17 @@ internal sealed interface RegistrationWriteResult {
     data object UsernameUnavailable : RegistrationWriteResult
     data object Closed : RegistrationWriteResult
     data object InviteUnavailable : RegistrationWriteResult
+}
+
+internal enum class InvitationKind {
+    Static,
+    Issued,
+}
+
+internal sealed interface InviteIssueWriteResult {
+    data object Created : InviteIssueWriteResult
+    data object Forbidden : InviteIssueWriteResult
+    data object SessionInvalid : InviteIssueWriteResult
 }
 
 internal data class StoredKeyWrap(

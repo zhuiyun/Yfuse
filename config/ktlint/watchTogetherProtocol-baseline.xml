@@ -1,25 +1,3 @@
 <?xml version="1.0" encoding="utf-8"?>
 <baseline version="1.0">
-    <file name="src/commonMain/kotlin/com/yfuse/watch/protocol/WatchProtocol.kt">
-        <error line="88" column="31" source="standard:multiline-expression-wrapping" />
-        <error line="118" column="32" source="standard:multiline-expression-wrapping" />
-        <error line="134" column="52" source="standard:multiline-expression-wrapping" />
-        <error line="134" column="52" source="standard:function-signature" />
-        <error line="138" column="52" source="standard:multiline-expression-wrapping" />
-        <error line="138" column="52" source="standard:function-signature" />
-        <error line="143" column="59" source="standard:multiline-expression-wrapping" />
-        <error line="143" column="59" source="standard:function-signature" />
-        <error line="148" column="53" source="standard:function-signature" />
-        <error line="171" column="25" source="standard:function-signature" />
-        <error line="171" column="44" source="standard:function-signature" />
-        <error line="171" column="62" source="standard:function-signature" />
-        <error line="171" column="74" source="standard:function-signature" />
-        <error line="181" column="32" source="standard:function-signature" />
-        <error line="181" column="46" source="standard:function-signature" />
-        <error line="181" column="62" source="standard:function-signature" />
-        <error line="194" column="35" source="standard:function-signature" />
-        <error line="194" column="51" source="standard:function-signature" />
-        <error line="194" column="64" source="standard:function-signature" />
-        <error line="200" column="57" source="standard:function-signature" />
-    </file>
 </baseline>

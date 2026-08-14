@@ -28,6 +28,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.redactDiagnosticText
 import com.yfuse.core.network.EmbyStream
+import com.yfuse.core.network.validateEmbyServerEndpoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +55,8 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLDecoder
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.TimeUnit
 
 internal lateinit var offlineApplicationContext: Context
@@ -190,6 +193,11 @@ internal fun offlineContentRangeStartsAt(
     val end = match.groupValues[2].toLongOrNull() ?: return false
     return start == expectedOffset && end >= start
 }
+
+internal fun isOfflineArtifactName(name: String): Boolean =
+    name.endsWith(".media") ||
+        name.endsWith(".part") ||
+        name.endsWith(".srt")
 
 internal fun canAppendOfflineRange(
     existingBytes: Long,
@@ -357,7 +365,98 @@ private fun HttpURLConnection.offlineResumeValidator(): String? {
 
 private fun String.resumeValidatorHeaderValue(): String = substringAfter(':')
 
+/**
+ * Raw offline transfers bypass Ktor's HttpSend guard, so they enforce the same transport
+ * boundary before opening a socket. Redirects stay disabled: authenticated Emby download URLs
+ * carry api_key in the query and must never be replayed to a different authority.
+ */
+internal fun requireAllowedOfflineTransferUrl(
+    value: String,
+    localCleartextConfirmed: Boolean,
+): URL {
+    val url = URL(value)
+    require(url.userInfo == null && url.ref == null) { "下载地址不安全" }
+    val validation =
+        validateEmbyServerEndpoint(
+            "${url.protocol}://${url.authority}",
+            localCleartextConfirmed,
+        )
+    require(validation.allowed) { validation.message ?: "下载地址不安全" }
+    return url
+}
+
 private fun Long.nextOfflineRevision(): Long = if (this == Long.MAX_VALUE) 0L else this + 1L
+
+/**
+ * Publishes the selected subtitle and creates the completed index value while the manager's
+ * index lock is held by the caller. The revision-specific subtitle part means a superseded request
+ * can never overwrite the sidecar prepared by its replacement.
+ */
+internal fun publishOfflineCompletionLocked(
+    current: OfflineMedia?,
+    snapshot: OfflineMedia,
+    videoTarget: File,
+    subtitlePart: File?,
+    subtitleTarget: File,
+    nowMs: Long,
+): OfflineMedia? {
+    if (
+        current == null ||
+        current.downloadRevision != snapshot.downloadRevision ||
+        current.status != DownloadStatus.Downloading
+    ) {
+        subtitlePart?.delete()
+        return null
+    }
+    if (!videoTarget.isFile) throw OfflineStorageException("离线视频文件不存在")
+
+    val publishedSubtitle =
+        subtitlePart
+            ?.takeIf(File::isFile)
+            ?.let { prepared ->
+                runCatching {
+                    offlineStorageWrite {
+                        Files.move(
+                            prepared.toPath(),
+                            subtitleTarget.toPath(),
+                            StandardCopyOption.ATOMIC_MOVE,
+                            StandardCopyOption.REPLACE_EXISTING,
+                        )
+                    }
+                    subtitleTarget.takeIf(File::isFile)
+                }.onFailure { error ->
+                    prepared.delete()
+                    subtitleTarget.delete()
+                    AppLog.warning(
+                        category = "offline",
+                        event = "subtitle_publish_failed",
+                        message = "Video completed but the selected subtitle could not be published",
+                        throwable = error,
+                        attributes = mapOf("itemId" to snapshot.itemId),
+                    )
+                }.getOrNull()
+            }
+    if (publishedSubtitle == null) subtitleTarget.delete()
+
+    return current.copy(
+        status = DownloadStatus.Completed,
+        localPath = videoTarget.absolutePath,
+        subtitlePath = publishedSubtitle?.absolutePath,
+        downloadedBytes = videoTarget.length(),
+        totalBytes = videoTarget.length(),
+        resumeValidator = null,
+        error =
+            if (snapshot.subtitleStreamIndex != null && publishedSubtitle == null) {
+                "视频已完成，但所选字幕未能保存"
+            } else {
+                null
+            },
+        retryCount = 0,
+        nextRetryAt = 0L,
+        lastFailureKind = null,
+        updatedAtEpochMs = nowMs,
+    )
+}
 
 internal class AndroidOfflineMediaManager(
     private val context: Context,
@@ -387,6 +486,7 @@ internal class AndroidOfflineMediaManager(
     private val runLock = Mutex()
 
     init {
+        cleanupOrphanedArtifacts(_items.value)
         val recovered =
             _items.value.map { stored ->
                 // v1 persisted authenticated source/poster URLs. Extract the non-secret source
@@ -430,23 +530,30 @@ internal class AndroidOfflineMediaManager(
 
     override fun enqueue(request: OfflineDownloadRequest) {
         val id = "${request.serverId}#${request.itemId}"
-        var old: OfflineMedia? = null
         var sourceChanged = false
         lateinit var next: OfflineMedia
         synchronized(indexLock) {
-            old = _items.value.firstOrNull { it.id == id }
+            val old = _items.value.firstOrNull { it.id == id }
             val plan = planOfflineEnqueue(old, request, System.currentTimeMillis())
             sourceChanged = plan.sourceChanged
             next = plan.item
             commitLocked(_items.value.filterNot { it.id == id } + next)
-        }
-        if (sourceChanged && old != null) {
-            // Commit the new revision first so the active loop sees that it was superseded
-            // before its old file handles are removed.
-            old?.localPath?.let(::File)?.delete()
-            old?.subtitlePath?.let(::File)?.delete()
-            old?.let(::completedFile)?.delete()
-            old?.let(::partFile)?.delete()
+            if (old != null && sourceChanged) {
+                // Commit the new revision first so the active loop sees that it was superseded.
+                // Keep cleanup under the same lock so a replacement cannot claim its files before
+                // the old generation's deterministic artifacts have been removed.
+                old.localPath?.let(::File)?.delete()
+                old.subtitlePath?.let(::File)?.delete()
+                completedFile(old).delete()
+                legacyCompletedFile(old.id).delete()
+                partFile(old).delete()
+                subtitleFile(old.id).delete()
+                deleteSubtitlePartFiles(old.id)
+            } else if (old != null && !next.playable) {
+                // Re-queuing the same variant intentionally preserves its verified range and
+                // partial video. Only subtitle staging is revision-bound and cannot be resumed.
+                deleteSubtitlePartFiles(old.id)
+            }
         }
         AppLog.info(
             category = "offline",
@@ -567,16 +674,37 @@ internal class AndroidOfflineMediaManager(
     }
 
     override fun remove(id: String) {
-        val removed =
-            synchronized(indexLock) {
-                val item = _items.value.firstOrNull { it.id == id }
-                commitLocked(_items.value.filterNot { it.id == id })
-                item
+        synchronized(indexLock) {
+            _items.value.firstOrNull { it.id == id }?.let { item ->
+                // Keep the index until every deterministic artifact is gone. If the process
+                // dies during cleanup, startup can still reconcile the retained index instead
+                // of leaving an untracked, undeletable media file behind.
+                val deleting =
+                    item.copy(
+                        status = DownloadStatus.Paused,
+                        downloadRevision = item.downloadRevision.nextOfflineRevision(),
+                        updatedAtEpochMs = now(),
+                    )
+                // Persist the new revision before deletion so a blocked download cannot create
+                // a fresh artifact after this method has removed the index entry.
+                commitLocked(_items.value.map { if (it.id == id) deleting else it })
+                if (deleteArtifactsLocked(deleting)) {
+                    commitLocked(_items.value.filterNot { it.id == id })
+                } else {
+                    commitLocked(
+                        _items.value.map {
+                            if (it.id == id) {
+                                deleting.copy(error = "无法删除全部离线文件，请重试")
+                            } else {
+                                it
+                            }
+                        },
+                    )
+                }
             }
-        removed?.let { item ->
-            item.localPath?.let(::File)?.delete()
-            item.subtitlePath?.let(::File)?.delete()
-            partFile(item).delete()
+            // Cleanup by deterministic id even when a prior crash already removed the index row.
+            subtitleFile(id).delete()
+            deleteSubtitlePartFiles(id)
         }
         rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
         AppLog.info("offline", "download_removed", "Offline download removed")
@@ -699,6 +827,28 @@ internal class AndroidOfflineMediaManager(
 
             var connection: HttpURLConnection? = null
             try {
+                // A process may stop after the video was fsync'ed and renamed but before its
+                // subtitle and Completed index entry were published. That video is verified
+                // enough to reuse: continue with the sidecar phase instead of downloading it
+                // from byte zero again.
+                val finalizedVideo =
+                    snapshot.localPath
+                        ?.let(::File)
+                        ?.takeIf { it.isFile && it.length() > 0L }
+                        ?: completedFile(snapshot).takeIf { it.isFile && it.length() > 0L }
+                if (finalizedVideo != null) {
+                    val subtitlePart = downloadSubtitlePart(snapshot)
+                    if (!publishCompletedDownload(snapshot, finalizedVideo, subtitlePart)) {
+                        return@withContext
+                    }
+                    AppLog.info(
+                        category = "offline",
+                        event = "download_recovered_after_video_finalize",
+                        message = "Recovered offline completion after video finalization",
+                        attributes = mapOf("itemId" to snapshot.itemId),
+                    )
+                    return@withContext
+                }
                 AppLog.info(
                     category = "offline",
                     event = "download_started",
@@ -709,16 +859,24 @@ internal class AndroidOfflineMediaManager(
                             "resumeBytes" to existing.toString(),
                         ),
                 )
+                val server =
+                    registry.serverById(snapshot.serverId)
+                        ?: error("服务器已移除，无法继续下载")
                 val sourceUrl = resolveOfflineSourceUrl(snapshot, registry)
+                val source =
+                    requireAllowedOfflineTransferUrl(
+                        sourceUrl,
+                        server.localCleartextConfirmed,
+                    )
                 var append: Boolean
                 var responseValidator: String?
                 while (true) {
                     if (!isCurrentDownload(snapshot)) return@withContext
                     connection =
-                        (URL(sourceUrl).openConnection() as HttpURLConnection).apply {
+                        (source.openConnection() as HttpURLConnection).apply {
                             connectTimeout = 20_000
                             readTimeout = 30_000
-                            instanceFollowRedirects = true
+                            instanceFollowRedirects = false
                             if (existing > 0L) {
                                 setRequestProperty("Range", "bytes=$existing-")
                                 expectedValidator?.let {
@@ -860,8 +1018,9 @@ internal class AndroidOfflineMediaManager(
                 if (total > 0L) {
                     if (part.length() != total) throw IOException("下载连接提前结束，内容不完整")
                 }
-                val target = finalizeDownload(snapshot, part) ?: return@withContext
-                downloadSubtitle(snapshot)
+                val target = finalizeVideo(snapshot, part) ?: return@withContext
+                val subtitlePart = downloadSubtitlePart(snapshot)
+                if (!publishCompletedDownload(snapshot, target, subtitlePart)) return@withContext
                 AppLog.info(
                     category = "offline",
                     event = "download_completed",
@@ -984,7 +1143,7 @@ internal class AndroidOfflineMediaManager(
             } == true
         }
 
-    private fun finalizeDownload(
+    private fun finalizeVideo(
         snapshot: OfflineMedia,
         part: File,
     ): File? =
@@ -1000,19 +1159,16 @@ internal class AndroidOfflineMediaManager(
             val target = completedFile(current)
             if (target.exists()) target.delete()
             if (!part.renameTo(target)) throw OfflineStorageException("无法保存离线文件")
+            // Durably remember the finalized video before the subtitle phase. On an interrupted
+            // run this lets the next worker resume from the local video, not byte zero.
             commitLocked(
                 _items.value.map {
                     if (it.id == current.id) {
                         it.copy(
-                            status = DownloadStatus.Completed,
                             localPath = target.absolutePath,
                             downloadedBytes = target.length(),
                             totalBytes = target.length(),
                             resumeValidator = null,
-                            error = null,
-                            retryCount = 0,
-                            nextRetryAt = 0L,
-                            lastFailureKind = null,
                             updatedAtEpochMs = now(),
                         )
                     } else {
@@ -1023,44 +1179,111 @@ internal class AndroidOfflineMediaManager(
             target
         }
 
-    private suspend fun downloadSubtitle(snapshot: OfflineMedia) =
+    private suspend fun downloadSubtitlePart(snapshot: OfflineMedia): File? =
         withContext(Dispatchers.IO) {
-            val sourceUrl = resolveOfflineSubtitleUrl(snapshot, registry) ?: return@withContext
-            val target = subtitleFile(snapshot)
+            val sourceUrl =
+                runCatching { resolveOfflineSubtitleUrl(snapshot, registry) }
+                    .onFailure { error -> logSubtitleFailure(snapshot, error) }
+                    .getOrNull()
+                    ?: return@withContext null
+            val server =
+                registry.serverById(snapshot.serverId)
+                    ?: return@withContext null
+            val source =
+                runCatching {
+                    requireAllowedOfflineTransferUrl(
+                        sourceUrl,
+                        server.localCleartextConfirmed,
+                    )
+                }.onFailure { error -> logSubtitleFailure(snapshot, error) }
+                    .getOrNull()
+                    ?: return@withContext null
+            val part = subtitlePartFile(snapshot)
+            part.delete()
             var connection: HttpURLConnection? = null
             try {
+                if (!isCurrentDownload(snapshot)) return@withContext null
                 connection =
-                    (URL(sourceUrl).openConnection() as HttpURLConnection).apply {
+                    (source.openConnection() as HttpURLConnection).apply {
                         connectTimeout = 20_000
                         readTimeout = 30_000
-                        instanceFollowRedirects = true
+                        instanceFollowRedirects = false
                     }
                 if (connection.responseCode !in 200..299) {
                     throw OfflineHttpException(connection.responseCode)
                 }
                 connection.inputStream.use { input ->
-                    offlineStorageWrite { target.outputStream().use(input::copyTo) }
-                }
-                update(snapshot.id) { current ->
-                    if (current.downloadRevision == snapshot.downloadRevision) {
-                        current.copy(subtitlePath = target.absolutePath, updatedAtEpochMs = now())
-                    } else {
-                        current
+                    val output = offlineStorageWrite { FileOutputStream(part, false) }
+                    try {
+                        val buffer = ByteArray(32 * 1024)
+                        while (true) {
+                            if (!isCurrentDownload(snapshot)) {
+                                part.delete()
+                                return@withContext null
+                            }
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            if (!isCurrentDownload(snapshot)) {
+                                part.delete()
+                                return@withContext null
+                            }
+                            offlineStorageWrite { output.write(buffer, 0, read) }
+                        }
+                        offlineStorageWrite { output.fd.sync() }
+                    } finally {
+                        offlineStorageWrite { output.close() }
                     }
                 }
+                if (!isCurrentDownload(snapshot)) {
+                    part.delete()
+                    return@withContext null
+                }
+                part
+            } catch (cancelled: CancellationException) {
+                part.delete()
+                throw cancelled
             } catch (error: Throwable) {
-                target.delete()
-                AppLog.warning(
-                    category = "offline",
-                    event = "subtitle_download_failed",
-                    message = "Video completed but the selected subtitle could not be saved",
-                    throwable = error,
-                    attributes = mapOf("itemId" to snapshot.itemId),
-                )
+                part.delete()
+                logSubtitleFailure(snapshot, error)
+                null
             } finally {
                 connection?.disconnect()
+                if (!isCurrentDownload(snapshot)) part.delete()
             }
         }
+
+    private fun publishCompletedDownload(
+        snapshot: OfflineMedia,
+        videoTarget: File,
+        subtitlePart: File?,
+    ): Boolean =
+        synchronized(indexLock) {
+            val current = _items.value.firstOrNull { it.id == snapshot.id }
+            val completed =
+                publishOfflineCompletionLocked(
+                    current = current,
+                    snapshot = snapshot,
+                    videoTarget = videoTarget,
+                    subtitlePart = subtitlePart,
+                    subtitleTarget = subtitleFile(snapshot.id),
+                    nowMs = now(),
+                ) ?: return@synchronized false
+            commitLocked(_items.value.map { if (it.id == snapshot.id) completed else it })
+            true
+        }
+
+    private fun logSubtitleFailure(
+        snapshot: OfflineMedia,
+        error: Throwable,
+    ) {
+        AppLog.warning(
+            category = "offline",
+            event = "subtitle_download_failed",
+            message = "Video completed but the selected subtitle could not be saved",
+            throwable = error,
+            attributes = mapOf("itemId" to snapshot.itemId),
+        )
+    }
 
     private fun update(
         id: String,
@@ -1094,11 +1317,83 @@ internal class AndroidOfflineMediaManager(
         }.getOrDefault(emptyList())
     }
 
+    /**
+     * The offline directory is private to this manager. Delete any deterministic artifact that
+     * has no matching index row after a process death between artifact cleanup and index commit.
+     * Artifacts belonging to a queued recovery are deliberately retained, including a finalized
+     * video awaiting its subtitle/index publication.
+     */
+    private fun cleanupOrphanedArtifacts(items: List<OfflineMedia>) {
+        synchronized(indexLock) {
+            val knownPrefixes = items.map { safeFileName(it.id) }.toSet()
+            directory.listFiles()
+                ?.filter(File::isFile)
+                ?.filter { file ->
+                    val name = file.name
+                    val belongsToKnownItem =
+                        knownPrefixes.any { prefix ->
+                            name == "$prefix.part" ||
+                                name == "$prefix.media" ||
+                                name == "$prefix.srt" ||
+                                (name.startsWith("$prefix.") && name.endsWith(".subtitle.part"))
+                        }
+                    !belongsToKnownItem && isOfflineArtifactName(name)
+                }?.forEach(File::delete)
+        }
+    }
+
+    private fun deleteArtifactsLocked(item: OfflineMedia): Boolean {
+        val artifacts =
+            listOfNotNull(
+                item.localPath?.let(::File),
+                item.subtitlePath?.let(::File),
+                completedFile(item),
+                legacyCompletedFile(item.id),
+                partFile(item),
+                subtitleFile(item.id),
+            ).distinct()
+        artifacts.forEach { artifact ->
+            if (artifact.exists() && !artifact.delete()) {
+                AppLog.warning(
+                    category = "offline",
+                    event = "offline_artifact_delete_failed",
+                    message = "Offline artifact could not be deleted; retaining its index entry",
+                    attributes = mapOf("itemId" to item.itemId),
+                )
+            }
+        }
+        deleteSubtitlePartFiles(item.id)
+        return artifacts.none(File::exists) &&
+            directory.listFiles()?.none { candidate ->
+                candidate.name.startsWith(safeFileName(item.id) + ".") &&
+                    candidate.name.endsWith(".subtitle.part")
+            } != false
+    }
+
     private fun partFile(item: OfflineMedia) = File(directory, safeFileName(item.id) + ".part")
 
-    private fun completedFile(item: OfflineMedia) = File(directory, safeFileName(item.id) + ".media")
+    // Video publication has a revision-specific name. A cancelled or superseded finalization
+    // therefore cannot be mistaken for the replacement's source on a later recovery.
+    private fun completedFile(item: OfflineMedia) =
+        File(directory, "${safeFileName(item.id)}.${item.downloadRevision}.media")
 
-    private fun subtitleFile(item: OfflineMedia) = File(directory, safeFileName(item.id) + ".srt")
+    // v1/v2 used an id-only target. It is never selected for a new download, but removal still
+    // clears it so upgraded installs cannot retain an old artifact indefinitely.
+    private fun legacyCompletedFile(id: String) = File(directory, safeFileName(id) + ".media")
+
+    private fun subtitleFile(id: String) = File(directory, safeFileName(id) + ".srt")
+
+    private fun subtitlePartFile(item: OfflineMedia) =
+        File(directory, "${safeFileName(item.id)}.${item.downloadRevision}.subtitle.part")
+
+    private fun deleteSubtitlePartFiles(id: String) {
+        val prefix = safeFileName(id) + "."
+        directory.listFiles()?.forEach { candidate ->
+            if (candidate.name.startsWith(prefix) && candidate.name.endsWith(".subtitle.part")) {
+                candidate.delete()
+            }
+        }
+    }
 
     private fun persistPolicy(value: OfflineDownloadPolicy) {
         val normalized = persistOfflineDownloadPolicy(settings, value)

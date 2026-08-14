@@ -35,15 +35,21 @@ yfuse.zhuiyun.site {
 	}
 }
 
-# Temporary compatibility path for already-published clients whose update or
-# watch endpoint is the historical HTTP URL. Account APIs reject this transport;
-# remove this block after those client versions have aged out.
+# Temporary compatibility path for already-published clients whose update
+# endpoint is the historical HTTP URL. Account APIs and watch-room sockets reject
+# this transport; remove this block after those client versions have aged out.
 http://47.112.219.60 {
 	@account path /api/*
 	header @account Content-Type "application/json; charset=utf-8"
 	header @account Cache-Control "no-store"
 	header @account Pragma "no-cache"
 	respond @account `{"error":{"code":"https_required","message":"账号接口仅接受 HTTPS 请求"}}` 426
+
+	@watch path /watch
+	header @watch Content-Type "application/json; charset=utf-8"
+	header @watch Cache-Control "no-store"
+	header @watch Pragma "no-cache"
+	respond @watch `{"error":{"code":"https_required","message":"一起看仅接受 WSS 连接"}}` 426
 
 	reverse_proxy 127.0.0.1:8080 {
 		stream_close_delay 5m

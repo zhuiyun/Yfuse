@@ -70,7 +70,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
@@ -132,7 +132,7 @@ import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.offline.OfflineDownloadQuality
 import com.yfuse.core.offline.OfflineDownloadSelection
-import com.yfuse.core.offline.estimateOfflineBytes
+import com.yfuse.core.offline.estimateOfflineDownloadBytes
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.util.rememberShareHandler
@@ -314,6 +314,8 @@ fun DetailScreen(component: DetailComponent) {
 
     val watchTogether = component.dependencies.watchTogether
     val watchPreferences = component.dependencies.watchTogetherPreferences
+    val accountState by component.dependencies.account.state.collectAsState()
+    val watchAvailable = accountState.canUseWatchTogether()
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by watchPreferences.endpoint.collectAsState()
     val share = rememberShareHandler()
@@ -764,18 +766,20 @@ fun DetailScreen(component: DetailComponent) {
                         // player activity that came up covered the invite sheet this opens — the
                         // host reached the film without ever being shown the link they created it
                         // for. The sheet starts playback itself, once the invite has been sent.
-                        OverlayOptionRow(
-                            label = "一起看",
-                            selected = watchState.roomCode != null,
-                            onClick = {
-                                moreSheetOpen = false
-                                watchTogether.createRoom(
-                                    endpoint = watchEndpoint,
-                                    mediaKey = detail.providerIds.watchKey(detail.id),
-                                )
-                                shareSheetOpen = true
-                            },
-                        )
+                        if (watchAvailable) {
+                            OverlayOptionRow(
+                                label = "一起看",
+                                selected = watchState.roomCode != null,
+                                onClick = {
+                                    moreSheetOpen = false
+                                    watchTogether.createRoom(
+                                        endpoint = watchEndpoint,
+                                        mediaKey = detail.providerIds.watchKey(detail.id),
+                                    )
+                                    shareSheetOpen = true
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -866,12 +870,6 @@ fun DetailScreen(component: DetailComponent) {
                         roomCode = watchState.roomCode.orEmpty(),
                         mediaKey = detail?.let { it.providerIds.watchKey(it.id) },
                         title = detail?.title,
-                        // Only travel the endpoint when it isn't the built-in default, so the common
-                        // case produces a short link and no "unfamiliar relay" warning on the far end.
-                        endpoint =
-                            watchEndpoint.takeIf {
-                                it.trimEnd('/') != WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
-                            },
                     )
                 WatchInviteShareSheet(
                     roomCode = watchState.roomCode,
@@ -927,18 +925,26 @@ private fun OfflineDownloadDialog(
             OfflineBatchMode.Season -> episodes.size.coerceAtLeast(1)
             OfflineBatchMode.Unwatched -> episodes.count { !it.played }
         }
-    val estimatePerItem =
-        estimateOfflineBytes(
-            sourceSizeBytes = selectedVersion?.sizeBytes,
-            sourceBitrateBps = selectedVersion?.bitrateBps,
-            runtimeMinutes = detail.runtimeMinutes,
+    val selection =
+        OfflineDownloadSelection(
+            batchMode = batchMode,
+            mediaSourceId = selectedVersion?.id,
             quality = quality,
-            includeSubtitle = selectedSubtitle != null,
+            subtitleStreamIndex = selectedSubtitle?.index,
+            subtitleCodec = selectedSubtitle?.codec,
+            subtitleLanguage = selectedSubtitle?.language,
+            subtitleDefault = selectedSubtitle?.default == true,
+            subtitleForced = selectedSubtitle?.forced == true,
         )
     val totalEstimate =
-        estimatePerItem?.let { bytes ->
-            if (batchCount > 0 && bytes > Long.MAX_VALUE / batchCount) Long.MAX_VALUE else bytes * batchCount
-        }
+        estimateOfflineDownloadBytes(
+            currentItemId = detail.id,
+            currentTitle = detail.title,
+            currentRuntimeMinutes = detail.runtimeMinutes,
+            currentVersions = detail.versions,
+            seasonEpisodes = episodes,
+            selection = selection,
+        )
 
     GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
         OverlayHeader(
@@ -1010,18 +1016,7 @@ private fun OfflineDownloadDialog(
             dismissLabel = "取消",
             confirmLabel = "加入下载",
             onDismiss = onDismiss,
-            onConfirm = {
-                onConfirm(
-                    OfflineDownloadSelection(
-                        batchMode = batchMode,
-                        mediaSourceId = selectedVersion?.id,
-                        quality = quality,
-                        subtitleStreamIndex = selectedSubtitle?.index,
-                        subtitleCodec = selectedSubtitle?.codec,
-                        subtitleLanguage = selectedSubtitle?.language,
-                    ),
-                )
-            },
+            onConfirm = { onConfirm(selection) },
             confirmEnabled =
                 (versions.isEmpty() || selectedVersion != null) &&
                     !(batchMode == OfflineBatchMode.Unwatched && batchCount == 0),

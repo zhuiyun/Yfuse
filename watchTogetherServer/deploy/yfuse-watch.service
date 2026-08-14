@@ -13,6 +13,10 @@ Environment=UPDATE_ROOT=/srv/yfuse-update/yfuse
 Environment=ACCOUNT_DB_PATH=/var/lib/yfuse/account.db
 Environment=ACCOUNT_REGISTRATION_ENABLED=false
 Environment=ACCOUNT_MAX_USERS=100
+Environment=ACCOUNT_INVITE_ISSUER_USERNAMES=zhuiyun
+Environment=ACCOUNT_ISSUED_INVITE_TTL_HOURS=24
+Environment=MIGRATION_RELAY_DB_PATH=/var/lib/yfuse/migration-relay.db
+EnvironmentFile=/etc/yfuse-watch/environment
 Environment=WATCH_TRUST_PROXY_HEADERS=true
 Environment="JAVA_OPTS=-Xms32m -Xmx128m"
 ExecStart=/opt/yfuse-watch/current/bin/watchTogetherServer

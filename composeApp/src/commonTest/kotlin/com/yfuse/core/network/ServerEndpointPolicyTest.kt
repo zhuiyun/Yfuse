@@ -3,45 +3,72 @@ package com.yfuse.core.network
 import com.yfuse.core.model.SavedServer
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServerEndpointPolicyTest {
     @Test
-    fun retired_host_check_matches_the_parsed_host_only() {
+    fun retiredHostCheckMatchesTheParsedHostOnly() {
         assertNotNull(server("http://gf.emby.yun:19001").knownUnavailableEndpointReason())
         assertNull(server("http://gf.emby.yun.example.com").knownUnavailableEndpointReason())
         assertNull(server("http://47.112.219.60:19001").knownUnavailableEndpointReason())
     }
 
     @Test
-    fun emby_http_is_allowed_immediately_on_public_and_local_hosts() {
+    fun embyPublicCleartextIsRejectedEvenAfterRiskConfirmation() {
+        val result =
+            validateEmbyServerEndpoint(
+                "http://media.example.com:8096",
+                localCleartextConfirmed = true,
+            )
+
+        assertFalse(result.allowed)
+        assertEquals(EndpointTransportDecision.PublicCleartextRejected, result.decision)
+    }
+
+    @Test
+    fun embyLocalCleartextRequiresExplicitConfirmation() {
         listOf(
             "http://192.168.1.8:8096",
             "http://10.0.0.8",
             "http://media.local:8096",
-            "http://8.8.8.8:8096",
-            "http://media.example.com:8096",
+            "http://emby:8096",
+            "http://100.64.0.10:8096",
         ).forEach { endpoint ->
-            val result = validateEmbyServerEndpoint(endpoint)
-            assertTrue(result.allowed, endpoint)
-            assertEquals(EndpointTransportDecision.Cleartext, result.decision, endpoint)
-            assertNull(result.message, endpoint)
+            assertTrue(validateEmbyServerEndpoint(endpoint).requiresCleartextConfirmation)
+            assertTrue(
+                validateEmbyServerEndpoint(
+                    endpoint,
+                    localCleartextConfirmed = true,
+                ).allowed,
+            )
         }
     }
 
     @Test
-    fun emby_https_is_allowed_for_public_and_local_hosts() {
-        listOf("https://media.example.com", "https://192.168.1.8:8920").forEach { endpoint ->
-            val result = validateEmbyServerEndpoint(endpoint)
-            assertTrue(result.allowed)
-            assertEquals(EndpointTransportDecision.Secure, result.decision)
+    fun embyHttpsIsAllowedForPublicAndLocalHosts() {
+        assertTrue(validateEmbyServerEndpoint("https://media.example.com").allowed)
+        assertTrue(validateEmbyServerEndpoint("https://192.168.1.8:8920").allowed)
+    }
+
+    @Test
+    fun cleartextClassifierRejectsPublicBoundariesAndHostSpoofing() {
+        listOf(
+            "http://100.63.255.255:8096",
+            "http://100.128.0.1:8096",
+            "http://8.8.8.8:8096",
+            "http://127.0.0.1.evil.example:8096",
+            "http://2130706433:8096",
+            "http://0x7f000001:8096",
+        ).forEach { endpoint ->
+            assertFalse(validateEmbyServerEndpoint(endpoint, true).allowed, endpoint)
         }
     }
 
     @Test
-    fun endpoint_rejects_credentials_query_fragment_and_invalid_port() {
+    fun endpointRejectsCredentialsQueryFragmentAndInvalidPort() {
         listOf(
             "http://user:password@192.168.1.8:8096",
             "http://192.168.1.8:8096?token=secret",
@@ -50,7 +77,7 @@ class ServerEndpointPolicyTest {
         ).forEach { endpoint ->
             assertEquals(
                 EndpointTransportDecision.Invalid,
-                validateEmbyServerEndpoint(endpoint).decision,
+                validateEmbyServerEndpoint(endpoint, true).decision,
                 endpoint,
             )
         }

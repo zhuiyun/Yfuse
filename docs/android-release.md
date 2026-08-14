@@ -117,13 +117,13 @@ The initial HSTS policy is intentionally limited to `max-age=86400` and does not
 cover subdomains. After DNS, certificate renewal, and release traffic have remained
 stable, it can be raised to one year (`31536000`).
 
-The Caddyfile temporarily proxies `http://47.112.219.60` to the same backend so
-already-installed builds can still check for updates and reconnect to watch rooms.
+The Caddyfile temporarily keeps `http://47.112.219.60` only so already-installed builds
+can still check for updates. It explicitly returns `426` for `/api/*` and `/watch`; account
+credentials and watch-room WebSockets are never forwarded over the legacy origin.
 `update.json` deliberately keeps its APK URL on that unencrypted origin, while
 `update-v2.json` is the HTTPS contract for all new builds. The workflow verifies both
-origins on every release. Remove the compatibility block and stop producing the old
-manifest only after affected app versions have aged out; never send account
-credentials over the legacy origin.
+update origins on every release. Remove the compatibility block and stop producing the old
+manifest only after affected app versions have aged out.
 
 ## Publishing
 
@@ -133,9 +133,9 @@ The normal release path is a push to the default branch that changes
 `version.properties`:
 
 For a watch protocol change, deploy and verify the matching server first. Protocol
-v4 is a security boundary and the client must not fall back to v3; the Android publish
-workflow checks production `/watch/version` and refuses to publish until it advertises
-the expected v4 protocol.
+v5 requires a valid Yfuse account access token before any room access, so anonymous users cannot
+create or join rooms and the client must not fall back to v4. The Android publish workflow checks
+production `/watch/version` and refuses to publish until it advertises the expected v5 protocol.
 
 1. Explicitly update and validate `version.properties`. The helper increments the
    current code unless `--version-code` is provided:

@@ -16,6 +16,8 @@ do not expose the default account listener directly to the internet.
 | `ACCOUNT_DB_PATH` | `/var/lib/yfuse/account.db` | SQLite database file |
 | `ACCOUNT_REGISTRATION_ENABLED` | `false` | Whether new registrations are accepted |
 | `ACCOUNT_REGISTRATION_INVITE_CODES` | empty | Comma-separated one-time URL-safe invitation codes |
+| `ACCOUNT_INVITE_ISSUER_USERNAMES` | empty | Usernames granted `invite:issue` in SQLite |
+| `ACCOUNT_ISSUED_INVITE_TTL_HOURS` | `24` | Generated invite lifetime (`1..168` hours) |
 | `ACCOUNT_MAX_USERS` | `1000` | Maximum registered users (valid range `1..100000`) |
 | `HOST` | `127.0.0.1` | Ktor bind host |
 | `PORT` | `8080` | Ktor bind port |
@@ -25,6 +27,8 @@ with `registration_closed`. The check happens before password hashing and does n
 which condition closed registration. For a private deployment, prefer high-entropy one-time
 codes in `ACCOUNT_REGISTRATION_INVITE_CODES` while public registration stays disabled. Only
 SHA-256 code digests are recorded after redemption; each code creates at most one account.
+Issuer usernames are resolved to immutable user ids and synchronized into
+`account_permissions`; removing a name revokes its config-managed grant on restart.
 
 Blocking SQLite calls and CPU-heavy password hashing run on a dedicated four-thread account
 executor, not Ktor CIO event threads. At most four account operations run concurrently by
@@ -61,6 +65,7 @@ reported as `500 response_too_large` instead of a generic internal error.
 | `POST /api/v1/auth/refresh` | `{refreshToken,deviceName?}` | `200 AuthResponse` with rotated tokens |
 | `POST /api/v1/auth/logout` | Bearer access token | `204` |
 | `GET /api/v1/account/profile` | Bearer access token | `200 UserResponse` |
+| `POST /api/v1/account/invites` | Bearer with `invite:issue` | `201 {code,expiresAtEpochMs}` |
 | `PUT /api/v1/account/profile` | Bearer plus `{nickname?,avatarId?}` | `200 UserResponse` |
 | `PUT /api/v1/account/password` | Bearer plus the password-change body below | `200 AuthResponse` |
 | `GET /api/v1/account/sessions` | Bearer | Active device sessions, including current marker |
@@ -93,6 +98,23 @@ Access tokens live for 15 minutes and refresh tokens for 30 days. Refresh atomic
 both values, immediately invalidating the old pair. Logout revokes that session, including its
 refresh token. At most ten recent active sessions are retained per user. SQLite stores only
 SHA-256 token digests, never bearer or refresh-token plaintext.
+
+Generated invites are random 256-bit Base64URL values, returned once and stored only as a
+SHA-256 digest with issuer, expiry, and redemption audit fields. They remain usable while
+public registration is closed and are consumed atomically with user/session creation. The
+server checks `invite:issue` on every request; client-side visibility is not authorization.
+
+## Watch account authentication (protocol v5)
+
+`/watch` requires the access token in the WebSocket Upgrade request's `Authorization: Bearer`
+header; query tokens are rejected. Missing or invalid credentials close with WebSocket `1008`
+reason `account_auth_required` before room access. Live sockets revalidate at least every ten
+seconds and at access expiry; an expired, rotated, or revoked session closes with `1008`
+`account_auth_expired`. Memberships are bound to immutable account user ids in addition to
+room-scoped resume capabilities, and display profile data comes from the authenticated account.
+Protocol v5 does not permit anonymous room creation or joining and does not downgrade to v4.
+Deploy and verify the v5 server before publishing a v5 client; the Android release workflow
+enforces this server-first order through `/watch/version`.
 
 Passwords use JCA `PBKDF2WithHmacSHA256`, 600,000 iterations, a random 16-byte salt, and a
 32-byte output. Invalid login responses do not distinguish an unknown username from a wrong

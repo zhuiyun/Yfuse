@@ -17,6 +17,7 @@ internal enum class AccountProblem {
     RegistrationClosed,
     InvitationInvalid,
     CurrentPasswordInvalid,
+    Forbidden,
 }
 
 internal class AccountServiceException(
@@ -35,6 +36,20 @@ class AccountBackend private constructor(
 ) : AutoCloseable {
     internal suspend fun <T> execute(block: AccountService.() -> T): T =
         workExecutor.execute { service.block() }
+
+    suspend fun authenticateAccessToken(accessToken: String): AuthenticatedAccount =
+        execute {
+            authenticateAccessToken(accessToken).let {
+                AuthenticatedAccount(
+                    userId = it.user.id,
+                    sessionId = it.sessionId,
+                    username = it.user.username,
+                    nickname = it.user.nickname,
+                    avatarId = it.user.avatarId,
+                    accessExpiresAtEpochMs = it.accessExpiresAtEpochMs,
+                )
+            }
+        }
 
     override fun close() {
         try {
@@ -135,8 +150,13 @@ class AccountBackend private constructor(
             usernameFailureLimiter: UsernameFailureLimiter,
             syncUserRateLimiter: AccountRateLimiter,
             registrationPolicy: AccountRegistrationPolicy,
-        ): AccountBackend = AccountBackend(
-            service = AccountService(
+        ): AccountBackend {
+            store.synchronizeInviteIssuerPermissions(
+                registrationPolicy.inviteIssuerUsernames,
+                clock(),
+            )
+            return AccountBackend(
+                service = AccountService(
                 store = store,
                 passwordHasher = passwordHasher,
                 clock = clock,
@@ -144,11 +164,21 @@ class AccountBackend private constructor(
                 syncUserRateLimiter = syncUserRateLimiter,
                 registrationPolicy = registrationPolicy,
             ),
-            store = store,
-            workExecutor = workExecutor,
-        )
+                store = store,
+                workExecutor = workExecutor,
+            )
+        }
     }
 }
+
+data class AuthenticatedAccount(
+    val userId: String,
+    val sessionId: String,
+    val username: String,
+    val nickname: String,
+    val avatarId: Int,
+    val accessExpiresAtEpochMs: Long,
+)
 
 internal class AccountService(
     private val store: AccountStore,
@@ -164,11 +194,11 @@ internal class AccountService(
     private val invitationDigests = registrationPolicy.invitationCodes.map(tokenFactory::digest)
 
     fun register(request: RegisterRequest): AuthResponse {
-        if (!registrationPolicy.enabled) registrationClosed()
-        val invitationDigest = validateInvitation(request.inviteCode)
+        val invitation = validateInvitation(request.inviteCode)
+        if (!registrationPolicy.enabled && invitation == null) registrationClosed()
         val username = validateRegistrationUsername(request.username)
         val normalizedUsername = username.lowercase(Locale.ROOT)
-        if (invitationDigest == null) {
+        if (invitation == null) {
             when (
                 store.registrationAvailability(
                     normalizedUsername,
@@ -207,12 +237,13 @@ internal class AccountService(
                 credentials,
                 issued.asNewSession(user.id, validateDeviceName(request.deviceName)),
                 registrationPolicy.maxUsers,
-                invitationDigest,
+                invitation?.digest,
+                invitation?.kind,
             )
         } finally {
             digest.salt.fill(0)
             digest.hash.fill(0)
-            invitationDigest?.fill(0)
+            invitation?.digest?.fill(0)
         }
         when (result) {
             RegistrationWriteResult.Created -> Unit
@@ -221,7 +252,8 @@ internal class AccountService(
             RegistrationWriteResult.InviteUnavailable -> invitationInvalid()
         }
         usernameFailureLimiter.clear(normalizedUsername)
-        return issued.toResponse(user)
+        store.synchronizeInviteIssuerPermissions(registrationPolicy.inviteIssuerUsernames, now)
+        return issued.toResponse(user, capabilitiesFor(user.id))
     }
 
     fun login(request: LoginRequest): AuthResponse {
@@ -264,7 +296,7 @@ internal class AccountService(
             issued.asNewSession(credentials.user.id, validateDeviceName(request.deviceName)),
         )
         usernameFailureLimiter.clear(normalizedUsername)
-        return issued.toResponse(credentials.user)
+        return issued.toResponse(credentials.user, capabilitiesFor(credentials.user.id))
     }
 
     fun refresh(request: RefreshRequest): AuthResponse {
@@ -277,7 +309,7 @@ internal class AccountService(
             replacement = issued.asReplacement(request.deviceName?.let(::validateDeviceName)),
             nowEpochMs = now,
         ) ?: unauthorized()
-        return issued.toResponse(session.user)
+        return issued.toResponse(session.user, capabilitiesFor(session.user.id))
     }
 
     fun logout(accessToken: String) {
@@ -287,7 +319,37 @@ internal class AccountService(
         }
     }
 
-    fun getProfile(accessToken: String): UserResponse = authenticate(accessToken).user.toResponse()
+    fun getProfile(accessToken: String): UserResponse = authenticate(accessToken).user.let {
+        it.toResponse(capabilitiesFor(it.id))
+    }
+
+    fun authenticateAccessToken(accessToken: String): AuthenticatedSession = authenticate(accessToken)
+
+    fun issueInvite(accessToken: String): IssuedInviteResponse {
+        val authenticated = authenticate(accessToken)
+        val now = clock()
+        val issued = tokenFactory.issue()
+        val expiresAt = saturatedAdd(now, registrationPolicy.issuedInviteTtlMs)
+        val result = try {
+            store.issueInvite(
+                authenticatedSessionId = authenticated.sessionId,
+                invite = NewIssuedInvite(
+                    digest = issued.hash,
+                    issuerUserId = authenticated.user.id,
+                    createdAtEpochMs = now,
+                    expiresAtEpochMs = expiresAt,
+                ),
+                nowEpochMs = now,
+            )
+        } finally {
+            issued.hash.fill(0)
+        }
+        return when (result) {
+            InviteIssueWriteResult.Created -> IssuedInviteResponse(issued.plaintext, expiresAt)
+            InviteIssueWriteResult.Forbidden -> forbidden()
+            InviteIssueWriteResult.SessionInvalid -> unauthorized()
+        }
+    }
 
     fun listSessions(accessToken: String): AccountSessionsResponse {
         val authenticated = authenticate(accessToken)
@@ -329,7 +391,7 @@ internal class AccountService(
         return AccountExportResponse(
             schemaVersion = 1,
             exportedAtEpochMs = clock(),
-            user = authenticated.user.toResponse(),
+            user = authenticated.user.toResponse(capabilitiesFor(authenticated.user.id)),
             encryptedSync = store.getSyncState(authenticated.user.id).toResponse(),
         )
     }
@@ -374,7 +436,7 @@ internal class AccountService(
         val nickname = request.nickname?.let(::validateNickname) ?: current.nickname
         val avatarId = request.avatarId?.let(::validateAvatarId) ?: current.avatarId
         return store.updateProfile(current.id, nickname, avatarId, clock())
-            ?.toResponse()
+            ?.let { it.toResponse(capabilitiesFor(it.id)) }
             ?: unauthorized()
     }
 
@@ -441,7 +503,10 @@ internal class AccountService(
         return when (result) {
             PasswordChangeWriteResult.Changed -> {
                 usernameFailureLimiter.clear(user.normalizedUsername)
-                issued.toResponse(user.copy(updatedAtEpochMs = now))
+                issued.toResponse(
+                    user.copy(updatedAtEpochMs = now),
+                    capabilitiesFor(user.id),
+                )
             }
             is PasswordChangeWriteResult.VersionConflict -> throw AccountServiceException(
                 problem = AccountProblem.VersionConflict,
@@ -560,6 +625,9 @@ internal class AccountService(
         refreshExpiresAtEpochMs = nowEpochMs + refreshTtlMs,
         createdAtEpochMs = nowEpochMs,
     )
+
+    private fun saturatedAdd(left: Long, right: Long): Long =
+        if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
 
     private fun decodeEnvelope(payload: EncryptedSyncEnvelope): DecodedSyncEnvelope {
         if (payload.schemaVersion != SYNC_SCHEMA_VERSION) {
@@ -760,20 +828,19 @@ internal class AccountService(
         return value
     }
 
-    private fun validateInvitation(raw: String?): ByteArray? {
-        if (invitationDigests.isEmpty()) return null
+    private fun validateInvitation(raw: String?): ValidatedInvitation? {
         val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
         if (!INVITE_PATTERN.matches(value)) invitationInvalid()
         val digest = tokenFactory.digest(value)
         var matched = false
         invitationDigests.forEach { configured ->
             matched = MessageDigest.isEqual(configured, digest) || matched
         }
-        if (!matched) {
-            digest.fill(0)
-            invitationInvalid()
-        }
-        return digest
+        return ValidatedInvitation(
+            digest,
+            if (matched) InvitationKind.Static else InvitationKind.Issued,
+        )
     }
 
     private fun enforceRateLimit(decision: RateLimitDecision) {
@@ -828,6 +895,14 @@ internal class AccountService(
         safeMessage = "登录状态无效或已过期",
     )
 
+    private fun forbidden(): Nothing = throw AccountServiceException(
+        problem = AccountProblem.Forbidden,
+        safeCode = "forbidden",
+        safeMessage = "当前账号没有执行此操作的权限",
+    )
+
+    private fun capabilitiesFor(userId: String): Set<String> = store.permissionsForUser(userId)
+
     private fun invalidRequest(code: String, message: String): Nothing = throw AccountServiceException(
         problem = AccountProblem.InvalidRequest,
         safeCode = code,
@@ -863,8 +938,8 @@ internal class AccountService(
             deviceName = deviceName,
         )
 
-        fun toResponse(user: StoredUser): AuthResponse = AuthResponse(
-            user = user.toResponse(),
+        fun toResponse(user: StoredUser, capabilities: Set<String>): AuthResponse = AuthResponse(
+            user = user.toResponse(capabilities),
             accessToken = access.plaintext,
             accessExpiresAtEpochMs = accessExpiresAtEpochMs,
             refreshToken = refresh.plaintext,
@@ -884,6 +959,11 @@ internal class AccountService(
         val wrappedVaultKey: ByteArray?,
         val wrapSalt: ByteArray?,
         val wrapNonce: ByteArray?,
+    )
+
+    private data class ValidatedInvitation(
+        val digest: ByteArray,
+        val kind: InvitationKind,
     )
 
     companion object {
@@ -918,13 +998,14 @@ internal class AccountService(
     }
 }
 
-private fun StoredUser.toResponse(): UserResponse = UserResponse(
+private fun StoredUser.toResponse(capabilities: Set<String> = emptySet()): UserResponse = UserResponse(
     id = id,
     username = username,
     nickname = nickname,
     avatarId = avatarId,
     createdAtEpochMs = createdAtEpochMs,
     updatedAtEpochMs = updatedAtEpochMs,
+    capabilities = capabilities,
 )
 
 private fun StoredSyncRecord.toResponse(): SyncResponse = SyncResponse(

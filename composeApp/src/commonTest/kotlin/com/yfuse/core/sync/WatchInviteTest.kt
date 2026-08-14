@@ -18,14 +18,34 @@ class WatchInviteTest {
     }
 
     @Test
-    fun uri_round_trips_an_endpoint_with_reserved_characters() {
-        val invite = WatchInvite(
-            roomCode = "KLM789",
-            mediaKey = "imdb:tt0111161",
-            title = "The Shawshank Redemption",
-            endpoint = "https://watch.example.com:8443/relay",
-        )
-        assertEquals(invite, WatchInvite.parse(invite.toUri()))
+    fun new_invites_never_serialize_a_legacy_relay_endpoint() {
+        val uri =
+            WatchInvite(
+                roomCode = "KLM789",
+                mediaKey = "imdb:tt0111161",
+                title = "The Shawshank Redemption",
+                endpoint = "https://watch.example.com:8443/relay",
+            ).toUri()
+
+        assertTrue("e=" !in uri)
+        assertNull(WatchInvite.parse(uri)?.endpoint)
+    }
+
+    @Test
+    fun legacy_invite_endpoint_is_parsed_only_so_non_official_relays_can_be_rejected() {
+        val parsed =
+            WatchInvite.parse(
+                "yfuse://watch/KLM789?e=https%3A%2F%2Fwatch.example.com%3A8443%2Frelay",
+            )
+
+        assertEquals("https://watch.example.com:8443/relay", parsed?.endpoint)
+        assertEquals("https://watch.example.com:8443/relay", parsed?.unsupportedEndpoint)
+
+        val official =
+            WatchInvite.parse(
+                "yfuse://watch/KLM789?e=https%3A%2F%2F47.112.219.60",
+            )
+        assertNull(official?.unsupportedEndpoint)
     }
 
     @Test

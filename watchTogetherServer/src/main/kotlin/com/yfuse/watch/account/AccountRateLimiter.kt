@@ -18,6 +18,8 @@ data class AccountRateLimitPolicy(
     val syncWindowMs: Long = 60_000L,
     val passwordChangeAttemptsPerWindow: Int = 5,
     val passwordChangeWindowMs: Long = 15 * 60_000L,
+    val inviteIssueAttemptsPerWindow: Int = 10,
+    val inviteIssueWindowMs: Long = 60_000L,
     /** Counts IP/bucket pairs, so one IP using multiple buckets occupies multiple entries. */
     val maxTrackedEntries: Int = 10_000,
     val cleanupIntervalMs: Long = 10_000L,
@@ -37,6 +39,8 @@ data class AccountRateLimitPolicy(
         require(syncWindowMs > 0L)
         require(passwordChangeAttemptsPerWindow > 0)
         require(passwordChangeWindowMs > 0L)
+        require(inviteIssueAttemptsPerWindow > 0)
+        require(inviteIssueWindowMs > 0L)
         require(maxTrackedEntries > 0)
         require(cleanupIntervalMs > 0L)
     }
@@ -72,6 +76,7 @@ class AccountRateLimiter(
                 AccountRateLimitBucket.SyncRead -> policy.syncReadAttemptsPerWindow
                 AccountRateLimitBucket.SyncWrite -> policy.syncWriteAttemptsPerWindow
                 AccountRateLimitBucket.PasswordChange -> policy.passwordChangeAttemptsPerWindow
+                AccountRateLimitBucket.InviteIssue -> policy.inviteIssueAttemptsPerWindow
             }
             val windowMs = when (bucket) {
                 AccountRateLimitBucket.Credentials -> policy.credentialWindowMs
@@ -84,6 +89,7 @@ class AccountRateLimiter(
                 AccountRateLimitBucket.SyncWrite,
                 -> policy.syncWindowMs
                 AccountRateLimitBucket.PasswordChange -> policy.passwordChangeWindowMs
+                AccountRateLimitBucket.InviteIssue -> policy.inviteIssueWindowMs
             }
             val existing = entries[key]
             if (existing != null) {
@@ -202,6 +208,7 @@ internal enum class AccountRateLimitBucket {
     SyncRead,
     SyncWrite,
     PasswordChange,
+    InviteIssue,
 }
 
 internal sealed interface RateLimitDecision {

@@ -156,6 +156,12 @@ class AccountApi(
             }.decoded<AccountSessionsResponse>()
             .sessions
 
+    suspend fun issueInvite(accessToken: String): IssuedInviteCode =
+        client
+            .post("$origin/api/v1/account/invites") {
+                bearerAuth(accessToken)
+            }.decoded()
+
     suspend fun revokeSession(
         accessToken: String,
         sessionId: String,

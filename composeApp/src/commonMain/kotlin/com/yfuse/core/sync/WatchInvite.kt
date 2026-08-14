@@ -1,5 +1,7 @@
 package com.yfuse.core.sync
 
+import com.yfuse.core.data.WatchTogetherPreferences
+
 /**
  * A share-able pointer to a watch-together room.
  *
@@ -9,9 +11,9 @@ package com.yfuse.core.sync
  * or `emby:…` as a same-server fallback — see `PlayerStore.watchKey`) and [title] lets the
  * confirmation sheet name the film before that lookup has finished.
  *
- * [endpoint] is optional and only present when the host is not on the default relay. It is
- * deliberately surfaced to the guest before use rather than applied silently: a link is an
- * untrusted input, and the relay it names learns what its users are watching.
+ * [endpoint] is retained only to recognize links produced by older releases. Protocol v5 binds
+ * Together Watch to the account service and sends an account access token, so current links never
+ * emit an endpoint and a parsed non-official endpoint must be rejected before joining.
  */
 data class WatchInvite(
     val roomCode: String,
@@ -19,6 +21,10 @@ data class WatchInvite(
     val title: String? = null,
     val endpoint: String? = null,
 ) {
+    /** A legacy link-supplied relay that protocol v5 must not contact. */
+    val unsupportedEndpoint: String?
+        get() = endpoint?.takeUnless(WatchTogetherPreferences::isOfficialEndpoint)
+
     /** The deep link half of a share — paired with human-readable text by [shareText]. */
     fun toUri(): String =
         buildString {
@@ -31,7 +37,6 @@ data class WatchInvite(
                 buildList {
                     mediaKey?.let { add("k=" + encodeComponent(it)) }
                     title?.let { add("t=" + encodeComponent(it)) }
-                    endpoint?.let { add("e=" + encodeComponent(it)) }
                 }
             if (params.isNotEmpty()) {
                 append('?')

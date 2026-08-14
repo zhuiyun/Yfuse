@@ -57,7 +57,8 @@ jobs:
       LEGACY_UPDATE_BASE_URL: http://47.112.219.60/yfuse
       UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL || 'https://47.112.219.60/yfuse' }}
       WATCH_BASE_URL: ${{ vars.WATCH_BASE_URL || 'https://47.112.219.60' }}
-      EXPECTED_WATCH_PROTOCOL: "4"
+      # Protocol v5 requires account-authenticated room access. The server must land first.
+      EXPECTED_WATCH_PROTOCOL: "5"
 
     steps:
       - name: Check out source

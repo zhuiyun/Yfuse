@@ -68,6 +68,13 @@ internal fun Route.accountRoutes(
                     call.respondLimitedJson(backend.execute { getProfile(accessToken) })
                 }
             }
+            post("/invites") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.InviteIssue) {
+                    val accessToken = call.requireBearerToken()
+                    val response = backend.execute { issueInvite(accessToken) }
+                    call.respondLimitedJson(response, HttpStatusCode.Created)
+                }
+            }
             get("/sessions") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.ProfileRead) {
                     val accessToken = call.requireBearerToken()
@@ -189,6 +196,7 @@ private suspend fun ApplicationCall.handleAccountEndpoint(
             AccountProblem.RegistrationClosed -> HttpStatusCode.ServiceUnavailable
             AccountProblem.InvitationInvalid -> HttpStatusCode.Forbidden
             AccountProblem.CurrentPasswordInvalid -> HttpStatusCode.Forbidden
+            AccountProblem.Forbidden -> HttpStatusCode.Forbidden
         }
         if (status == HttpStatusCode.Unauthorized) {
             response.headers.append(HttpHeaders.WWWAuthenticate, "Bearer")

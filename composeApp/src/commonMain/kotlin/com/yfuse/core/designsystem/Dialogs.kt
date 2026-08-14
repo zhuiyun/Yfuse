@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -44,6 +46,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -271,58 +274,50 @@ fun OverlayButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val shape = GlassShapes.chip
-    val fill =
+    val emphasis =
         when (tone) {
-            OverlayButtonTone.Primary -> palette.glassStrong
-            OverlayButtonTone.Destructive -> palette.glassStrong
-            OverlayButtonTone.Plain -> palette.card2
+            OverlayButtonTone.Primary -> GlassButtonEmphasis.Primary
+            OverlayButtonTone.Destructive -> GlassButtonEmphasis.Destructive
+            OverlayButtonTone.Plain -> GlassButtonEmphasis.Neutral
         }
-    val border =
-        when (tone) {
-            OverlayButtonTone.Primary -> accent.border.copy(alpha = if (enabled) 1f else 0.38f)
-            OverlayButtonTone.Destructive -> palette.error
-            OverlayButtonTone.Plain -> palette.border
-        }
-    val ink =
-        when (tone) {
-            OverlayButtonTone.Primary -> accent.accent
-            OverlayButtonTone.Destructive -> palette.error
-            OverlayButtonTone.Plain -> palette.text
-        }
-    val surface =
-        if (LocalOverlayLiquidButtons.current) {
-            Modifier.liquidGlass(
-                shape = shape,
-                fill = fill,
-                border = border,
-                over = palette.background,
-                sheen = if (tone == OverlayButtonTone.Plain) 0.62f else 0.82f,
-            )
-        } else {
-            Modifier.flatGlass(shape, fill, border)
-        }
-    Box(
+    val visuals = resolveGlassButtonVisuals(emphasis, palette, accent)
+    Row(
         modifier
-            .height(46.dp)
+            .defaultMinSize(minHeight = 48.dp)
+            .graphicsLayer { alpha = glassButtonAlpha(enabled) }
             .pressable(
                 enabled = enabled && !loading,
                 haptic = if (tone == OverlayButtonTone.Plain) null else HapticSignal.Confirm,
+                focusShape = AppShapes.control,
+                onClickLabel = label,
                 onClick = onClick,
-            )
-            .then(surface),
-        contentAlignment = Alignment.Center,
+            ).liquidGlass(
+                shape = AppShapes.control,
+                fill = visuals.fill,
+                border = visuals.border,
+                over = palette.background,
+                sheen = visuals.sheen,
+            ).padding(horizontal = 16.dp, vertical = 11.dp)
+            .semantics {
+                if (loading) stateDescription = "处理中"
+            },
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         if (loading) {
-            CircularProgressIndicator(Modifier.size(17.dp), color = ink, strokeWidth = 2.dp)
-        } else {
-            Text(
-                label,
-                style = AppTypography.body.strong,
-                color = if (enabled) ink else ink.copy(alpha = 0.55f),
-                maxLines = 1,
+            CircularProgressIndicator(
+                Modifier.size(16.dp),
+                color = visuals.content,
+                strokeWidth = 2.dp,
             )
+            Spacer(Modifier.width(8.dp))
         }
+        Text(
+            label,
+            style = AppTypography.body.strong,
+            color = visuals.content,
+            maxLines = 1,
+        )
     }
 }
 

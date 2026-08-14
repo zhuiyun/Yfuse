@@ -3,6 +3,7 @@ package com.yfuse.core.account
 import kotlinx.serialization.Serializable
 
 const val ACCOUNT_BASE_URL: String = "https://47.112.219.60"
+const val INVITE_ISSUE_CAPABILITY: String = "invite:issue"
 
 @Serializable
 data class AccountUser(
@@ -12,7 +13,11 @@ data class AccountUser(
     val avatarId: Int,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    /** Server-authoritative permissions. An absent legacy field grants nothing. */
+    val capabilities: List<String> = emptyList(),
 )
+
+fun AccountUser.canIssueInvites(): Boolean = INVITE_ISSUE_CAPABILITY in capabilities
 
 @Serializable
 internal data class RegisterRequest(
@@ -135,6 +140,12 @@ internal data class ErrorEnvelope(
     val error: ErrorBody,
 )
 
+@Serializable
+data class IssuedInviteCode(
+    val code: String,
+    val expiresAtEpochMs: Long,
+)
+
 data class AccountSession(
     val user: AccountUser,
     val accessToken: String,
@@ -160,3 +171,6 @@ sealed interface AccountState {
         val message: String? = null,
     ) : AccountState
 }
+
+/** Together Watch is an account-bound service; every client surface uses this same gate. */
+fun AccountState.canUseWatchTogether(): Boolean = this is AccountState.SignedIn

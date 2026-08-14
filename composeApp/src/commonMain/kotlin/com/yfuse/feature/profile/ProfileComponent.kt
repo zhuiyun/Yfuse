@@ -61,6 +61,19 @@ class ProfileComponent(
         nowEpochSeconds: Long,
     ): Result<Int> = registry.importProtectedBackup(payload, passphrase, nowEpochSeconds)
 
+    fun exportRelayServers(createdAtEpochSeconds: Long) =
+        registry.exportRelayBackup(createdAtEpochSeconds)
+
+    fun inspectRelayServers(payload: String) = registry.inspectRelayBackup(payload)
+
+    fun isRelayServers(payload: String): Boolean = registry.isRelayBackup(payload)
+
+    fun importRelayServers(
+        payload: String,
+        transferSecret: ByteArray,
+        nowEpochSeconds: Long,
+    ): Result<Int> = registry.importRelayBackup(payload, transferSecret, nowEpochSeconds)
+
     fun recoveryItem(snapshot: PlaybackRecoverySnapshot): PlayerMediaItem? {
         val server = snapshot.serverId?.let(registry::serverById) ?: registry.defaultServer
         server ?: return null

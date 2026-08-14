@@ -63,8 +63,8 @@ sealed interface InviteResolution {
 fun WatchInviteSheet(
     roomCode: String,
     resolution: InviteResolution,
-    /** Non-null only when the invite named a relay other than the configured one. */
-    unfamiliarEndpoint: String?,
+    /** Non-null only when a legacy/untrusted invite names a non-official relay. */
+    unsupportedEndpoint: String?,
     onJoin: () -> Unit,
     onSearchByName: () -> Unit,
     onDismiss: () -> Unit,
@@ -83,7 +83,18 @@ fun WatchInviteSheet(
             style = AppTypography.section.strong,
         )
 
-        when (resolution) {
+        if (unsupportedEndpoint != null) {
+            Text(
+                "无法加入：这条旧邀请指向非官方服务器 $unsupportedEndpoint。一起看协议 v5 只连接 Yfuse 账号服务的官方安全地址，请让邀请者重新分享。",
+                style = AppTypography.body.regular.copy(lineHeight = 20.6.sp),
+                color = palette.error,
+            )
+            OverlayButton(
+                label = "关闭",
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+            )
+        } else when (resolution) {
             InviteResolution.Resolving ->
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = 18.dp),
@@ -150,17 +161,6 @@ fun WatchInviteSheet(
                             )
                         }
                     }
-                }
-
-                unfamiliarEndpoint?.let { endpoint ->
-                    // The link can point the app at any relay. Naming it before use keeps
-                    // that visible: whoever runs it learns what this room is watching.
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "这条邀请使用的一起看服务器是 $endpoint，与你当前配置的不同。加入即表示信任该服务器。",
-                        style = AppTypography.caption.regular.copy(lineHeight = 16.8.sp),
-                        color = palette.sub2,
-                    )
                 }
 
                 OverlayButton(

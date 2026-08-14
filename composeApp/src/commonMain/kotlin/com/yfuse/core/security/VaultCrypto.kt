@@ -101,6 +101,8 @@ class VaultCrypto internal constructor(
 
     fun generateVaultKey(): ByteArray = primitives.randomBytes(AES_KEY_SIZE_BYTES)
 
+    fun sha256(value: ByteArray): ByteArray = primitives.sha256(value)
+
     fun encrypt(
         key: ByteArray,
         plaintext: ByteArray,

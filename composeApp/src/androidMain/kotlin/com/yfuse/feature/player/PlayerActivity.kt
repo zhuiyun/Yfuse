@@ -69,6 +69,7 @@ import com.yfuse.core.cast.CastPlaybackStatus
 import com.yfuse.core.cast.CastTermination
 import com.yfuse.core.cast.castRecoveryDecision
 import com.yfuse.core.cast.formatDlnaTime
+import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.data.DanmakuBinding
 import com.yfuse.core.data.DanmakuComment
 import com.yfuse.core.data.DanmakuDisplayArea
@@ -423,6 +424,7 @@ class PlayerActivity : ComponentActivity() {
         val videoCacheBytes = playbackPreferences.videoCacheSize.value.bytes
         val customUserAgent = koin.get<UserAgentPreferences>().userAgent.value
         val watchTogether = koin.get<WatchTogetherClient>()
+        val accountTokens = koin.get<AccountAccessTokenSource>()
         val watchTogetherPreferences = koin.get<WatchTogetherPreferences>()
         val playbackController =
             WatchGatedPlayback(
@@ -505,6 +507,7 @@ class PlayerActivity : ComponentActivity() {
                     customUserAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
                     watchTogether = watchTogether,
+                    accountTokens = accountTokens,
                     watchTogetherPreferences = watchTogetherPreferences,
                     playbackGate = playbackController,
                     onEngineAttached = { engine -> activeEngine = engine },
@@ -1314,6 +1317,7 @@ private fun PlayerRoot(
     customUserAgent: String,
     videoCacheBytes: Long,
     watchTogether: WatchTogetherClient,
+    accountTokens: AccountAccessTokenSource,
     watchTogetherPreferences: WatchTogetherPreferences,
     playbackGate: WatchGatedPlayback,
     onEngineAttached: (VideoEngine) -> Unit,
@@ -1574,6 +1578,7 @@ private fun PlayerRoot(
     }
 
     val watchState by watchTogether.state.collectAsState()
+    val watchAvailable by accountTokens.sessionAvailable.collectAsState()
     val watchEndpoint by watchTogetherPreferences.endpoint.collectAsState()
     val watchChatPreview by watchTogetherPreferences.chatPreviewEnabled.collectAsState()
     val watchChatDanmaku by watchTogetherPreferences.chatDanmakuEnabled.collectAsState()
@@ -3028,6 +3033,7 @@ private fun PlayerRoot(
                     ),
                 watch =
                     WatchRoomState(
+                        available = watchAvailable,
                         endpoint = watchEndpoint,
                         connecting = watchState.connecting,
                         connected = watchState.connected,

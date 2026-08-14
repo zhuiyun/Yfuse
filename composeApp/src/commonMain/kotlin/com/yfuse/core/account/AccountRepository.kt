@@ -55,6 +55,7 @@ class AccountRepository(
     private val mutationDispatcher: CoroutineDispatcher = Dispatchers.Default,
     /** PBKDF2 and AES work must never block the Compose main thread. */
     private val cryptoDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val accessTokenSource: AccountAccessTokenSource = AccountAccessTokenSource(),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
@@ -68,6 +69,10 @@ class AccountRepository(
 
     @Volatile
     private var started = false
+
+    init {
+        accessTokenSource.bind(::validAccessTokenForWatch, ::refreshAccessTokenForWatch)
+    }
 
     fun start() {
         if (started) return
@@ -332,10 +337,10 @@ class AccountRepository(
                                                 wrapSalt = recovery.salt.toBase64Url(),
                                                 wrapNonce = recovery.wrappedKey.nonce.toBase64Url(),
                                                 wrapVersion = recovery.version,
-                                            wrapKdf = WRAP_KDF,
-                                            wrapIterations = recovery.iterations,
-                                            deviceName = deviceModel().take(64),
-                                        ),
+                                                wrapKdf = WRAP_KDF,
+                                                wrapIterations = recovery.iterations,
+                                                deviceName = deviceModel().take(64),
+                                            ),
                                     )
                                 }
                             acceptAuth(auth)
@@ -386,7 +391,7 @@ class AccountRepository(
                     val access = (_state.value as? AccountState.SignedIn)?.session?.accessToken
                     if (access != null) runCatching { api.logout(access) }
                     secureStore.clear()
-                    _state.value = AccountState.SignedOut
+                    setSignedOut()
                 }
             }
         }
@@ -394,6 +399,27 @@ class AccountRepository(
     suspend fun sessions(): Result<List<AccountDeviceSession>> =
         detached {
             runCatching { mutex.withLock { authorized(api::sessions) } }
+        }
+
+    suspend fun issueInvite(): Result<IssuedInviteCode> =
+        detached {
+            runCatching {
+                mutex.withLock {
+                    val signedIn = requireSignedIn()
+                    require(signedIn.session.user.canIssueInvites()) {
+                        "你没有生成邀请码的权限"
+                    }
+                    authorized(api::issueInvite).also { issued ->
+                        require(issued.code.length in 12..128) { "服务器返回的邀请码无效" }
+                        require(issued.expiresAtEpochMs > nowEpochMs()) { "服务器返回的邀请码已过期" }
+                    }
+                }
+            }.onFailure { error ->
+                if (error is AccountApiException && error.status == HttpStatusCode.Forbidden) {
+                    removeInviteCapability()
+                }
+                recordFailure(error)
+            }
         }
 
     suspend fun revokeSession(sessionId: String): Result<Unit> =
@@ -407,7 +433,7 @@ class AccountRepository(
                     authorized { api.revokeSession(it, sessionId) }
                     if (target.current) {
                         secureStore.clear()
-                        _state.value = AccountState.SignedOut
+                        setSignedOut()
                     } else {
                         _state.value = current.copy(message = "设备已退出")
                     }
@@ -431,7 +457,7 @@ class AccountRepository(
                 mutex.withLock {
                     authorized(api::revokeAllSessions)
                     secureStore.clear()
-                    _state.value = AccountState.SignedOut
+                    setSignedOut()
                 }
             }
         }
@@ -454,7 +480,7 @@ class AccountRepository(
                         require(password.isNotEmpty()) { "请输入当前密码" }
                         authorized { api.deleteAccount(it, password.concatToString()) }
                         secureStore.clear()
-                        _state.value = AccountState.SignedOut
+                        setSignedOut()
                     }
                 }.onFailure(::recordFailure)
             } finally {
@@ -467,7 +493,7 @@ class AccountRepository(
             runCatching {
                 val refresh = secureStore.get(KEY_REFRESH_TOKEN)?.decodeToString()
                 if (refresh.isNullOrBlank()) {
-                    _state.value = AccountState.SignedOut
+                    setSignedOut()
                     return@runCatching
                 }
                 acceptAuth(api.refresh(refresh, deviceModel().take(64)))
@@ -515,7 +541,7 @@ class AccountRepository(
                     error.status == HttpStatusCode.Unauthorized
                 ) {
                     runCatching { secureStore.clear() }
-                    _state.value = AccountState.SignedOut
+                    setSignedOut()
                 } else {
                     val current = _state.value as? AccountState.SignedIn
                     if (current != null) {
@@ -534,6 +560,22 @@ class AccountRepository(
             }
         }
     }
+
+    private suspend fun validAccessTokenForWatch(): String? =
+        detached {
+            mutex.withLock {
+                if (_state.value !is AccountState.SignedIn) return@withLock null
+                authorized { it }
+            }
+        }
+
+    private suspend fun refreshAccessTokenForWatch(): String? =
+        detached {
+            mutex.withLock {
+                if (_state.value !is AccountState.SignedIn) return@withLock null
+                refreshLocked().session.accessToken
+            }
+        }
 
     private suspend fun uploadLocked(
         baseVersion: Long,
@@ -661,6 +703,28 @@ class AccountRepository(
                 cloudHasData = previous?.cloudHasData ?: false,
                 lastSyncedAtEpochMs = previous?.lastSyncedAtEpochMs,
             )
+        accessTokenSource.markAvailable()
+    }
+
+    private fun removeInviteCapability() {
+        val current = _state.value as? AccountState.SignedIn ?: return
+        val user = current.session.user
+        if (INVITE_ISSUE_CAPABILITY !in user.capabilities) return
+        _state.value =
+            current.copy(
+                session =
+                    current.session.copy(
+                        user =
+                            user.copy(
+                                capabilities = user.capabilities - INVITE_ISSUE_CAPABILITY,
+                            ),
+                    ),
+            )
+    }
+
+    private fun setSignedOut() {
+        _state.value = AccountState.SignedOut
+        accessTokenSource.markUnavailable()
     }
 
     private suspend fun <T> authorized(block: suspend (String) -> T): T {
@@ -680,7 +744,7 @@ class AccountRepository(
         val token = secureStore.get(KEY_REFRESH_TOKEN)?.decodeToString()?.takeIf(String::isNotBlank)
         if (token == null) {
             runCatching { secureStore.clear() }
-            _state.value = AccountState.SignedOut
+            setSignedOut()
             error("登录状态已失效，请重新登录")
         }
         try {
@@ -688,7 +752,7 @@ class AccountRepository(
         } catch (error: AccountApiException) {
             if (error.status == HttpStatusCode.Unauthorized) {
                 secureStore.clear()
-                _state.value = AccountState.SignedOut
+                setSignedOut()
             }
             throw error
         }
@@ -878,6 +942,7 @@ class AccountRepository(
                         "sync_version_conflict" -> "云端已有更新，请先从云端恢复"
                         "rate_limited" -> "尝试次数过多，请稍后再试"
                         "invite_invalid" -> "邀请码无效或已使用"
+                        "forbidden" -> "你没有生成邀请码的权限"
                         else -> error.message
                     }
                 else -> error.message ?: "账号同步失败"

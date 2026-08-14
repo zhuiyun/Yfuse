@@ -46,7 +46,6 @@ import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.network.validateServiceEndpoint
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.util.graphemeCount
 import com.yfuse.core.util.takeGraphemes
@@ -540,6 +539,7 @@ internal fun WatchJoinDialog(
     var draft by remember { mutableStateOf("") }
     val parsed = remember(draft) { WatchInvite.parseFromText(draft) }
     val code = parsed?.roomCode ?: WatchInvite.normalizeCode(draft)
+    val unsupportedEndpoint = parsed?.unsupportedEndpoint
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
 
@@ -626,7 +626,14 @@ internal fun WatchJoinDialog(
                     )
                 }
             }
-            if (code.isNotEmpty()) {
+            if (unsupportedEndpoint != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "无法加入：这条旧邀请指向非官方服务器 $unsupportedEndpoint。一起看协议 v5 只连接 Yfuse 账号服务的官方安全地址，请让邀请者重新分享。",
+                    style = AppTypography.caption.medium,
+                    color = palette.error,
+                )
+            } else if (code.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "将加入房间 $code",
@@ -648,96 +655,12 @@ internal fun WatchJoinDialog(
                     onClick = { onJoin(code) },
                     modifier = Modifier.weight(1f),
                     tone = OverlayButtonTone.Primary,
-                    enabled = !connecting && WatchInvite.isCompleteCode(code),
+                    enabled =
+                        !connecting &&
+                            unsupportedEndpoint == null &&
+                            WatchInvite.isCompleteCode(code),
                 )
             }
-        }
-    }
-}
-
-/** Relay address — infrastructure, so it lives in settings rather than in the player. */
-@Composable
-internal fun WatchEndpointDialog(
-    current: String,
-    onSave: (String, Boolean) -> Unit,
-    onReset: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var draft by remember(current) { mutableStateOf(current) }
-    val normalized = draft.trim().trimEnd('/')
-    val validation = validateServiceEndpoint(normalized)
-    val isDefault =
-        current.trimEnd('/') ==
-            WatchTogetherPreferences.DEFAULT_ENDPOINT.trimEnd('/')
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-
-    GlassDialog(onDismiss = onDismiss) {
-        OverlayHeader(
-            title = "一起看服务器",
-            subtitle = "只转发房间状态，不经过视频。留空或恢复默认即使用内置地址。",
-            onClose = onDismiss,
-        )
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .glass(AppShapes.control, palette.card2, palette.border)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-        ) {
-            Box(contentAlignment = Alignment.CenterStart) {
-                if (draft.isBlank()) {
-                    Text(
-                        "https://watch.example.com",
-                        style = AppTypography.body.medium,
-                        color = palette.hint,
-                        maxLines = 1,
-                    )
-                }
-                BasicTextField(
-                    value = draft,
-                    onValueChange = {
-                        draft = it.take(300)
-                    },
-                    singleLine = true,
-                    textStyle = AppTypography.body.medium.copy(color = palette.text),
-                    cursorBrush = SolidColor(accent.accent),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .semantics { contentDescription = "一起看服务器地址" },
-                )
-            }
-        }
-        if (normalized.isNotEmpty() && validation.message != null) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                validation.message,
-                style = AppTypography.caption.medium,
-                color = palette.error,
-            )
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(top = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (isDefault) {
-                OverlayButton("取消", onDismiss, Modifier.weight(1f))
-            } else {
-                OverlayButton(
-                    label = "恢复默认",
-                    onClick = onReset,
-                    modifier = Modifier.weight(1f),
-                    tone = OverlayButtonTone.Destructive,
-                )
-            }
-            OverlayButton(
-                label = "保存",
-                onClick = { onSave(normalized, false) },
-                modifier = Modifier.weight(1f),
-                tone = OverlayButtonTone.Primary,
-                enabled = validation.allowed,
-            )
         }
     }
 }

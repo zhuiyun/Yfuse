@@ -102,29 +102,19 @@ fun YfButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    // Buttons stay physically neutral. Meaning lives in ink and the hairline edge, so primary
-    // and destructive actions never turn into the large solid blue/red slabs this design rejects.
-    val fill = when (tone) {
-        YfButtonTone.Primary -> palette.glassStrong
-        YfButtonTone.Secondary -> palette.card2
-        YfButtonTone.Destructive -> palette.glassStrong
-    }
-    val border = when (tone) {
-        YfButtonTone.Primary -> accent.border
-        YfButtonTone.Secondary -> palette.border
-        YfButtonTone.Destructive -> palette.error
-    }
-    val content = when (tone) {
-        YfButtonTone.Primary -> accent.accent
-        YfButtonTone.Secondary -> palette.text
-        YfButtonTone.Destructive -> palette.error
-    }
+    val emphasis =
+        when (tone) {
+            YfButtonTone.Primary -> GlassButtonEmphasis.Primary
+            YfButtonTone.Secondary -> GlassButtonEmphasis.Neutral
+            YfButtonTone.Destructive -> GlassButtonEmphasis.Destructive
+        }
+    val visuals = resolveGlassButtonVisuals(emphasis, palette, accent)
 
     Row(
         modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp)
-            .graphicsLayer { alpha = if (enabled) 1f else 0.44f }
+            .graphicsLayer { alpha = glassButtonAlpha(enabled) }
             .pressable(
                 enabled = enabled && !loading,
                 haptic = HapticSignal.Confirm.takeIf { tone != YfButtonTone.Secondary },
@@ -134,10 +124,10 @@ fun YfButton(
             )
             .liquidGlass(
                 shape = AppShapes.control,
-                fill = fill,
-                border = border,
+                fill = visuals.fill,
+                border = visuals.border,
                 over = palette.background,
-                sheen = if (tone == YfButtonTone.Secondary) 0.55f else 0.78f,
+                sheen = visuals.sheen,
             )
             .padding(horizontal = 16.dp, vertical = 11.dp)
             .semantics {
@@ -149,12 +139,12 @@ fun YfButton(
         if (loading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(16.dp),
-                color = content,
+                color = visuals.content,
                 strokeWidth = 2.dp,
             )
             Spacer(Modifier.width(8.dp))
         }
-        Text(label, style = AppTypography.body.strong, color = content)
+        Text(label, style = AppTypography.body.strong, color = visuals.content)
     }
 }
 

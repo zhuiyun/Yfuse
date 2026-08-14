@@ -3,7 +3,13 @@
 轻量 WebSocket 房间服务，只维护房间的**播放时间线**，不代理视频、不读取 Emby 凭据，
 也不承担转码。
 
-## 协议 v4
+## 协议 v5
+
+协议 v5 要求先登录 Yfuse 账号才能使用一起看。客户端必须在 WebSocket Upgrade 请求中通过
+`Authorization: Bearer <access-token>` 发送访问令牌；查询参数令牌不被接受。服务端在进入
+房间前验证账号，并在连接存续期间定期复验；令牌过期、刷新轮换、退出登录或会话被撤销时，
+当前一起看连接会以策略错误关闭。房间成员同时绑定不可变账号 ID 与房间级私有凭据，不能用
+公开 `clientId` 冒充另一账号重连。
 
 服务端是时间线权威。房主不再每秒广播当前位置，而是只在**发生事件时**（播放/暂停 /
 seek / 变速 / 换片）提交一个新锚点，其他人本地按
@@ -49,19 +55,19 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
   每 10 秒最多 240 条消息，文本帧最大 64 KiB。空房超过 5 分钟被回收时会同时释放该
   IP 的建房额度。
 - 每房在内存中保留最近 50 条聊天，跟随房间一起回收；每连接每 3 秒最多发送 3 条
-  聊天消息。v4 使用 `clientMessageId` 确认并去重重试，聊天不接受图片、文件或客户端
+  聊天消息。v5 使用 `clientMessageId` 确认并去重重试，聊天不接受图片、文件或客户端
   伪造的发送者资料。
 - 昵称最多 24 个 Unicode 字素，头像是 8 个内置样式之一；一起看房间只保存房间内的
   临时成员状态。Yfuse 账号、资料与加密同步数据由独立的 `/api/v1` 账号接口持久化。
 - 房主可以选择仅房主控制、全员共同控制或指定管理员；房主身份仍保持唯一，管理员
   不会影响断线后的房主迁移。
 - 房主可以移出其他成员；被移出的客户端在当前房间存续期间无法再次加入。
-- v4 是安全性破坏升级，服务端不接受 v2/v3 或缺少 `protocolVersion` 的客户端，避免
-  回退到可伪造的 clientId-only 重连逻辑。
+- v5 是安全性破坏升级，服务端不接受 v2/v3/v4 或缺少 `protocolVersion` 的客户端，避免
+  绕过账号鉴权，或回退到可伪造的 clientId-only 重连逻辑。
 
-> ⚠️ **v4 服务端与 App 必须作为一次维护窗口发布。** 房间是内存态，部署会清空旧房间；
-> 新 App 会拒绝缺少 `authenticatedResume`、`hostCapability`、`strictWireValidation` 能力的
-> 旧服务端，服务端也会明确拒绝旧 App。
+> ⚠️ **必须先部署并验证 v5 服务端，再发布 v5 App。** 房间是内存态，部署会清空旧房间；
+> v5 服务端拒绝未登录连接和旧协议 App，新 App 也不会向旧协议服务端降级。服务端验证完成
+> 前，Android 发布门禁会拒绝发布。
 
 发布 App 前可请求 `GET /watch/version`，确认返回的 `protocolVersion` 与 App 要求一致；
 仓库内的 Android 发布工作流已经包含这项检查。
@@ -74,8 +80,9 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 
 当前生产入口统一为 `https://47.112.219.60`，客户端会自动转换为 WSS 并连接
 `/watch`。自建服务时也可以在「我的 → 一起看服务器」填写自己的 HTTPS/WSS 入口。
-已经发布的旧客户端仍可能访问 `http://47.112.219.60`；仓库里的 Caddy 模板暂时保留
-这个明文入口作为迁移兼容，不能用于账号凭据或新的客户端配置。
+已经发布的旧客户端仍可能访问 `http://47.112.219.60`；仓库里的 Caddy 模板只为旧版更新
+清单和 APK 暂时保留该明文入口。账号接口与 `/watch` 会在该入口返回 `426`，不能用于账号
+凭据、一起看或新的客户端配置。
 
 服务同时会把 `UPDATE_ROOT` 指向的目录挂载到 `/yfuse`，默认目录为
 `/srv/yfuse-update/yfuse`。因此 production 可以在同一个端口提供：
@@ -107,14 +114,18 @@ Ktor 不再直接占用公网 80 端口。
 2. 创建无登录权限的 `yfuse` 系统用户；把发行包解压到
    `/opt/yfuse-watch/releases/<版本>` 并令 `/opt/yfuse-watch/current` 指向它；创建
    `/srv/yfuse-update/yfuse` 作为更新文件目录。随后把 `deploy/yfuse-watch.service`
-   安装为 `/etc/systemd/system/yfuse-watch.service`，并把 `deploy/Caddyfile` 安装到
-   `/etc/caddy/Caddyfile`。
+   安装为 `/etc/systemd/system/yfuse-update.service`（沿用生产现有 unit 名，禁止同时启动
+   第二个 `yfuse-watch.service`），并把 `deploy/Caddyfile` 安装到
+   `/etc/caddy/Caddyfile`。另按 `docs/watch-server-deploy.md` 创建 root-only 的
+   `/etc/yfuse-watch/environment`（`root:root`、`0600`），写入必需的
+   `MIGRATION_RELAY_MASTER_KEY`；模板会通过强制 `EnvironmentFile` 读取它，文件缺失时
+   服务应拒绝启动。
 3. 关闭公网 8080，只允许本机 Caddy 访问；SSH 使用标准 22 端口。
 4. 校验配置后启动服务：
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now yfuse-watch.service
+sudo systemctl enable --now yfuse-update.service
 sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl reload caddy.service
 curl --fail https://47.112.219.60/health
@@ -127,10 +138,10 @@ curl --fail https://47.112.219.60/yfuse/update-v2.json
 首次切换的 HSTS 仅设为 `max-age=86400` 且不包含子域；确认 DNS、证书自动续期和发布链路
 稳定后，再提升到一年（`31536000`）。
 
-模板中的 `http://47.112.219.60` 站点只为历史版本保留，仍然反代同一个 8080 后端，
-因此旧更新地址和旧 `ws://` 房间入口在切换后不会立即失效。`update.json` 仍刻意返回该
-HTTP 源的同源 APK 地址；新的 `update-v2.json` 和新客户端只使用 HTTPS。该连接没有传输
-加密；确认旧版本退出使用，并停止发布旧清单后，才应删除这个站点块。
+模板中的 `http://47.112.219.60` 站点只为历史更新版本保留，`/api/*` 和 `/watch` 均明确
+返回 `426 https_required`，不会把账号令牌或一起看 WebSocket 转发至后端。`update.json` 仍
+刻意返回该 HTTP 源的同源 APK 地址；新的 `update-v2.json` 和新客户端只使用 HTTPS。确认
+旧版本退出使用，并停止发布旧清单后，才应删除这个站点块。
 
 建房保护可通过以下环境变量调整：
 
@@ -144,7 +155,14 @@ HTTP 源的同源 APK 地址；新的 `update-v2.json` 和新客户端只使用 
   `docs/watch-server-deploy.md`。
 - `ACCOUNT_REGISTRATION_ENABLED`：是否开放新账号注册；默认 `false`，仅在创建所需账号时临时设为 `true`。
 - `ACCOUNT_REGISTRATION_INVITE_CODES`：逗号分隔的一次性邀请码；可在公开注册关闭时邀请注册。请使用高熵随机值，并在兑换后从环境变量移除。
+- `ACCOUNT_INVITE_ISSUER_USERNAMES`：获准生成一次性邀请码的用户名；启动时映射到数据库用户 ID。生产模板仅配置 `zhuiyun`。
+- `ACCOUNT_ISSUED_INVITE_TTL_HOURS`：动态邀请码有效期，默认 24 小时，范围 1–168 小时。
 - `ACCOUNT_MAX_USERS`：账号总数上限；生产模板为 `100`。
+- `MIGRATION_RELAY_MASTER_KEY`：迁移中继的 32 字节随机主密钥（无填充 base64url），必须通过
+  root-only `EnvironmentFile` 注入，不能提交到仓库；用于包裹随机迁移密钥，数据库中不保存
+  备份内容或明文密钥。
+- `MIGRATION_RELAY_DB_PATH`：一次性迁移中继 SQLite 路径，模板为
+  `/var/lib/yfuse/migration-relay.db`；服务会尽力设置为 `0600`，部署时仍须校验属主和权限。
 - `HOST`：Ktor 监听地址，默认 `127.0.0.1`；只有容器内部端口映射场景才应显式设为
   `0.0.0.0`。
 
@@ -158,25 +176,34 @@ HTTP 源的同源 APK 地址；新的 `update-v2.json` 和新客户端只使用 
 ```powershell
 .\gradlew.bat :watchTogetherServer:distTar
 docker build -t yfuse-watch .\watchTogetherServer
-docker run -d --restart unless-stopped \
-  --network host \
-  -e HOST=127.0.0.1 \
-  -e UPDATE_ROOT=/updates \
-  -e WATCH_TRUST_PROXY_HEADERS=true \
-  -v /srv/yfuse-update/yfuse:/updates:ro \
-  -v yfuse-account:/var/lib/yfuse \
-  --name yfuse-watch \
+# 首次运行前生成；不要把实际密钥写进仓库或 shell 历史。
+$relayBytes = [byte[]]::new(32)
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($relayBytes)
+$relayKey = [Convert]::ToBase64String($relayBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+"MIGRATION_RELAY_MASTER_KEY=$relayKey" |
+  Set-Content -NoNewline .\yfuse-watch.environment
+docker run -d --restart unless-stopped `
+  --network host `
+  -e HOST=127.0.0.1 `
+  -e UPDATE_ROOT=/updates `
+  -e WATCH_TRUST_PROXY_HEADERS=true `
+  --env-file .\yfuse-watch.environment `
+  -v /srv/yfuse-update/yfuse:/updates:ro `
+  -v yfuse-account:/var/lib/yfuse `
+  --name yfuse-watch `
   yfuse-watch
 ```
 
 该示例使用 Linux host network，使宿主机 Caddy 仍从 loopback 访问 Ktor；同时将 Ktor
 显式绑定到 `127.0.0.1`，不会把 8080 暴露到公网。若改用 bridge 网络，必须同时设计明确的
 可信代理网段，否则应用会拒绝非 loopback 代理提供的 `X-Forwarded-Proto`，账号接口将返回
-`426 https_required`。
+`426 https_required`。`yfuse-watch.environment` 含生产主密钥，Linux 上应改为仅部署账号可读的
+`0600`，并纳入独立加密备份；不要随镜像、日志或源码分发。
 
-> `/api/v1/account/*` 使用账号令牌鉴权；一起看房间仍允许未登录用户加入，房间权限和
-> 频率限制不能代替账号访问控制。公网部署必须使用 HTTPS/WSS，且不能把 Ktor 的 8080
-> 明文端口直接暴露到公网。Docker 必须持久化 `/var/lib/yfuse`，否则重建容器会丢失账号。
+> `/api/v1/account/*` 使用账号令牌鉴权；协议 v5 的一起看连接同样要求有效账号访问令牌，
+> 未登录用户不能建房或加入房间。房间权限和频率限制不能代替账号访问控制。公网部署必须
+> 使用 HTTPS/WSS，且不能把 Ktor 的 8080 明文端口直接暴露到公网。Docker 必须持久化
+> `/var/lib/yfuse`，否则重建容器会丢失账号。
 
 房间仅驻留内存；最后一名成员退出后保留 5 分钟供重连，随后回收。
 

@@ -1,8 +1,7 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
-import com.yfuse.core.network.ServiceEndpointValidation
-import com.yfuse.core.network.validateServiceEndpoint
+import com.yfuse.core.account.ACCOUNT_BASE_URL
 import com.yfuse.core.util.takeGraphemes
 import com.yfuse.core.util.takeGraphemesWithinUtf8Bytes
 import com.yfuse.core.util.withoutControlCharacters
@@ -16,17 +15,24 @@ class WatchTogetherPreferences(
 ) {
     companion object {
         private const val ENDPOINT_KEY = "watchTogether.endpoint"
+        private const val CLEARTEXT_ENDPOINT_CONFIRMED_KEY =
+            "watchTogether.endpointCleartextConfirmed.v1"
         private const val CLIENT_ID_KEY = "watchTogether.clientId"
         private const val NICKNAME_KEY = "watchTogether.nickname"
         private const val AVATAR_ID_KEY = "watchTogether.avatarId"
         private const val CHAT_PREVIEW_KEY = "watchTogether.chatPreview"
         private const val CHAT_DANMAKU_KEY = "watchTogether.chatDanmaku"
 
-        const val DEFAULT_ENDPOINT = "https://47.112.219.60"
+        /** Protocol v5 authenticates with the Yfuse account token, so its relay is not configurable. */
+        const val DEFAULT_ENDPOINT = ACCOUNT_BASE_URL
         const val DEFAULT_NICKNAME = "影友"
         const val AVATAR_COUNT = 8
         const val MAX_NICKNAME_GRAPHEMES = 24
         const val MAX_NICKNAME_BYTES = 128
+
+        /** Exact base-address check; paths, alternate schemes, and same-origin aliases are rejected. */
+        fun isOfficialEndpoint(value: String): Boolean =
+            value.trim().trimEnd('/') == DEFAULT_ENDPOINT
     }
 
     private val _endpoint = MutableStateFlow(loadEndpoint())
@@ -57,20 +63,6 @@ class WatchTogetherPreferences(
     private val _chatDanmakuEnabled = MutableStateFlow(settings.getBoolean(CHAT_DANMAKU_KEY, true))
     val chatDanmakuEnabled: StateFlow<Boolean> = _chatDanmakuEnabled.asStateFlow()
 
-    /** Saves any syntactically valid HTTP(S) or WS(S) endpoint. */
-    @Suppress("UNUSED_PARAMETER")
-    fun setEndpoint(
-        value: String,
-        localCleartextConfirmed: Boolean = false,
-    ): ServiceEndpointValidation {
-        val validation = validateServiceEndpoint(value)
-        if (!validation.allowed) return validation
-        val normalized = validation.normalizedEndpoint ?: return validation
-        _endpoint.value = normalized
-        settings.putString(ENDPOINT_KEY, normalized)
-        return validation
-    }
-
     fun setProfile(
         nickname: String,
         avatarId: Int,
@@ -93,10 +85,15 @@ class WatchTogetherPreferences(
         settings.putBoolean(CHAT_DANMAKU_KEY, enabled)
     }
 
+    /**
+     * Protocol v5 sends an account access token during the WebSocket upgrade. Older releases
+     * allowed arbitrary relays, so every load overwrites the legacy value with the official
+     * account-service origin and clears any historic cleartext approval.
+     */
     private fun loadEndpoint(): String {
-        val stored = settings.getString(ENDPOINT_KEY, DEFAULT_ENDPOINT)
-        val validation = validateServiceEndpoint(stored)
-        return validation.normalizedEndpoint?.takeIf { validation.allowed } ?: DEFAULT_ENDPOINT
+        settings.putString(ENDPOINT_KEY, DEFAULT_ENDPOINT)
+        settings.putBoolean(CLEARTEXT_ENDPOINT_CONFIRMED_KEY, false)
+        return DEFAULT_ENDPOINT
     }
 
     private fun String.normalizedWatchNickname(): String =
@@ -108,5 +105,6 @@ class WatchTogetherPreferences(
             .takeGraphemesWithinUtf8Bytes(MAX_NICKNAME_BYTES)
             .ifBlank { DEFAULT_NICKNAME }
 
-    private fun defaultAvatarId(clientId: String): Int = (clientId.hashCode() and Int.MAX_VALUE) % AVATAR_COUNT
+    private fun defaultAvatarId(clientId: String): Int =
+        (clientId.hashCode() and Int.MAX_VALUE) % AVATAR_COUNT
 }

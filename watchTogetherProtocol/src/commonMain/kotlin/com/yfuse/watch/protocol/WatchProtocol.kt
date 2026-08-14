@@ -5,7 +5,8 @@ import kotlinx.serialization.Serializable
 /**
  * The single wire contract used by both the Android client and the relay.
  *
- * Version 4 deliberately breaks compatibility with the old client-id-only reconnect flow:
+ * Version 5 additionally requires an authenticated Yfuse account for every watch socket.
+ * Version 4 deliberately broke compatibility with the old client-id-only reconnect flow:
  * [clientId] is public profile data, while [resumeCapability] and [hostCapability] are private,
  * room-scoped bearer capabilities that must never be copied into participant/chat payloads.
  */
@@ -77,20 +78,23 @@ data class WatchWireChatMessage(
 )
 
 object WatchProtocol {
-    const val VERSION = 4
-    const val MIN_SUPPORTED_VERSION = 4
+    const val VERSION = 5
+    const val MIN_SUPPORTED_VERSION = 5
 
     const val CAPABILITY_REACTIONS = "reactions"
     const val CAPABILITY_AUTHENTICATED_RESUME = "authenticatedResume"
     const val CAPABILITY_HOST_CREDENTIAL = "hostCapability"
     const val CAPABILITY_STRICT_VALIDATION = "strictWireValidation"
+    const val CAPABILITY_ACCOUNT_AUTH = "accountAuth"
 
-    val SERVER_CAPABILITIES = listOf(
-        CAPABILITY_REACTIONS,
-        CAPABILITY_AUTHENTICATED_RESUME,
-        CAPABILITY_HOST_CREDENTIAL,
-        CAPABILITY_STRICT_VALIDATION,
-    )
+    val SERVER_CAPABILITIES =
+        listOf(
+            CAPABILITY_REACTIONS,
+            CAPABILITY_AUTHENTICATED_RESUME,
+            CAPABILITY_HOST_CREDENTIAL,
+            CAPABILITY_STRICT_VALIDATION,
+            CAPABILITY_ACCOUNT_AUTH,
+        )
 
     const val ROOM_CODE_LENGTH = 6
     const val ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -115,38 +119,41 @@ object WatchProtocol {
     private val providerPrefixRegex = Regex("[A-Za-z][A-Za-z0-9_-]{0,31}")
     private val capabilityRegex = Regex("[A-Za-z0-9_-]{$CAPABILITY_LENGTH}")
 
-    val CLIENT_MESSAGE_TYPES = setOf(
-        "hello",
-        "sync",
-        "requestControl",
-        "grantControl",
-        "denyControl",
-        "setControlMode",
-        "setModerator",
-        "kickParticipant",
-        "updateProfile",
-        "playbackStatus",
-        "chat",
-        "reaction",
-        "ping",
-    )
+    val CLIENT_MESSAGE_TYPES =
+        setOf(
+            "hello",
+            "sync",
+            "requestControl",
+            "grantControl",
+            "denyControl",
+            "setControlMode",
+            "setModerator",
+            "kickParticipant",
+            "updateProfile",
+            "playbackStatus",
+            "chat",
+            "reaction",
+            "ping",
+        )
 
-    fun isValidRoomCode(value: String?): Boolean = value != null &&
-        value.length == ROOM_CODE_LENGTH &&
-        value.all { it in ROOM_CODE_ALPHABET }
+    fun isValidRoomCode(value: String?): Boolean =
+        value != null &&
+            value.length == ROOM_CODE_LENGTH &&
+            value.all { it in ROOM_CODE_ALPHABET }
 
-    fun isValidClientId(value: String?): Boolean = isBoundedOpaqueId(
-        value = value,
-        maxBytes = MAX_CLIENT_ID_BYTES,
-    )
+    fun isValidClientId(value: String?): Boolean =
+        isBoundedOpaqueId(
+            value = value,
+            maxBytes = MAX_CLIENT_ID_BYTES,
+        )
 
-    fun isValidClientMessageId(value: String?): Boolean = isBoundedOpaqueId(
-        value = value,
-        maxBytes = MAX_CLIENT_MESSAGE_ID_BYTES,
-    )
+    fun isValidClientMessageId(value: String?): Boolean =
+        isBoundedOpaqueId(
+            value = value,
+            maxBytes = MAX_CLIENT_MESSAGE_ID_BYTES,
+        )
 
-    fun isValidCapability(value: String?): Boolean =
-        value != null && capabilityRegex.matches(value)
+    fun isValidCapability(value: String?): Boolean = value != null && capabilityRegex.matches(value)
 
     /** Null/blank means "use the default profile name"; supplied content must be safe. */
     fun isValidOptionalName(value: String?): Boolean {
@@ -168,7 +175,11 @@ object WatchProtocol {
         return providerPrefixRegex.matches(value.substring(0, separator))
     }
 
-    fun isValidTimeline(positionMs: Long?, paused: Boolean?, rate: Float?): Boolean =
+    fun isValidTimeline(
+        positionMs: Long?,
+        paused: Boolean?,
+        rate: Float?,
+    ): Boolean =
         positionMs != null &&
             positionMs in 0L..MAX_TIMELINE_POSITION_MS &&
             paused != null &&
@@ -178,7 +189,10 @@ object WatchProtocol {
 
     fun isValidSequence(value: Long?): Boolean = value != null && value >= 0L
 
-    fun isReasonableServerTime(value: Long?, nowEpochMs: Long): Boolean =
+    fun isReasonableServerTime(
+        value: Long?,
+        nowEpochMs: Long,
+    ): Boolean =
         value != null &&
             value >= MIN_REASONABLE_EPOCH_MS &&
             value <= nowEpochMs + MAX_FUTURE_CLOCK_SKEW_MS &&
@@ -191,12 +205,14 @@ object WatchProtocol {
         return graphemeRegex.findAll(value).count() <= MAX_CHAT_GRAPHEMES
     }
 
-    private fun isBoundedOpaqueId(value: String?, maxBytes: Int): Boolean {
+    private fun isBoundedOpaqueId(
+        value: String?,
+        maxBytes: Int,
+    ): Boolean {
         if (value.isNullOrEmpty() || value != value.trim()) return false
         if (value.encodeToByteArray().size > maxBytes) return false
         return value.none { it.code in 0x00..0x20 || it.code in 0x7F..0x9F }
     }
 
-    private fun String.hasControlCharacters(): Boolean =
-        any { it.code in 0x00..0x1F || it.code in 0x7F..0x9F }
+    private fun String.hasControlCharacters(): Boolean = any { it.code in 0x00..0x1F || it.code in 0x7F..0x9F }
 }

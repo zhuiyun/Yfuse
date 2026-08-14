@@ -32,11 +32,10 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayButton
+import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchParticipant
@@ -63,7 +62,6 @@ fun WatchRoomInfoDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
     val mediaKey = state.mediaKey?.takeIf { it.isNotBlank() }
 
     var resolution by remember(mediaKey) {
@@ -122,21 +120,14 @@ fun WatchRoomInfoDialog(
             }
 
             if (state.connected) {
-                Text(
-                    "进入房间",
-                    style = AppTypography.body.strong,
-                    color = accent.accent,
-                    textAlign = TextAlign.Center,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .pressable(onClickLabel = "进入房间") {
-                                onDismiss()
-                                onEnter()
-                            }.touchTarget()
-                            .clip(GlassShapes.chip)
-                            .background(accent.container)
-                            .padding(vertical = 11.dp),
+                OverlayButton(
+                    label = "进入房间",
+                    tone = OverlayButtonTone.Primary,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        onDismiss()
+                        onEnter()
+                    },
                 )
             }
         }
