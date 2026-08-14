@@ -32,12 +32,31 @@ class ExoDualSubtitleCueMergerTest {
         val outputs = mutableListOf<CueGroup>()
         merger.primaryOutput(TextOutput { outputs += it })
         val secondaryOutput = merger.secondaryOutput()
-        val authored = Cue.Builder().setText("定位字幕").setLine(0.2f, Cue.LINE_TYPE_FRACTION).build()
+        val authored =
+            Cue
+                .Builder()
+                .setText("定位字幕")
+                .setLine(0.2f, Cue.LINE_TYPE_FRACTION)
+                .build()
 
         secondaryOutput.onCues(CueGroup(listOf(authored), 200L))
 
-        assertEquals(0.2f, outputs.last().cues.single().line)
-        assertEquals(Cue.LINE_TYPE_FRACTION, outputs.last().cues.single().lineType)
+        assertEquals(
+            0.2f,
+            outputs
+                .last()
+                .cues
+                .single()
+                .line,
+        )
+        assertEquals(
+            Cue.LINE_TYPE_FRACTION,
+            outputs
+                .last()
+                .cues
+                .single()
+                .lineType,
+        )
     }
 
     @Test
