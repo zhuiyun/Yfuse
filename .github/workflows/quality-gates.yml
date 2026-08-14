@@ -115,6 +115,15 @@ jobs:
             echo "- Signature, ZIP alignment, and package name verified"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Upload preview APK
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Yfuse-preview-${{ github.event.pull_request.number }}-${{ github.sha }}
+          path: composeApp/build/outputs/apk/release/composeApp-release.apk
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
       - name: Reject new ktlint violations
         run: ./gradlew ktlintCheck --no-daemon
 
