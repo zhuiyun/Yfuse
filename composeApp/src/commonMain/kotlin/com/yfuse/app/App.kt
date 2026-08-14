@@ -120,11 +120,13 @@ private data class TabItem(
 )
 
 /**
- * Five equal root destinations in one calm glass capsule.
+ * The four destinations in the bar.
  *
- * Search stays visually related to the rest of the app while retaining its own back stack
- * and semantics. The dedicated icon family keeps every destination recognisable without
- * labels or decorative containers around individual glyphs.
+ * 搜索 left the row and became [SearchButton], a control of its own beside it. It was the odd
+ * one out: the other four are places the app can be in — each keeps a back stack, each is
+ * where you end up and stay — while search is a thing you do to get somewhere and leave. As a
+ * fifth equal cell it also cost the other four a fifth of the bar, and made the row a set of
+ * five narrow targets rather than four comfortable ones.
  */
 private val tabs =
     listOf(
@@ -132,7 +134,6 @@ private val tabs =
         TabItem(Tab.Browse, "库", AppIcons.TabLibrary),
         TabItem(Tab.Servers, "服务器", AppIcons.TabServers),
         TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
-        TabItem(Tab.Search, "搜索", AppIcons.SearchTab),
     )
 
 /**
@@ -768,10 +769,14 @@ private fun rememberNavCollapseConnection(
 }
 
 /**
- * The bottom furniture: five fine-line destinations in one floating capsule.
+ * The bottom furniture: the four destinations, and 搜索 as its own control beside them.
  *
- * During reading the dock still collapses to the active destination plus a persistent search
- * shortcut. Expanded, all five roots return to one uninterrupted glass surface.
+ * Two shapes for one row. Expanded, the tabs fill a capsule and search is a circle at its
+ * end. Collapsed, the capsule contracts to a single button carrying the icon of wherever the
+ * user is — enough to say "navigation lives here" without spending a bar's worth of screen on
+ * four destinations nobody is looking at while reading — and tapping it brings the row back.
+ * Search does not collapse: it is one tap from anywhere, and that is the point of moving it
+ * out of the row.
  */
 @Composable
 private fun BottomNavigationDock(
@@ -794,15 +799,8 @@ private fun BottomNavigationDock(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (collapsed) {
-            if (active != Tab.Search) {
-                CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
-            }
+            CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
             Spacer(Modifier.weight(1f))
-            SearchButton(
-                selected = active == Tab.Search,
-                backdrop = backdrop,
-                onClick = onSearch,
-            )
         } else {
             GlassTabBar(
                 active = active,
@@ -811,6 +809,11 @@ private fun BottomNavigationDock(
                 modifier = Modifier.weight(1f),
             )
         }
+        SearchButton(
+            selected = active == Tab.Search,
+            backdrop = backdrop,
+            onClick = onSearch,
+        )
     }
 }
 
