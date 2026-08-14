@@ -1,10 +1,6 @@
 package com.yfuse.feature.player
 
-import com.yfuse.core.data.EmbyRepository
-import com.yfuse.core.data.PlaybackEventOutbox
-import com.yfuse.core.data.PlaybackOutboxEventKind
 import com.yfuse.core.logging.AppLog
-import com.yfuse.core.model.SavedServer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,283 +16,7 @@ private const val SEEK_THRESHOLD_MS = 5_000L
 private const val TICKS_PER_MILLISECOND = 10_000L
 private const val NEXT_SOURCE_PRELOAD_WINDOW_MS = 90_000L
 private const val MAX_PENDING_REPORT_COMMANDS = 8
-
-internal interface PlaybackEventSink {
-    suspend fun started(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-    )
-
-    suspend fun progress(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-    )
-
-    suspend fun stopped(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-    )
-
-    suspend fun startedWithMethod(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-        playMethod: String,
-    ) = started(itemId, sessionId, positionTicks, isPaused)
-
-    suspend fun progressWithMethod(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-        playMethod: String,
-    ) = progress(itemId, sessionId, positionTicks, isPaused)
-
-    suspend fun stoppedWithMethod(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-        playMethod: String,
-    ) = stopped(itemId, sessionId, positionTicks, isPaused)
-
-    /** Ends only the server's encoder job; the logical playback session remains active. */
-    suspend fun stopEncoding(sessionId: String): Boolean = true
-}
-
-internal class EmbyPlaybackEventSink(
-    private val repo: EmbyRepository,
-    private val server: SavedServer,
-) : PlaybackEventSink {
-    override suspend fun started(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-    ) {
-        repo.reportPlaybackStarted(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
-    }
-
-    override suspend fun progress(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-    ) {
-        repo.reportPlaybackProgress(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
-    }
-
-    override suspend fun stopped(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-    ) {
-        repo.reportPlaybackStopped(server, itemId, sessionId, positionTicks, isPaused).getOrThrow()
-        // Belt and braces. `Playing/Stopped` is the polite request; some server versions
-        // leave the ffmpeg process running anyway, and an orphaned encoding is what makes
-        // the *next* attempt at the same file fail with a 4xx instead of playing.
-        stopEncoding(sessionId)
-    }
-
-    override suspend fun startedWithMethod(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-        playMethod: String,
-    ) {
-        repo
-            .reportPlaybackStarted(
-                server,
-                itemId,
-                sessionId,
-                positionTicks,
-                isPaused,
-                playMethod,
-            ).getOrThrow()
-    }
-
-    override suspend fun progressWithMethod(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-        playMethod: String,
-    ) {
-        repo
-            .reportPlaybackProgress(
-                server,
-                itemId,
-                sessionId,
-                positionTicks,
-                isPaused,
-                playMethod,
-            ).getOrThrow()
-    }
-
-    override suspend fun stoppedWithMethod(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-        playMethod: String,
-    ) {
-        repo
-            .reportPlaybackStopped(
-                server,
-                itemId,
-                sessionId,
-                positionTicks,
-                isPaused,
-                playMethod,
-            ).getOrThrow()
-        stopEncoding(sessionId)
-    }
-
-    override suspend fun stopEncoding(sessionId: String): Boolean = repo.stopTranscoding(server, sessionId).isSuccess
-}
-
-/**
- * Persists before returning to the reporter actor. Network delivery happens on the coordinator's
- * application scope, so a failed request cannot terminate the actor or discard a later stop.
- */
-internal class ReliablePlaybackEventSink(
-    private val serverId: String,
-    private val outbox: PlaybackEventOutbox,
-    private val directSink: PlaybackEventSink,
-    private val wakeDelivery: (String) -> Unit,
-) : PlaybackEventSink {
-    override suspend fun started(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-    ) = submit(
-        PlaybackOutboxEventKind.Started,
-        itemId,
-        sessionId,
-        positionTicks,
-        isPaused,
-        "DirectPlay",
-    )
-
-    override suspend fun progress(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-    ) = submit(
-        PlaybackOutboxEventKind.Progress,
-        itemId,
-        sessionId,
-        positionTicks,
-        isPaused,
-        "DirectPlay",
-    )
-
-    override suspend fun stopped(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-    ) = submit(
-        PlaybackOutboxEventKind.Stopped,
-        itemId,
-        sessionId,
-        positionTicks,
-        isPaused,
-        "DirectPlay",
-    )
-
-    override suspend fun startedWithMethod(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-        playMethod: String,
-    ) = submit(
-        PlaybackOutboxEventKind.Started,
-        itemId,
-        sessionId,
-        positionTicks,
-        isPaused,
-        playMethod,
-    )
-
-    override suspend fun progressWithMethod(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-        playMethod: String,
-    ) = submit(
-        PlaybackOutboxEventKind.Progress,
-        itemId,
-        sessionId,
-        positionTicks,
-        isPaused,
-        playMethod,
-    )
-
-    override suspend fun stoppedWithMethod(
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-        playMethod: String,
-    ) = submit(
-        PlaybackOutboxEventKind.Stopped,
-        itemId,
-        sessionId,
-        positionTicks,
-        isPaused,
-        playMethod,
-    )
-
-    override suspend fun stopEncoding(sessionId: String): Boolean = directSink.stopEncoding(sessionId)
-
-    private fun submit(
-        kind: PlaybackOutboxEventKind,
-        itemId: String,
-        sessionId: String,
-        positionTicks: Long,
-        isPaused: Boolean,
-        playMethod: String,
-    ) {
-        val accepted =
-            outbox.enqueue(
-                kind = kind,
-                serverId = serverId,
-                itemId = itemId,
-                sessionId = sessionId,
-                positionTicks = positionTicks,
-                isPaused = isPaused,
-                playMethod = playMethod,
-            )
-        if (accepted == null) {
-            AppLog.error(
-                category = "playback.outbox",
-                event = "event_rejected",
-                message = "Playback report could not be queued",
-                attributes =
-                    mapOf(
-                        "serverId" to serverId,
-                        "kind" to kind.name,
-                    ),
-            )
-            return
-        }
-        wakeDelivery(serverId)
-    }
-}
+private const val DEFAULT_PLAY_METHOD = "DirectPlay"
 
 /**
  * Serializes Emby playback events so item transitions always stop the old
@@ -351,7 +71,7 @@ internal class PlaybackProgressReporter(
     private var activeSessionId = ""
     private var activePositionMs = 0L
     private var activePaused = true
-    private var activePlayMethod = "DirectPlay"
+    private var activePlayMethod = DEFAULT_PLAY_METHOD
     private var reportedPositionMs = Long.MIN_VALUE
     private var terminalIndex = -1
 
@@ -374,8 +94,6 @@ internal class PlaybackProgressReporter(
                                         handleUpdate(command.state)
                                     }
                                 } finally {
-                                    // Even a throwing sink must not prevent the terminal report from
-                                    // being attempted or leave the actor's active binding uncleared.
                                     stopActive()
                                 }
                         }
@@ -387,15 +105,7 @@ internal class PlaybackProgressReporter(
                             event = "command_failed",
                             message = "Playback reporting command failed; actor will continue",
                             throwable = error,
-                            attributes =
-                                mapOf(
-                                    "command" to
-                                        when (command) {
-                                            is Command.Update -> "update"
-                                            is Command.Rebind -> "rebind"
-                                            is Command.Close -> "close"
-                                        },
-                                ),
+                            attributes = mapOf("command" to command.logName),
                         )
                     }
                     if (closeAfterCommand) {
@@ -480,32 +190,12 @@ internal class PlaybackProgressReporter(
         val accepted =
             synchronized(commandLock) {
                 when (command) {
-                    is Command.Update -> {
-                        if (pendingCommands.lastOrNull() is Command.Update) {
-                            pendingCommands.removeLast()
-                            pendingCommands.addLast(command)
-                            true
-                        } else if (pendingCommands.size < MAX_PENDING_REPORT_COMMANDS) {
-                            pendingCommands.addLast(command)
-                            true
-                        } else {
-                            val staleUpdate = pendingCommands.indexOfFirst { it is Command.Update }
-                            if (staleUpdate < 0) {
-                                false
-                            } else {
-                                pendingCommands.removeAt(staleUpdate)
-                                pendingCommands.addLast(command)
-                                true
-                            }
-                        }
-                    }
-
+                    is Command.Update -> enqueueUpdate(command)
                     is Command.Rebind -> {
                         pendingCommands.removeAll { it is Command.Update || it is Command.Rebind }
                         pendingCommands.addLast(command)
                         true
                     }
-
                     is Command.Close -> {
                         val latestRebind = pendingCommands.lastOrNull { it is Command.Rebind }
                         pendingCommands.clear()
@@ -518,13 +208,25 @@ internal class PlaybackProgressReporter(
         if (accepted) commandWakeups.trySend(Unit)
     }
 
+    private fun enqueueUpdate(command: Command.Update): Boolean {
+        if (pendingCommands.lastOrNull() is Command.Update) {
+            pendingCommands.removeLast()
+            pendingCommands.addLast(command)
+            return true
+        }
+        if (pendingCommands.size < MAX_PENDING_REPORT_COMMANDS) {
+            pendingCommands.addLast(command)
+            return true
+        }
+        val staleUpdate = pendingCommands.indexOfFirst { it is Command.Update }
+        if (staleUpdate < 0) return false
+        pendingCommands.removeAt(staleUpdate)
+        pendingCommands.addLast(command)
+        return true
+    }
+
     private suspend fun handleUpdate(state: PlaybackState) {
         val index = state.currentIndex.coerceIn(0, items.lastIndex)
-        // Engine errors are recoverable inside PlayerRoot: another URL, decoder stack or
-        // physical version may start immediately with this same PlaySessionId. Treating the
-        // intermediate error as terminal schedules a delayed DELETE that can kill the new
-        // engine's ffmpeg after it has started. Natural end is terminal; final screen exit,
-        // item/version rebind and explicit close stop everything else in actor order.
         val terminal = state.ended
         if (terminal && index == terminalIndex && activeIndex < 0) return
         if (index != activeIndex) {
@@ -601,9 +303,6 @@ internal class PlaybackProgressReporter(
                 item.id == oldActiveId && item.playSessionId == activeBindingSessionId
             }
 
-        // Queue refresh reports the old engine's numeric index until its deliberate rebuild.
-        // Follow the active (item, session) pair to its new index instead of interpreting that
-        // stale number against the reordered/shorter queue and briefly reporting the wrong item.
         if (activeIndex >= 0 && stateStillNamesOldActive && retainedIndex >= 0) {
             items = newItems
             activeIndex = retainedIndex
@@ -621,8 +320,6 @@ internal class PlaybackProgressReporter(
             terminalIndex = -1
             handleUpdate(state)
         } else {
-            // The same session survived a shrink that clamped its index. Keep the actor's
-            // numeric cursor valid so the next update/close does not start it a second time.
             activeIndex = newIndex
         }
     }
@@ -640,33 +337,29 @@ internal class PlaybackProgressReporter(
                 )
             }
         } finally {
-            // Always clear actor state, even when the queue was shortened underneath the old
-            // numeric index (or a sink implementation throws). Otherwise the next update starts
-            // the same session again and the eventual close may stop the wrong entry.
             activeIndex = -1
             activeItemId = ""
             activeBindingSessionId = ""
             activeSessionId = ""
-            activePlayMethod = "DirectPlay"
+            activePlayMethod = DEFAULT_PLAY_METHOD
             reportedPositionMs = Long.MIN_VALUE
         }
     }
 
-    /**
-     * The id the entry's stream URLs already carry, so the server can tie these reports to
-     * the encoding it started.
-     *
-     * This used to mint a fresh id here. It was never wrong on its own terms — Emby accepted
-     * it — but it named a session the stream URLs knew nothing about, so `Playing/Stopped`
-     * could not end the transcode it was reporting the end of. Offline entries and queues
-     * marshalled by an older build carry no id, and still get a generated one.
-     */
     private fun sessionIdFor(index: Int): String =
         items.getOrNull(index)?.playSessionId?.takeIf { it.isNotBlank() }
             ?: "yfuse${Random.nextLong().toULong().toString(16)}"
 
     private fun Long.toTicks(): Long =
         coerceAtLeast(0L).coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND
+
+    private val Command.logName: String
+        get() =
+            when (this) {
+                is Command.Update -> "update"
+                is Command.Rebind -> "rebind"
+                is Command.Close -> "close"
+            }
 }
 
 private fun List<PlayerMediaItem>.reportingBinding(): List<Pair<String, String>> = map { it.id to it.playSessionId }
