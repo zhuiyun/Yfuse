@@ -11,6 +11,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
+import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
@@ -78,12 +79,13 @@ internal fun Route.installServiceHealthEndpoint(migrationRelayWorkExecutor: Acco
 }
 
 private fun Application.installHealthInterceptor() {
+    val app = this
     intercept(ApplicationCallPipeline.Call) {
         if (call.request.httpMethod != HttpMethod.Get || call.request.path() != "/health") {
             return@intercept
         }
-        val accountBackend = attributes.getOrNull(HEALTH_ACCOUNT_BACKEND)
-        val migrationExecutor = attributes.getOrNull(HEALTH_MIGRATION_EXECUTOR)
+        val accountBackend = app.attributes.getOrNull(HEALTH_ACCOUNT_BACKEND)
+        val migrationExecutor = app.attributes.getOrNull(HEALTH_MIGRATION_EXECUTOR)
         val health =
             if (accountBackend != null && migrationExecutor != null) {
                 serviceHealth(accountBackend, migrationExecutor)
