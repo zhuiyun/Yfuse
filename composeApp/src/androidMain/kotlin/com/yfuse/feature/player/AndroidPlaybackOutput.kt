@@ -3,13 +3,17 @@ package com.yfuse.feature.player
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
+import android.os.Looper
 import android.view.Surface
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.text.TextOutput
+import java.util.ArrayList
 
 /**
  * Media3 owns seamless frame-rate hints because it knows the decoded output rate. The explicit
@@ -28,16 +32,19 @@ internal fun exoVideoChangeFrameRateStrategy(mode: FrameRateMatchMode): Int =
 internal fun exoNeedsAppSurfaceFrameRate(mode: FrameRateMatchMode): Boolean = mode == FrameRateMatchMode.Always
 
 /**
- * Selects between Media3's route-aware encoded sink and a PCM-only sink.
+ * Selects between Media3's route-aware encoded sink and a PCM-only sink, and optionally wraps the
+ * primary text renderer so PlayerView receives merged primary/secondary cues.
  *
- * The compatible path delegates to Media3, which refreshes AudioCapabilities when Android changes
- * the routed device. The disabled path deliberately uses the context-free builder whose documented
- * default capabilities contain no encoded passthrough formats, forcing normal decoder-to-PCM audio.
+ * The compatible audio path delegates to Media3, which refreshes AudioCapabilities when Android
+ * changes the routed device. The disabled path deliberately uses the context-free builder whose
+ * documented default capabilities contain no encoded passthrough formats, forcing normal
+ * decoder-to-PCM audio.
  */
 @UnstableApi
 internal class ExoOutputRenderersFactory(
     context: Context,
     private val audioPassthroughMode: AudioPassthroughMode,
+    private val dualSubtitleCueMerger: ExoDualSubtitleCueMerger? = null,
 ) : DefaultRenderersFactory(context) {
     @Suppress("DEPRECATION")
     override fun buildAudioSink(
@@ -57,6 +64,22 @@ internal class ExoOutputRenderersFactory(
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
             .build()
+    }
+
+    override fun buildTextRenderers(
+        context: Context,
+        output: TextOutput,
+        outputLooper: Looper,
+        extensionRendererMode: Int,
+        out: ArrayList<Renderer>,
+    ) {
+        super.buildTextRenderers(
+            context,
+            dualSubtitleCueMerger?.primaryOutput(output) ?: output,
+            outputLooper,
+            extensionRendererMode,
+            out,
+        )
     }
 }
 
