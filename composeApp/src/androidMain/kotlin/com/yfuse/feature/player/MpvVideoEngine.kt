@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import android.content.Context
 import android.util.Log
 import android.view.Surface
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.koin.core.context.GlobalContext
 
 private const val TAG = "YfusePlayer"
 
@@ -114,6 +116,12 @@ class MpvVideoEngine(
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
     private val items = items.map { it.withPlaybackQuality(quality) }
+    private val audioPassthroughMode =
+        GlobalContext
+            .get()
+            .get<PlaybackPreferences>()
+            .audioPassthrough.value
+            .toPlayerMode()
 
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
@@ -521,6 +529,9 @@ class MpvVideoEngine(
             // Use Android's media stream deterministically. This keeps native
             // playback on the same STREAM_MUSIC volume path as ExoPlayer/MDK.
             instance.requireOption("ao", "audiotrack")
+            mpvAudioSpdifOption(audioPassthroughMode)?.let { codecs ->
+                instance.optionalOption("audio-spdif", codecs)
+            }
             customUserAgent.trim().takeIf { it.isNotEmpty() }?.let { value ->
                 instance.requireOption("user-agent", value)
             }
@@ -579,6 +590,7 @@ class MpvVideoEngine(
                     mapOf(
                         "itemIndex" to _state.value.currentIndex.toString(),
                         "decoderMode" to decoderMode.name,
+                        "audioPassthrough" to audioPassthroughMode.toString(),
                     ),
             )
         }.onFailure {
@@ -996,6 +1008,14 @@ class MpvVideoEngine(
     private fun logAudioOutput() {
         val instance = mpv ?: return
         runCatching {
+            val outputFormat = instance.getPropertyString("audio-params/format")
+            val decoder = instance.getPropertyString("audio-codec-name")
+            val passthroughStatus =
+                mpvAudioPassthroughStatus(
+                    mode = audioPassthroughMode,
+                    audioOutputFormat = outputFormat,
+                    audioDecoder = decoder,
+                )
             AppLog.info(
                 category = "player.mpv",
                 event = "audio_output_configured",
@@ -1003,8 +1023,10 @@ class MpvVideoEngine(
                 attributes =
                     mapOf(
                         "output" to (instance.getPropertyString("current-ao") ?: "unknown"),
-                        "codec" to (instance.getPropertyString("audio-codec-name") ?: "unknown"),
+                        "format" to (outputFormat ?: "unknown"),
+                        "codec" to (decoder ?: "unknown"),
                         "track" to (instance.getPropertyString("aid") ?: "unknown"),
+                        "passthrough" to passthroughStatus.toString(),
                     ),
             )
         }.onFailure {
