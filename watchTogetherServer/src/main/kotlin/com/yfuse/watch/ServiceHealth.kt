@@ -17,6 +17,7 @@ import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.application
 import io.ktor.util.AttributeKey
+import java.util.concurrent.RejectedExecutionException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -44,7 +45,8 @@ internal suspend fun serviceHealth(
         try {
             migrationRelayWorkExecutor.execute { true }
         } catch (failure: CancellationException) {
-            throw failure
+            if (!failure.causedByRejectedExecution()) throw failure
+            false
         } catch (_: Throwable) {
             false
         }
@@ -102,11 +104,21 @@ private fun Application.installHealthInterceptor() {
             }
         call.response.headers.append(HttpHeaders.CacheControl, "no-store, max-age=0")
         call.response.headers.append(HttpHeaders.Pragma, "no-cache")
-        call.respondText(
-            text = healthJson.encodeToString(health),
-            contentType = ContentType.Application.Json,
-            status = if (health.healthy) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable,
-        )
+        if (health.healthy) {
+            // Keep the historical liveness body stable for existing deployment checks while
+            // making success conditional on the real dependency probes above.
+            call.respondText(
+                text = "ok",
+                contentType = ContentType.Text.Plain,
+                status = HttpStatusCode.OK,
+            )
+        } else {
+            call.respondText(
+                text = healthJson.encodeToString(health),
+                contentType = ContentType.Application.Json,
+                status = HttpStatusCode.ServiceUnavailable,
+            )
+        }
         finish()
     }
 }
@@ -121,10 +133,20 @@ private suspend fun probeAccountPersistence(accountBackend: AccountBackend): Boo
     } catch (failure: AccountServiceException) {
         failure.problem == AccountProblem.Unauthorized
     } catch (failure: CancellationException) {
-        throw failure
+        if (!failure.causedByRejectedExecution()) throw failure
+        false
     } catch (_: Throwable) {
         false
     }
+
+private fun Throwable.causedByRejectedExecution(): Boolean {
+    var failure: Throwable? = this
+    while (failure != null) {
+        if (failure is RejectedExecutionException) return true
+        failure = failure.cause
+    }
+    return false
+}
 
 private val HEALTH_ACCOUNT_BACKEND =
     AttributeKey<AccountBackend>("yfuse.health.accountBackend")
