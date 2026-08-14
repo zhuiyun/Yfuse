@@ -48,6 +48,7 @@ class WatchGatedPlayback(
     private val onLocked: () -> Unit = {},
 ) {
     private var observedIndex: Int? = null
+    private val playlistMatcher = WatchMediaMatcher(onWarning = {})
 
     /**
      * Read straight off the engine rather than from a separately tracked copy: gating
@@ -108,8 +109,20 @@ class WatchGatedPlayback(
      * Re-anchors the room on the entry the engine moved to on its own. Engines advance
      * through the queue internally when auto-next is on, so an episode ending is the one
      * timeline change no control surface can report.
+     *
+     * This callback already runs on every observed engine-state tick. It also consumes the
+     * room dialog's one-shot playlist request here, which keeps playlist transport on the
+     * same gate as every other episode change without making PlayerControls own protocol state.
      */
     fun onPlaybackIndexChanged(index: Int) {
+        WatchPlaylistPlaybackRequest.consume()?.let { mediaKey ->
+            val requestedIndex = playlistMatcher.resolve(items(), mediaKey)
+            if (requestedIndex != null && requestedIndex != (state?.currentIndex ?: index)) {
+                selectItem(requestedIndex)
+                return
+            }
+        }
+
         val previous = observedIndex
         observedIndex = index
         if (previous == null || previous == index || locked) return
