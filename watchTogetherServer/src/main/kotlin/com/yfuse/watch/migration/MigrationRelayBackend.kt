@@ -105,6 +105,9 @@ internal class MigrationRelayBackend private constructor(
         }
     }
 
+    /** Side-effect-free readiness probe using the same SQLite connection as relay traffic. */
+    internal fun healthCheck(): Boolean = store.healthCheck()
+
     override fun close() {
         keyProtector.close()
         store.close()
@@ -305,6 +308,8 @@ internal class MigrationRelayRateLimiter(
 }
 
 private interface MigrationRelayStore : AutoCloseable {
+    fun healthCheck(): Boolean
+
     fun insert(record: StoredMigrationRelay, nowEpochMs: Long): Boolean
 
     fun redeem(
@@ -350,6 +355,14 @@ private class SqliteMigrationRelayStore private constructor(
                 statement.execute(
                     "CREATE INDEX IF NOT EXISTS idx_migration_relays_expiry ON migration_relays(expires_at_ms)",
                 )
+            }
+        }
+    }
+
+    override fun healthCheck(): Boolean = synchronized(lock) {
+        connection.createStatement().use { statement ->
+            statement.executeQuery("SELECT 1").use { result ->
+                result.next() && result.getInt(1) == 1
             }
         }
     }
