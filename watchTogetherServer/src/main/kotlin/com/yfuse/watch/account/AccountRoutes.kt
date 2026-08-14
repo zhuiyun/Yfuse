@@ -1,5 +1,6 @@
 package com.yfuse.watch.account
 
+import com.yfuse.watch.registerAccountHealthDependency
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -29,6 +30,7 @@ internal fun Route.accountRoutes(
     backend: AccountBackend,
     rateLimiter: AccountRateLimiter,
 ) {
+    registerAccountHealthDependency(backend)
     route("/api/v1") {
         route("/auth") {
             post("/register") {
@@ -244,7 +246,7 @@ private suspend fun ApplicationCall.handleAccountEndpoint(
         respondError(
             HttpStatusCode.ServiceUnavailable,
             "account_busy",
-            "账号服务繁忙，请稍后再试",
+            "账号服务繁忙，请稍后重试",
         )
     } catch (_: SerializationException) {
         respondError(HttpStatusCode.BadRequest, "invalid_json", "JSON 请求格式无效")
