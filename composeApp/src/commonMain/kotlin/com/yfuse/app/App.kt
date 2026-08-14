@@ -794,7 +794,9 @@ private fun BottomNavigationDock(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (collapsed) {
-            CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
+            if (active != Tab.Search) {
+                CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
+            }
             Spacer(Modifier.weight(1f))
             SearchButton(
                 selected = active == Tab.Search,
