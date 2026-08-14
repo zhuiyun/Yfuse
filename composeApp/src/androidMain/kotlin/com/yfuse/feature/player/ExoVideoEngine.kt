@@ -229,6 +229,13 @@ class ExoVideoEngine(
     private val outputPreferences = GlobalContext.get().get<PlaybackPreferences>()
     internal val frameRateMatchMode = outputPreferences.frameRateMatch.value.toPlayerMode()
     private val audioPassthroughMode = outputPreferences.audioPassthrough.value.toPlayerMode()
+    private val dualSubtitleCueMerger = ExoDualSubtitleCueMerger()
+    private val secondarySubtitles =
+        ExoSecondarySubtitleController(
+            context = context,
+            customUserAgent = customUserAgent,
+            cueMerger = dualSubtitleCueMerger,
+        )
     private val startTranscoding =
         this.items
             .getOrNull(startIndex)
@@ -295,8 +302,11 @@ class ExoVideoEngine(
                     MediaCodecSelector.DEFAULT
                 }
             val renderersFactory =
-                ExoOutputRenderersFactory(context, audioPassthroughMode)
-                    .setMediaCodecSelector(selector)
+                ExoOutputRenderersFactory(
+                    context = context,
+                    audioPassthroughMode = audioPassthroughMode,
+                    dualSubtitleCueMerger = dualSubtitleCueMerger,
+                ).setMediaCodecSelector(selector)
                     .setEnableDecoderFallback(decoderMode != DecoderMode.Hardware)
 
             val upstream = DefaultDataSource.Factory(context, httpFactory)
@@ -707,6 +717,12 @@ class ExoVideoEngine(
                                 ),
                         )
                     }
+                    secondarySubtitles.reconcile(
+                        mainIndex = player.currentMediaItemIndex,
+                        mainPositionMs = player.currentPosition,
+                        mainSpeed = player.playbackParameters.speed,
+                        mainPlayWhenReady = player.playWhenReady,
+                    )
                     delay(TICK_MS)
                 }
             }
@@ -739,6 +755,28 @@ class ExoVideoEngine(
     override fun selectAudioTrack(id: String) = select(C.TRACK_TYPE_AUDIO, id)
 
     override fun selectSubtitleTrack(id: String) = select(C.TRACK_TYPE_TEXT, id)
+
+    override val supportsSecondarySubtitleTrack: Boolean = true
+
+    override fun selectSecondarySubtitleTrack(id: String): Boolean {
+        if (id == EngineTrack.OFF) {
+            secondarySubtitles.disable()
+            return true
+        }
+        val groupIndex = id.substringBefore(':').toIntOrNull() ?: return false
+        val trackIndex = id.substringAfter(':').toIntOrNull() ?: return false
+        val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return false
+        if (group.type != C.TRACK_TYPE_TEXT || trackIndex !in 0 until group.length) return false
+        val mediaItems = (0 until player.mediaItemCount).map(player::getMediaItemAt)
+        return secondarySubtitles.select(
+            identity = group.getTrackFormat(trackIndex).subtitleTrackIdentity(),
+            mediaItems = mediaItems,
+            currentIndex = player.currentMediaItemIndex,
+            positionMs = player.currentPosition,
+            speed = player.playbackParameters.speed,
+            playWhenReady = player.playWhenReady,
+        )
+    }
 
     override fun setSubtitleBrightness(brightness: Float): Boolean = true
 
@@ -786,6 +824,7 @@ class ExoVideoEngine(
         fallbackJob = null
         ticker?.cancel()
         ticker = null
+        secondarySubtitles.release()
         player.removeListener(listener)
         player.removeAnalyticsListener(analyticsListener)
         player.release()
@@ -992,6 +1031,7 @@ class ExoVideoEngine(
             attributes = mapOf("itemIndex" to index.toString()),
         )
         player.replaceMediaItem(index, mediaItem(item, item.transcodeUrl))
+        secondarySubtitles.replaceMediaItem(index, player.getMediaItemAt(index))
         player.prepare()
         player.seekTo(index, position)
         player.playWhenReady = true
@@ -1011,12 +1051,13 @@ class ExoVideoEngine(
             if (item.startsWithServerTranscode(quality)) transcodedIndices += offset + relativeIndex
         }
         this.items += qualityItems
-        player.addMediaItems(
+        val mediaItems =
             qualityItems.mapIndexed { relativeIndex, item ->
                 val index = offset + relativeIndex
                 mediaItem(item, if (index in transcodedIndices) item.transcodeUrl else item.url)
-            },
-        )
+            }
+        player.addMediaItems(mediaItems)
+        secondarySubtitles.appendMediaItems(mediaItems)
         _state.update { it.copy(itemCount = this.items.size.coerceAtLeast(1)) }
         AppLog.info(
             category = "player.exo",
@@ -1098,6 +1139,7 @@ class ExoVideoEngine(
                     attributes = mapOf("itemIndex" to index.toString()),
                 )
                 player.replaceMediaItem(index, mediaItem(item, item.fallbackTranscodeUrl))
+                secondarySubtitles.replaceMediaItem(index, player.getMediaItemAt(index))
                 player.prepare()
                 player.seekTo(index, position)
                 player.playWhenReady = true
