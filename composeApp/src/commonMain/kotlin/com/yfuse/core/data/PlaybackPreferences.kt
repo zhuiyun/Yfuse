@@ -22,6 +22,35 @@ enum class VideoCacheSize(
     ExtraLarge("2 GB", 2L * 1024L * 1024L * 1024L),
 }
 
+/** Persisted display refresh-rate intent; backend support is resolved by the player feature. */
+enum class PlaybackFrameRateMatch(
+    val storageValue: String,
+) {
+    Disabled("off"),
+    SeamlessOnly("seamless_only"),
+    Always("always"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): PlaybackFrameRateMatch =
+            entries.firstOrNull { it.storageValue == value } ?: Disabled
+    }
+}
+
+/** Persisted encoded-audio intent. Compatible never means forcing an unsupported route. */
+enum class PlaybackAudioPassthrough(
+    val storageValue: String,
+) {
+    Disabled("off"),
+    Compatible("compatible"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): PlaybackAudioPassthrough =
+            entries.firstOrNull { it.storageValue == value } ?: Disabled
+    }
+}
+
 /** Engine-independent track identity; numeric track ids change between files and backends. */
 @Serializable
 data class RememberedPlaybackTrack(
@@ -70,6 +99,28 @@ class PlaybackPreferences(
     fun setVideoCacheSize(size: VideoCacheSize) {
         _videoCacheSize.value = size
         settings.putString(KEY_VIDEO_CACHE_SIZE, size.name)
+    }
+
+    private val _frameRateMatch =
+        MutableStateFlow(
+            PlaybackFrameRateMatch.fromStorage(settings.getStringOrNull(KEY_FRAME_RATE_MATCH)),
+        )
+    val frameRateMatch: StateFlow<PlaybackFrameRateMatch> = _frameRateMatch.asStateFlow()
+
+    fun setFrameRateMatch(mode: PlaybackFrameRateMatch) {
+        _frameRateMatch.value = mode
+        settings.putString(KEY_FRAME_RATE_MATCH, mode.storageValue)
+    }
+
+    private val _audioPassthrough =
+        MutableStateFlow(
+            PlaybackAudioPassthrough.fromStorage(settings.getStringOrNull(KEY_AUDIO_PASSTHROUGH)),
+        )
+    val audioPassthrough: StateFlow<PlaybackAudioPassthrough> = _audioPassthrough.asStateFlow()
+
+    fun setAudioPassthrough(mode: PlaybackAudioPassthrough) {
+        _audioPassthrough.value = mode
+        settings.putString(KEY_AUDIO_PASSTHROUGH, mode.storageValue)
     }
 
     private val _smartCrossServerSource =
@@ -255,6 +306,8 @@ class PlaybackPreferences(
 
     private companion object {
         const val KEY_VIDEO_CACHE_SIZE = "player.videoCacheSize"
+        const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
+        const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
         const val KEY_SMART_CROSS_SERVER_SOURCE = "player.smartCrossServerSource"
         const val KEY_WIFI_QUALITY_CAP = "player.networkQuality.wifi"
         const val KEY_CELLULAR_QUALITY_CAP = "player.networkQuality.cellular"
