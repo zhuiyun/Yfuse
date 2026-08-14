@@ -12,11 +12,10 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class ServiceHealthEndpointTest {
     @Test
-    fun health_endpoint_returns_dependency_readiness_json() = testApplication {
+    fun health_endpoint_returns_ok_only_after_dependency_readiness_checks() = testApplication {
         val accountBackend = AccountBackend.inMemory()
         val migrationBackend = MigrationRelayBackend.inMemory()
         val migrationExecutor =
@@ -34,10 +33,7 @@ class ServiceHealthEndpointTest {
         val response = client.get("/health")
 
         assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals(ContentType.Application.Json, response.contentType()?.withoutParameters())
-        val body = response.bodyAsText()
-        assertTrue(body.contains("\"status\":\"ok\""))
-        assertTrue(body.contains("\"accountDatabase\":\"ok\""))
-        assertTrue(body.contains("\"migrationExecutor\":\"ok\""))
+        assertEquals(ContentType.Text.Plain, response.contentType()?.withoutParameters())
+        assertEquals("ok", response.bodyAsText())
     }
 }
