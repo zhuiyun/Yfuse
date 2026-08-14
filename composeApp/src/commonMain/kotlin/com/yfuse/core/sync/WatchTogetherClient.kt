@@ -215,7 +215,7 @@ data class WatchTogetherState(
     val mediaKey: String? = null,
     val error: String? = null,
     /**
-     * Set by the player when the room's media matches nothing in the local queue. The room is
+     * Set by the player when the room's media matches nothing it can play. The room is
      * real and the socket is up; this device just can't follow the timeline. Kept apart from
      * [error] because a room snapshot clears that one on arrival, and this condition is
      * discovered locally rather than reported by the server.
@@ -1136,6 +1136,13 @@ class WatchTogetherClient(
                                             }
                                         throw RoomUnavailableException(detail)
                                     }
+                                    // Creating a room starts without a room code. Once the server
+                                    // allocates one, keep it alongside the resume/host credentials
+                                    // so every reconnect hello targets the same room instead of
+                                    // accidentally creating a replacement room.
+                                    wire.roomCode
+                                        ?.takeIf(WatchProtocol::isValidRoomCode)
+                                        ?.let { pendingRoomCode = it }
                                     wire.resumeCapability?.let { pendingResumeCapability = it }
                                     wire.hostCapability?.let { pendingHostCapability = it }
                                     welcomedThisAttempt = true
