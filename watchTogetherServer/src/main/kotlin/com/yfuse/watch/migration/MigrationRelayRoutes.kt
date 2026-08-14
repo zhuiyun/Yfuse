@@ -40,7 +40,7 @@ internal fun Route.migrationRelayRoutes(
     clientIpResolver: ((ApplicationCall) -> String)? = null,
     trustProxyHeaders: Boolean = false,
 ) {
-    installServiceHealthEndpoint(workExecutor)
+    installServiceHealthEndpoint(backend, workExecutor)
     route("/api/v1/migration-relays") {
         post {
             call.handleRelayEndpoint(HttpStatusCode.Created, trustProxyHeaders) {
