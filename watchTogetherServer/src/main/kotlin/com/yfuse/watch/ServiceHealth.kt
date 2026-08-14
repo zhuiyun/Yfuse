@@ -4,6 +4,7 @@ import com.yfuse.watch.account.AccountBackend
 import com.yfuse.watch.account.AccountProblem
 import com.yfuse.watch.account.AccountServiceException
 import com.yfuse.watch.account.AccountWorkExecutor
+import com.yfuse.watch.migration.MigrationRelayBackend
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -34,30 +35,39 @@ internal data class ServiceHealthResponse(
 /**
  * Readiness, not a decorative liveness echo. The account probe traverses the account executor
  * and SQLite store using a syntactically valid token that is expected to be absent. The migration
- * probe executes real work on its bounded executor so saturation/shutdown is visible to orchestration.
+ * probe executes SELECT 1 through the relay's bounded executor, so both storage failure and
+ * executor saturation/shutdown are visible to orchestration.
  */
 internal suspend fun serviceHealth(
     accountBackend: AccountBackend,
+    migrationRelayBackend: MigrationRelayBackend,
     migrationRelayWorkExecutor: AccountWorkExecutor,
 ): ServiceHealthResponse {
     val accountReady = probeAccountPersistence(accountBackend)
-    val migrationExecutorReady =
+    val (migrationDatabaseReady, migrationExecutorReady) =
         try {
-            migrationRelayWorkExecutor.execute { true }
+            migrationRelayWorkExecutor.execute { migrationRelayBackend.healthCheck() } to true
         } catch (failure: CancellationException) {
             if (!failure.causedByRejectedExecution()) throw failure
-            false
+            false to false
         } catch (_: Throwable) {
-            false
+            // Work was accepted and reached the backend; the dependency that failed is storage.
+            false to true
         }
     val checks =
         linkedMapOf(
             "accountDatabase" to if (accountReady) "ok" else "unavailable",
             "accountExecutor" to if (accountReady) "ok" else "unavailable",
+            "migrationDatabase" to if (migrationDatabaseReady) "ok" else "unavailable",
             "migrationExecutor" to if (migrationExecutorReady) "ok" else "unavailable",
         )
     return ServiceHealthResponse(
-        status = if (accountReady && migrationExecutorReady) "ok" else "degraded",
+        status =
+            if (accountReady && migrationDatabaseReady && migrationExecutorReady) {
+                "ok"
+            } else {
+                "degraded"
+            },
         checks = checks,
     )
 }
@@ -72,8 +82,12 @@ internal fun Route.registerAccountHealthDependency(accountBackend: AccountBacken
  * Installing here keeps the large application module untouched while still intercepting /health
  * before the legacy `respondText("ok")` handler is reached.
  */
-internal fun Route.installServiceHealthEndpoint(migrationRelayWorkExecutor: AccountWorkExecutor) {
+internal fun Route.installServiceHealthEndpoint(
+    migrationRelayBackend: MigrationRelayBackend,
+    migrationRelayWorkExecutor: AccountWorkExecutor,
+) {
     val app = application
+    app.attributes.put(HEALTH_MIGRATION_BACKEND, migrationRelayBackend)
     app.attributes.put(HEALTH_MIGRATION_EXECUTOR, migrationRelayWorkExecutor)
     if (app.attributes.getOrNull(HEALTH_HANDLER_INSTALLED) == true) return
     app.attributes.put(HEALTH_HANDLER_INSTALLED, true)
@@ -87,10 +101,11 @@ private fun Application.installHealthInterceptor() {
             return@intercept
         }
         val accountBackend = app.attributes.getOrNull(HEALTH_ACCOUNT_BACKEND)
+        val migrationBackend = app.attributes.getOrNull(HEALTH_MIGRATION_BACKEND)
         val migrationExecutor = app.attributes.getOrNull(HEALTH_MIGRATION_EXECUTOR)
         val health =
-            if (accountBackend != null && migrationExecutor != null) {
-                serviceHealth(accountBackend, migrationExecutor)
+            if (accountBackend != null && migrationBackend != null && migrationExecutor != null) {
+                serviceHealth(accountBackend, migrationBackend, migrationExecutor)
             } else {
                 ServiceHealthResponse(
                     status = "degraded",
@@ -98,6 +113,12 @@ private fun Application.installHealthInterceptor() {
                         linkedMapOf(
                             "accountDatabase" to if (accountBackend == null) "unavailable" else "ok",
                             "accountExecutor" to if (accountBackend == null) "unavailable" else "ok",
+                            "migrationDatabase" to
+                                if (migrationBackend == null || migrationExecutor == null) {
+                                    "unavailable"
+                                } else {
+                                    "ok"
+                                },
                             "migrationExecutor" to if (migrationExecutor == null) "unavailable" else "ok",
                         ),
                 )
@@ -150,6 +171,8 @@ private fun Throwable.causedByRejectedExecution(): Boolean {
 
 private val HEALTH_ACCOUNT_BACKEND =
     AttributeKey<AccountBackend>("yfuse.health.accountBackend")
+private val HEALTH_MIGRATION_BACKEND =
+    AttributeKey<MigrationRelayBackend>("yfuse.health.migrationBackend")
 private val HEALTH_MIGRATION_EXECUTOR =
     AttributeKey<AccountWorkExecutor>("yfuse.health.migrationExecutor")
 private val HEALTH_HANDLER_INSTALLED =
