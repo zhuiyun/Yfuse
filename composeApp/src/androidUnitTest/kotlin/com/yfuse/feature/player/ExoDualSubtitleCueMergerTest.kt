@@ -2,10 +2,12 @@ package com.yfuse.feature.player
 
 import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.text.TextOutput
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+@UnstableApi
 class ExoDualSubtitleCueMergerTest {
     @Test
     fun secondary_unpositioned_text_is_merged_above_primary() {
