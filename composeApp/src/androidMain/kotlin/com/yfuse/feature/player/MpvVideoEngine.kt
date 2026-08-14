@@ -127,6 +127,9 @@ class MpvVideoEngine(
     private var fallbackJob: Job? = null
     private val endFileTracker = MpvEndFileTracker()
 
+    @Volatile
+    private var pauseAtEndOfCurrentItem = false
+
     private val _state =
         MutableStateFlow(
             PlaybackState(
@@ -346,6 +349,10 @@ class MpvVideoEngine(
                     "eof-reached" ->
                         when {
                             !value -> _state.update { it.copy(ended = false) }
+                            pauseAtEndOfCurrentItem -> {
+                                playRequested = false
+                                _state.update { it.copy(playing = false, buffering = false, ended = true) }
+                            }
                             autoNext && _state.value.hasNext -> playNextIfAny()
                             else -> _state.update { it.copy(playing = false, buffering = false, ended = true) }
                         }
@@ -558,6 +565,7 @@ class MpvVideoEngine(
             instance.observeProperty("decoder-frame-drop-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("aid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("secondary-sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
 
             instance.attachSurface(surface)
             instance.setPropertyString("force-window", "yes")
@@ -663,16 +671,46 @@ class MpvVideoEngine(
 
     override fun selectSubtitleTrack(id: String) = selectTrack("sid", id)
 
+    override val supportsSecondarySubtitleTrack: Boolean = true
+
+    override fun selectSecondarySubtitleTrack(id: String): Boolean =
+        withMpvResult { instance ->
+            if (id == EngineTrack.OFF) {
+                instance.setPropertyString("secondary-sid", "no")
+            } else {
+                val ordinal = id.toIntOrNull() ?: error("Invalid mpv subtitle id")
+                instance.setPropertyInt("secondary-sid", ordinal)
+            }
+        }
+
     override fun setSubtitleOffsetMs(offsetMs: Long): Boolean {
         val instance = mpv ?: return false
         instance.setPropertyDouble("sub-delay", offsetMs / 1000.0)
         return true
     }
 
-    override fun setSubtitleScale(scale: Float): Boolean {
-        val instance = mpv ?: return false
-        instance.setPropertyDouble("sub-scale", scale.coerceIn(0.6f, 1.8f).toDouble())
-        return true
+    override fun setSubtitleScale(scale: Float): Boolean =
+        withMpvResult { instance ->
+            val normalized = scale.coerceIn(0.6f, 1.8f).toDouble()
+            instance.setPropertyDouble("sub-scale", normalized)
+            instance.setPropertyDouble("secondary-sub-scale", normalized)
+        }
+
+    override fun setSubtitleBrightness(brightness: Float): Boolean =
+        withMpvResult { instance ->
+            val luminance = brightness.coerceIn(MIN_SUBTITLE_BRIGHTNESS, 1f)
+            instance.setPropertyString("sub-color", subtitleBrightnessMpvColor(luminance))
+            // Embedded ASS colours otherwise bypass sub-color. Only force them while the user
+            // has deliberately lowered HDR caption luminance; 100% restores authored styling.
+            instance.setPropertyString("sub-ass-override", if (luminance < 0.999f) "force" else "yes")
+            instance.setPropertyString(
+                "secondary-sub-ass-override",
+                if (luminance < 0.999f) "force" else "strip",
+            )
+        }
+
+    override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
+        pauseAtEndOfCurrentItem = enabled
     }
 
     override fun selectItem(index: Int) {
@@ -912,6 +950,8 @@ class MpvVideoEngine(
         val instance = mpv ?: return
         runCatching {
             val count = instance.getPropertyInt("track-list/count") ?: 0
+            val selectedAudio = instance.getPropertyString("aid")
+            val selectedSubtitle = instance.getPropertyString("sid")
             val audio = mutableListOf<EngineTrack>()
             val subtitles = mutableListOf<EngineTrack>()
 
@@ -928,7 +968,7 @@ class MpvVideoEngine(
                         id = id.toString(),
                         label = title ?: language ?: "${if (type == "audio") "音轨" else "字幕"} ${bucket.size + 1}",
                         language = language,
-                        selected = instance.getPropertyBoolean("track-list/$i/selected") ?: false,
+                        selected = id.toString() == if (type == "audio") selectedAudio else selectedSubtitle,
                         codec = codec,
                     )
             }

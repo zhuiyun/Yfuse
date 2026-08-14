@@ -118,12 +118,62 @@ data class SkipSegmentActions(
 data class SubtitleControlState(
     val offsetMs: Long = 0L,
     val scale: Float = 1f,
+    val brightness: Float = 1f,
+    val secondaryTrackId: String? = null,
+    val secondarySupported: Boolean = false,
+    val secondaryUnavailableReason: String? = null,
 )
 
 data class SubtitleControlActions(
     val onOffset: (Long) -> Unit = {},
     val onScale: (Float) -> Unit = {},
+    val onBrightness: (Float) -> Unit = {},
+    val onSecondaryTrack: (String) -> Unit = {},
 )
+
+enum class SleepTimerOption(
+    val label: String,
+    val durationMs: Long?,
+) {
+    Off("关闭", null),
+    Minutes15("15 分钟", 15 * 60_000L),
+    Minutes30("30 分钟", 30 * 60_000L),
+    Minutes45("45 分钟", 45 * 60_000L),
+    Minutes60("60 分钟", 60 * 60_000L),
+    EndOfEpisode("本集结束", null),
+}
+
+data class SleepTimerState(
+    val selected: SleepTimerOption = SleepTimerOption.Off,
+)
+
+data class SleepTimerActions(
+    val onSelect: (SleepTimerOption) -> Unit = {},
+)
+
+internal fun shouldCompleteLocalEndOfEpisodeTimer(
+    armedIndex: Int?,
+    currentIndex: Int,
+    ended: Boolean,
+    playing: Boolean,
+    armedItemReachedEnd: Boolean,
+): Boolean =
+    armedIndex != null &&
+        (
+            (currentIndex == armedIndex && ended) ||
+                (currentIndex != armedIndex && !playing && armedItemReachedEnd)
+        )
+
+internal fun shouldCompleteCastEndOfEpisodeTimer(
+    armedIndex: Int?,
+    armedSessionRevision: Long?,
+    currentIndex: Int,
+    currentSessionRevision: Long,
+    castEnded: Boolean,
+): Boolean =
+    castEnded &&
+        armedIndex == currentIndex &&
+        armedSessionRevision == currentSessionRevision
 
 data class RemoteSubtitleOption(
     val id: String,

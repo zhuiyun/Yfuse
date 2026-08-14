@@ -2,6 +2,7 @@ package com.yfuse.feature.profile
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -36,6 +37,7 @@ import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.util.lockOrientationOnCompactScreens
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -106,6 +108,7 @@ class QrScannerActivity : ComponentActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        lockOrientationOnCompactScreens(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         buildUi()

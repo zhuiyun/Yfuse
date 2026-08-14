@@ -45,4 +45,52 @@ class PlaybackPreferencesTest {
         assertEquals(PlaybackQuality.FullHd, restored.rememberedQuality("server-a"))
         assertNull(restored.rememberedQuality("server-b"))
     }
+
+    @Test
+    fun series_playback_is_server_scoped_persistent_and_normalized() {
+        val settings = MapSettings()
+        val preferences = PlaybackPreferences(settings)
+        preferences.updateSeriesPlayback("server-a", "series-1") {
+            SeriesPlaybackPreference(
+                audio = RememberedPlaybackTrack(" zho ", " 国语 ", " eac3 "),
+                primarySubtitlesOff = false,
+                primarySubtitle = RememberedPlaybackTrack("zho", "简体", "srt"),
+                secondarySubtitle = RememberedPlaybackTrack("eng", "English", "ass"),
+                subtitleOffsetMs = 90_000L,
+                subtitleScale = 4f,
+                subtitleBrightness = 0.1f,
+                speed = 8f,
+                aspectMode = "not-a-mode",
+            )
+        }
+
+        val restored = PlaybackPreferences(settings).rememberedSeriesPlayback("server-a", "series-1")
+        assertEquals(RememberedPlaybackTrack("zho", "国语", "eac3"), restored?.audio)
+        assertEquals(60_000L, restored?.subtitleOffsetMs)
+        assertEquals(1.8f, restored?.subtitleScale)
+        assertEquals(0.35f, restored?.subtitleBrightness)
+        assertEquals(4f, restored?.speed)
+        assertEquals("Fit", restored?.aspectMode)
+        assertNull(PlaybackPreferences(settings).rememberedSeriesPlayback("server-b", "series-1"))
+        assertNull(PlaybackPreferences(settings).rememberedSeriesPlayback("server-a", ""))
+    }
+
+    @Test
+    fun series_playback_memory_is_bounded_and_evicts_the_oldest_choice() {
+        val preferences = PlaybackPreferences(MapSettings())
+        repeat(MAX_SERIES_PLAYBACK_PREFERENCES + 1) { index ->
+            preferences.updateSeriesPlayback("server", "series-$index") { current ->
+                current.copy(speed = 1f + index / 100f)
+            }
+        }
+
+        assertEquals(MAX_SERIES_PLAYBACK_PREFERENCES, preferences.rememberedSeriesPlaybackCount())
+        assertNull(preferences.rememberedSeriesPlayback("server", "series-0"))
+        assertEquals(
+            1f + MAX_SERIES_PLAYBACK_PREFERENCES / 100f,
+            preferences
+                .rememberedSeriesPlayback("server", "series-$MAX_SERIES_PLAYBACK_PREFERENCES")
+                ?.speed,
+        )
+    }
 }

@@ -6,6 +6,16 @@ import kotlin.test.assertTrue
 
 class WatchProtocolTest {
     @Test
+    fun authenticated_v5_and_current_v6_wire_versions_are_supported() {
+        assertTrue(WatchProtocol.isSupportedVersion(WatchProtocol.VERSION))
+        assertTrue(WatchProtocol.isSupportedVersion(WatchProtocol.VERSION - 1))
+        assertFalse(WatchProtocol.isSupportedVersion(WatchProtocol.VERSION - 2))
+        assertFalse(WatchProtocol.isSupportedVersion(WatchProtocol.VERSION + 1))
+        assertFalse(WatchProtocol.isSupportedVersion(null))
+        assertTrue(WatchProtocol.CAPABILITY_VERSION_RANGE in WatchProtocol.SERVER_CAPABILITIES)
+    }
+
+    @Test
     fun capabilities_are_fixed_length_base64url_values() {
         assertTrue(WatchProtocol.isValidCapability("a".repeat(43)))
         assertTrue(WatchProtocol.isValidCapability("A0_-" + "b".repeat(39)))
@@ -57,5 +67,59 @@ class WatchProtocolTest {
                 now,
             ),
         )
+    }
+
+    @Test
+    fun room_playlist_capability_and_messages_are_advertised() {
+        assertTrue(WatchProtocol.CAPABILITY_ROOM_PLAYLIST in WatchProtocol.SERVER_CAPABILITIES)
+        assertTrue("playlistAdd" in WatchProtocol.CLIENT_MESSAGE_TYPES)
+        assertTrue("playlistUpdate" in WatchProtocol.CLIENT_MESSAGE_TYPES)
+        assertTrue("playlistRemove" in WatchProtocol.CLIENT_MESSAGE_TYPES)
+        assertTrue("playlistReorder" in WatchProtocol.CLIENT_MESSAGE_TYPES)
+    }
+
+    @Test
+    fun playlist_entries_enforce_ids_media_titles_and_unique_bounded_lists() {
+        val entry = WatchWirePlaylistEntry("episode-1", "tmdb:42/s1e1", "第一集")
+        assertTrue(WatchProtocol.isValidPlaylistEntry(entry))
+        assertTrue(WatchProtocol.isValidPlaylist(listOf(entry)))
+        assertFalse(WatchProtocol.isValidPlaylistEntry(entry.copy(id = "bad id")))
+        assertFalse(WatchProtocol.isValidPlaylistEntry(entry.copy(id = "bad\nid")))
+        assertFalse(
+            WatchProtocol.isValidPlaylistEntry(
+                entry.copy(id = "a".repeat(WatchProtocol.MAX_PLAYLIST_ENTRY_ID_BYTES + 1)),
+            ),
+        )
+        assertFalse(WatchProtocol.isValidPlaylistEntry(entry.copy(mediaKey = "tmdb:bad key")))
+        assertFalse(
+            WatchProtocol.isValidPlaylistEntry(
+                entry.copy(
+                    mediaKey = "tmdb:${"x".repeat(WatchProtocol.MAX_MEDIA_KEY_BYTES - 4)}",
+                ),
+            ),
+        )
+        assertTrue(
+            WatchProtocol.isValidPlaylistEntry(
+                entry.copy(
+                    mediaKey = "tmdb:${"x".repeat(WatchProtocol.MAX_MEDIA_KEY_BYTES - 5)}",
+                ),
+            ),
+        )
+        assertFalse(WatchProtocol.isValidPlaylistEntry(entry.copy(title = "bad\ntitle")))
+        assertFalse(
+            WatchProtocol.isValidPlaylistEntry(
+                entry.copy(title = "x".repeat(WatchProtocol.MAX_PLAYLIST_TITLE_BYTES + 1)),
+            ),
+        )
+        assertFalse(WatchProtocol.isValidPlaylist(listOf(entry, entry.copy(title = "重复"))))
+        assertFalse(
+            WatchProtocol.isValidPlaylist(
+                List(WatchProtocol.MAX_PLAYLIST_ENTRIES + 1) { index ->
+                    entry.copy(id = "episode-$index")
+                },
+            ),
+        )
+        assertTrue(WatchProtocol.isValidPlaylistRevision(0L))
+        assertFalse(WatchProtocol.isValidPlaylistRevision(-1L))
     }
 }

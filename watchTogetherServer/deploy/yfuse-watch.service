@@ -2,6 +2,8 @@
 Description=Yfuse Ktor update and watch-together backend
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -20,9 +22,16 @@ EnvironmentFile=/etc/yfuse-watch/environment
 Environment=WATCH_TRUST_PROXY_HEADERS=true
 Environment="JAVA_OPTS=-Xms32m -Xmx128m"
 ExecStart=/opt/yfuse-watch/current/bin/watchTogetherServer
+ExecStartPost=/usr/bin/curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 --retry-max-time 30 --connect-timeout 1 http://127.0.0.1:8080/health
 Restart=on-failure
 RestartSec=3
+TimeoutStartSec=45
+TimeoutStopSec=30
 SuccessExitStatus=143
+LimitNOFILE=16384
+TasksMax=256
+MemoryHigh=256M
+MemoryMax=384M
 NoNewPrivileges=true
 CapabilityBoundingSet=
 PrivateTmp=true

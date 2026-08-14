@@ -2,6 +2,8 @@
 Description=Yfuse legacy loopback-only static update server
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -11,8 +13,15 @@ WorkingDirectory=/srv/yfuse-update
 # The production Caddyfile proxies the combined Ktor service on 8080 instead.
 # Keep this legacy server loopback-only if an installation still serves updates separately.
 ExecStart=/usr/bin/python3 -m http.server 8081 --bind 127.0.0.1
+ExecStartPost=/usr/bin/curl --fail --silent --show-error --retry 15 --retry-connrefused --retry-delay 1 --retry-max-time 15 --connect-timeout 1 http://127.0.0.1:8081/yfuse/update.json
 Restart=on-failure
 RestartSec=3
+TimeoutStartSec=30
+TimeoutStopSec=15
+LimitNOFILE=4096
+TasksMax=64
+MemoryHigh=96M
+MemoryMax=128M
 NoNewPrivileges=true
 CapabilityBoundingSet=
 PrivateTmp=true

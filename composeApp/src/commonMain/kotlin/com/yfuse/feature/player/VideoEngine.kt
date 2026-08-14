@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import kotlinx.coroutines.flow.StateFlow
+import kotlin.math.roundToInt
 
 /** A selectable audio/subtitle/video track exposed by an engine. */
 data class EngineTrack(
@@ -139,11 +140,23 @@ interface VideoEngine {
     /** [EngineTrack.OFF] disables subtitles. */
     fun selectSubtitleTrack(id: String)
 
+    /** True only when the backend really renders a second subtitle track. */
+    val supportsSecondarySubtitleTrack: Boolean get() = false
+
+    /** [EngineTrack.OFF] disables the secondary subtitle. Returns false when unsupported. */
+    fun selectSecondarySubtitleTrack(id: String): Boolean = false
+
     /** Positive values delay subtitles; negative values show them earlier. */
     fun setSubtitleOffsetMs(offsetMs: Long): Boolean = offsetMs == 0L
 
     /** Relative subtitle text size. Engines that cannot style return false. */
     fun setSubtitleScale(scale: Float): Boolean = scale == 1f
+
+    /** Relative subtitle luminance, primarily useful when HDR makes white captions dazzling. */
+    fun setSubtitleBrightness(brightness: Float): Boolean = brightness == 1f
+
+    /** Temporarily prevents automatic queue advance after the current entry finishes. */
+    fun setPauseAtEndOfCurrentItem(enabled: Boolean) = Unit
 
     /** Jumps to another entry in the queue — next/previous and the episode list. */
     fun selectItem(index: Int)
@@ -177,3 +190,18 @@ interface VideoEngine {
 
     fun release()
 }
+
+internal fun subtitleBrightnessByte(brightness: Float): Int =
+    (brightness.coerceIn(MIN_SUBTITLE_BRIGHTNESS, 1f) * 255f).roundToInt()
+
+internal fun subtitleBrightnessRgba(brightness: Float): String {
+    val channel = subtitleBrightnessByte(brightness).toString(16).padStart(2, '0')
+    return "0x$channel$channel${channel}ff"
+}
+
+internal fun subtitleBrightnessMpvColor(brightness: Float): String {
+    val channel = subtitleBrightnessByte(brightness).toString(16).padStart(2, '0')
+    return "#ff$channel$channel$channel"
+}
+
+internal const val MIN_SUBTITLE_BRIGHTNESS = 0.35f

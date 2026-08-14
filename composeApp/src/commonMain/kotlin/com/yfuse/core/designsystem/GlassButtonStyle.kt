@@ -16,7 +16,7 @@ internal enum class GlassButtonEmphasis {
 @Immutable
 internal data class GlassButtonVisuals(
     val fill: Color,
-    val border: Color,
+    val border: Color?,
     val content: Color,
     val sheen: Float,
 )
@@ -30,7 +30,7 @@ internal fun resolveGlassButtonVisuals(
         GlassButtonEmphasis.Primary ->
             GlassButtonVisuals(
                 fill = accent.container.copy(alpha = 0.68f),
-                border = accent.border,
+                border = null,
                 content = if (palette.isDark) palette.text else accent.accent,
                 // Text spans the upper half of a compact control. Keeping this highlight
                 // restrained prevents white specular light from washing out dark-theme ink.
@@ -46,7 +46,7 @@ internal fun resolveGlassButtonVisuals(
         GlassButtonEmphasis.Destructive ->
             GlassButtonVisuals(
                 fill = palette.errorContainer.copy(alpha = 0.66f),
-                border = palette.error,
+                border = null,
                 content = if (palette.isDark) palette.onErrorContainer else palette.error,
                 sheen = 0.50f,
             )

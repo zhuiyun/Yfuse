@@ -18,6 +18,8 @@ jobs:
     name: Compile, test, lint, and verify design contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    env:
+      APK_SIZE_BUDGET_BYTES: "30000000"
 
     steps:
       - name: Check out source
@@ -69,6 +71,7 @@ jobs:
           ./gradlew \
             :composeApp:compileDebugKotlinAndroid \
             :composeApp:testDebugUnitTest \
+            :watchTogetherProtocol:jvmTest \
             :watchTogetherServer:test \
             --no-daemon
 
@@ -77,6 +80,40 @@ jobs:
 
       - name: Run Android lint
         run: ./gradlew :composeApp:lintDebug --no-daemon
+
+      - name: Build R8 release package
+        run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
+
+      - name: Verify release package and size budget
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apk="composeApp/build/outputs/apk/release/composeApp-release.apk"
+          test -s "$apk"
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          build_tools="$(find "$android_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "$build_tools/apksigner"
+          test -x "$build_tools/zipalign"
+          test -x "$build_tools/aapt"
+
+          "$build_tools/apksigner" verify --verbose "$apk"
+          "$build_tools/zipalign" -c -v 4 "$apk"
+          badging="$($build_tools/aapt dump badging "$apk")"
+          grep -Fq "package: name='com.yfuse'" <<<"$badging"
+
+          apk_size="$(stat -c '%s' "$apk")"
+          if (( apk_size > APK_SIZE_BUDGET_BYTES )); then
+            echo "::error::Release APK is $apk_size bytes; budget is $APK_SIZE_BUDGET_BYTES bytes"
+            exit 1
+          fi
+          {
+            echo "### Release package check"
+            echo
+            echo "- R8 release APK: \`$apk_size\` bytes"
+            echo "- Budget: \`$APK_SIZE_BUDGET_BYTES\` bytes"
+            echo "- Signature, ZIP alignment, and package name verified"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Reject new ktlint violations
         run: ./gradlew ktlintCheck --no-daemon

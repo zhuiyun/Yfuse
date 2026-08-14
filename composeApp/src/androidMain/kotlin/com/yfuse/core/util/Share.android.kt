@@ -1,9 +1,11 @@
 package com.yfuse.core.util
 
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.os.PersistableBundle
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -38,6 +40,19 @@ private class AndroidShareHandler(
         // Android 13+ shows its own copy confirmation, so only older versions need this.
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
             Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun copySensitiveText(text: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val clip = ClipData.newPlainText("Yfuse 安全凭证", text)
+        clip.description.extras =
+            PersistableBundle().apply {
+                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
+        clipboard?.setPrimaryClip(clip)
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+            Toast.makeText(context, "已复制安全凭证", Toast.LENGTH_SHORT).show()
         }
     }
 

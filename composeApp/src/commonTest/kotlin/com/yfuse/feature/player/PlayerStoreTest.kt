@@ -383,6 +383,39 @@ class PlayerStoreTest {
     }
 
     @Test
+    fun switching_physical_version_drops_revision_specific_trickplay_tiles() {
+        val original =
+            PlayerMediaVersion(
+                id = "original",
+                label = "4K",
+                detail = "",
+                url = "direct/original",
+                transcodeUrl = "hls/original",
+                fallbackTranscodeUrl = "progressive/original",
+            )
+        val alternate =
+            original.copy(
+                id = "alternate",
+                label = "1080p",
+                url = "direct/alternate",
+            )
+        val item =
+            PlayerMediaItem(
+                id = "episode",
+                url = original.url,
+                transcodeUrl = original.transcodeUrl,
+                title = "第一集",
+                versions = listOf(original, alternate),
+                versionId = original.id,
+                trickplay =
+                    TrickplayStoryboard("tiles/original/{index}.jpg", 320, 180, 10, 10, 10_000L, 100),
+            )
+
+        assertNull(item.withVersion(alternate).trickplay)
+        assertEquals(item.trickplay, item.withVersion(original).trickplay)
+    }
+
+    @Test
     fun manual_quality_caps_active_and_alternate_transcodes_without_touching_identity() {
         val alternate =
             PlayerMediaVersion(

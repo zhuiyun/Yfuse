@@ -39,7 +39,11 @@ internal interface AccountStore : AutoCloseable {
 
     fun createSession(session: NewSession)
 
-    fun findActiveSessionByAccessHash(tokenHash: ByteArray, nowEpochMs: Long): AuthenticatedSession?
+    fun findActiveSessionByAccessHash(
+        tokenHash: ByteArray,
+        nowEpochMs: Long,
+        touchLastSeen: Boolean,
+    ): AuthenticatedSession?
 
     fun rotateSessionByRefreshHash(
         currentRefreshHash: ByteArray,
@@ -544,6 +548,7 @@ internal class SqliteAccountStore private constructor(
     override fun findActiveSessionByAccessHash(
         tokenHash: ByteArray,
         nowEpochMs: Long,
+        touchLastSeen: Boolean,
     ): AuthenticatedSession? = synchronized(lock) {
         connection.prepareStatement(
             """
@@ -564,12 +569,14 @@ internal class SqliteAccountStore private constructor(
                     user = result.readUser(),
                     accessExpiresAtEpochMs = result.getLong("access_expires_at_ms"),
                 ).also {
-                    connection.prepareStatement(
-                        "UPDATE sessions SET last_seen_at_ms = ? WHERE id = ?",
-                    ).use { touch ->
-                        touch.setLong(1, nowEpochMs)
-                        touch.setString(2, it.sessionId)
-                        touch.executeUpdate()
+                    if (touchLastSeen) {
+                        connection.prepareStatement(
+                            "UPDATE sessions SET last_seen_at_ms = ? WHERE id = ?",
+                        ).use { touch ->
+                            touch.setLong(1, nowEpochMs)
+                            touch.setString(2, it.sessionId)
+                            touch.executeUpdate()
+                        }
                     }
                 }
             }

@@ -35,12 +35,20 @@ class HttpClientFactoryTest {
         runTest {
             var authorization: String? = null
             var userAgent: String? = null
+            var clientName: String? = null
+            var clientVersion: String? = null
+            var deviceId: String? = null
+            var deviceName: String? = null
             val client =
                 createEmbyClient(
                     engine =
                         MockEngine { request ->
                             authorization = request.headers["X-Emby-Authorization"]
                             userAgent = request.headers[HttpHeaders.UserAgent]
+                            clientName = request.headers["X-Emby-Client"]
+                            clientVersion = request.headers["X-Emby-Client-Version"]
+                            deviceId = request.headers["X-Emby-Device-Id"]
+                            deviceName = request.headers["X-Emby-Device-Name"]
                             respond("{}", HttpStatusCode.OK)
                         },
                     appVersion = "9.8.7",
@@ -57,6 +65,10 @@ class HttpClientFactoryTest {
             assertTrue(identity.contains("Version=\"9.8.7\""))
             assertTrue(identity.contains("Client=\"Emby for Android Mobile\""))
             assertEquals("Emby for Android Mobile", userAgent)
+            assertEquals("Emby for Android Mobile", clientName)
+            assertEquals("9.8.7", clientVersion)
+            assertTrue(assertNotNull(deviceId).isNotBlank())
+            assertTrue(assertNotNull(deviceName).isNotBlank())
         }
 
     @Test
@@ -217,6 +229,7 @@ class HttpClientFactoryTest {
     fun authenticatedGetFallsBackToThePre060IdentityAfterA403AndRemembersIt() =
         runTest {
             val identities = mutableListOf<String>()
+            val explicitClientNames = mutableListOf<String>()
             val client =
                 createEmbyClient(
                     engine =
@@ -225,6 +238,7 @@ class HttpClientFactoryTest {
                             assertNull(request.headers[HttpHeaders.Authorization])
                             identities +=
                                 assertNotNull(request.headers.getAll("X-Emby-Authorization")).single()
+                            explicitClientNames += assertNotNull(request.headers["X-Emby-Client"])
                             if (identities.size == 1) {
                                 respond("blocked", HttpStatusCode.Forbidden)
                             } else {
@@ -254,5 +268,9 @@ class HttpClientFactoryTest {
             assertTrue(identities[1].contains("Client=\"Yfuse\""))
             assertTrue(identities[2].contains("Client=\"Yfuse\""))
             assertTrue(identities[3].contains("Client=\"Yfuse\""))
+            assertEquals(
+                listOf("Emby for Android Mobile", "Yfuse", "Yfuse", "Yfuse"),
+                explicitClientNames,
+            )
         }
 }

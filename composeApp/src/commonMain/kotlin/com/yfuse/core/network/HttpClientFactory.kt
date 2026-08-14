@@ -8,6 +8,7 @@ import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.plugin
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
@@ -45,6 +46,11 @@ private data class EmbyIdentityPreferenceKey(
 )
 
 private val embyRequestOriginKey = AttributeKey<EmbyRequestOrigin>("EmbyRequestOrigin")
+
+private const val EMBY_CLIENT_HEADER = "X-Emby-Client"
+private const val EMBY_CLIENT_VERSION_HEADER = "X-Emby-Client-Version"
+private const val EMBY_DEVICE_ID_HEADER = "X-Emby-Device-Id"
+private const val EMBY_DEVICE_NAME_HEADER = "X-Emby-Device-Name"
 
 /**
  * How long an Emby request may take before it is abandoned.
@@ -113,6 +119,10 @@ fun createEmbyClient(
         }
         defaultRequest {
             header("X-Emby-Authorization", buildAuthHeader(appVersion))
+            header(EMBY_CLIENT_HEADER, DEFAULT_EMBY_CLIENT_NAME)
+            header(EMBY_CLIENT_VERSION_HEADER, appVersion)
+            header(EMBY_DEVICE_ID_HEADER, com.yfuse.deviceId())
+            header(EMBY_DEVICE_NAME_HEADER, com.yfuse.deviceModel())
             header(
                 HttpHeaders.UserAgent,
                 customUserAgent().trim().ifBlank { DEFAULT_EMBY_USER_AGENT },
@@ -142,8 +152,7 @@ fun createEmbyClient(
             val preferenceKey = EmbyIdentityPreferenceKey(currentOrigin, accessToken)
             val preferredClient =
                 preferredClientBySession.value[preferenceKey] ?: DEFAULT_EMBY_CLIENT_NAME
-            request.headers.remove("X-Emby-Authorization")
-            request.header("X-Emby-Authorization", buildAuthHeader(appVersion, preferredClient))
+            request.applyEmbyIdentity(appVersion, preferredClient)
             val canProbeLegacyIdentity =
                 (request.method == HttpMethod.Get || request.method == HttpMethod.Head) &&
                     request.url
@@ -163,8 +172,7 @@ fun createEmbyClient(
                     LEGACY_EMBY_CLIENT_NAME
                 }
             firstCall.response.bodyAsChannel().cancel(CancellationException("Retrying with alternate Emby identity"))
-            request.headers.remove("X-Emby-Authorization")
-            request.header("X-Emby-Authorization", buildAuthHeader(appVersion, fallbackClient))
+            request.applyEmbyIdentity(appVersion, fallbackClient)
             val fallbackCall = execute(request)
             if (fallbackCall.response.status.value in 200..299) {
                 preferredClientBySession.update { it + (preferenceKey to fallbackClient) }
@@ -172,6 +180,27 @@ fun createEmbyClient(
             fallbackCall
         }
     }
+
+/**
+ * Sends both forms used by Emby clients. Emby Server accepts the combined authorization
+ * value, while a number of reverse proxies and access-control plugins inspect the explicit
+ * client/device headers before the request reaches Emby.
+ */
+private fun HttpRequestBuilder.applyEmbyIdentity(
+    appVersion: String,
+    clientName: String,
+) {
+    headers.remove("X-Emby-Authorization")
+    headers.remove(EMBY_CLIENT_HEADER)
+    headers.remove(EMBY_CLIENT_VERSION_HEADER)
+    headers.remove(EMBY_DEVICE_ID_HEADER)
+    headers.remove(EMBY_DEVICE_NAME_HEADER)
+    header("X-Emby-Authorization", buildAuthHeader(appVersion, clientName))
+    header(EMBY_CLIENT_HEADER, clientName)
+    header(EMBY_CLIENT_VERSION_HEADER, appVersion)
+    header(EMBY_DEVICE_ID_HEADER, com.yfuse.deviceId())
+    header(EMBY_DEVICE_NAME_HEADER, com.yfuse.deviceModel())
+}
 
 private fun Url.embyRequestOrigin(): EmbyRequestOrigin =
     EmbyRequestOrigin(

@@ -217,7 +217,7 @@ class ExoVideoEngine(
     startPositionMs: Long,
     private val scope: CoroutineScope,
     decoderMode: DecoderMode,
-    autoNext: Boolean,
+    private val autoNext: Boolean,
     private val quality: PlaybackQuality,
     customUserAgent: String,
     videoCacheBytes: Long,
@@ -301,6 +301,7 @@ class ExoVideoEngine(
                     CacheDataSource
                         .Factory()
                         .setCache(handle.cache)
+                        .setCacheKeyFactory(SecureMediaCacheKeyFactory)
                         .setUpstreamDataSourceFactory(upstream)
                         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
                 } ?: upstream
@@ -723,6 +724,12 @@ class ExoVideoEngine(
     override fun selectAudioTrack(id: String) = select(C.TRACK_TYPE_AUDIO, id)
 
     override fun selectSubtitleTrack(id: String) = select(C.TRACK_TYPE_TEXT, id)
+
+    override fun setSubtitleBrightness(brightness: Float): Boolean = true
+
+    override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
+        player.pauseAtEndOfMediaItems = enabled || !autoNext
+    }
 
     override fun selectItem(index: Int) {
         if (index !in items.indices) return

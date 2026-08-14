@@ -381,6 +381,42 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeSetActiveTrack(
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_mediadevkit_sdk_MDKPlayer_nativeSetActiveTracks(
+        JNIEnv* env,
+        jclass,
+        jlong ptr,
+        jint type,
+        jint primaryOrdinal,
+        jintArray ordinals
+) {
+    auto* value = ref(ptr);
+    if (value == nullptr) {
+        return;
+    }
+    const auto targetType = mediaType(type);
+    if (targetType == MediaType::Unknown || targetType == MediaType::Video) {
+        return;
+    }
+    std::set<int> tracks;
+    if (ordinals != nullptr) {
+        const auto count = env->GetArrayLength(ordinals);
+        std::vector<jint> values(static_cast<size_t>(count));
+        if (count > 0) {
+            env->GetIntArrayRegion(ordinals, 0, count, values.data());
+        }
+        for (const auto ordinal : values) {
+            if (ordinal >= 0) tracks.insert(ordinal);
+        }
+    }
+    value->player->setActiveTracks(targetType, tracks);
+    if (targetType == MediaType::Audio) {
+        value->selectedAudio = primaryOrdinal;
+    } else {
+        value->selectedSubtitle = primaryOrdinal;
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativeSetSurface(
         JNIEnv* env,
         jclass,

@@ -51,6 +51,21 @@ class AccountBackend private constructor(
             }
         }
 
+    /** Validates revocation and expiry without turning a socket heartbeat into a SQLite write. */
+    suspend fun validateAccessToken(accessToken: String): AuthenticatedAccount =
+        execute {
+            validateAccessToken(accessToken).let {
+                AuthenticatedAccount(
+                    userId = it.user.id,
+                    sessionId = it.sessionId,
+                    username = it.user.username,
+                    nickname = it.user.nickname,
+                    avatarId = it.user.avatarId,
+                    accessExpiresAtEpochMs = it.accessExpiresAtEpochMs,
+                )
+            }
+        }
+
     override fun close() {
         try {
             workExecutor.close()
@@ -323,7 +338,11 @@ internal class AccountService(
         it.toResponse(capabilitiesFor(it.id))
     }
 
-    fun authenticateAccessToken(accessToken: String): AuthenticatedSession = authenticate(accessToken)
+    fun authenticateAccessToken(accessToken: String): AuthenticatedSession =
+        authenticate(accessToken, touchLastSeen = true)
+
+    fun validateAccessToken(accessToken: String): AuthenticatedSession =
+        authenticate(accessToken, touchLastSeen = false)
 
     fun issueInvite(accessToken: String): IssuedInviteResponse {
         val authenticated = authenticate(accessToken)
@@ -611,9 +630,16 @@ internal class AccountService(
         }
     }
 
-    private fun authenticate(rawToken: String): AuthenticatedSession {
+    private fun authenticate(
+        rawToken: String,
+        touchLastSeen: Boolean = true,
+    ): AuthenticatedSession {
         if (!tokenFactory.isWellFormed(rawToken)) unauthorized()
-        return store.findActiveSessionByAccessHash(tokenFactory.digest(rawToken), clock())
+        return store.findActiveSessionByAccessHash(
+            tokenHash = tokenFactory.digest(rawToken),
+            nowEpochMs = clock(),
+            touchLastSeen = touchLastSeen,
+        )
             ?: unauthorized()
     }
 

@@ -14,13 +14,28 @@ class AccountInviteUiContractTest {
         assertFalse(source.contains("user.username == \"zhuiyun\""))
         assertTrue(source.contains("var issuedInvite by remember {"))
         assertFalse(source.contains("var issuedInvite by rememberSaveable"))
-        assertTrue(source.contains("share.copyText(invite.code)"))
-        assertTrue(source.contains("关闭（不再显示）"))
+        assertTrue(source.contains("share.copySensitiveText(invite.code)"))
+        assertTrue(source.contains("InviteCredentialSheet("))
+        assertTrue(source.contains("internal fun InviteCredentialSheet("))
+        assertTrue(source.contains("复制并关闭"))
+        assertTrue(source.contains("暂不关闭"))
+        assertTrue(source.contains("一次性邀请码"))
     }
 
     @Test
     fun invitation_expiry_is_rendered_as_an_explicit_utc_time() {
         assertEquals("2023-11-14 22:13 UTC", formatInviteExpiryUtc(1_700_000_000_000L))
+    }
+
+    @Test
+    fun invite_code_is_grouped_for_readability_without_changing_the_credential() {
+        val code = "00fkGXQc35Ma6egzQ5lcLuWlqAxAKgSGJk7lfc7qAvk"
+
+        assertEquals(
+            "00fkGXQc  35Ma6egz  Q5lcLuWl  qAxAKgSG  Jk7lfc7q  Avk",
+            formatInviteCodeForDisplay(code),
+        )
+        assertEquals(code, formatInviteCodeForDisplay(code).replace("  ", ""))
     }
 
     private fun accountSettingsSource(): String =

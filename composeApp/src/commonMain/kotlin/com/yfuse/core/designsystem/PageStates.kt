@@ -113,8 +113,8 @@ private fun AccentChipButton(
                 .touchTarget()
                 .liquidGlass(
                     shape = GlassShapes.chip,
-                    fill = palette.glassStrong,
-                    border = accent.border,
+                    fill = accent.container.copy(alpha = 0.68f),
+                    border = null,
                     over = palette.background,
                     sheen = 0.68f,
                 ).padding(horizontal = 18.dp, vertical = 9.dp),

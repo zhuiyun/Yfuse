@@ -188,6 +188,8 @@ internal fun PlayerControls(
     remoteSubtitles: RemoteSubtitlePanelState = RemoteSubtitlePanelState(),
     remoteSubtitleActions: RemoteSubtitleActions = RemoteSubtitleActions(),
     onSpeed: (Float) -> Unit,
+    sleepTimer: SleepTimerState = SleepTimerState(),
+    sleepTimerActions: SleepTimerActions = SleepTimerActions(),
     onToggleFill: () -> Unit,
     trickplay: TrickplayStoryboard? = null,
     /**
@@ -877,6 +879,8 @@ internal fun PlayerControls(
                         onSpeed(it)
                         settingsTab = null
                     },
+                    sleepTimer = sleepTimer,
+                    sleepTimerActions = sleepTimerActions,
                     filled = filled,
                     onToggleFill = onToggleFill,
                     onSelectEngine = {

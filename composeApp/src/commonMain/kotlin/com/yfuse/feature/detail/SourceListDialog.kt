@@ -23,7 +23,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
@@ -110,12 +109,6 @@ private fun SourceRow(
 ) {
     val palette = LocalPalette.current
     val source = entry.source
-    val edge =
-        when {
-            selected -> accent
-            palette.isDark -> Color.White.copy(alpha = 0.16f)
-            else -> Color(0xFF141A26).copy(alpha = 0.12f)
-        }
     Column(
         Modifier
             .fillMaxWidth()
@@ -127,12 +120,14 @@ private fun SourceRow(
                         Color.White.copy(alpha = 0.06f)
                     } else {
                         Color.White.copy(alpha = 0.82f)
-                    },
+                },
                 border = null,
-            ).border(
-                if (selected) 1.5.dp else Dimens.hairline,
-                edge,
-                GlassShapes.card,
+            ).then(
+                if (selected) {
+                    Modifier.border(1.5.dp, accent, GlassShapes.card)
+                } else {
+                    Modifier
+                },
             ).padding(horizontal = 12.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {

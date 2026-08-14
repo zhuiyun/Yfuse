@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackRoadmapTest {
@@ -36,15 +37,48 @@ class PlaybackRoadmapTest {
     }
 
     @Test
-    fun publicHttpUrlsReturnedByPlaybackInfoNeverReachThePlayer() {
+    fun crossOriginPlaybackInfoUrlsReachThePlayerWithoutEmbyCredentials() {
+        val direct = "https://cdn.example/video.mp4"
+        val transcode = "https://cdn.example/master.m3u8"
         val player =
             listOf(
                 version(
                     supportsDirectPlay = false,
                     supportsDirectStream = true,
                     supportsTranscoding = true,
-                    directStreamUrl = "http://media.example/direct?server=value",
-                    transcodingUrl = "http://media.example/master.m3u8?server=value",
+                    directStreamUrl = direct,
+                    transcodingUrl = transcode,
+                ),
+            ).toPlayerMediaVersions(
+                baseUrl = "https://emby.example",
+                itemId = "item",
+                token = "server-secret",
+                negotiatedPlaySessionId = "session123",
+            ).single()
+
+        assertEquals(PlaybackMethod.DirectStream, player.playMethod)
+        assertEquals(direct, player.url)
+        assertEquals(transcode, player.transcodeUrl)
+        listOf(player.url, player.transcodeUrl).forEach { url ->
+            assertFalse("server-secret" in url, url)
+            assertFalse("api_key" in url, url)
+            assertFalse("DeviceId" in url, url)
+            assertFalse("PlaySessionId" in url, url)
+        }
+    }
+
+    @Test
+    fun publicHttpPlaybackInfoUrlsFollowTheExistingPolicyButStayCredentialFree() {
+        val direct = "http://media.example/direct?server=value"
+        val transcode = "http://media.example/master.m3u8?server=value"
+        val player =
+            listOf(
+                version(
+                    supportsDirectPlay = false,
+                    supportsDirectStream = true,
+                    supportsTranscoding = true,
+                    directStreamUrl = direct,
+                    transcodingUrl = transcode,
                 ),
             ).toPlayerMediaVersions(
                 baseUrl = "https://emby.example",
@@ -54,10 +88,11 @@ class PlaybackRoadmapTest {
                 localCleartextConfirmed = true,
             ).single()
 
-        assertEquals(PlaybackMethod.Transcode, player.playMethod)
-        assertTrue(player.url.startsWith("https://emby.example/"), player.url)
-        assertFalse("media.example" in player.url, player.url)
-        assertFalse("server=value" in player.transcodeUrl, player.transcodeUrl)
+        assertEquals(PlaybackMethod.DirectStream, player.playMethod)
+        assertEquals(direct, player.url)
+        assertEquals(transcode, player.transcodeUrl)
+        assertFalse("secret-token" in player.url, player.url)
+        assertFalse("api_key" in player.url, player.url)
     }
 
     @Test
@@ -130,6 +165,90 @@ class PlaybackRoadmapTest {
         assertEquals(VideoScaleMode.Fill, VideoScaleMode.Fit.next())
         assertEquals(VideoScaleMode.Stretch, VideoScaleMode.Fill.next())
         assertEquals(VideoScaleMode.Fit, VideoScaleMode.Stretch.next())
+    }
+
+    @Test
+    fun trickplay_cache_is_lazy_bounded_and_remembers_metadata_misses() {
+        val first = TrickplayCacheKey("server", "episode-1", "source-1")
+        val miss = TrickplayCacheKey("server", "episode-2", "source-2")
+        val storyboard =
+            TrickplayStoryboard("https://host/{index}.jpg", 320, 180, 10, 10, 10_000L, 200)
+        var cache = emptyMap<TrickplayCacheKey, TrickplayStoryboard?>()
+
+        cache = cache.withTrickplayResult(first, storyboard, maxEntries = 2)
+        cache = cache.withTrickplayResult(miss, null, maxEntries = 2)
+
+        assertEquals(storyboard, cache[first])
+        assertTrue(cache.containsKey(miss), "A confirmed metadata miss must not refetch on recomposition")
+        assertNull(cache[miss])
+
+        val third = TrickplayCacheKey("server", "episode-3", "source-3")
+        cache = cache.withTrickplayResult(third, storyboard, maxEntries = 2)
+        assertFalse(cache.containsKey(first))
+        assertTrue(cache.containsKey(miss))
+        assertTrue(cache.containsKey(third))
+    }
+
+    @Test
+    fun hdr_caption_luminance_and_sleep_presets_have_stable_bounds() {
+        assertEquals(89, subtitleBrightnessByte(0f))
+        assertEquals(255, subtitleBrightnessByte(2f))
+        assertEquals("0x999999ff", subtitleBrightnessRgba(0.6f))
+        assertEquals("#ff999999", subtitleBrightnessMpvColor(0.6f))
+        assertEquals(15 * 60_000L, SleepTimerOption.Minutes15.durationMs)
+        assertEquals(60 * 60_000L, SleepTimerOption.Minutes60.durationMs)
+        assertNull(SleepTimerOption.EndOfEpisode.durationMs)
+    }
+
+    @Test
+    fun end_of_episode_timer_distinguishes_auto_transition_manual_switch_and_cast_ownership() {
+        assertTrue(
+            shouldCompleteLocalEndOfEpisodeTimer(
+                armedIndex = 3,
+                currentIndex = 3,
+                ended = true,
+                playing = false,
+                armedItemReachedEnd = true,
+            ),
+        )
+        assertTrue(
+            shouldCompleteLocalEndOfEpisodeTimer(
+                armedIndex = 3,
+                currentIndex = 4,
+                ended = false,
+                playing = false,
+                armedItemReachedEnd = true,
+            ),
+        )
+        assertFalse(
+            shouldCompleteLocalEndOfEpisodeTimer(
+                armedIndex = 3,
+                currentIndex = 4,
+                ended = false,
+                playing = false,
+                armedItemReachedEnd = false,
+            ),
+            "A paused manual episode switch is not an end-of-episode event",
+        )
+        assertTrue(
+            shouldCompleteCastEndOfEpisodeTimer(
+                armedIndex = 3,
+                armedSessionRevision = 9L,
+                currentIndex = 3,
+                currentSessionRevision = 9L,
+                castEnded = true,
+            ),
+        )
+        assertFalse(
+            shouldCompleteCastEndOfEpisodeTimer(
+                armedIndex = 3,
+                armedSessionRevision = 8L,
+                currentIndex = 3,
+                currentSessionRevision = 9L,
+                castEnded = true,
+            ),
+            "A stale receiver session must not disarm or advance the current cast",
+        )
     }
 
     private fun version(

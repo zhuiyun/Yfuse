@@ -23,6 +23,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,8 +33,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlin.math.abs
 import kotlin.random.Random
@@ -377,6 +376,95 @@ private data class LocalPlaybackStatus(
     val syncDriftMs: Long? = null,
 )
 
+private data class QueuedWatchMessage<Owner : Any, Message>(
+    val owner: Owner,
+    val message: Message,
+    val onResult: ((Boolean) -> Unit)? = null,
+)
+
+/**
+ * A bounded, single-consumer outbox. The owner is captured when a message is admitted, and is
+ * checked again immediately before sending, so work queued for a disconnected socket can never
+ * migrate to its replacement. Successfully admitted messages are consumed in FIFO order.
+ */
+internal class WatchOutgoingQueue<Owner : Any, Message>(
+    scope: CoroutineScope,
+    capacity: Int,
+    private val isCurrentOwner: (Owner) -> Boolean,
+    private val sender: suspend (Owner, Message) -> Boolean,
+) {
+    private val messages = Channel<QueuedWatchMessage<Owner, Message>>(capacity = capacity)
+
+    init {
+        require(capacity > 0) { "Watch outgoing queue capacity must be positive" }
+        scope.launch {
+            for (queued in messages) {
+                val sent =
+                    if (!isCurrentOwner(queued.owner)) {
+                        false
+                    } else {
+                        runCatching { sender(queued.owner, queued.message) }.getOrDefault(false)
+                    }
+                runCatching { queued.onResult?.invoke(sent) }
+            }
+        }
+    }
+
+    /** Returns false immediately when bounded capacity has been exhausted. */
+    fun tryEnqueue(
+        owner: Owner,
+        message: Message,
+        onResult: ((Boolean) -> Unit)? = null,
+    ): Boolean {
+        val accepted = messages.trySend(QueuedWatchMessage(owner, message, onResult)).isSuccess
+        if (!accepted) runCatching { onResult?.invoke(false) }
+        return accepted
+    }
+}
+
+/**
+ * Tracks the currently armed ACK deadline for each optimistic chat row. Re-arming the same
+ * correlation id invalidates the older timer, which is essential when a failed message is retried.
+ */
+internal class WatchChatAckTimeouts(
+    private val scope: CoroutineScope,
+    private val timeoutMs: Long,
+    private val onTimeout: (String) -> Unit,
+) {
+    private val lock = Any()
+    private val attempts = mutableMapOf<String, Long>()
+    private var nextAttempt = 0L
+
+    init {
+        require(timeoutMs >= 0L) { "Chat ACK timeout must not be negative" }
+    }
+
+    /** Starts the deadline only after the corresponding frame has actually been sent. */
+    fun arm(clientMessageId: String) {
+        val attempt =
+            synchronized(lock) {
+                (++nextAttempt).also { attempts[clientMessageId] = it }
+            }
+        scope.launch {
+            delay(timeoutMs)
+            val expired =
+                synchronized(lock) {
+                    if (attempts[clientMessageId] != attempt) {
+                        false
+                    } else {
+                        attempts.remove(clientMessageId)
+                        true
+                    }
+                }
+            if (expired) onTimeout(clientMessageId)
+        }
+    }
+
+    fun complete(clientMessageId: String) {
+        synchronized(lock) { attempts.remove(clientMessageId) }
+    }
+}
+
 class WatchTogetherClient(
     private val preferences: WatchTogetherPreferences,
     private val accountTokens: AccountAccessTokenSource,
@@ -388,7 +476,6 @@ class WatchTogetherClient(
         }
     private val client = HttpClient(embyHttpEngine()) { install(WebSockets) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val sendMutex = Mutex()
     private val sessionOwnership = WatchConnectionOwnership<DefaultClientWebSocketSession>()
 
     /** Local, monotonic; only ever used to key a bubble in the overlay. */
@@ -436,6 +523,39 @@ class WatchTogetherClient(
     val state: StateFlow<WatchTogetherState> = _state.asStateFlow()
     private val _timeline = MutableStateFlow<WatchTimeline?>(null)
     val timeline: StateFlow<WatchTimeline?> = _timeline.asStateFlow()
+
+    private val outgoingMessages =
+        WatchOutgoingQueue<DefaultClientWebSocketSession, WatchWireMessage>(
+            scope = scope,
+            capacity = WATCH_OUTGOING_QUEUE_CAPACITY,
+            isCurrentOwner = { sessionOwnership.current() === it },
+            sender = { session, message ->
+                runCatching {
+                    session.send(
+                        json.encodeToString(
+                            WatchWireMessage.serializer(),
+                            message,
+                        ),
+                    )
+                }.onFailure {
+                    if (message.type != "sync") {
+                        AppLog.warning(
+                            category = "watch_together",
+                            event = "send_failed",
+                            message = "Failed to send watch-together message",
+                            throwable = it,
+                            attributes = mapOf("messageType" to message.type),
+                        )
+                    }
+                }.isSuccess
+            },
+        )
+    private val chatAckTimeouts =
+        WatchChatAckTimeouts(
+            scope = scope,
+            timeoutMs = CHAT_ACK_TIMEOUT_MS,
+            onTimeout = { markChatFailed(it, "消息发送超时，请点击重试") },
+        )
 
     init {
         scope.launch {
@@ -490,7 +610,9 @@ class WatchTogetherClient(
         val state = _state.value
         if (!state.connected || state.canControl) return
         _state.update { it.copy(controlRequested = true) }
-        send(WatchWireMessage(type = "requestControl"))
+        if (!send(WatchWireMessage(type = "requestControl"))) {
+            _state.update { it.copy(controlRequested = false) }
+        }
     }
 
     fun setControlMode(mode: WatchControlMode) {
@@ -518,24 +640,27 @@ class WatchTogetherClient(
         if (!state.isHost) return
         val target = state.participants.firstOrNull { it.clientId == clientId } ?: return
         if (target.isHost || target.isSelf) return
-        _state.update {
-            if (it.controlRequest?.clientId == clientId) it.copy(controlRequest = null) else it
+        if (send(WatchWireMessage(type = "kickParticipant", targetClientId = clientId))) {
+            _state.update {
+                if (it.controlRequest?.clientId == clientId) it.copy(controlRequest = null) else it
+            }
         }
-        send(WatchWireMessage(type = "kickParticipant", targetClientId = clientId))
     }
 
     /** Host-only: hand the timeline to the participant that asked for it. */
     fun grantControl(clientId: String) {
         if (!_state.value.isHost) return
-        _state.update { it.copy(controlRequest = null) }
-        send(WatchWireMessage(type = "grantControl", targetClientId = clientId))
+        if (send(WatchWireMessage(type = "grantControl", targetClientId = clientId))) {
+            _state.update { it.copy(controlRequest = null) }
+        }
     }
 
     /** Host-only: refuse a pending request, telling the asker rather than just ignoring it. */
     fun denyControl(clientId: String) {
         if (!_state.value.isHost) return
-        _state.update { it.copy(controlRequest = null) }
-        send(WatchWireMessage(type = "denyControl", targetClientId = clientId))
+        if (send(WatchWireMessage(type = "denyControl", targetClientId = clientId))) {
+            _state.update { it.copy(controlRequest = null) }
+        }
     }
 
     /** Updates the identity used by this room and by every future reconnect. */
@@ -565,8 +690,8 @@ class WatchTogetherClient(
                 .firstOrNull { it.isSelf }
                 ?.name
                 .orEmpty()
+        if (!send(WatchWireMessage(type = "reaction", reaction = reaction.emoji))) return false
         pushReaction(reaction, myName, isMine = true)
-        send(WatchWireMessage(type = "reaction", reaction = reaction.emoji))
         return true
     }
 
@@ -1073,6 +1198,9 @@ class WatchTogetherClient(
                             }
                             "chat" -> {
                                 val chat = wire.chat?.toDomain() ?: continue
+                                if (chat.isMine) {
+                                    chat.clientMessageId?.let(chatAckTimeouts::complete)
+                                }
                                 _state.update { current ->
                                     val merged =
                                         mergeIncomingWatchChat(
@@ -1303,36 +1431,33 @@ class WatchTogetherClient(
         clientMessageId: String,
         text: String,
     ) {
-        scope.launch {
-            val sent =
-                sendMutex.withLock {
-                    val active = currentSession ?: return@withLock false
-                    runCatching {
-                        active.send(
-                            json.encodeToString(
-                                WatchWireMessage.serializer(),
-                                WatchWireMessage(
-                                    type = "chat",
-                                    text = text,
-                                    clientMessageId = clientMessageId,
-                                ),
-                            ),
-                        )
-                    }.isSuccess
+        enqueue(
+            message =
+                WatchWireMessage(
+                    type = "chat",
+                    text = text,
+                    clientMessageId = clientMessageId,
+                ),
+            onResult = { sent ->
+                if (!sent) {
+                    markChatFailed(clientMessageId, "消息发送失败，请点击重试")
+                } else if (
+                    _state.value.chatMessages.any {
+                        it.clientMessageId == clientMessageId &&
+                            it.deliveryState == ChatDeliveryState.Pending
+                    }
+                ) {
+                    chatAckTimeouts.arm(clientMessageId)
                 }
-            if (!sent) {
-                markChatFailed(clientMessageId, "消息发送失败，请点击重试")
-                return@launch
-            }
-            delay(CHAT_ACK_TIMEOUT_MS)
-            markChatFailed(clientMessageId, "消息发送超时，请点击重试")
-        }
+            },
+        )
     }
 
     private fun markChatFailed(
         clientMessageId: String,
         error: String,
     ) {
+        chatAckTimeouts.complete(clientMessageId)
         var changed = false
         _state.update { state ->
             val messages =
@@ -1365,29 +1490,32 @@ class WatchTogetherClient(
                 syncDriftMs = status.syncDriftMs,
             )
         if (message == lastSentPlaybackStatus) return
-        lastSentPlaybackStatus = message
-        send(message)
+        if (send(message)) lastSentPlaybackStatus = message
     }
 
-    private fun send(message: WatchWireMessage) {
-        scope.launch {
-            sendMutex.withLock {
-                val active = currentSession ?: return@withLock
-                runCatching {
-                    active.send(json.encodeToString(WatchWireMessage.serializer(), message))
-                }.onFailure {
-                    if (message.type != "sync") {
-                        AppLog.warning(
-                            category = "watch_together",
-                            event = "send_failed",
-                            message = "Failed to send watch-together message",
-                            throwable = it,
-                            attributes = mapOf("messageType" to message.type),
-                        )
-                    }
-                }
-            }
+    private fun send(message: WatchWireMessage): Boolean {
+        val accepted = enqueue(message)
+        if (!accepted && message.type != "sync") {
+            AppLog.warning(
+                category = "watch_together",
+                event = "send_not_queued",
+                message = "Watch-together message could not be queued",
+                attributes = mapOf("messageType" to message.type),
+            )
         }
+        return accepted
+    }
+
+    private fun enqueue(
+        message: WatchWireMessage,
+        onResult: ((Boolean) -> Unit)? = null,
+    ): Boolean {
+        val session = sessionOwnership.current()
+        if (session == null) {
+            runCatching { onResult?.invoke(false) }
+            return false
+        }
+        return outgoingMessages.tryEnqueue(session, message, onResult)
     }
 
     private fun WatchWireParticipant.toDomain(): WatchParticipant? {
@@ -1451,6 +1579,7 @@ class WatchTogetherClient(
         const val BASE_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 20_000L
         const val MAX_CHAT_HISTORY = 50
+        const val WATCH_OUTGOING_QUEUE_CAPACITY = 64
 
         /** Bubbles on screen at once. A room cannot grow this by reacting harder. */
         const val MAX_LIVE_REACTIONS = 12

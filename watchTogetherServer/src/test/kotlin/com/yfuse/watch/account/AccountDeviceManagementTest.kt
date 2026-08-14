@@ -1,5 +1,7 @@
 package com.yfuse.watch.account
 
+import java.nio.file.Files
+import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -7,6 +9,37 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AccountDeviceManagementTest {
+    @Test
+    fun accessTokenValidationCanAvoidTouchingSessionActivity() {
+        val database = Files.createTempFile("yfuse-account-validation", ".db")
+        var nowEpochMs = 1_000L
+        try {
+            AccountBackend
+                .sqliteForTests(
+                    databaseFile = database.toFile(),
+                    clock = { nowEpochMs },
+                ).use { backend ->
+                    val auth =
+                        backend.service.register(
+                            registration("Validator", null, "TV"),
+                        )
+                    val initialLastSeen = database.lastSeenAtEpochMs()
+
+                    nowEpochMs = 2_000L
+                    backend.service.validateAccessToken(auth.accessToken)
+                    assertEquals(initialLastSeen, database.lastSeenAtEpochMs())
+
+                    nowEpochMs = 3_000L
+                    backend.service.authenticateAccessToken(auth.accessToken)
+                    assertEquals(3_000L, database.lastSeenAtEpochMs())
+                }
+        } finally {
+            Files.deleteIfExists(database)
+            Files.deleteIfExists(database.resolveSibling("${database.fileName}-shm"))
+            Files.deleteIfExists(database.resolveSibling("${database.fileName}-wal"))
+        }
+    }
+
     @Test
     fun invitationIsSingleUseAndRegistrationRecordsDevice() {
         val invite = "invite-code-2026"
@@ -92,3 +125,15 @@ class AccountDeviceManagementTest {
         const val PASSWORD = "StrongPassword-2026"
     }
 }
+
+private fun java.nio.file.Path.lastSeenAtEpochMs(): Long =
+    DriverManager
+        .getConnection("jdbc:sqlite:${toAbsolutePath()}")
+        .use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT last_seen_at_ms FROM sessions").use { result ->
+                    check(result.next())
+                    result.getLong(1)
+                }
+            }
+        }

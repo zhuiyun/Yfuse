@@ -117,13 +117,11 @@
             android:exported="false"
             android:launchMode="singleTop"
             android:supportsPictureInPicture="true"
-            android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density|uiMode"
             android:theme="@style/Theme.Yfuse.Player" />
         <activity
             android:name="com.yfuse.feature.profile.QrScannerActivity"
             android:exported="false"
-            android:screenOrientation="portrait"
             android:theme="@style/Theme.Yfuse.Player" />
 
         <service

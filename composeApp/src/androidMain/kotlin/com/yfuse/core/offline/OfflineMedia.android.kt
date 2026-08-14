@@ -12,6 +12,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
+import android.os.StatFs
+import android.os.storage.StorageManager
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -52,6 +54,8 @@ import org.koin.core.context.GlobalContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLDecoder
@@ -63,6 +67,7 @@ internal lateinit var offlineApplicationContext: Context
 
 internal const val OFFLINE_STORAGE_RESERVE_BYTES = 256L * 1024L * 1024L
 internal const val OFFLINE_WAKE_WORK_NAME = "yfuse.offline.download.wake.v1"
+internal const val MAX_OFFLINE_SUBTITLE_BYTES = 16L * 1024L * 1024L
 
 private const val OFFLINE_NOTIFICATION_CHANNEL_ID = "yfuse_downloads"
 private const val OFFLINE_SERVICE_NOTIFICATION_ID = 2410
@@ -76,6 +81,10 @@ private class OfflineStorageException(
     message: String,
     cause: Throwable? = null,
 ) : IOException(message, cause)
+
+private class OfflineSubtitleTooLargeException(
+    maxBytes: Long,
+) : IOException("字幕文件超过 $maxBytes 字节上限")
 
 private inline fun <T> offlineStorageWrite(block: () -> T): T =
     try {
@@ -198,6 +207,80 @@ internal fun isOfflineArtifactName(name: String): Boolean =
     name.endsWith(".media") ||
         name.endsWith(".part") ||
         name.endsWith(".srt")
+
+internal fun validateOfflineSubtitleContentLength(
+    contentLength: Long,
+    maxBytes: Long = MAX_OFFLINE_SUBTITLE_BYTES,
+) {
+    require(maxBytes >= 0L) { "字幕大小上限无效" }
+    if (contentLength >= 0L && contentLength > maxBytes) {
+        throw OfflineSubtitleTooLargeException(maxBytes)
+    }
+}
+
+/** Copies an untrusted subtitle response without allowing an unknown-length body to fill storage. */
+internal fun copyOfflineSubtitleBounded(
+    input: InputStream,
+    output: OutputStream,
+    maxBytes: Long = MAX_OFFLINE_SUBTITLE_BYTES,
+    isCurrent: () -> Boolean = { true },
+): Long? {
+    require(maxBytes >= 0L) { "字幕大小上限无效" }
+    var writtenBytes = 0L
+    val buffer = ByteArray(32 * 1024)
+    while (true) {
+        if (!isCurrent()) return null
+        val read = input.read(buffer)
+        if (read < 0) return writtenBytes
+        if (!isCurrent()) return null
+        if (read.toLong() > maxBytes - writtenBytes) {
+            throw OfflineSubtitleTooLargeException(maxBytes)
+        }
+        offlineStorageWrite { output.write(buffer, 0, read) }
+        writtenBytes += read
+    }
+}
+
+private fun offlineArtifactPrefix(value: String) =
+    value.encodeToByteArray().joinToString("") { byte ->
+        "%02x".format(byte.toInt() and 0xff)
+    }
+
+/** Exact artifact names that may still be referenced after process-death recovery. */
+internal fun retainedOfflineArtifactNames(
+    directory: File,
+    items: List<OfflineMedia>,
+): Set<String> {
+    val root = directory.absoluteFile
+    return buildSet {
+        items.forEach { item ->
+            val prefix = offlineArtifactPrefix(item.id)
+            add("$prefix.part")
+            add("$prefix.media")
+            add("$prefix.srt")
+            add("$prefix.${item.downloadRevision}.media")
+            add("$prefix.${item.downloadRevision}.subtitle.part")
+
+            // Re-enqueueing an already-completed variant advances the generation while retaining
+            // the verified file. Preserve that exact indexed path as well as the current target.
+            listOfNotNull(item.localPath, item.subtitlePath).forEach { path ->
+                val indexed = File(path).absoluteFile
+                if (indexed.parentFile == root) add(indexed.name)
+            }
+        }
+    }
+}
+
+internal fun cleanupOrphanedOfflineArtifacts(
+    directory: File,
+    items: List<OfflineMedia>,
+) {
+    val retainedNames = retainedOfflineArtifactNames(directory, items)
+    directory.listFiles()
+        ?.filter(File::isFile)
+        ?.filter { it.name !in retainedNames && isOfflineArtifactName(it.name) }
+        ?.forEach(File::delete)
+}
 
 internal fun canAppendOfflineRange(
     existingBytes: Long,
@@ -1212,26 +1295,22 @@ internal class AndroidOfflineMediaManager(
                 if (connection.responseCode !in 200..299) {
                     throw OfflineHttpException(connection.responseCode)
                 }
+                validateOfflineSubtitleContentLength(connection.contentLengthLong)
                 connection.inputStream.use { input ->
                     val output = offlineStorageWrite { FileOutputStream(part, false) }
-                    try {
-                        val buffer = ByteArray(32 * 1024)
-                        while (true) {
-                            if (!isCurrentDownload(snapshot)) {
-                                part.delete()
-                                return@withContext null
+                    val copiedBytes =
+                        try {
+                            copyOfflineSubtitleBounded(input, output) {
+                                isCurrentDownload(snapshot)
+                            }.also { copied ->
+                                if (copied != null) offlineStorageWrite { output.fd.sync() }
                             }
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            if (!isCurrentDownload(snapshot)) {
-                                part.delete()
-                                return@withContext null
-                            }
-                            offlineStorageWrite { output.write(buffer, 0, read) }
+                        } finally {
+                            offlineStorageWrite { output.close() }
                         }
-                        offlineStorageWrite { output.fd.sync() }
-                    } finally {
-                        offlineStorageWrite { output.close() }
+                    if (copiedBytes == null) {
+                        part.delete()
+                        return@withContext null
                     }
                 }
                 if (!isCurrentDownload(snapshot)) {
@@ -1325,20 +1404,7 @@ internal class AndroidOfflineMediaManager(
      */
     private fun cleanupOrphanedArtifacts(items: List<OfflineMedia>) {
         synchronized(indexLock) {
-            val knownPrefixes = items.map { safeFileName(it.id) }.toSet()
-            directory.listFiles()
-                ?.filter(File::isFile)
-                ?.filter { file ->
-                    val name = file.name
-                    val belongsToKnownItem =
-                        knownPrefixes.any { prefix ->
-                            name == "$prefix.part" ||
-                                name == "$prefix.media" ||
-                                name == "$prefix.srt" ||
-                                (name.startsWith("$prefix.") && name.endsWith(".subtitle.part"))
-                        }
-                    !belongsToKnownItem && isOfflineArtifactName(name)
-                }?.forEach(File::delete)
+            cleanupOrphanedOfflineArtifacts(directory, items)
         }
     }
 
@@ -1402,7 +1468,9 @@ internal class AndroidOfflineMediaManager(
     }
 
     private fun ensureStorageAvailable(requiredBytes: Long) {
-        val usable = directory.usableSpace
+        // File.usableSpace excludes bytes Android can reclaim from this app's cache and can
+        // therefore reject a download even when StorageManager can allocate it safely.
+        val usable = allocatableOfflineBytes(context, directory)
         if (!hasSufficientOfflineStorage(usable, requiredBytes)) {
             val missingBytes = missingOfflineStorageBytes(usable, requiredBytes).coerceAtLeast(1L)
             val bytesPerMb = 1024L * 1024L
@@ -1411,13 +1479,21 @@ internal class AndroidOfflineMediaManager(
         }
     }
 
-    private fun safeFileName(value: String) =
-        value.encodeToByteArray().joinToString("") { byte ->
-            "%02x".format(byte.toInt() and 0xff)
-        }
+    private fun safeFileName(value: String) = offlineArtifactPrefix(value)
 
     private fun now() = System.currentTimeMillis()
 }
+
+private fun allocatableOfflineBytes(
+    context: Context,
+    directory: File,
+): Long =
+    runCatching {
+        val storage = context.getSystemService(StorageManager::class.java)
+        storage.getAllocatableBytes(storage.getUuidForPath(directory))
+    }.getOrElse {
+        runCatching { StatFs(directory.absolutePath).availableBytes }.getOrDefault(0L)
+    }
 
 private fun ensureOfflineNotificationChannel(context: Context) {
     context.getSystemService(NotificationManager::class.java).createNotificationChannel(

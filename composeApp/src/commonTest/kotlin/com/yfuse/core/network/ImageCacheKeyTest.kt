@@ -1,7 +1,6 @@
 package com.yfuse.core.network
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -14,28 +13,45 @@ class ImageCacheKeyTest {
 
         val cacheKey = imageCacheKeyForUrl(requestUrl)
 
-        assertEquals(
-            "https://emby.example/Items/42/Images/Primary?tag=poster&quality=90#image",
-            cacheKey,
+        assertTrue(
+            cacheKey.endsWith(
+                "https://emby.example/Items/42/Images/Primary?tag=poster&quality=90#image",
+            ),
         )
         assertFalse("secret" in cacheKey)
+        assertFalse("api_key" in cacheKey.lowercase())
         assertTrue("api_key=secret" in requestUrl)
     }
 
     @Test
-    fun token_rotation_keeps_the_same_cache_identity() {
+    fun token_rotation_changes_the_account_cache_namespace() {
         val first = imageCacheKeyForUrl("https://emby.example/image?quality=90&api_key=first")
         val second = imageCacheKeyForUrl("https://emby.example/image?quality=90&API_KEY=second")
 
-        assertEquals(first, second)
-        assertEquals("https://emby.example/image?quality=90", first)
+        assertFalse(first == second)
+        assertTrue(first.endsWith("https://emby.example/image?quality=90"))
+        assertTrue(second.endsWith("https://emby.example/image?quality=90"))
+        assertFalse("first" in first)
+        assertFalse("second" in second)
     }
 
     @Test
     fun removes_a_token_only_query_without_leaving_a_question_mark() {
-        assertEquals(
-            "https://emby.example/image",
-            imageCacheKeyForUrl("https://emby.example/image?api_key=secret"),
-        )
+        val cacheKey = imageCacheKeyForUrl("https://emby.example/image?api_key=secret")
+        assertTrue(cacheKey.endsWith("https://emby.example/image"))
+        assertFalse("secret" in cacheKey)
+    }
+
+    @Test
+    fun media_cache_key_removes_all_supported_credential_names() {
+        val cacheKey =
+            mediaCacheKeyForUrl(
+                "https://emby.example/video?X-Emby-Token=secret&api_key=second&static=true",
+            )
+
+        assertTrue(cacheKey.endsWith("https://emby.example/video?static=true"))
+        assertFalse("secret" in cacheKey)
+        assertFalse("second" in cacheKey)
+        assertFalse("emby-token" in cacheKey.lowercase())
     }
 }

@@ -1,6 +1,7 @@
 package com.yfuse
 
 import android.app.Application
+import android.content.SharedPreferences
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -24,6 +25,10 @@ import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.update.AppUpdateManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okio.Path.Companion.toOkioPath
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
@@ -38,6 +43,7 @@ class YfuseApp :
         offlineApplicationContext = this
         initializeCastApplicationContext(this)
         val prefs = getSharedPreferences("yfuse", MODE_PRIVATE)
+        clearLegacyCredentialCaches(prefs)
         // Before anything can reach the network: every Emby request carries the device id,
         // and it has to be the same one across launches for sessions to be reapable.
         initializeDeviceId(prefs)
@@ -137,7 +143,7 @@ class YfuseApp :
             }.diskCache {
                 DiskCache
                     .Builder()
-                    .directory(cacheDir.resolve("image_cache").toOkioPath())
+                    .directory(cacheDir.resolve("image_cache_v2").toOkioPath())
                     .maxSizeBytes(256L * 1024L * 1024L)
                     .build()
             }
@@ -146,4 +152,21 @@ class YfuseApp :
             // for a memory-cache hit. Coil's own crossfade ran underneath that as a second,
             // shorter fade on a different clock, and fired on cached images too.
             .build()
+
+    /** v1 cache indexes used authenticated URLs, or were not isolated between Emby accounts. */
+    private fun clearLegacyCredentialCaches(prefs: SharedPreferences) {
+        if (prefs.getBoolean(KEY_LEGACY_CREDENTIAL_CACHES_CLEARED, false)) return
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            val imageCleared = cacheDir.resolve("image_cache").deleteRecursively()
+            val videoCleared = cacheDir.resolve("video_cache").deleteRecursively()
+            if (imageCleared && videoCleared) {
+                prefs.edit().putBoolean(KEY_LEGACY_CREDENTIAL_CACHES_CLEARED, true).apply()
+            }
+        }
+    }
+
+    private companion object {
+        const val KEY_LEGACY_CREDENTIAL_CACHES_CLEARED =
+            "security.legacy_credential_caches_cleared_v2"
+    }
 }

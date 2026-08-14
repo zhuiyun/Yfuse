@@ -3,6 +3,7 @@ package com.yfuse.core.designsystem
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -384,7 +385,7 @@ fun ConfirmDialog(
 
 val OverlayOptionSpacing: Dp = 8.dp
 
-/** Selectable rows use the same neutral liquid body as buttons. */
+/** Selectable rows use the same liquid body as buttons; selection is a separate focus ring. */
 @Composable
 fun OverlayOptionRow(
     label: String,
@@ -396,13 +397,8 @@ fun OverlayOptionRow(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val fill = palette.card2
-    val border =
-        when {
-            destructive -> palette.error.copy(alpha = 0.72f)
-            selected -> accent.border
-            else -> palette.border
-        }
+    val fill = if (destructive) palette.errorContainer.copy(alpha = 0.52f) else palette.card2
+    val materialBorder = if (selected || destructive) null else palette.border
     val ink =
         when {
             destructive -> palette.error
@@ -425,12 +421,19 @@ fun OverlayOptionRow(
                     Modifier.liquidGlass(
                         shape = GlassShapes.chip,
                         fill = fill,
-                        border = border,
+                        border = materialBorder,
                         over = palette.background,
                         sheen = if (selected || destructive) 0.72f else 0.62f,
                     )
                 } else {
-                    Modifier.flatGlass(GlassShapes.chip, fill, border)
+                    Modifier.flatGlass(GlassShapes.chip, fill, materialBorder)
+                },
+            )
+            .then(
+                if (selected) {
+                    Modifier.border(2.dp, accent.border, GlassShapes.chip)
+                } else {
+                    Modifier
                 },
             )
             .padding(horizontal = 14.dp, vertical = 11.dp),

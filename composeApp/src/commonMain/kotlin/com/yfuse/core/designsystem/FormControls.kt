@@ -1,5 +1,6 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -62,7 +63,14 @@ fun YfFormField(
             .flatGlass(
                 shape = AppShapes.control,
                 fill = palette.card2,
-                border = if (focused) accent.border else palette.border,
+                border = palette.border,
+            )
+            .then(
+                if (focused) {
+                    Modifier.border(2.dp, accent.border, AppShapes.control)
+                } else {
+                    Modifier
+                },
             )
             .padding(horizontal = 14.dp, vertical = 9.dp)
             .semantics { contentDescription = label },
@@ -158,8 +166,8 @@ fun YfLinkButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val fill = if (destructive) palette.glassStrong else palette.card2
-    val border = if (destructive) palette.error else palette.border
+    val fill = if (destructive) palette.errorContainer.copy(alpha = 0.52f) else palette.card2
+    val border = if (destructive) null else palette.border
     val content = if (destructive) palette.error else accent.accent
     Row(
         modifier
