@@ -1,6 +1,12 @@
 package com.yfuse.feature.profile
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import com.yfuse.core.data.PlaybackAudioPassthrough
+import com.yfuse.core.data.PlaybackFrameRateMatch
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassStyle
@@ -9,6 +15,7 @@ import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.PlaybackQuality
+import org.koin.core.context.GlobalContext
 
 internal data class PlaybackOptionCopy(
     val label: String,
@@ -91,6 +98,10 @@ internal fun PlaybackSettingsScreen(
     onVideoCache: () -> Unit,
     onSkipSegments: () -> Unit,
 ) {
+    val outputPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
+    val frameRateMatch by outputPreferences.frameRateMatch.collectAsState()
+    val audioPassthrough by outputPreferences.audioPassthrough.collectAsState()
+
     SettingsPage(
         title = "播放",
         subtitle = "播放行为与高级兼容选项",
@@ -141,6 +152,39 @@ internal fun PlaybackSettingsScreen(
                         true,
                         onChange = onQualityLocked,
                     )
+                }
+            }
+        }
+        item {
+            Section(title = "显示与音频输出") {
+                SettingsCard {
+                    if (engine == PlayerEngine.Mdk) {
+                        SettingRow("刷新率匹配", "MDK 暂不支持", false, {})
+                    } else {
+                        SettingSegmentRow(
+                            title = "刷新率匹配",
+                            options = listOf("关闭", "仅无缝", "始终"),
+                            selectedIndex = PlaybackFrameRateMatch.entries.indexOf(frameRateMatch),
+                            onSelect = { outputPreferences.setFrameRateMatch(PlaybackFrameRateMatch.entries[it]) },
+                            icon = AppIcons.Refresh,
+                            iconTint = SettingTint.advanced,
+                        )
+                    }
+                    SettingsDivider()
+                    if (engine == PlayerEngine.Mdk) {
+                        SettingRow("音频直通", "MDK 暂不支持", false, {})
+                    } else {
+                        SettingSegmentRow(
+                            title = "音频直通",
+                            options = listOf("关闭", "兼容"),
+                            selectedIndex = PlaybackAudioPassthrough.entries.indexOf(audioPassthrough),
+                            onSelect = {
+                                outputPreferences.setAudioPassthrough(PlaybackAudioPassthrough.entries[it])
+                            },
+                            icon = AppIcons.Volume,
+                            iconTint = SettingTint.advanced,
+                        )
+                    }
                 }
             }
         }
