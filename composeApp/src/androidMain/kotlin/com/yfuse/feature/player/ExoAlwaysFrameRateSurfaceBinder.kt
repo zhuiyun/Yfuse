@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.yfuse.core.logging.AppLog
 import java.lang.ref.WeakReference
 import kotlin.math.abs
 
@@ -60,7 +61,7 @@ internal class ExoAlwaysFrameRateSurfaceBinder(
                     (view?.videoSurfaceView as? SurfaceView)
                         ?.holder
                         ?.surface
-                        ?.takeIf(Surface::isValid)
+                        ?.takeIf { it.isValid }
                 val frameRate = player?.videoFormat?.frameRate ?: 0f
                 if (surface != null) {
                     updateSurface(surface, frameRate)
@@ -108,11 +109,24 @@ internal class ExoAlwaysFrameRateSurfaceBinder(
         }
         hintedSurface = surface
         hintedFrameRate = contentFrameRate
-        return requestSurfaceFrameRate(
-            surface = surface,
-            mode = mode,
-            contentFrameRate = contentFrameRate,
+        val status =
+            requestSurfaceFrameRate(
+                surface = surface,
+                mode = mode,
+                contentFrameRate = contentFrameRate,
+            )
+        AppLog.info(
+            category = "player.exo.output",
+            event = "frame_rate_request",
+            message = "ExoPlayer requested an explicit display frame rate",
+            attributes =
+                mapOf(
+                    "frameRate" to contentFrameRate.toString(),
+                    "mode" to mode.name,
+                    "status" to status.toString(),
+                ),
         )
+        return status
     }
 
     private fun clearHint(surface: Surface) {
