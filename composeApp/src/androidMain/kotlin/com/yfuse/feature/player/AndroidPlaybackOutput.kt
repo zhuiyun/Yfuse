@@ -13,7 +13,9 @@ import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.text.TextOutput
+import com.yfuse.core.data.PlaybackPreferences
 import java.util.ArrayList
+import org.koin.core.context.GlobalContext
 
 /**
  * Media3 owns seamless frame-rate hints because it knows the decoded output rate. The explicit
@@ -46,6 +48,20 @@ internal class ExoOutputRenderersFactory(
     private val audioPassthroughMode: AudioPassthroughMode,
     private val dualSubtitleCueMerger: ExoDualSubtitleCueMerger? = null,
 ) : DefaultRenderersFactory(context) {
+    init {
+        val frameRateMode =
+            runCatching {
+                GlobalContext
+                    .get()
+                    .get<PlaybackPreferences>()
+                    .frameRateMatch.value
+                    .toPlayerMode()
+            }.getOrDefault(FrameRateMatchMode.Disabled)
+        if (exoNeedsAppSurfaceFrameRate(frameRateMode)) {
+            ExoAlwaysFrameRateSurfaceBinder(context, frameRateMode)
+        }
+    }
+
     @Suppress("DEPRECATION")
     override fun buildAudioSink(
         context: Context,
