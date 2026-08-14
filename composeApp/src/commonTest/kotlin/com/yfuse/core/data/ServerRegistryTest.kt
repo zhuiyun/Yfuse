@@ -10,7 +10,6 @@ import com.yfuse.core.security.TestSecureStore
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -171,7 +170,7 @@ class ServerRegistryTest {
     }
 
     @Test
-    fun routeMutationsRejectPublicCleartextButAllowLocalHttp() {
+    fun routeMutationsAllowPublicAndLocalHttpWithoutConfirmation() {
         val registry = registry()
         val original =
             SavedServer(
@@ -184,12 +183,12 @@ class ServerRegistryTest {
             )
         registry.addOrUpdate(original)
 
-        assertFalse(
+        assertTrue(
             registry.setRoutes(
                 original.id,
                 listOf(
                     ServerRoute(ServerRoute.PRIMARY_ID, "主线路", original.baseUrl),
-                    ServerRoute("r2", "公网明文", "http://media.example.com:8096"),
+                    ServerRoute("r2", "公网 HTTP", "http://media.example.com:8096"),
                 ),
             ),
         )
@@ -198,12 +197,10 @@ class ServerRegistryTest {
                 original.id,
                 listOf(
                     ServerRoute(ServerRoute.PRIMARY_ID, "主线路", original.baseUrl),
-                    ServerRoute("r2", "家庭内网", "http://192.168.1.8:8096"),
+                    ServerRoute("r2", "家庭 HTTP", "http://192.168.1.8:8096"),
                 ),
-                localCleartextConfirmed = true,
             ),
         )
-        assertTrue(registry.serverById(original.id)?.localCleartextConfirmed == true)
     }
 
     @Test
@@ -314,42 +311,25 @@ class ServerRegistryTest {
     }
 
     @Test
-    fun publicCleartextCannotBeAddedAndAnOldPersistedSessionIsPurged() {
-        val settings = MapSettings()
-        val secrets = TestSecureStore()
-        val secure =
+    fun publicHttpCanBeSavedWithoutConfirmation() {
+        val cleartext =
             SavedServer(
-                id = "public",
-                baseUrl = "https://media.example.com",
+                id = SavedServer.idOf("http://media.example.com", "u"),
+                baseUrl = "http://media.example.com",
                 serverName = "Public",
                 userId = "u",
                 userName = "User",
                 accessToken = "token",
             )
-        registry(settings, secrets).addOrUpdate(secure)
-        val persisted = requireNotNull(settings.getStringOrNull("servers.data"))
-        settings.putString(
-            "servers.data",
-            persisted.replace("https://media.example.com", "http://media.example.com"),
-        )
+        val registry = registry()
+        registry.addOrUpdate(cleartext)
 
-        val reloaded = registry(settings, secrets)
-
-        assertTrue(reloaded.data.value.servers.isEmpty())
-        assertTrue(secrets.storedKeys().isEmpty())
-        assertFailsWith<IllegalArgumentException> {
-            registry().addOrUpdate(
-                secure.copy(
-                    baseUrl = "http://media.example.com",
-                    localCleartextConfirmed = true,
-                ),
-            )
-        }
+        assertEquals("http://media.example.com", registry.defaultServer?.baseUrl)
     }
 
     @Test
-    fun protectedBackupCannotTransferLocalCleartextConsentToAnotherDevice() {
-        val local =
+    fun protectedBackupCanRestoreHttpServerWithoutConsent() {
+        val http =
             SavedServer(
                 id = SavedServer.idOf("http://192.168.1.8:8096", "u"),
                 baseUrl = "http://192.168.1.8:8096",
@@ -357,14 +337,13 @@ class ServerRegistryTest {
                 userId = "u",
                 userName = "User",
                 accessToken = "token",
-                localCleartextConfirmed = true,
             )
-        val source = registry().apply { addOrUpdate(local) }
+        val source = registry().apply { addOrUpdate(http) }
         val passphrase = "correct horse battery staple".toCharArray()
         val now = 2_000_000_000L
         val payload = source.exportProtectedBackup(passphrase, now).getOrThrow()
 
-        assertTrue(registry().importProtectedBackup(payload, passphrase, now + 1).isFailure)
+        assertEquals(1, registry().importProtectedBackup(payload, passphrase, now + 1).getOrThrow())
         passphrase.fill('\u0000')
     }
 }

@@ -84,20 +84,7 @@ class OfflineMediaSecurityTest {
     }
 
     @Test
-    fun raw_offline_transfer_rejects_public_cleartext_before_opening_a_socket() {
-        val rejected =
-            runCatching {
-                requireAllowedOfflineTransferUrl(
-                    "http://media.example/Videos/episode/stream?api_key=secret",
-                    localCleartextConfirmed = true,
-                )
-            }
-
-        assertTrue(rejected.isFailure)
-    }
-
-    @Test
-    fun raw_offline_transfer_allows_https_and_confirmed_lan_cleartext() {
+    fun rawOfflineTransferAllowsHttpAndHttpsWithoutConfirmation() {
         assertEquals(
             "https",
             requireAllowedOfflineTransferUrl(
@@ -108,8 +95,15 @@ class OfflineMediaSecurityTest {
         assertEquals(
             "http",
             requireAllowedOfflineTransferUrl(
+                "http://media.example/Videos/episode/stream?api_key=secret",
+                localCleartextConfirmed = false,
+            ).protocol,
+        )
+        assertEquals(
+            "http",
+            requireAllowedOfflineTransferUrl(
                 "http://192.168.1.20:8096/Videos/episode/stream?api_key=secret",
-                localCleartextConfirmed = true,
+                localCleartextConfirmed = false,
             ).protocol,
         )
     }

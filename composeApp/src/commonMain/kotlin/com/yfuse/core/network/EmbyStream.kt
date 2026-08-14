@@ -45,10 +45,9 @@ object EmbyStream {
 
     /**
      * Resolves a URL returned by PlaybackInfo and completes its authentication.
-     * Public cleartext absolute URLs are rejected before credentials are attached; a relative
-     * URL remains on the already-approved server, while local HTTP inherits that server's
-     * explicit confirmation. Servers differ on whether they include the token and session in
-     * DirectStreamUrl; adding only missing parameters keeps both Emby and Jellyfin usable.
+     * Absolute HTTP and HTTPS URLs are accepted as returned by the user's server; a relative
+     * URL remains on that server. Servers differ on whether they include the token and session
+     * in DirectStreamUrl; adding only missing parameters keeps both Emby and Jellyfin usable.
      */
     fun negotiatedUrl(
         baseUrl: String,

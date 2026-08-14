@@ -366,9 +366,9 @@ private fun HttpURLConnection.offlineResumeValidator(): String? {
 private fun String.resumeValidatorHeaderValue(): String = substringAfter(':')
 
 /**
- * Raw offline transfers bypass Ktor's HttpSend guard, so they enforce the same transport
- * boundary before opening a socket. Redirects stay disabled: authenticated Emby download URLs
- * carry api_key in the query and must never be replayed to a different authority.
+ * Raw offline transfers bypass Ktor, so they validate the user-configured HTTP/HTTPS endpoint
+ * before opening a socket. Redirects stay disabled: authenticated Emby download URLs carry
+ * api_key in the query and must never be replayed to a different authority.
  */
 internal fun requireAllowedOfflineTransferUrl(
     value: String,

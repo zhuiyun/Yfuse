@@ -18,12 +18,7 @@ fun EmbyError.toUserMessage(): String =
 /** Convenience: pull a user message out of any throwable. */
 fun Throwable.toUserMessage(fallback: String): String =
     when (this) {
-        is EmbyErrorException ->
-            if (error is EmbyError.AccessDenied) {
-                "服务器拒绝访问（HTTP 403），请检查服务器访问策略"
-            } else {
-                error.toUserMessage()
-            }
+        is EmbyErrorException -> error.toUserMessage()
         is LocalNetworkPermissionRequiredException -> message ?: fallback
         else -> fallback
     }

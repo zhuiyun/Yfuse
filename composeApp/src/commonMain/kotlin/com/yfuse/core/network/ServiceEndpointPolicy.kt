@@ -4,6 +4,7 @@ import io.ktor.http.Url
 
 enum class EndpointTransportDecision {
     Secure,
+    Cleartext,
     LocalCleartextConfirmationRequired,
     LocalCleartextConfirmed,
     PublicCleartextRejected,
@@ -18,6 +19,7 @@ data class ServiceEndpointValidation(
     val allowed: Boolean
         get() =
             decision == EndpointTransportDecision.Secure ||
+                decision == EndpointTransportDecision.Cleartext ||
                 decision == EndpointTransportDecision.LocalCleartextConfirmed
 
     val requiresCleartextConfirmation: Boolean

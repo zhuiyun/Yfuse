@@ -3,7 +3,6 @@ package com.yfuse.core.network
 import com.yfuse.core.model.SavedServer
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -17,53 +16,29 @@ class ServerEndpointPolicyTest {
     }
 
     @Test
-    fun embyPublicCleartextIsRejectedEvenAfterRiskConfirmation() {
-        val result =
-            validateEmbyServerEndpoint(
-                "http://media.example.com:8096",
-                localCleartextConfirmed = true,
-            )
-
-        assertFalse(result.allowed)
-        assertEquals(EndpointTransportDecision.PublicCleartextRejected, result.decision)
-    }
-
-    @Test
-    fun embyLocalCleartextRequiresExplicitConfirmation() {
+    fun embyHttpIsAllowedImmediatelyOnPublicAndLocalHosts() {
         listOf(
             "http://192.168.1.8:8096",
             "http://10.0.0.8",
             "http://media.local:8096",
             "http://emby:8096",
             "http://100.64.0.10:8096",
+            "http://8.8.8.8:8096",
+            "http://media.example.com:8096",
         ).forEach { endpoint ->
-            assertTrue(validateEmbyServerEndpoint(endpoint).requiresCleartextConfirmation)
-            assertTrue(
-                validateEmbyServerEndpoint(
-                    endpoint,
-                    localCleartextConfirmed = true,
-                ).allowed,
-            )
+            val result = validateEmbyServerEndpoint(endpoint)
+            assertTrue(result.allowed, endpoint)
+            assertEquals(EndpointTransportDecision.Cleartext, result.decision, endpoint)
+            assertNull(result.message, endpoint)
         }
     }
 
     @Test
     fun embyHttpsIsAllowedForPublicAndLocalHosts() {
-        assertTrue(validateEmbyServerEndpoint("https://media.example.com").allowed)
-        assertTrue(validateEmbyServerEndpoint("https://192.168.1.8:8920").allowed)
-    }
-
-    @Test
-    fun cleartextClassifierRejectsPublicBoundariesAndHostSpoofing() {
-        listOf(
-            "http://100.63.255.255:8096",
-            "http://100.128.0.1:8096",
-            "http://8.8.8.8:8096",
-            "http://127.0.0.1.evil.example:8096",
-            "http://2130706433:8096",
-            "http://0x7f000001:8096",
-        ).forEach { endpoint ->
-            assertFalse(validateEmbyServerEndpoint(endpoint, true).allowed, endpoint)
+        listOf("https://media.example.com", "https://192.168.1.8:8920").forEach { endpoint ->
+            val result = validateEmbyServerEndpoint(endpoint)
+            assertTrue(result.allowed)
+            assertEquals(EndpointTransportDecision.Secure, result.decision)
         }
     }
 

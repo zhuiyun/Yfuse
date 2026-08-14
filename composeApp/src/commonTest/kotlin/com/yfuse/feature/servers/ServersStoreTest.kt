@@ -363,32 +363,25 @@ class ServersStoreTest {
         }
 
     @Test
-    fun http_requires_explicit_risk_confirmation() =
+    fun httpCanSubmitWithoutRiskConfirmation() =
         runTest {
             val store = store(testRegistry()) { authRoutes(it) }
             store.accept(ServersIntent.HostChanged("http://192.168.1.8:8096/emby"))
             store.accept(ServersIntent.UsernameChanged("user"))
 
-            assertFalse(store.state.form.canSubmit)
-            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
             assertTrue(store.state.form.canSubmit)
             store.dispose()
         }
 
     @Test
-    fun public_http_is_rejected_even_after_risk_confirmation() =
+    fun publicHttpCanSubmitWithoutRiskConfirmation() =
         runTest {
             val registry = testRegistry()
-            val store = store(registry) { error("public cleartext must not reach the network") }
+            val store = store(registry) { req -> authRoutes(req) }
             store.accept(ServersIntent.HostChanged("http://media.example.com:8096"))
             store.accept(ServersIntent.UsernameChanged("user"))
-            store.accept(ServersIntent.PasswordChanged("password"))
-            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
 
-            assertFalse(store.state.form.canSubmit)
-            store.accept(ServersIntent.Submit)
-            assertEquals("公网 Emby 服务器必须使用 HTTPS", store.state.form.error)
-            assertTrue(registry.data.value.servers.isEmpty())
+            assertTrue(store.state.form.canSubmit)
             store.dispose()
         }
 

@@ -33,7 +33,7 @@ data class LoginForm(
     val basePath: String = "",
     val username: String = "",
     val password: String = "",
-    /** HTTP credentials and tokens are readable in transit; require a deliberate opt-in. */
+    /** Legacy persisted flag retained for backward-compatible server data. */
     val httpRiskAccepted: Boolean = false,
     val submitting: Boolean = false,
     val error: String? = null,

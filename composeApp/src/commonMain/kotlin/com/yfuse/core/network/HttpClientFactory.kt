@@ -9,9 +9,16 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.plugin
 import io.ktor.client.request.header
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.URLProtocol
+import io.ktor.http.Url
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.util.AttributeKey
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 
 /** Platform HTTP engine (OkHttp on Android for platform TLS and WebSocket support). */
@@ -24,7 +31,20 @@ expect fun embyHttpEngine(): HttpClientEngine
  * treat us as the stock mobile client. The user's custom UA, if set, overrides this
  * everywhere — see [com.yfuse.core.data.UserAgentPreferences].
  */
-const val DEFAULT_EMBY_USER_AGENT: String = DEFAULT_EMBY_CLIENT_NAME
+const val DEFAULT_EMBY_USER_AGENT: String = "Emby for Android Mobile"
+
+private data class EmbyRequestOrigin(
+    val protocol: URLProtocol,
+    val host: String,
+    val port: Int,
+)
+
+private data class EmbyIdentityPreferenceKey(
+    val origin: EmbyRequestOrigin,
+    val accessToken: String,
+)
+
+private val embyRequestOriginKey = AttributeKey<EmbyRequestOrigin>("EmbyRequestOrigin")
 
 /**
  * How long an Emby request may take before it is abandoned.
@@ -63,7 +83,7 @@ fun createEmbyClient(
     /** Actual package version supplied by the platform build; never a hand-maintained copy. */
     appVersion: String,
     engine: HttpClientEngine = embyHttpEngine(),
-    customUserAgent: () -> String = { "" },
+    customUserAgent: () -> String = { DEFAULT_EMBY_USER_AGENT },
     /**
      * Null omits the plugin entirely, for unit tests driving a `MockEngine`.
      *
@@ -93,19 +113,72 @@ fun createEmbyClient(
         }
         defaultRequest {
             header("X-Emby-Authorization", buildAuthHeader(appVersion))
-            customUserAgent().trim().takeIf { it.isNotEmpty() }?.let { value ->
-                header(HttpHeaders.UserAgent, value)
-            }
+            header(
+                HttpHeaders.UserAgent,
+                customUserAgent().trim().ifBlank { DEFAULT_EMBY_USER_AGENT },
+            )
         }
     }.also { client ->
+        // Tokens issued before 0.2.60 may still be associated with the former Yfuse client
+        // identity. Keep the released identity as the default and learn the legacy identity
+        // only after the library discovery endpoint rejects the current one with 403.
+        val preferredClientBySession =
+            MutableStateFlow<Map<EmbyIdentityPreferenceKey, String>>(emptyMap())
         client.plugin(HttpSend).intercept { request ->
             val target = request.url
-            check(target.protocol != URLProtocol.HTTP || target.host.isLocalServiceHost()) {
-                "公网 Emby 请求禁止使用 HTTP，请改用 HTTPS: ${target.host}"
+            val currentOrigin = target.build().embyRequestOrigin()
+            val originalOrigin = request.attributes.getOrNull(embyRequestOriginKey)
+            if (originalOrigin == null) {
+                request.attributes.put(embyRequestOriginKey, currentOrigin)
+            } else {
+                check(originalOrigin == currentOrigin) {
+                    "Emby 请求禁止跨来源重定向"
+                }
             }
-            execute(request)
+
+            val accessToken = request.headers["X-Emby-Token"]?.takeIf { it.isNotBlank() }
+            if (accessToken == null) return@intercept execute(request)
+
+            val preferenceKey = EmbyIdentityPreferenceKey(currentOrigin, accessToken)
+            val preferredClient =
+                preferredClientBySession.value[preferenceKey] ?: DEFAULT_EMBY_CLIENT_NAME
+            request.headers.remove("X-Emby-Authorization")
+            request.header("X-Emby-Authorization", buildAuthHeader(appVersion, preferredClient))
+            val canProbeLegacyIdentity =
+                (request.method == HttpMethod.Get || request.method == HttpMethod.Head) &&
+                    request.url
+                        .build()
+                        .encodedPath
+                        .trimEnd('/')
+                        .endsWith("/Views")
+            if (!canProbeLegacyIdentity) return@intercept execute(request)
+
+            val firstCall = execute(request)
+            if (firstCall.response.status.value != 403) return@intercept firstCall
+
+            val fallbackClient =
+                if (preferredClient == LEGACY_EMBY_CLIENT_NAME) {
+                    DEFAULT_EMBY_CLIENT_NAME
+                } else {
+                    LEGACY_EMBY_CLIENT_NAME
+                }
+            firstCall.response.bodyAsChannel().cancel(CancellationException("Retrying with alternate Emby identity"))
+            request.headers.remove("X-Emby-Authorization")
+            request.header("X-Emby-Authorization", buildAuthHeader(appVersion, fallbackClient))
+            val fallbackCall = execute(request)
+            if (fallbackCall.response.status.value in 200..299) {
+                preferredClientBySession.update { it + (preferenceKey to fallbackClient) }
+            }
+            fallbackCall
         }
     }
+
+private fun Url.embyRequestOrigin(): EmbyRequestOrigin =
+    EmbyRequestOrigin(
+        protocol = protocol,
+        host = host.lowercase(),
+        port = if (specifiedPort == 0) protocol.defaultPort else specifiedPort,
+    )
 
 /**
  * Client for arbitrary user-configured danmaku hosts.
