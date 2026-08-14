@@ -6,8 +6,8 @@ import com.yfuse.core.sync.WatchParticipant
 
 /**
  * Keeps the existing player-chrome call site source-compatible while the room playlist is
- * introduced independently. PlayerControls can opt into playlist jump metadata in a focused
- * follow-up without forcing the entire 100k-line-ish chrome file through a mechanical rewrite.
+ * introduced independently. Playlist jumps are handed to the active gated player through a
+ * one-shot media-key request, so the 100k-line-ish chrome file does not need a mechanical rewrite.
  */
 @Composable
 internal fun WatchTogetherDialog(
@@ -43,15 +43,18 @@ internal fun WatchTogetherDialog(
         participants = participants,
         error = error,
         controlRequested = controlRequested,
-        currentMediaTitle = "",
+        currentMediaTitle = ActivePlayback.state.value.title,
         onCreate = onCreate,
         onJoin = onJoin,
-        onLeave = onLeave,
+        onLeave = {
+            WatchPlaylistPlaybackRequest.clear()
+            onLeave()
+        },
         onRequestControl = onRequestControl,
         onSetControlMode = onSetControlMode,
         onSetModerator = onSetModerator,
         onKickParticipant = onKickParticipant,
-        onPlaylistPlay = {},
+        onPlaylistPlay = WatchPlaylistPlaybackRequest::request,
         onDismiss = onDismiss,
     )
 }
