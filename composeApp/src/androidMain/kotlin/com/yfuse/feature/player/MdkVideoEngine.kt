@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.concurrent.atomic.AtomicInteger
 
 private const val MDK_TAG = "YfuseMdk"
 private const val MDK_POLL_MS = 250L
@@ -26,26 +25,6 @@ private const val MDK_POLL_MS = 250L
 /** Polls to let a freshly-loaded fallback settle before its status is trusted again. */
 private const val FALLBACK_SETTLE_POLLS = 12
 private const val TRACK_SEPARATOR = '\u001F'
-
-/** Thread-safe because MDK polling runs on Default while encoder cleanup resumes on Main. */
-internal class FallbackSettleWindow(
-    private val requiredPolls: Int,
-) {
-    private val polls = AtomicInteger(Int.MAX_VALUE)
-
-    val ready: Boolean
-        get() = polls.get() >= requiredPolls
-
-    fun tick() {
-        polls.getAndUpdate { current ->
-            if (current == Int.MAX_VALUE) current else current + 1
-        }
-    }
-
-    fun restart() {
-        polls.set(0)
-    }
-}
 
 /** Official libmdk Android facade adapted to Yfuse's engine-neutral player contract. */
 class MdkVideoEngine(
