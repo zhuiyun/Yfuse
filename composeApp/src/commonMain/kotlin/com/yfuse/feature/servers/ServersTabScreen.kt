@@ -172,6 +172,21 @@ fun ServersTabScreen(component: ServersTabComponent) {
         remember(state.servers, health, lastWatched, listFilter) {
             filterAndSortServers(state.servers, health, lastWatched, listFilter)
         }
+    val currentServer =
+        remember(state.servers, state.defaultServerId) {
+            state.servers.firstOrNull { it.id == state.defaultServerId }
+        }
+    val otherVisibleServers =
+        remember(visibleServers, state.defaultServerId) {
+            visibleServers.filterNot { it.id == state.defaultServerId }
+        }
+    val onlineServerCount =
+        remember(state.servers, health) {
+            state.servers.count {
+                health[it.id]?.status in
+                    setOf(ServerHealthStatus.Healthy, ServerHealthStatus.Degraded)
+            }
+        }
 
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
@@ -206,19 +221,6 @@ fun ServersTabScreen(component: ServersTabComponent) {
             ) {
                 item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
                     ServersHeader(
-                        serverCount = state.servers.size,
-                        onlineCount =
-                            state.servers.count {
-                                health[it.id]?.status in
-                                    setOf(
-                                        ServerHealthStatus.Healthy,
-                                        ServerHealthStatus.Degraded,
-                                    )
-                            },
-                        currentName =
-                            state.servers
-                                .firstOrNull { it.id == state.defaultServerId }
-                                ?.serverName,
                         onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
                         refreshing = refreshing,
                         onRefreshAll = { component.refreshAll() },
@@ -229,6 +231,26 @@ fun ServersTabScreen(component: ServersTabComponent) {
                     )
                 }
 
+                currentServer?.let { server ->
+                    item(key = "current-${server.id}", span = { GridItemSpan(maxLineSpan) }) {
+                        CurrentServerHero(
+                            server = server,
+                            health = health[server.id],
+                            stats = serverStats[server.id],
+                            serverCount = state.servers.size,
+                            onlineCount = onlineServerCount,
+                            onOpen = { component.onOpenLibrary() },
+                            onMore = { actionsFor = server },
+                        )
+                    }
+                }
+
+                if (state.servers.isNotEmpty()) {
+                    item(key = "other-servers", span = { GridItemSpan(maxLineSpan) }) {
+                        OtherServersHeader(count = otherVisibleServers.size)
+                    }
+                }
+
                 if (state.servers.isEmpty()) {
                     item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
                         EmptyServers(
@@ -237,21 +259,25 @@ fun ServersTabScreen(component: ServersTabComponent) {
                     }
                 }
 
-                if (state.servers.isNotEmpty() && visibleServers.isEmpty()) {
+                if (state.servers.isNotEmpty() && otherVisibleServers.isEmpty()) {
                     item(key = "filtered-empty", span = { GridItemSpan(maxLineSpan) }) {
                         Text(
-                            "没有符合当前账号筛选的服务器",
+                            if (state.servers.size == 1) {
+                                "还没有其他服务器"
+                            } else {
+                                "没有其他符合当前筛选的服务器"
+                            },
                             style = AppTypography.body.medium,
                             color = palette.sub2,
-                            modifier = Modifier.padding(vertical = 24.dp),
+                            modifier = Modifier.padding(bottom = 24.dp),
                         )
                     }
                 }
 
-                items(visibleServers, key = { it.id }) { server ->
+                items(otherVisibleServers, key = { it.id }) { server ->
                     ServerCard(
                         server = server,
-                        isCurrent = server.id == state.defaultServerId,
+                        isCurrent = false,
                         health = health[server.id],
                         stats = serverStats[server.id],
                         lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
@@ -419,9 +445,6 @@ private fun routesSummary(
 
 @Composable
 private fun ServersHeader(
-    serverCount: Int,
-    onlineCount: Int,
-    currentName: String?,
     onAdd: () -> Unit,
     refreshing: Boolean,
     onRefreshAll: () -> Unit,
@@ -432,8 +455,6 @@ private fun ServersHeader(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    // The monitor could already re-probe every server; until now the only way to ask it to
-    // was to pull the grid down, which is a gesture people find by accident if at all.
     val spin by rememberInfiniteTransition(label = "servers-refresh").animateFloat(
         initialValue = 0f,
         targetValue = 360f,
@@ -444,23 +465,19 @@ private fun ServersHeader(
         label = "servers-refresh-angle",
     )
     Column(
-        Modifier.fillMaxWidth().padding(bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        Modifier.fillMaxWidth().padding(bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f)) {
-                Text("服务器", style = AppTypography.display.strong, color = palette.text)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "管理连接，并选择库、搜索和播放使用的服务器",
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                    maxLines = 2,
-                )
-            }
+            Text(
+                "我的服务器",
+                style = AppTypography.display.strong,
+                color = palette.text,
+                modifier = Modifier.weight(1f),
+            )
             Row(
                 Modifier
                     .pressable(onClickLabel = "添加服务器", onClick = onAdd)
@@ -470,8 +487,8 @@ private fun ServersHeader(
                         shape = GlassShapes.chip,
                         fill = accent.container,
                         border = accent.border.copy(alpha = 0.42f),
-                        sheen = 0.75f,
-                    ).padding(horizontal = 14.dp, vertical = 9.dp),
+                        sheen = 0.7f,
+                    ).padding(horizontal = 13.dp, vertical = 9.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -498,7 +515,7 @@ private fun ServersHeader(
                         shape = GlassShapes.chip,
                         fill = if (filterActive) accent.container else palette.card2,
                         border = if (filterActive) accent.border else palette.border,
-                        sheen = 0.9f,
+                        sheen = 0.75f,
                     ).padding(horizontal = 12.dp, vertical = 9.dp),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -517,106 +534,54 @@ private fun ServersHeader(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .pressable(
-                            haptic = HapticSignal.Select,
-                            onClickLabel =
+            Box(
+                Modifier
+                    .pressable(
+                        haptic = HapticSignal.Select,
+                        onClickLabel =
+                            if (layout == ServerLayout.Grid) "改为列表展示" else "改为网格展示",
+                        onClick = {
+                            onLayout(
                                 if (layout == ServerLayout.Grid) {
-                                    "改为列表展示"
+                                    ServerLayout.List
                                 } else {
-                                    "改为网格展示"
+                                    ServerLayout.Grid
                                 },
-                            onClick = {
-                                onLayout(
-                                    if (layout == ServerLayout.Grid) {
-                                        ServerLayout.List
-                                    } else {
-                                        ServerLayout.Grid
-                                    },
-                                )
-                            },
-                        ).touchTarget()
-                        .shadow(GlassLift.control, CircleShape)
-                        .liquidGlass(
-                            shape = CircleShape,
-                            fill = palette.card2,
-                            border = palette.border,
-                            sheen = 0.9f,
-                        ).size(ServerHeaderCircleSize),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (layout == ServerLayout.Grid) AppIcons.Menu else AppIcons.Grid,
-                        contentDescription = null,
-                        tint = palette.sub2,
-                        modifier = Modifier.size(15.dp),
-                    )
-                }
-                Box(
-                    Modifier
-                        .pressable(
-                            enabled = !refreshing,
-                            onClickLabel = "刷新全部服务器",
-                            onClick = onRefreshAll,
-                        ).touchTarget()
-                        .shadow(GlassLift.control, CircleShape)
-                        .liquidGlass(
-                            shape = CircleShape,
-                            fill = palette.card2,
-                            border = palette.border,
-                            sheen = 0.9f,
-                        ).size(ServerHeaderCircleSize),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        AppIcons.Refresh,
-                        contentDescription = null,
-                        tint = if (refreshing) accent.accent else palette.sub2,
-                        modifier =
-                            Modifier
-                                .size(15.dp)
-                                .graphicsLayer { rotationZ = if (refreshing) spin else 0f },
-                    )
-                }
+                            )
+                        },
+                    ).touchTarget()
+                    .shadow(GlassLift.control, CircleShape)
+                    .liquidGlass(CircleShape, palette.card2, palette.border, sheen = 0.75f)
+                    .size(ServerHeaderCircleSize),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (layout == ServerLayout.Grid) AppIcons.Menu else AppIcons.Grid,
+                    contentDescription = null,
+                    tint = palette.sub2,
+                    modifier = Modifier.size(15.dp),
+                )
             }
-        }
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .liquidGlass(
-                    shape = GlassShapes.card,
-                    fill = palette.card,
-                    border = palette.border,
-                    sheen = 0.55f,
-                ).padding(horizontal = 14.dp, vertical = 11.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ServerSummaryValue(
-                value = serverCount.toString(),
-                label = "已连接",
-                color = accent.accent,
-            )
-            Box(Modifier.size(1.dp, 28.dp).background(palette.border))
-            ServerSummaryValue(
-                value = onlineCount.toString(),
-                label = "在线",
-                color = Semantic.Success,
-            )
-            Spacer(Modifier.weight(1f))
-            Column(horizontalAlignment = Alignment.End) {
-                Text("当前服务器", style = AppTypography.caption.regular, color = palette.sub2)
-                Text(
-                    currentName ?: if (serverCount == 0) "等待添加" else "未选择",
-                    style = AppTypography.body.strong,
-                    color = palette.text,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+            Box(
+                Modifier
+                    .pressable(
+                        enabled = !refreshing,
+                        onClickLabel = "刷新全部服务器",
+                        onClick = onRefreshAll,
+                    ).touchTarget()
+                    .shadow(GlassLift.control, CircleShape)
+                    .liquidGlass(CircleShape, palette.card2, palette.border, sheen = 0.75f)
+                    .size(ServerHeaderCircleSize),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AppIcons.Refresh,
+                    contentDescription = null,
+                    tint = if (refreshing) accent.accent else palette.sub2,
+                    modifier =
+                        Modifier
+                            .size(15.dp)
+                            .graphicsLayer { rotationZ = if (refreshing) spin else 0f },
                 )
             }
         }
@@ -624,20 +589,227 @@ private fun ServersHeader(
 }
 
 @Composable
-private fun ServerSummaryValue(
+private fun CurrentServerHero(
+    server: SavedServer,
+    health: ServerHealth?,
+    stats: ServerStats?,
+    serverCount: Int,
+    onlineCount: Int,
+    onOpen: () -> Unit,
+    onMore: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val status = health?.status ?: ServerHealthStatus.Unknown
+    val statusColor = serverStatusColor(status)
+    val badgeColor = serverTintColor(server.id, server.iconTint)
+    val latencyColor =
+        latencySeverityColor(health?.latencySeverity ?: LatencySeverity.Unknown)
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .semantics { selected = true }
+            .pressable(
+                onClickLabel = "打开${server.serverName}媒体库",
+                onLongClick = onMore,
+                onLongClickLabel = "打开${server.serverName}操作",
+                onClick = onOpen,
+            ).shadow(
+                Shadows.primaryButton(accent.accent.copy(alpha = 0.42f)),
+                GlassShapes.card,
+            ).glass(
+                shape = GlassShapes.card,
+                fill =
+                    Brush.linearGradient(
+                        0f to lerp(accent.container, Color.White, if (palette.isDark) 0.04f else 0.20f),
+                        1f to palette.card,
+                    ),
+                border = accent.border.copy(alpha = 0.72f),
+            ).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(56.dp)
+                    .clip(AppShapes.thumb)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(lerp(badgeColor, Color.White, 0.16f), badgeColor),
+                        ),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    server.iconEmoji ?: server.serverName.take(1).uppercase(),
+                    style = AppTypography.section.strong,
+                    color = if (server.iconEmoji == null) Color.White else Color.Unspecified,
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        server.serverName,
+                        style = AppTypography.section.strong,
+                        color = palette.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Box(
+                        Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(accent.accent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            AppIcons.Check,
+                            contentDescription = "当前服务器",
+                            tint = accent.onAccent,
+                            modifier = Modifier.size(10.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(5.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        server.userName.ifBlank { "未记录账号" },
+                        style = AppTypography.body.regular,
+                        color = palette.sub2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(statusColor))
+                    Text(
+                        connectionLabel(health),
+                        style = AppTypography.body.medium,
+                        color = if (status == ServerHealthStatus.Unknown) palette.sub2 else statusColor,
+                        maxLines = 1,
+                    )
+                }
+            }
+            Row(
+                Modifier
+                    .pressable(onClickLabel = "进入服务器", onClick = onOpen)
+                    .heightIn(min = 42.dp)
+                    .glass(AppShapes.pill, accent.accent, accent.border)
+                    .padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("进入", style = AppTypography.body.strong, color = accent.onAccent)
+                Icon(
+                    AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = accent.onAccent,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HeroMetric(
+                icon = AppIcons.User,
+                value = serverCount.toString(),
+                label = "已连接",
+                color = accent.accent,
+                modifier = Modifier.weight(1f),
+            )
+            Box(Modifier.size(1.dp, 42.dp).background(palette.border))
+            HeroMetric(
+                icon = AppIcons.Server,
+                value = onlineCount.toString(),
+                label = "在线",
+                color = Semantic.Success,
+                modifier = Modifier.weight(1f),
+            )
+            Box(Modifier.size(1.dp, 42.dp).background(palette.border))
+            HeroMetric(
+                icon = AppIcons.Refresh,
+                value = health?.latencyMs?.let { "$it ms" } ?: "未测速",
+                label = health?.latencySeverity?.label ?: "延迟",
+                color = latencyColor,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
+        ServerCountsRow(stats)
+    }
+}
+
+@Composable
+private fun HeroMetric(
+    icon: ImageVector,
     value: String,
     label: String,
     color: Color,
+    modifier: Modifier = Modifier,
 ) {
+    val palette = LocalPalette.current
     Row(
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        modifier.padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(7.dp).clip(CircleShape).background(color))
-        Column {
-            Text(value, style = AppTypography.section.strong, color = LocalPalette.current.text)
-            Text(label, style = AppTypography.caption.regular, color = LocalPalette.current.sub2)
+        Box(
+            Modifier
+                .size(32.dp)
+                .glass(GlassShapes.thumb, color.copy(alpha = 0.08f), color.copy(alpha = 0.24f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, null, tint = color, modifier = Modifier.size(15.dp))
         }
+        Column(Modifier.weight(1f)) {
+            Text(
+                value,
+                style = AppTypography.body.strong,
+                color = if (label == "延迟") palette.text else color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                label,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun OtherServersHeader(count: Int) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "其他服务器",
+            style = AppTypography.section.strong,
+            color = LocalPalette.current.text,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "$count 台",
+            style = AppTypography.caption.medium,
+            color = LocalPalette.current.sub2,
+        )
     }
 }
 
