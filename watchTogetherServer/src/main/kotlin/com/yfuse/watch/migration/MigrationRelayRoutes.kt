@@ -4,6 +4,7 @@ import com.yfuse.watch.account.AccountWorkExecutor
 import com.yfuse.watch.account.AccountWorkRejectedException
 import com.yfuse.watch.account.ClientIdentityResolution
 import com.yfuse.watch.account.resolveAccountClientIdentity
+import com.yfuse.watch.installServiceHealthEndpoint
 import com.yfuse.watch.isSecureServiceTransport
 import io.ktor.http.CacheControl
 import io.ktor.http.ContentType
@@ -39,6 +40,7 @@ internal fun Route.migrationRelayRoutes(
     clientIpResolver: ((ApplicationCall) -> String)? = null,
     trustProxyHeaders: Boolean = false,
 ) {
+    installServiceHealthEndpoint(workExecutor)
     route("/api/v1/migration-relays") {
         post {
             call.handleRelayEndpoint(HttpStatusCode.Created, trustProxyHeaders) {
