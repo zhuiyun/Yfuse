@@ -40,3 +40,6 @@ composeApp/libs/
 
 # Local proxy used for development and network troubleshooting
 .tmp-proxy/
+
+# Local scratch files, generated QA captures, and design experiments
+tmp/
