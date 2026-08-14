@@ -47,6 +47,22 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun playback_output_preferences_default_off_and_persist() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(PlaybackFrameRateMatch.Disabled, first.frameRateMatch.value)
+        assertEquals(PlaybackAudioPassthrough.Disabled, first.audioPassthrough.value)
+
+        first.setFrameRateMatch(PlaybackFrameRateMatch.Always)
+        first.setAudioPassthrough(PlaybackAudioPassthrough.Compatible)
+
+        val restored = PlaybackPreferences(settings)
+        assertEquals(PlaybackFrameRateMatch.Always, restored.frameRateMatch.value)
+        assertEquals(PlaybackAudioPassthrough.Compatible, restored.audioPassthrough.value)
+    }
+
+    @Test
     fun series_playback_is_server_scoped_persistent_and_normalized() {
         val settings = MapSettings()
         val preferences = PlaybackPreferences(settings)
