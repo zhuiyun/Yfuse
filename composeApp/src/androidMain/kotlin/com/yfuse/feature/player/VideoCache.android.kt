@@ -11,10 +11,12 @@ import com.yfuse.core.network.mediaCacheKeyForUrl
 import java.io.Closeable
 
 /** Prevents authenticated playback URLs from being written to Media3's cache index. */
+internal fun secureMediaCacheKeyForUrl(url: String): String = mediaCacheKeyForUrl(url)
+
 @UnstableApi
 internal object SecureMediaCacheKeyFactory : CacheKeyFactory {
     override fun buildCacheKey(dataSpec: DataSpec): String =
-        mediaCacheKeyForUrl(dataSpec.key ?: dataSpec.uri.toString())
+        secureMediaCacheKeyForUrl(dataSpec.key ?: dataSpec.uri.toString())
 }
 
 /**
