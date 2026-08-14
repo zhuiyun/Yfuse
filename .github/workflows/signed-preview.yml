@@ -1,0 +1,132 @@
+name: Signed Android preview
+
+on:
+  push:
+    branches:
+      - codex/server-fine-line-redesign-0814
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build production-signed preview
+    if: github.repository == 'zhuiyun/Yfuse' && github.actor == 'zhuiyun'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install Android 36 and native build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          fi
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-36" "ndk;29.0.14206865" "cmake;3.22.1"
+
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y p7zip-full
+          fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+          test -f composeApp/libs/libmpv-release.aar
+          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+
+      - name: Configure and verify production signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for secret_name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "::error::Missing production signing secret: $secret_name"
+              exit 1
+            fi
+          done
+
+          mkdir -p signing
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > signing/yfuse-release.jks
+          chmod 600 signing/yfuse-release.jks
+          {
+            printf 'storeFile=signing/yfuse-release.jks\n'
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > keystore.properties
+          chmod 600 keystore.properties
+
+          configured_cert="$(
+            keytool -list -v               -keystore signing/yfuse-release.jks               -storepass "$ANDROID_KEYSTORE_PASSWORD"               -alias "$ANDROID_KEY_ALIAS" |
+              sed -n 's/^[[:space:]]*SHA256: //p' |
+              head -n 1 |
+              tr -d ':[:space:]' |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          if [[ "$configured_cert" != "$EXPECTED_ANDROID_CERT_SHA256" ]]; then
+            echo "::error::Production signing certificate mismatch"
+            exit 1
+          fi
+
+      - name: Build signed release APK
+        run: ./gradlew :composeApp:assembleRelease --no-daemon
+
+      - name: Verify APK certificate and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="composeApp/build/outputs/apk/release/composeApp-release.apk"
+          test -s "$apk"
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          build_tools="$(find "$android_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          signer_output="$("$build_tools/apksigner" verify --verbose --print-certs "$apk")"
+          "$build_tools/zipalign" -c -v 4 "$apk"
+          badging="$("$build_tools/aapt" dump badging "$apk")"
+          grep -Fq "package: name='com.yfuse'" <<<"$badging"
+          normalized_signer_output="$(
+            tr -d ':[:space:]' <<<"$signer_output" |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          if [[ "$normalized_signer_output" != *"$EXPECTED_ANDROID_CERT_SHA256"* ]]; then
+            echo "::error::APK certificate does not match production certificate"
+            exit 1
+          fi
+
+      - name: Upload production-signed preview APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Yfuse-production-signed-preview-${{ github.sha }}
+          path: composeApp/build/outputs/apk/release/composeApp-release.apk
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
