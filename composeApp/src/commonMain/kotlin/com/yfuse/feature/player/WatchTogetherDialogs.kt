@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,7 +46,9 @@ import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchNetworkQuality
 import com.yfuse.core.sync.WatchParticipant
+import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.feature.watch.CopyableRoomCode
+import org.koin.core.context.GlobalContext
 
 /**
  * In-player watch-together control. Since the entry points moved to where people actually
@@ -70,6 +73,7 @@ internal fun WatchTogetherDialog(
     participants: List<WatchParticipant>,
     error: String?,
     controlRequested: Boolean,
+    currentMediaTitle: String,
     onCreate: (String) -> Unit,
     onJoin: (String, String) -> Unit,
     onLeave: () -> Unit,
@@ -77,6 +81,7 @@ internal fun WatchTogetherDialog(
     onSetControlMode: (WatchControlMode) -> Unit,
     onSetModerator: (String, Boolean) -> Unit,
     onKickParticipant: (String) -> Unit,
+    onPlaylistPlay: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var roomDraft by remember { mutableStateOf("") }
@@ -84,6 +89,11 @@ internal fun WatchTogetherDialog(
     val normalizedRoom = WatchInvite.normalizeCode(roomDraft)
     val palette = LocalPalette.current
     val accent = rememberAccentColorsForSurface(dark = true)
+    val watchClient = remember { GlobalContext.get().get<WatchTogetherClient>() }
+    val playlist by watchClient.roomPlaylist.state.collectAsState()
+    val liveRoom by watchClient.state.collectAsState()
+    val canEditPlaylist =
+        isHost || participants.firstOrNull { it.isSelf }?.isModerator == true
 
     GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
         OverlayHeader(
@@ -231,6 +241,97 @@ internal fun WatchTogetherDialog(
                     }
                 }
             }
+
+            if (playlist.supported) {
+                Text(
+                    "房间播放列表 · ${playlist.entries.size}",
+                    style = AppTypography.caption.medium,
+                    color = palette.sub2,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+                )
+                if (playlist.entries.isEmpty()) {
+                    Text(
+                        "暂无内容。主持人或管理员可以把当前播放加入列表。",
+                        style = AppTypography.caption.medium,
+                        color = palette.sub2,
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        playlist.entries.forEachIndexed { index, entry ->
+                            val active = entry.mediaKey == liveRoom.mediaKey
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .glass(AppShapes.control, palette.card2, palette.border)
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        entry.title,
+                                        style = AppTypography.body.medium,
+                                        color = if (active) accent.accent else palette.text,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (active) {
+                                        Text(
+                                            "正在播放",
+                                            style = AppTypography.caption.medium,
+                                            color = accent.accent,
+                                        )
+                                    }
+                                }
+                                if (canControl && !active) {
+                                    PlaylistAction("播放", enabled = !playlist.mutationPending) {
+                                        onPlaylistPlay(entry.mediaKey)
+                                    }
+                                }
+                                if (canEditPlaylist) {
+                                    PlaylistAction("上移", enabled = index > 0 && !playlist.mutationPending) {
+                                        watchClient.roomPlaylist.move(entry.id, index - 1)
+                                    }
+                                    PlaylistAction(
+                                        "下移",
+                                        enabled = index < playlist.entries.lastIndex && !playlist.mutationPending,
+                                    ) {
+                                        watchClient.roomPlaylist.move(entry.id, index + 1)
+                                    }
+                                    PlaylistAction("删除", enabled = !playlist.mutationPending, destructive = true) {
+                                        watchClient.roomPlaylist.remove(entry.id)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (canEditPlaylist) {
+                    val currentKey = liveRoom.mediaKey
+                    OverlayButton(
+                        label = if (playlist.mutationPending) "播放列表更新中…" else "添加当前播放",
+                        onClick = {
+                            currentKey?.let {
+                                watchClient.roomPlaylist.add(
+                                    mediaKey = it,
+                                    title = currentMediaTitle.ifBlank { "当前播放" },
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        enabled = !playlist.mutationPending && currentKey != null,
+                    )
+                }
+                playlist.error?.let { message ->
+                    Text(
+                        message,
+                        style = AppTypography.caption.medium,
+                        color = DarkPalette.error,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+
             error?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(it, style = AppTypography.caption.medium, color = DarkPalette.error)
@@ -305,6 +406,31 @@ internal fun WatchTogetherDialog(
             destructive = true,
         )
     }
+}
+
+@Composable
+private fun PlaylistAction(
+    label: String,
+    enabled: Boolean,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Text(
+        label,
+        style = AppTypography.caption.medium,
+        color =
+            when {
+                !enabled -> palette.hint
+                destructive -> DarkPalette.error
+                else -> palette.sub2
+            },
+        modifier =
+            Modifier
+                .pressable { if (enabled) onClick() }
+                .touchTarget(),
+        maxLines = 1,
+    )
 }
 
 /**
