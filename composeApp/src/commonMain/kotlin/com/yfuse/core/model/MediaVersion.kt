@@ -68,12 +68,13 @@ data class MediaVersion(
 
     /** `4K HDR10 · 42.3 GB · 68 Mbps · MKV` — the one-line summary for a collapsed row. */
     val summary: String
-        get() = listOfNotNull(
-            qualityLabel,
-            sizeLabel,
-            bitrateLabel,
-            container?.uppercase(),
-        ).joinToString(" · ")
+        get() =
+            listOfNotNull(
+                qualityLabel,
+                sizeLabel,
+                bitrateLabel,
+                container?.uppercase(),
+            ).joinToString(" · ")
 
     /**
      * Whether this copy is Dolby Vision, asked of everything that could say so.
@@ -93,15 +94,17 @@ data class MediaVersion(
      * the one check that exists to catch it.
      */
     val isDolbyVision: Boolean
-        get() = video?.dolbyProfile != null ||
-            listOf(videoRange, videoCodec, video?.profile, video?.displayTitle)
-                .any(String?::mentionsDolbyVision)
+        get() =
+            video?.dolbyProfile != null ||
+                listOf(videoRange, videoCodec, video?.profile, video?.displayTitle)
+                    .any(String?::mentionsDolbyVision)
 
     /** Atmos rides on TrueHD or E-AC-3 and is only named in the track's profile or title. */
     val hasDolbyAtmos: Boolean
-        get() = audioTracks.any { track ->
-            track.profile.mentionsAtmos() || track.displayTitle.mentionsAtmos()
-        }
+        get() =
+            audioTracks.any { track ->
+                track.profile.mentionsAtmos() || track.displayTitle.mentionsAtmos()
+            }
 
     /**
      * Which Dolby Vision profile this copy is, when it is one at all.
@@ -130,12 +133,13 @@ data class MediaVersion(
 
     /** `SDR` when the server reported no range at all — the chip always says something. */
     val rangeLabel: String
-        get() = when {
-            // The profile is worth the four characters: it is what decides whether this
-            // file plays on this device at all.
-            isDolbyVision -> dolbyProfile?.let { "Dolby Vision P$it" } ?: "Dolby Vision"
-            else -> videoRange?.takeIf { it.isNotBlank() } ?: "SDR"
-        }
+        get() =
+            when {
+                // The profile is worth the four characters: it is what decides whether this
+                // file plays on this device at all.
+                isDolbyVision -> dolbyProfile?.let { "Dolby Vision P$it" } ?: "Dolby Vision"
+                else -> videoRange?.takeIf { it.isNotBlank() } ?: "SDR"
+            }
 
     /**
      * A disc image/folder is not one linear media container. It needs DVD/Blu-ray title
@@ -158,10 +162,11 @@ data class MediaVersion(
 
     /** `60fps` — whole frames, for a chip that sits beside a bitrate. */
     val frameRateLabel: String?
-        get() = video?.frameRate?.takeIf { it > 0 }?.let { rate ->
-            val rounded = (rate + 0.5).toInt()
-            "${rounded}fps"
-        }
+        get() =
+            video?.frameRate?.takeIf { it > 0 }?.let { rate ->
+                val rounded = (rate + 0.5).toInt()
+                "${rounded}fps"
+            }
 }
 
 private val DISC_VIDEO_TYPES = setOf("iso", "dvd", "bluray", "blu-ray")
@@ -177,8 +182,7 @@ private fun String?.mentionsDolbyVision(): Boolean {
         value.startsWith("dav1")
 }
 
-private fun String?.mentionsAtmos(): Boolean =
-    this?.contains("atmos", ignoreCase = true) == true
+private fun String?.mentionsAtmos(): Boolean = this?.contains("atmos", ignoreCase = true) == true
 
 /**
  * The picture stream, spelled out.
@@ -213,10 +217,11 @@ data class VideoStreamInfo(
 
     /** `25.00fps` — two decimals, because 23.976 and 24 are a meaningful difference. */
     val frameRateLabel: String?
-        get() = frameRate?.takeIf { it > 0 }?.let { rate ->
-            val hundredths = (rate * 100).toLong()
-            "${hundredths / 100}.${(hundredths % 100).toString().padStart(2, '0')}fps"
-        }
+        get() =
+            frameRate?.takeIf { it > 0 }?.let { rate ->
+                val hundredths = (rate * 100).toLong()
+                "${hundredths / 100}.${(hundredths % 100).toString().padStart(2, '0')}fps"
+            }
 }
 
 /** One audio stream of a [MediaVersion]. */
@@ -237,9 +242,10 @@ data class AudioTrackInfo(
 ) {
     /** `国语 · DTS-HD MA · 7.1` */
     val label: String
-        get() = listOfNotNull(language, codec?.uppercase(), channels)
-            .joinToString(" · ")
-            .ifBlank { "未知音轨" }
+        get() =
+            listOfNotNull(language, codec?.uppercase(), channels)
+                .joinToString(" · ")
+                .ifBlank { "未知音轨" }
 
     /** `192 Kbps` — audio is quoted in kilobits everywhere it is quoted at all. */
     val bitrateLabel: String?
@@ -252,9 +258,10 @@ data class AudioTrackInfo(
     val isLossless: Boolean
         get() {
             val normalizedCodec = codec?.trim()?.lowercase().orEmpty()
-            val descriptor = listOfNotNull(codec, profile, displayTitle)
-                .joinToString(" ")
-                .lowercase()
+            val descriptor =
+                listOfNotNull(codec, profile, displayTitle)
+                    .joinToString(" ")
+                    .lowercase()
             return normalizedCodec in setOf("truehd", "flac", "alac", "wavpack", "mlp", "pcm") ||
                 normalizedCodec.startsWith("pcm_") ||
                 listOf(
@@ -279,9 +286,10 @@ data class SubtitleTrackInfo(
     val default: Boolean = false,
 ) {
     val label: String
-        get() = listOfNotNull(language, codec?.uppercase(), "强制".takeIf { forced })
-            .joinToString(" · ")
-            .ifBlank { "未知字幕" }
+        get() =
+            listOfNotNull(language, codec?.uppercase(), "强制".takeIf { forced })
+                .joinToString(" · ")
+                .ifBlank { "未知字幕" }
 
     val requiresStyledRenderer: Boolean
         get() = codec?.lowercase() in setOf("ass", "ssa", "pgs", "pgssub", "dvdsub", "dvbsub")
@@ -303,21 +311,38 @@ private fun formatBytes(bytes: Long): String {
  * often than a name, and "chi" over a track picker helps nobody. Anything unmapped is shown
  * as-is rather than dropped — an unfamiliar code is still more informative than nothing.
  */
-private val LANGUAGE_NAMES = mapOf(
-    "chi" to "中文", "zho" to "中文", "zh" to "中文",
-    "cmn" to "普通话", "yue" to "粤语",
-    "eng" to "英语", "en" to "英语",
-    "jpn" to "日语", "ja" to "日语",
-    "kor" to "韩语", "ko" to "韩语",
-    "fra" to "法语", "fre" to "法语", "fr" to "法语",
-    "deu" to "德语", "ger" to "德语", "de" to "德语",
-    "spa" to "西班牙语", "es" to "西班牙语",
-    "rus" to "俄语", "ru" to "俄语",
-    "ita" to "意大利语", "it" to "意大利语",
-    "por" to "葡萄牙语", "pt" to "葡萄牙语",
-    "tha" to "泰语", "vie" to "越南语", "ara" to "阿拉伯语",
-    "und" to "未标注",
-)
+private val LANGUAGE_NAMES =
+    mapOf(
+        "chi" to "中文",
+        "zho" to "中文",
+        "zh" to "中文",
+        "cmn" to "普通话",
+        "yue" to "粤语",
+        "eng" to "英语",
+        "en" to "英语",
+        "jpn" to "日语",
+        "ja" to "日语",
+        "kor" to "韩语",
+        "ko" to "韩语",
+        "fra" to "法语",
+        "fre" to "法语",
+        "fr" to "法语",
+        "deu" to "德语",
+        "ger" to "德语",
+        "de" to "德语",
+        "spa" to "西班牙语",
+        "es" to "西班牙语",
+        "rus" to "俄语",
+        "ru" to "俄语",
+        "ita" to "意大利语",
+        "it" to "意大利语",
+        "por" to "葡萄牙语",
+        "pt" to "葡萄牙语",
+        "tha" to "泰语",
+        "vie" to "越南语",
+        "ara" to "阿拉伯语",
+        "und" to "未标注",
+    )
 
 fun languageDisplayName(code: String?): String? {
     val trimmed = code?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null

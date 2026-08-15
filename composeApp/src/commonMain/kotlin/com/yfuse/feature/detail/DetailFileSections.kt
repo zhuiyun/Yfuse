@@ -543,7 +543,7 @@ private fun VersionCard(
                         Color.White.copy(alpha = 0.06f)
                     } else {
                         Color.White.copy(alpha = 0.82f)
-                },
+                    },
                 border = null,
             ).then(
                 if (selected) {
@@ -698,7 +698,7 @@ private fun SourceCard(
                         Color.White.copy(alpha = 0.06f)
                     } else {
                         Color.White.copy(alpha = 0.82f)
-                },
+                    },
                 border = null,
             ).then(
                 if (selected) {

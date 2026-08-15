@@ -47,7 +47,12 @@ internal class ExoAlwaysFrameRateSurfaceBinder(
                 val view =
                     when {
                         boundView != null -> boundView
-                        else -> activity?.window?.decorView?.findExoPlayerView()?.also(::bind)
+                        else ->
+                            activity
+                                ?.window
+                                ?.decorView
+                                ?.findExoPlayerView()
+                                ?.also(::bind)
                     }
                 val player = view?.player as? ExoPlayer
                 val expected = targetPlayer

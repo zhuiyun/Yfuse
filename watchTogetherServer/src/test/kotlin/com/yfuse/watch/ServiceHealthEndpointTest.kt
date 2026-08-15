@@ -15,25 +15,26 @@ import kotlin.test.assertEquals
 
 class ServiceHealthEndpointTest {
     @Test
-    fun health_endpoint_returns_ok_only_after_dependency_readiness_checks() = testApplication {
-        val accountBackend = AccountBackend.inMemory()
-        val migrationBackend = MigrationRelayBackend.inMemory()
-        val migrationExecutor =
-            AccountWorkExecutor(
-                AccountExecutionPolicy(workerThreads = 1, maxConcurrentOperations = 1),
-            )
-        application {
-            watchTogetherModule(
-                accountBackend = accountBackend,
-                migrationRelayBackend = migrationBackend,
-                migrationRelayWorkExecutor = migrationExecutor,
-            )
+    fun health_endpoint_returns_ok_only_after_dependency_readiness_checks() =
+        testApplication {
+            val accountBackend = AccountBackend.inMemory()
+            val migrationBackend = MigrationRelayBackend.inMemory()
+            val migrationExecutor =
+                AccountWorkExecutor(
+                    AccountExecutionPolicy(workerThreads = 1, maxConcurrentOperations = 1),
+                )
+            application {
+                watchTogetherModule(
+                    accountBackend = accountBackend,
+                    migrationRelayBackend = migrationBackend,
+                    migrationRelayWorkExecutor = migrationExecutor,
+                )
+            }
+
+            val response = client.get("/health")
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals(ContentType.Text.Plain, response.contentType()?.withoutParameters())
+            assertEquals("ok", response.bodyAsText())
         }
-
-        val response = client.get("/health")
-
-        assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals(ContentType.Text.Plain, response.contentType()?.withoutParameters())
-        assertEquals("ok", response.bodyAsText())
-    }
 }

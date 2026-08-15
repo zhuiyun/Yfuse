@@ -59,7 +59,7 @@ private val ScrimColor = Color(0xFF0A0E16)
 private val OverlayShape = GlassShapes.card
 private val OverlayMaxWidth = 560.dp
 private val OverlayMotionOffset = 32.dp
-internal const val OverlayExitDurationMs = 200
+internal const val OVERLAY_EXIT_DURATION_MS = 200
 
 @Stable
 class OverlayVisibility {
@@ -136,8 +136,7 @@ fun GlassDialog(
                             val entered = progress()
                             alpha = entered
                             translationY = modalOffset * (1f - entered)
-                        }
-                        .shadow(Shadows.sheet, OverlayShape)
+                        }.shadow(Shadows.sheet, OverlayShape)
                         .liquidGlass(
                             shape = OverlayShape,
                             fill =
@@ -148,8 +147,7 @@ fun GlassDialog(
                                 },
                             border = palette.border,
                             over = ScrimColor,
-                        )
-                        .pointerInput(Unit) { detectTapGestures { } }
+                        ).pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
                         .padding(18.dp)
                         .then(
@@ -200,7 +198,7 @@ internal fun overlayDurationMillis(
 ): Int =
     when {
         reduceMotion -> 0
-        leaving -> OverlayExitDurationMs
+        leaving -> OVERLAY_EXIT_DURATION_MS
         else -> Motion.MODAL
     }
 
@@ -251,8 +249,7 @@ fun OverlayHeader(
                             } else {
                                 Modifier.flatGlass(CircleShape, palette.card2, palette.border)
                             },
-                        )
-                        .padding(8.dp),
+                        ).padding(8.dp),
             )
         }
     }
@@ -413,8 +410,7 @@ fun OverlayOptionRow(
                 role = Role.RadioButton,
                 focusShape = GlassShapes.chip,
                 onClick = onClick,
-            )
-            .semantics { this.selected = selected }
+            ).semantics { this.selected = selected }
             .heightIn(min = MinTouchTarget)
             .then(
                 if (LocalOverlayLiquidButtons.current) {
@@ -428,15 +424,13 @@ fun OverlayOptionRow(
                 } else {
                     Modifier.flatGlass(GlassShapes.chip, fill, materialBorder)
                 },
-            )
-            .then(
+            ).then(
                 if (selected) {
                     Modifier.border(2.dp, accent.border, GlassShapes.chip)
                 } else {
                     Modifier
                 },
-            )
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            ).padding(horizontal = 14.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

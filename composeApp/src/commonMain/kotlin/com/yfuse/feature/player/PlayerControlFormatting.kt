@@ -16,8 +16,7 @@ internal fun skipBoundaryLabel(
 ): String = if (seconds > 0L) "$name · $seconds 秒" else "$name · 未设置"
 
 /** "片尾开始 · 距结束 120 秒" / "片尾开始 · 未设置". */
-internal fun skipCreditsLabel(seconds: Long): String =
-    if (seconds > 0L) "片尾开始 · 距结束 $seconds 秒" else "片尾开始 · 未设置"
+internal fun skipCreditsLabel(seconds: Long): String = if (seconds > 0L) "片尾开始 · 距结束 $seconds 秒" else "片尾开始 · 未设置"
 
 internal fun Long.asBitrate(): String {
     if (this <= 0L) return "等待数据"

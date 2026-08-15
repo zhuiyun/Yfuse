@@ -184,10 +184,11 @@ class WatchRoomPlaylistController internal constructor(
         _state.update { it.copy(mutationPending = false, error = message) }
     }
 
-    private fun newEntryId(): String = buildString(18) {
-        append("p-")
-        repeat(16) { append(ENTRY_ID_ALPHABET[Random.nextInt(ENTRY_ID_ALPHABET.length)]) }
-    }
+    private fun newEntryId(): String =
+        buildString(18) {
+            append("p-")
+            repeat(16) { append(ENTRY_ID_ALPHABET[Random.nextInt(ENTRY_ID_ALPHABET.length)]) }
+        }
 }
 
 private fun WatchWirePlaylistEntry.toDomain(): WatchRoomPlaylistEntry =

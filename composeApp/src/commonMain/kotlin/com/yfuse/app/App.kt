@@ -214,7 +214,8 @@ fun App(root: RootComponent) {
         val inviteResolver = root.dependencies.inviteResolver
         val watchState by watchTogether.state.collectAsState()
         val pendingInvite by root.pendingInvite.collectAsState()
-        val accountState by root.dependencies.account.state.collectAsState()
+        val accountState by root.dependencies.account.state
+            .collectAsState()
         val watchAvailable = accountState.canUseWatchTogether()
 
         var inviteResolution by remember {
@@ -1133,5 +1134,4 @@ private fun LiquidGlassTabIcon(
             modifier = Modifier.size(iconSize),
         )
     }
-
 }

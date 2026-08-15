@@ -15,8 +15,8 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.text.TextOutput
 import com.yfuse.core.data.PlaybackPreferences
-import java.util.ArrayList
 import org.koin.core.context.GlobalContext
+import java.util.ArrayList
 
 /**
  * Media3 owns seamless frame-rate hints because it knows the decoded output rate. The explicit

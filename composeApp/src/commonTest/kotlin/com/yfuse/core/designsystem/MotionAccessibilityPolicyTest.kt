@@ -8,7 +8,7 @@ class MotionAccessibilityPolicyTest {
     @Test
     fun overlays_leave_faster_and_reduce_motion_is_instant() {
         assertEquals(Motion.MODAL, overlayDurationMillis(leaving = false, reduceMotion = false))
-        assertEquals(OverlayExitDurationMs, overlayDurationMillis(leaving = true, reduceMotion = false))
+        assertEquals(OVERLAY_EXIT_DURATION_MS, overlayDurationMillis(leaving = true, reduceMotion = false))
         assertEquals(0, overlayDurationMillis(leaving = false, reduceMotion = true))
         assertEquals(0, overlayDurationMillis(leaving = true, reduceMotion = true))
     }

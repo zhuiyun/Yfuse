@@ -1,23 +1,10 @@
 package com.yfuse.core.data
 
-import com.yfuse.core.data.dto.BaseItemDto
-import com.yfuse.core.data.dto.ItemsResponseDto
-import com.yfuse.core.data.dto.MediaSourceDto
 import com.yfuse.core.data.dto.PlaybackInfoResponseDto
-import com.yfuse.core.data.dto.PlaylistCreatedDto
 import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.data.dto.RemoteSubtitleInfoDto
-import com.yfuse.core.data.dto.bestTrickplay
-import com.yfuse.core.data.dto.toEpisode
-import com.yfuse.core.data.dto.toMediaDetail
-import com.yfuse.core.data.dto.toMediaItem
-import com.yfuse.core.data.dto.toPerson
-import com.yfuse.core.data.dto.toSeason
-import com.yfuse.core.data.dto.toSourceInfo
-import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.HomeContent
-import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.LibraryCounts
 import com.yfuse.core.model.LibraryPage
 import com.yfuse.core.model.LibrarySort
@@ -32,32 +19,12 @@ import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
-import com.yfuse.core.model.SourceInfo
 import com.yfuse.core.model.TrickplayInfo
-import com.yfuse.core.model.compareSourceInfoBestFirst
-import com.yfuse.core.network.EmbyErrorException
-import com.yfuse.core.network.normalizeBaseUrl
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.sync.SyncedUserItem
-import com.yfuse.core.sync.parseEpisodeWatchKey
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.plugins.ResponseException
-import io.ktor.client.request.delete
 import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.parameter
-import io.ktor.client.request.post
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.encodeURLPathPart
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.io.IOException
-import kotlin.time.TimeSource
 
 /** Result of a successful authentication, ready to persist as a [SavedServer]. */
 data class AuthedServer(
@@ -81,7 +48,7 @@ data class AuthedServer(
     )
 }
 
-/**
+/*
  * Talks to Emby. Stateless with respect to sessions: every call targets an
  * explicit server. Failures carry an [EmbyErrorException].
  */
@@ -106,6 +73,7 @@ internal const val WATCH_LATER_COLLECTION_ID = "__yfuse_watch_later__"
 internal const val PERSONAL_COLLECTION_PREVIEW_LIMIT = 16
 internal const val MEDIA_CONTAINER_LIMIT = 500
 internal const val MEDIA_CONTAINER_PREVIEW_LIMIT = 16
+
 /**
  * How many titles one 「查看更多」 request asks for. Small enough that the first screenful
  * arrives quickly on a slow remote server, large enough that a fast one rarely pages.
@@ -115,12 +83,11 @@ const val LIBRARY_PAGE_SIZE = 60
 /** Genre facets are a filter row, not a catalogue; nobody scrolls past this many. */
 internal const val LIBRARY_GENRE_LIMIT = 60
 
-/** 演员 is one chip row above the titles, not a directory. */
+// 演员 is one chip row above the titles, not a directory.
 private const val PERSON_SEARCH_LIMIT = 8
 
-/** One person's filmography, as much of it as this server holds. */
+// One person's filmography, as much of it as this server holds.
 private const val PERSON_ITEMS_LIMIT = 60
-
 
 /** One page of [EmbyRepository.userLibrarySnapshot]; small enough to arrive inside a timeout. */
 internal const val SNAPSHOT_PAGE_SIZE = 2_000
@@ -270,8 +237,7 @@ class EmbyRepository(
         kind: MediaContainerKind,
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
-    ): Result<MediaContainerPage> =
-        browseService.mediaContainersPage(server, kind, startIndex, limit)
+    ): Result<MediaContainerPage> = browseService.mediaContainersPage(server, kind, startIndex, limit)
 
     suspend fun setFavorite(
         server: SavedServer,
@@ -290,8 +256,7 @@ class EmbyRepository(
         containerId: String,
         kind: MediaContainerKind,
         itemId: String,
-    ): Result<Unit> =
-        browseService.addItemToMediaContainer(server, containerId, kind, itemId)
+    ): Result<Unit> = browseService.addItemToMediaContainer(server, containerId, kind, itemId)
 
     suspend fun removeItemFromMediaContainer(
         server: SavedServer,
@@ -397,8 +362,7 @@ class EmbyRepository(
             libraryService.counts(server)
         }
 
-    suspend fun homeContent(server: SavedServer): Result<HomeContent> =
-        homeService.homeContent(server)
+    suspend fun homeContent(server: SavedServer): Result<HomeContent> = homeService.homeContent(server)
 
     suspend fun mediaContainerItems(
         server: SavedServer,
@@ -424,8 +388,7 @@ class EmbyRepository(
         genre: String? = null,
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
-    ): Result<LibraryPage> =
-        browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit)
+    ): Result<LibraryPage> = browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit)
 
     suspend fun libraryGenres(
         server: SavedServer,
@@ -479,8 +442,7 @@ class EmbyRepository(
         startIndex: Int = 0,
         limit: Int = 24,
         filter: MediaSearchFilter = MediaSearchFilter(),
-    ): Result<MediaSearchPage> =
-        searchService.searchPage(server, query, startIndex, limit, filter)
+    ): Result<MediaSearchPage> = searchService.searchPage(server, query, startIndex, limit, filter)
 
     /**
      * People whose name matches the query, for the search tab's 演员 row.
@@ -570,8 +532,7 @@ class EmbyRepository(
         seriesId: String,
         seasonId: String?,
         includeMediaSources: Boolean = false,
-    ): Result<List<Episode>> =
-        detailService.episodes(server, seriesId, seasonId, includeMediaSources)
+    ): Result<List<Episode>> = detailService.episodes(server, seriesId, seasonId, includeMediaSources)
 
     suspend fun trickplayInfo(
         server: SavedServer,

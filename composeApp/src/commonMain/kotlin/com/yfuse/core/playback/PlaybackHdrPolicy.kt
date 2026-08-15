@@ -96,8 +96,9 @@ fun playbackHdrRoute(
         }
     }
 
-    val hdrFormat = source.hdrFormat
-        ?: return PlaybackHdrRoute(preferredEngine, preferredDecoderMode, false)
+    val hdrFormat =
+        source.hdrFormat
+            ?: return PlaybackHdrRoute(preferredEngine, preferredDecoderMode, false)
     if (hdrFormat == PlaybackHdrFormat.DolbyVision && capabilities.supportsDolbyVisionOutput) {
         return PlaybackHdrRoute(PlayerEngine.Exo, DecoderMode.Hardware, false)
     }

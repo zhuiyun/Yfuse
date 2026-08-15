@@ -100,8 +100,8 @@ import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.sync.ServerSyncManager
@@ -269,14 +269,15 @@ fun ProfileScreen(component: ProfileComponent) {
                 ProfilePage.Danmaku ->
                     DanmakuSettingsScreen(
                         onBack = ::closePage,
-                        sourceSummary = when (danmakuSources.size) {
-                            0 -> "未配置 ›"
-                            1 -> "${danmakuSources.first().name} ›"
-                            else -> {
-                                val active = danmakuSources.activeOr(danmakuActiveSourceId)
-                                "${danmakuSources.size} 个 · ${active?.name.orEmpty()} ›"
-                            }
-                        },
+                        sourceSummary =
+                            when (danmakuSources.size) {
+                                0 -> "未配置 ›"
+                                1 -> "${danmakuSources.first().name} ›"
+                                else -> {
+                                    val active = danmakuSources.activeOr(danmakuActiveSourceId)
+                                    "${danmakuSources.size} 个 · ${active?.name.orEmpty()} ›"
+                                }
+                            },
                         blockedSummary = if (danmakuBlocked.isEmpty()) "未设置 ›" else "${danmakuBlocked.size} 个 ›",
                         onSources = { sheet = Sheet.DanmakuSource },
                         onBlockedWords = { sheet = Sheet.DanmakuBlocked },
@@ -309,16 +310,18 @@ fun ProfileScreen(component: ProfileComponent) {
                         onBack = ::closePage,
                         mode = mode,
                         glassStyle = glassStyle,
-                        brandSummary = if (splashAnimation) {
-                            "${appIcon.label} · ${splashVariant.label} ›"
-                        } else {
-                            "${appIcon.label} · 开屏已关闭 ›"
-                        },
-                        backgroundSummary = if (backgroundImage == null) {
-                            "未设置 ›"
-                        } else {
-                            "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩 ›"
-                        },
+                        brandSummary =
+                            if (splashAnimation) {
+                                "${appIcon.label} · ${splashVariant.label} ›"
+                            } else {
+                                "${appIcon.label} · 开屏已关闭 ›"
+                            },
+                        backgroundSummary =
+                            if (backgroundImage == null) {
+                                "未设置 ›"
+                            } else {
+                                "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩 ›"
+                            },
                         startupSummary = "${startupTab.label} ›",
                         reduceTransparency = reduceTransparency,
                         largeText = largeText,
@@ -388,12 +391,13 @@ fun ProfileScreen(component: ProfileComponent) {
                                         icon = AppIcons.User,
                                         iconTint = SettingTint.account,
                                         title = "账号与同步",
-                                        value = when (val account = accountState) {
-                                            AccountState.Restoring -> "正在恢复 ›"
-                                            is AccountState.RestoreFailed -> "连接失败 · 点此重试 ›"
-                                            AccountState.SignedOut -> "未登录 ›"
-                                            is AccountState.SignedIn -> "${account.session.user.nickname} · 手动加密同步 ›"
-                                        },
+                                        value =
+                                            when (val account = accountState) {
+                                                AccountState.Restoring -> "正在恢复 ›"
+                                                is AccountState.RestoreFailed -> "连接失败 · 点此重试 ›"
+                                                AccountState.SignedOut -> "未登录 ›"
+                                                is AccountState.SignedIn -> "${account.session.user.nickname} · 手动加密同步 ›"
+                                            },
                                         embedded = true,
                                         onClick = { openPage(ProfilePage.Account) },
                                     )
@@ -408,12 +412,13 @@ fun ProfileScreen(component: ProfileComponent) {
                                         icon = AppIcons.Server,
                                         iconTint = SettingTint.servers,
                                         title = "服务器",
-                                        value = if (state.servers.isEmpty()) {
-                                            "尚未连接 ›"
-                                        } else {
-                                            val current = state.currentServer?.serverName
-                                            "${state.servers.size} 台 · ${current ?: "未选择"} ›"
-                                        },
+                                        value =
+                                            if (state.servers.isEmpty()) {
+                                                "尚未连接 ›"
+                                            } else {
+                                                val current = state.currentServer?.serverName
+                                                "${state.servers.size} 台 · ${current ?: "未选择"} ›"
+                                            },
                                         embedded = true,
                                         onClick = component.onOpenServers,
                                     )
@@ -493,12 +498,13 @@ fun ProfileScreen(component: ProfileComponent) {
                                         icon = AppIcons.Refresh,
                                         iconTint = SettingTint.sync,
                                         title = "播放恢复与同步",
-                                        value = when {
-                                            syncState.conflicts.isNotEmpty() -> "${syncState.conflicts.size} 个冲突 ›"
-                                            syncState.pendingCount > 0 -> "${syncState.pendingCount} 项待同步 ›"
-                                            recoverySnapshot != null -> "可继续播放 ›"
-                                            else -> "状态正常 ›"
-                                        },
+                                        value =
+                                            when {
+                                                syncState.conflicts.isNotEmpty() -> "${syncState.conflicts.size} 个冲突 ›"
+                                                syncState.pendingCount > 0 -> "${syncState.pendingCount} 项待同步 ›"
+                                                recoverySnapshot != null -> "可继续播放 ›"
+                                                else -> "状态正常 ›"
+                                            },
                                         embedded = true,
                                         onClick = { openPage(ProfilePage.Recovery) },
                                     )
@@ -524,17 +530,18 @@ fun ProfileScreen(component: ProfileComponent) {
         offlineToPlay?.takeIf { it.playable }?.let { offline ->
             val path = offline.localPath ?: return@let
             PlayerLauncher(
-                items = listOf(
-                    PlayerMediaItem(
-                        id = offline.itemId,
-                        url = "file://$path",
-                        transcodeUrl = "file://$path",
-                        title = offline.title,
-                        serverId = offline.serverId,
-                        externalSubtitleUri = offline.subtitlePath?.let { "file://$it" },
-                        externalSubtitleLanguage = offline.subtitleLanguage,
+                items =
+                    listOf(
+                        PlayerMediaItem(
+                            id = offline.itemId,
+                            url = "file://$path",
+                            transcodeUrl = "file://$path",
+                            title = offline.title,
+                            serverId = offline.serverId,
+                            externalSubtitleUri = offline.subtitlePath?.let { "file://$it" },
+                            externalSubtitleLanguage = offline.subtitleLanguage,
+                        ),
                     ),
-                ),
                 startIndex = 0,
                 startPositionMs = 0L,
                 onLaunched = { offlineToPlay = null },
@@ -801,7 +808,11 @@ internal fun SettingsPage(
 }
 
 @Composable
-private fun SettingsPageHeader(title: String, subtitle: String?, onBack: () -> Unit) {
+private fun SettingsPageHeader(
+    title: String,
+    subtitle: String?,
+    onBack: () -> Unit,
+) {
     val palette = LocalPalette.current
     Row(
         Modifier.fillMaxWidth().padding(start = SettingsBackInset, end = Dimens.pageHorizontal),
@@ -816,7 +827,10 @@ private fun SettingsPageHeader(title: String, subtitle: String?, onBack: () -> U
 }
 
 @Composable
-internal fun SettingsBackButton(onBack: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SettingsBackButton(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val palette = LocalPalette.current
     Box(
         modifier
@@ -873,17 +887,17 @@ internal fun Section(
                     action,
                     style = AppTypography.caption.strong,
                     color = accent.accent,
-                    modifier = Modifier
-                        .pressable(onClick = onAction)
-                        .touchTarget()
-                        .liquidGlass(
-                            shape = GlassShapes.chip,
-                            fill = palette.card2,
-                            border = palette.border,
-                            over = palette.background,
-                            sheen = 0.58f,
-                        )
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    modifier =
+                        Modifier
+                            .pressable(onClick = onAction)
+                            .touchTarget()
+                            .liquidGlass(
+                                shape = GlassShapes.chip,
+                                fill = palette.card2,
+                                border = palette.border,
+                                over = palette.background,
+                                sheen = 0.58f,
+                            ).padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
         }
@@ -892,7 +906,10 @@ internal fun Section(
 }
 
 @Composable
-private fun SettingIconTile(icon: ImageVector, tint: Color) {
+private fun SettingIconTile(
+    icon: ImageVector,
+    tint: Color,
+) {
     Box(
         Modifier
             .size(28.dp)
@@ -915,12 +932,13 @@ internal fun SettingRow(
 ) {
     val palette = LocalPalette.current
     val largeText = LocalDensity.current.fontScale >= 1.3f
-    val rowModifier = Modifier
-        .fillMaxWidth()
-        .let { if (embedded) it else it.glass(AppShapes.control, palette.card2, palette.border) }
-        .let { if (onClick != null) it.pressable(onClick = onClick) else it }
-        .heightIn(min = MinTouchTarget)
-        .padding(horizontal = 16.dp, vertical = 13.dp)
+    val rowModifier =
+        Modifier
+            .fillMaxWidth()
+            .let { if (embedded) it else it.glass(AppShapes.control, palette.card2, palette.border) }
+            .let { if (onClick != null) it.pressable(onClick = onClick) else it }
+            .heightIn(min = MinTouchTarget)
+            .padding(horizontal = 16.dp, vertical = 13.dp)
     BoxWithConstraints(rowModifier) {
         val stacked = largeText || windowWidthTier(maxWidth) == WindowWidthTier.Compact
         Row(
@@ -935,15 +953,31 @@ internal fun SettingRow(
                     Text(value, style = AppTypography.body.regular, color = palette.sub2, maxLines = 2)
                 }
             } else {
-                Text(title, style = AppTypography.body.medium, color = palette.text, maxLines = 2, modifier = Modifier.weight(1f))
-                Text(value, style = AppTypography.body.regular, color = palette.sub2, maxLines = 2, textAlign = TextAlign.End)
+                Text(
+                    title,
+                    style = AppTypography.body.medium,
+                    color = palette.text,
+                    maxLines = 2,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    value,
+                    style = AppTypography.body.regular,
+                    color = palette.sub2,
+                    maxLines = 2,
+                    textAlign = TextAlign.End,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun DownloadRow(value: String, embedded: Boolean = false, onClick: () -> Unit) {
+private fun DownloadRow(
+    value: String,
+    embedded: Boolean = false,
+    onClick: () -> Unit,
+) {
     SettingRow(
         title = "下载与离线库",
         value = value,
@@ -1013,11 +1047,18 @@ private fun BrandAndSplashScreen(
                         .semantics { this.selected = active }
                         .clip(AppShapes.card)
                         .background(palette.card2)
-                        .border(if (active) 2.dp else 1.dp, if (active) accent.border else palette.border, AppShapes.card)
-                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                        .border(
+                            if (active) 2.dp else 1.dp,
+                            if (active) accent.border else palette.border,
+                            AppShapes.card,
+                        ).padding(horizontal = 14.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    SplashPreview(variant = variant, playing = true, modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(1f))
+                    SplashPreview(
+                        variant = variant,
+                        playing = true,
+                        modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(1f),
+                    )
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -1025,12 +1066,29 @@ private fun BrandAndSplashScreen(
                             style = if (active) AppTypography.body.strong else AppTypography.body.medium,
                             color = if (active) accent.accent else palette.text,
                         )
-                        if (active) Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.padding(start = 6.dp).size(15.dp))
+                        if (active) {
+                            Icon(
+                                AppIcons.Check,
+                                null,
+                                tint = accent.accent,
+                                modifier = Modifier.padding(start = 6.dp).size(15.dp),
+                            )
+                        }
                     }
                     Spacer(Modifier.height(4.dp))
-                    Text(variant.description, style = AppTypography.body.regular, color = palette.sub2, textAlign = TextAlign.Center)
+                    Text(
+                        variant.description,
+                        style = AppTypography.body.regular,
+                        color = palette.sub2,
+                        textAlign = TextAlign.Center,
+                    )
                     Spacer(Modifier.height(4.dp))
-                    Text("配${variant.mark.label}", style = AppTypography.caption.regular, color = palette.hint, textAlign = TextAlign.Center)
+                    Text(
+                        "配${variant.mark.label}",
+                        style = AppTypography.caption.regular,
+                        color = palette.hint,
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
         }
@@ -1038,7 +1096,11 @@ private fun BrandAndSplashScreen(
 }
 
 @Composable
-private fun AppIconRow(variant: AppIconVariant, selected: Boolean, onClick: () -> Unit) {
+private fun AppIconRow(
+    variant: AppIconVariant,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     Row(
@@ -1049,8 +1111,7 @@ private fun AppIconRow(variant: AppIconVariant, selected: Boolean, onClick: () -
                 role = Role.RadioButton,
                 onClickLabel = variant.label,
                 onClick = onClick,
-            )
-            .semantics { this.selected = selected }
+            ).semantics { this.selected = selected }
             .heightIn(min = MinTouchTarget)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1065,7 +1126,13 @@ private fun AppIconRow(variant: AppIconVariant, selected: Boolean, onClick: () -
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(variant.description, style = AppTypography.caption.regular, color = palette.sub2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                variant.description,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         if (selected) {
             Box(Modifier.size(22.dp).clip(CircleShape).background(accent.accent), contentAlignment = Alignment.Center) {
@@ -1096,14 +1163,19 @@ internal fun SwitchRow(
                 indication = null,
                 role = Role.Switch,
                 onValueChange = onChange,
-            )
-            .heightIn(min = MinTouchTarget)
+            ).heightIn(min = MinTouchTarget)
             .padding(horizontal = 16.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) SettingIconTile(icon, iconTint)
-        Text(title, style = AppTypography.body.medium, color = palette.text, maxLines = 2, modifier = Modifier.weight(1f))
+        Text(
+            title,
+            style = AppTypography.body.medium,
+            color = palette.text,
+            maxLines = 2,
+            modifier = Modifier.weight(1f),
+        )
         PillSwitch(checked)
     }
 }
@@ -1117,12 +1189,13 @@ private fun BackgroundImageSheet(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val pick = rememberBackgroundImagePicker { uri ->
-        if (uri != null) {
-            current?.takeIf { it != uri }?.let(::releaseBackgroundImage)
-            onPick(uri)
+    val pick =
+        rememberBackgroundImagePicker { uri ->
+            if (uri != null) {
+                current?.takeIf { it != uri }?.let(::releaseBackgroundImage)
+                onPick(uri)
+            }
         }
-    }
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(title = "背景图", subtitle = "整个应用的背景；正文仍然画在主题自己的底色上", onClose = onDismiss)
         Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
@@ -1147,9 +1220,19 @@ private fun BackgroundImageSheet(
         }
         if (current != null) {
             Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text("遮罩", style = AppTypography.caption.strong, color = palette.sub2)
-                Text("${(dim * 100).toInt()}%", style = AppTypography.caption.medium, color = palette.text, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                Text(
+                    "${(dim * 100).toInt()}%",
+                    style = AppTypography.caption.medium,
+                    color = palette.text,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.End,
+                )
             }
             Spacer(Modifier.height(6.dp))
             Slider(value = dim, onValueChange = onDim, valueRange = 0.3f..1f)
@@ -1175,9 +1258,19 @@ internal fun SettingSegmentRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) SettingIconTile(icon, iconTint)
-        Text(title, style = AppTypography.body.medium, color = palette.text, maxLines = 2, modifier = Modifier.weight(1f))
+        Text(
+            title,
+            style = AppTypography.body.medium,
+            color = palette.text,
+            maxLines = 2,
+            modifier = Modifier.weight(1f),
+        )
         Row(
-            Modifier.selectableGroup().clip(GlassShapes.chip).background(palette.card3).padding(2.dp),
+            Modifier
+                .selectableGroup()
+                .clip(GlassShapes.chip)
+                .background(palette.card3)
+                .padding(2.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             options.forEachIndexed { index, label ->
@@ -1192,16 +1285,14 @@ internal fun SettingSegmentRow(
                             focusShape = GlassShapes.chip,
                             onClickLabel = label,
                             onClick = { onSelect(index) },
-                        )
-                        .semantics { selected = isSelected }
+                        ).semantics { selected = isSelected }
                         .liquidGlass(
                             shape = GlassShapes.chip,
                             fill = if (isSelected) palette.card2 else Color.Transparent,
                             border = if (isSelected) accent.border else Color.Transparent,
                             over = palette.background,
                             sheen = if (isSelected) 0.66f else 0.28f,
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        ).padding(horizontal = 12.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -1244,8 +1335,7 @@ private fun DescribedSwitchRow(
                 indication = null,
                 role = Role.Switch,
                 onValueChange = onChange,
-            )
-            .heightIn(min = MinTouchTarget)
+            ).heightIn(min = MinTouchTarget)
             .glass(AppShapes.control, palette.card2, palette.border)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1276,7 +1366,12 @@ private fun ProfileUtilityScreen(
         return
     }
     if (page == ProfilePage.Recovery) {
-        RecoveryCenterScreen(onBack = onBack, syncManager = syncManager, playbackRecovery = playbackRecovery, onResumePlayback = onResumePlayback)
+        RecoveryCenterScreen(
+            onBack = onBack,
+            syncManager = syncManager,
+            playbackRecovery = playbackRecovery,
+            onResumePlayback = onResumePlayback,
+        )
         return
     }
 }
@@ -1299,7 +1394,13 @@ private fun RecoveryCenterScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = bottomContentInset, start = Dimens.pageHorizontal, end = Dimens.pageHorizontal),
+        contentPadding =
+            PaddingValues(
+                top = SettingsHeaderTop,
+                bottom = bottomContentInset,
+                start = Dimens.pageHorizontal,
+                end = Dimens.pageHorizontal,
+            ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
@@ -1320,8 +1421,20 @@ private fun RecoveryCenterScreen(
                 if (current == null) {
                     Text("暂无可恢复的播放记录", style = AppTypography.caption.regular, color = palette.sub2)
                 } else {
-                    Text(current.title.ifBlank { "未命名视频" }, style = AppTypography.body.strong, color = palette.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${current.positionMs.asRecoveryClock()} / ${current.durationMs.asRecoveryClock()} · ${current.engine}", style = AppTypography.caption.regular, color = palette.sub2)
+                    Text(
+                        current.title.ifBlank {
+                            "未命名视频"
+                        },
+                        style = AppTypography.body.strong,
+                        color = palette.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "${current.positionMs.asRecoveryClock()} / ${current.durationMs.asRecoveryClock()} · ${current.engine}",
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         RecoveryAction("继续播放") { onResumePlayback(current) }
                         RecoveryAction("清除") { playbackRecovery.clear() }
@@ -1331,13 +1444,31 @@ private fun RecoveryCenterScreen(
         }
         item {
             RecoverySectionCard("服务器同步") {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("${sync.statuses.size} 台服务器 · ${sync.pendingCount} 项待同步", style = AppTypography.caption.medium, color = palette.sub2)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${sync.statuses.size} 台服务器 · ${sync.pendingCount} 项待同步",
+                        style = AppTypography.caption.medium,
+                        color = palette.sub2,
+                    )
                     RecoveryAction("立即同步") { scope.launch { syncManager.syncAll(force = true) } }
                 }
-                if (sync.statuses.isEmpty()) Text("正在读取服务器状态…", style = AppTypography.caption.regular, color = palette.hint)
+                if (sync.statuses.isEmpty()) {
+                    Text(
+                        "正在读取服务器状态…",
+                        style = AppTypography.caption.regular,
+                        color = palette.hint,
+                    )
+                }
                 sync.statuses.sortedBy { it.serverName }.forEach { status ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Column(Modifier.weight(1f)) {
                             Text(status.serverName, style = AppTypography.body.strong, color = palette.text)
                             Text(
@@ -1372,7 +1503,10 @@ private fun RecoveryCenterScreen(
                 RecoverySectionCard("待同步操作") {
                     sync.pendingOperations.forEach { operation ->
                         Text(
-                            "${operation.title} · ${when (operation.kind) { SyncMutationKind.Favorite -> "收藏"; SyncMutationKind.Played -> "已播放" }} → ${if (operation.desired) "开启" else "关闭"}",
+                            "${operation.title} · ${when (operation.kind) {
+                                SyncMutationKind.Favorite -> "收藏"
+                                SyncMutationKind.Played -> "已播放"
+                            }} → ${if (operation.desired) "开启" else "关闭"}",
                             style = AppTypography.caption.medium,
                             color = palette.text,
                             maxLines = 1,
@@ -1388,10 +1522,16 @@ private fun RecoveryCenterScreen(
                     sync.conflicts.forEach { conflict ->
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(conflict.mutation.title, style = AppTypography.body.strong, color = palette.text)
-                            Text("本地：${if (conflict.mutation.desired) "开启" else "关闭"} · 服务器：${if (conflict.serverValue) "开启" else "关闭"}", style = AppTypography.caption.regular, color = palette.sub2)
+                            Text(
+                                "本地：${if (conflict.mutation.desired) "开启" else "关闭"} · 服务器：${if (conflict.serverValue) "开启" else "关闭"}",
+                                style = AppTypography.caption.regular,
+                                color = palette.sub2,
+                            )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 RecoveryAction("保留本地") { scope.launch { syncManager.resolveConflict(conflict, true) } }
-                                RecoveryAction("采用服务器") { scope.launch { syncManager.resolveConflict(conflict, false) } }
+                                RecoveryAction(
+                                    "采用服务器",
+                                ) { scope.launch { syncManager.resolveConflict(conflict, false) } }
                             }
                         }
                     }
@@ -1402,7 +1542,10 @@ private fun RecoveryCenterScreen(
 }
 
 @Composable
-private fun RecoverySectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun RecoverySectionCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val palette = LocalPalette.current
     Column(
         Modifier.fillMaxWidth().glass(GlassShapes.card, palette.card, palette.border).padding(14.dp),
@@ -1414,24 +1557,27 @@ private fun RecoverySectionCard(title: String, content: @Composable ColumnScope.
 }
 
 @Composable
-private fun RecoveryAction(label: String, onClick: () -> Unit) {
+private fun RecoveryAction(
+    label: String,
+    onClick: () -> Unit,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     Text(
         label,
         style = AppTypography.caption.strong,
         color = accent.accent,
-        modifier = Modifier
-            .pressable(onClick = onClick)
-            .touchTarget()
-            .liquidGlass(
-                shape = GlassShapes.chip,
-                fill = palette.card2,
-                border = palette.border,
-                over = palette.background,
-                sheen = 0.58f,
-            )
-            .padding(horizontal = 11.dp, vertical = 7.dp),
+        modifier =
+            Modifier
+                .pressable(onClick = onClick)
+                .touchTarget()
+                .liquidGlass(
+                    shape = GlassShapes.chip,
+                    fill = palette.card2,
+                    border = palette.border,
+                    over = palette.background,
+                    sheen = 0.58f,
+                ).padding(horizontal = 11.dp, vertical = 7.dp),
     )
 }
 
@@ -1459,11 +1605,23 @@ private fun PillSwitch(checked: Boolean) {
         label = "switchTrack",
     )
     Box(
-        Modifier.width(46.dp).height(28.dp).clip(AppShapes.pill).background(track),
+        Modifier
+            .width(46.dp)
+            .height(28.dp)
+            .clip(AppShapes.pill)
+            .background(track),
         contentAlignment = Alignment.CenterStart,
     ) {
         Box(
-            Modifier.padding(horizontal = 3.dp).offset(x = SwitchTravel * progress).size(22.dp).shadow(GlassLift.control, CircleShape).clip(CircleShape).background(Color.White),
+            Modifier
+                .padding(
+                    horizontal = 3.dp,
+                ).offset(
+                    x = SwitchTravel * progress,
+                ).size(22.dp)
+                .shadow(GlassLift.control, CircleShape)
+                .clip(CircleShape)
+                .background(Color.White),
         )
     }
 }

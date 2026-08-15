@@ -812,13 +812,13 @@ class PlayerStoreFactory(
                 val serverFallbacks =
                     failoverPlan
                         ?.let { plan ->
-                        resolveServerFallbacks(
-                            serverIds = remainingFallbackServerIds,
-                            mediaKey = plan.mediaKey,
-                            startPositionTicks = startPositionTicks,
-                            titleFallback = detail?.title.orEmpty(),
-                        )
-                    }.orEmpty()
+                            resolveServerFallbacks(
+                                serverIds = remainingFallbackServerIds,
+                                mediaKey = plan.mediaKey,
+                                startPositionTicks = startPositionTicks,
+                                titleFallback = detail?.title.orEmpty(),
+                            )
+                        }.orEmpty()
                 if (serverFallbacks.isNotEmpty()) {
                     AppLog.info(
                         category = "feature.player",

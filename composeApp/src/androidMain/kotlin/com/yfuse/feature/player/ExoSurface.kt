@@ -1,6 +1,5 @@
 package com.yfuse.feature.player
 
-import android.graphics.Color as AndroidColor
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -9,6 +8,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import android.graphics.Color as AndroidColor
 
 @OptIn(UnstableApi::class)
 @Composable

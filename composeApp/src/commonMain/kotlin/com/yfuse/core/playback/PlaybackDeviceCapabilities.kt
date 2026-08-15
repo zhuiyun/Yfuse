@@ -111,7 +111,8 @@ data class PlaybackDeviceCapabilities(
             supportsHdrOutput(
                 format = PlaybackHdrFormat.DolbyVision,
                 codec = PlaybackVideoCodec.DolbyVision,
-            ) && dolbyVisionBaseCodecs.isNotEmpty()
+            ) &&
+                dolbyVisionBaseCodecs.isNotEmpty()
 
     val directPlayableAudio: Set<PlaybackAudioCodec>
         get() = audioDecoders + directAudioFormats
@@ -130,8 +131,9 @@ data class PlaybackDeviceCapabilities(
 
     /** Conservative common fallback; Android providers refine size/rate/bitrate with MediaCodec. */
     fun videoSupport(requirements: PlaybackVideoRequirements): PlaybackVideoSupport {
-        val codec = requirements.codec
-            ?: return PlaybackVideoSupport.unknown("片源没有提供视频编码")
+        val codec =
+            requirements.codec
+                ?: return PlaybackVideoSupport.unknown("片源没有提供视频编码")
         if (codec !in videoDecoders) {
             return PlaybackVideoSupport.unsupported("设备没有 ${codec.name} 解码器")
         }

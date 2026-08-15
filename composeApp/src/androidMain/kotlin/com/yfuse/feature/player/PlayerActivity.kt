@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import android.Manifest
-import android.app.Notification
 import android.app.NotificationManager
 import android.app.PictureInPictureParams
 import android.content.BroadcastReceiver
@@ -24,7 +23,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.background
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat

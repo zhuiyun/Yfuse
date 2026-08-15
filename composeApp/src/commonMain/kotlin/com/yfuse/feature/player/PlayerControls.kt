@@ -1,33 +1,16 @@
 package com.yfuse.feature.player
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -43,19 +26,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -64,16 +40,8 @@ import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
-import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
-import com.yfuse.core.designsystem.Motion
-import com.yfuse.core.designsystem.PlayerTokens
-import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberAccentColorsForSurface
-import com.yfuse.core.designsystem.shadow
-import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 
@@ -111,9 +79,9 @@ private const val HOLD_SEEK_STEP_MS = 3_000L
 private const val HOLD_SEEK_FAST_STEP_MS = 9_000L
 private const val HOLD_SEEK_RAMP_MS = 3_000L
 
-/** Settings use one consistent floating panel and one consistent chip family. */
-
 /**
+ * Settings use one consistent floating panel and one consistent chip family.
+ *
  * The player chrome, transcribed from the prototype's landscape player: a gradient
  * top bar, a centred transport cluster, a gradient bottom bar with the scrubber and
  * chip row, plus the lock screen, settings panel and episode drawer.
@@ -123,7 +91,7 @@ private const val HOLD_SEEK_RAMP_MS = 3_000L
 @Composable
 internal fun PlayerControls(
     state: PlaybackState,
-    /** The queue, as the strip and the title bar both read it. */
+    // The queue, as the strip and the title bar both read it.
     episodes: List<EpisodeCard>,
     filled: Boolean,
     onBack: () -> Unit,
@@ -146,27 +114,27 @@ internal fun PlayerControls(
     sleepTimerActions: SleepTimerActions = SleepTimerActions(),
     onToggleFill: () -> Unit,
     trickplay: TrickplayStoryboard? = null,
-    /**
+    /*
      * System volume, 0f..1f, and its setter — read by the right-edge drag gesture and by the
      * slider the volume rocker raises. There is no on-screen volume control any more.
      */
     volume: Float = 0f,
     onVolume: (Float) -> Unit = {},
-    /**
+    /*
      * Increments on each volume key press. Any change raises the vertical slider; the value
      * itself is meaningless, which is what lets a press at the volume ceiling still show it.
      */
     volumeKeyPresses: Long = 0L,
-    /** Current window brightness, 0f..1f. Vertical drags on the left half adjust it. */
+    // Current window brightness, 0f..1f. Vertical drags on the left half adjust it.
     brightness: Float = 0.5f,
     onBrightness: (Float) -> Unit = {},
-    /** Engine picker rows: label to selected. */
+    // Engine picker rows: label to selected.
     engineOptions: List<Pair<String, Boolean>> = emptyList(),
     onSelectEngine: (Int) -> Unit = {},
-    /** Persisted quality intent; the diagnostics separately reports the actual method. */
+    // Persisted quality intent; the diagnostics separately reports the actual method.
     qualityOptions: List<Pair<String, Boolean>> = emptyList(),
     onSelectQuality: (Int) -> Unit = {},
-    /** Null when the active engine has no transcode fallback. */
+    // Null when the active engine has no transcode fallback.
     transcodeLabel: String? = null,
     transcodeActive: Boolean = false,
     onTranscode: () -> Unit = {},
@@ -182,13 +150,13 @@ internal fun PlayerControls(
     onStopCast: () -> Unit = {},
     danmaku: DanmakuPanelState = DanmakuPanelState(),
     danmakuActions: DanmakuPanelActions = DanmakuPanelActions(),
-    /** The server this file is on. Null when there is only ever one server to be on. */
+    // The server this file is on. Null when there is only ever one server to be on.
     sourceLabel: String? = null,
-    /** `MKV` — the container, which the engine cannot report but the library knows. */
+    // `MKV` — the container, which the engine cannot report but the library knows.
     containerLabel: String? = null,
     dolbyVision: Boolean = false,
     dolbyAtmos: Boolean = false,
-    /** Files the server holds for this entry; a picker appears once there are two. */
+    // Files the server holds for this entry; a picker appears once there are two.
     versions: List<Pair<String, String>> = emptyList(),
     selectedVersionId: String? = null,
     onSelectVersion: (String) -> Unit = {},

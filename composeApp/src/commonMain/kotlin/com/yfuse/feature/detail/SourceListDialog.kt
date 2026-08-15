@@ -120,7 +120,7 @@ private fun SourceRow(
                         Color.White.copy(alpha = 0.06f)
                     } else {
                         Color.White.copy(alpha = 0.82f)
-                },
+                    },
                 border = null,
             ).then(
                 if (selected) {

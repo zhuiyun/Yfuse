@@ -23,9 +23,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 internal actual fun createPlaybackDeviceCapabilitiesProvider(): PlaybackDeviceCapabilitiesProvider {
-    val context = androidAppContext ?: return PlaybackDeviceCapabilitiesProvider {
-        PlaybackDeviceCapabilities.conservative()
-    }
+    val context =
+        androidAppContext ?: return PlaybackDeviceCapabilitiesProvider {
+            PlaybackDeviceCapabilities.conservative()
+        }
     return AndroidPlaybackDeviceCapabilitiesProvider(context.applicationContext)
 }
 
@@ -162,8 +163,9 @@ private class AndroidPlaybackDeviceCapabilitiesProbe(
     }
 
     fun videoSupport(requirements: PlaybackVideoRequirements): PlaybackVideoSupport {
-        val codec = requirements.codec
-            ?: return PlaybackVideoSupport.unknown("片源没有提供视频编码")
+        val codec =
+            requirements.codec
+                ?: return PlaybackVideoSupport.unknown("片源没有提供视频编码")
         val mimeTypes = VIDEO_MIME_TYPES.filterValues { it == codec }.keys
         if (mimeTypes.isEmpty()) {
             return PlaybackVideoSupport.unknown("${codec.name} 没有对应的 Android MIME")
@@ -241,7 +243,12 @@ private class AndroidPlaybackDeviceCapabilitiesProbe(
         if (Build.VERSION.SDK_INT < 24) return emptySet()
         val manager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         val display = manager.getDisplay(Display.DEFAULT_DISPLAY) ?: manager.displays.firstOrNull()
-        val supported = display?.hdrCapabilities?.supportedHdrTypes?.toSet().orEmpty()
+        val supported =
+            display
+                ?.hdrCapabilities
+                ?.supportedHdrTypes
+                ?.toSet()
+                .orEmpty()
         return buildSet {
             if (Display.HdrCapabilities.HDR_TYPE_HDR10 in supported) add(PlaybackHdrFormat.Hdr10)
             if (Display.HdrCapabilities.HDR_TYPE_HLG in supported) add(PlaybackHdrFormat.Hlg)

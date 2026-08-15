@@ -276,7 +276,8 @@ internal fun cleanupOrphanedOfflineArtifacts(
     items: List<OfflineMedia>,
 ) {
     val retainedNames = retainedOfflineArtifactNames(directory, items)
-    directory.listFiles()
+    directory
+        .listFiles()
         ?.filter(File::isFile)
         ?.filter { it.name !in retainedNames && isOfflineArtifactName(it.name) }
         ?.forEach(File::delete)

@@ -3,54 +3,54 @@ package com.yfuse.di
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
-import com.yfuse.core.account.AccountApi
 import com.yfuse.core.account.AccountAccessTokenSource
+import com.yfuse.core.account.AccountApi
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.createAccountClient
+import com.yfuse.core.cast.CastManager
+import com.yfuse.core.cast.createCastManager
+import com.yfuse.core.data.AiringCalendarRepository
+import com.yfuse.core.data.AiringScheduleCache
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DiagnosticPreferences
-import com.yfuse.core.data.AiringCalendarRepository
-import com.yfuse.core.data.AiringScheduleCache
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
-import com.yfuse.core.data.PlaybackRecoveryStore
-import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackAudioPassthrough
-import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackFailoverRequest
+import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SearchHistory
-import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerActivityStore
-import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.ServerHealthMonitor
+import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbHomeCache
+import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
-import com.yfuse.core.data.TmdbRepository
-import com.yfuse.core.network.createEmbyClient
-import com.yfuse.core.network.createDanmakuClient
-import com.yfuse.core.network.createTmdbClient
 import com.yfuse.core.network.LanDiscovery
+import com.yfuse.core.network.createDanmakuClient
+import com.yfuse.core.network.createEmbyClient
 import com.yfuse.core.network.createLanDiscovery
+import com.yfuse.core.network.createTmdbClient
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.offline.createOfflineMediaManager
-import com.yfuse.core.sync.ServerSyncManager
-import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
+import com.yfuse.core.playback.createPlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.createSecureStore
-import com.yfuse.feature.watch.WatchInviteResolver
+import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.feature.player.PlaybackReportingCoordinator
-import com.yfuse.core.cast.CastManager
-import com.yfuse.core.cast.createCastManager
-import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
-import com.yfuse.core.playback.createPlaybackDeviceCapabilitiesProvider
-import org.koin.dsl.module
+import com.yfuse.feature.watch.WatchInviteResolver
 import kotlinx.coroutines.Dispatchers
+import org.koin.dsl.module
 
 /**
  * Root DI graph. [settings] and [appVersion] are supplied by the platform so common network
@@ -68,10 +68,11 @@ fun appModule(
         val persistedSettings = get<Settings>()
         ServerRegistry(
             settings = persistedSettings,
-            secureStore = createSecureStore(
-                settings = persistedSettings,
-                namespace = "emby.server-sessions",
-            ),
+            secureStore =
+                createSecureStore(
+                    settings = persistedSettings,
+                    namespace = "emby.server-sessions",
+                ),
             crypto = get(),
         )
     }

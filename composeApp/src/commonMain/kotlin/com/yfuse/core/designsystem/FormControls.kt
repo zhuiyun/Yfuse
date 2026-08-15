@@ -56,24 +56,23 @@ fun YfFormField(
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = 56.dp)
-            .graphicsLayer { alpha = if (enabled) 1f else 0.52f }
-            .flatGlass(
-                shape = AppShapes.control,
-                fill = palette.card2,
-                border = palette.border,
-            )
-            .then(
-                if (focused) {
-                    Modifier.border(2.dp, accent.border, AppShapes.control)
-                } else {
-                    Modifier
-                },
-            )
-            .padding(horizontal = 14.dp, vertical = 9.dp)
-            .semantics { contentDescription = label },
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 56.dp)
+                .graphicsLayer { alpha = if (enabled) 1f else 0.52f }
+                .flatGlass(
+                    shape = AppShapes.control,
+                    fill = palette.card2,
+                    border = palette.border,
+                ).then(
+                    if (focused) {
+                        Modifier.border(2.dp, accent.border, AppShapes.control)
+                    } else {
+                        Modifier
+                    },
+                ).padding(horizontal = 14.dp, vertical = 9.dp)
+                .semantics { contentDescription = label },
         enabled = enabled,
         singleLine = singleLine,
         keyboardOptions = keyboardOptions,
@@ -129,15 +128,13 @@ fun YfButton(
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,
-            )
-            .liquidGlass(
+            ).liquidGlass(
                 shape = AppShapes.control,
                 fill = visuals.fill,
                 border = visuals.border,
                 over = palette.background,
                 sheen = visuals.sheen,
-            )
-            .padding(horizontal = 16.dp, vertical = 11.dp)
+            ).padding(horizontal = 16.dp, vertical = 11.dp)
             .semantics {
                 if (loading) stateDescription = "处理中"
             },
@@ -180,15 +177,13 @@ fun YfLinkButton(
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,
-            )
-            .liquidGlass(
+            ).liquidGlass(
                 shape = AppShapes.control,
                 fill = fill,
                 border = border,
                 over = palette.background,
                 sheen = if (destructive) 0.74f else 0.62f,
-            )
-            .padding(horizontal = 16.dp, vertical = 11.dp),
+            ).padding(horizontal = 16.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -9,7 +9,8 @@ internal fun WatchWireParticipant.toDomain(selfClientId: String): WatchParticipa
         !WatchProtocol.isValidOptionalName(name) ||
         name.isEmpty() ||
         !WatchProtocol.isValidAvatarId(avatarId) ||
-        latencyMs != null && latencyMs !in 0L..WatchProtocol.MAX_LATENCY_MS ||
+        latencyMs != null &&
+        latencyMs !in 0L..WatchProtocol.MAX_LATENCY_MS ||
         syncDriftMs != null &&
         syncDriftMs !in -WatchProtocol.MAX_SYNC_DRIFT_MS..WatchProtocol.MAX_SYNC_DRIFT_MS
     ) {
@@ -43,7 +44,8 @@ internal fun WatchWireChatMessage.toDomain(
         !WatchProtocol.isValidAvatarId(avatarId) ||
         !WatchProtocol.isValidChat(text) ||
         !WatchProtocol.isReasonableServerTime(sentAtMs, serverNowMs) ||
-        clientMessageId != null && !WatchProtocol.isValidClientMessageId(clientMessageId)
+        clientMessageId != null &&
+        !WatchProtocol.isValidClientMessageId(clientMessageId)
     ) {
         return null
     }

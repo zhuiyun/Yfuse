@@ -9,10 +9,10 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
 import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.ThemePreferences
-import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.PlayerEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +36,6 @@ internal class AndroidPlaybackSourcePreloader(
     private val userAgentPreferences: UserAgentPreferences,
     private val themePreferences: ThemePreferences,
 ) : PlaybackSourcePreloader {
-
     private val applicationContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -52,58 +51,65 @@ internal class AndroidPlaybackSourcePreloader(
         if (playbackPreferences.videoCacheSize.value.bytes <= 0L) return
         if (jobs[source]?.isActive == true) return
 
-        val job = scope.launch {
-            val cacheBytes = playbackPreferences.videoCacheSize.value.bytes
-            val handle = VideoCachePool.acquire(applicationContext, cacheBytes) ?: return@launch
-            try {
-                val httpFactory = DefaultHttpDataSource.Factory()
-                    .setAllowCrossProtocolRedirects(true)
-                    .setConnectTimeoutMs(20_000)
-                    .setReadTimeoutMs(20_000)
-                    .apply {
-                        userAgentPreferences.userAgent.value
-                            .trim()
-                            .takeIf(String::isNotEmpty)
-                            ?.let { value ->
-                                setDefaultRequestProperties(mapOf("User-Agent" to value))
+        val job =
+            scope.launch {
+                val cacheBytes = playbackPreferences.videoCacheSize.value.bytes
+                val handle = VideoCachePool.acquire(applicationContext, cacheBytes) ?: return@launch
+                try {
+                    val httpFactory =
+                        DefaultHttpDataSource
+                            .Factory()
+                            .setAllowCrossProtocolRedirects(true)
+                            .setConnectTimeoutMs(20_000)
+                            .setReadTimeoutMs(20_000)
+                            .apply {
+                                userAgentPreferences.userAgent.value
+                                    .trim()
+                                    .takeIf(String::isNotEmpty)
+                                    ?.let { value ->
+                                        setDefaultRequestProperties(mapOf("User-Agent" to value))
+                                    }
                             }
-                    }
-                val upstream = DefaultDataSource.Factory(applicationContext, httpFactory)
-                val dataSource = CacheDataSource.Factory()
-                    .setCache(handle.cache)
-                    .setCacheKeyFactory(SecureMediaCacheKeyFactory)
-                    .setUpstreamDataSourceFactory(upstream)
-                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-                    .createDataSource()
-                val dataSpec = DataSpec.Builder()
-                    .setUri(source)
-                    .setPosition(0L)
-                    .setLength(PRELOAD_BYTES)
-                    .build()
+                    val upstream = DefaultDataSource.Factory(applicationContext, httpFactory)
+                    val dataSource =
+                        CacheDataSource
+                            .Factory()
+                            .setCache(handle.cache)
+                            .setCacheKeyFactory(SecureMediaCacheKeyFactory)
+                            .setUpstreamDataSourceFactory(upstream)
+                            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                            .createDataSource()
+                    val dataSpec =
+                        DataSpec
+                            .Builder()
+                            .setUri(source)
+                            .setPosition(0L)
+                            .setLength(PRELOAD_BYTES)
+                            .build()
 
-                CacheWriter(dataSource, dataSpec, null, null).cache()
-                AppLog.info(
-                    category = "feature.player",
-                    event = "source_preloaded",
-                    message = "Playback source prefix warmed into Media3 cache",
-                    attributes = mapOf("bytes" to PRELOAD_BYTES.toString()),
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (throwable: Throwable) {
-                // Preload is opportunistic. The normal player path remains authoritative and
-                // will surface a useful playback/network error if the source is actually bad.
-                AppLog.warning(
-                    category = "feature.player",
-                    event = "source_preload_failed",
-                    message = "Playback source warmup failed; normal playback will continue",
-                    throwable = throwable,
-                )
-            } finally {
-                handle.close()
-                jobs.remove(source)
+                    CacheWriter(dataSource, dataSpec, null, null).cache()
+                    AppLog.info(
+                        category = "feature.player",
+                        event = "source_preloaded",
+                        message = "Playback source prefix warmed into Media3 cache",
+                        attributes = mapOf("bytes" to PRELOAD_BYTES.toString()),
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (throwable: Throwable) {
+                    // Preload is opportunistic. The normal player path remains authoritative and
+                    // will surface a useful playback/network error if the source is actually bad.
+                    AppLog.warning(
+                        category = "feature.player",
+                        event = "source_preload_failed",
+                        message = "Playback source warmup failed; normal playback will continue",
+                        throwable = throwable,
+                    )
+                } finally {
+                    handle.close()
+                    jobs.remove(source)
+                }
             }
-        }
         jobs[source] = job
     }
 

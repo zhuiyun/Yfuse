@@ -946,11 +946,13 @@ class MpvVideoEngine(
         val instance = mpv ?: return
         runCatching {
             val input =
-                instance.getPropertyString("video-params/gamma")
+                instance
+                    .getPropertyString("video-params/gamma")
                     ?.let(::mpvDynamicRange)
                     .orEmpty()
             val output =
-                instance.getPropertyString("video-out-params/gamma")
+                instance
+                    .getPropertyString("video-out-params/gamma")
                     ?.let(::mpvDynamicRange)
                     .orEmpty()
             val label =

@@ -12,8 +12,7 @@ import kotlin.time.TimeSource
 internal class EmbyServerService(
     private val client: HttpClient,
 ) {
-    suspend fun probe(server: SavedServer): Result<Long> =
-        probeAddress(server.baseUrl, server.accessToken)
+    suspend fun probe(server: SavedServer): Result<Long> = probeAddress(server.baseUrl, server.accessToken)
 
     suspend fun probeAddress(
         baseUrl: String,

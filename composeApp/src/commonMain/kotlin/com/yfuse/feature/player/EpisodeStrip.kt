@@ -26,12 +26,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.cssLinearGradient
-import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 
 /** One card in the strip. A projection of [PlayerMediaItem], so the strip needs nothing else. */
 internal data class EpisodeCard(
@@ -44,16 +44,17 @@ internal data class EpisodeCard(
     val watchMatchKeys: List<String>,
 )
 
-internal fun List<PlayerMediaItem>.toEpisodeCards(): List<EpisodeCard> = mapIndexed { index, item ->
-    EpisodeCard(
-        title = item.title.ifBlank { "第 ${index + 1} 集" },
-        caption = item.caption,
-        stillUrl = item.stillUrl,
-        progress = item.progress?.takeIf { it > 0.01f },
-        watchKey = item.watchKey,
-        watchMatchKeys = item.matchKeys,
-    )
-}
+internal fun List<PlayerMediaItem>.toEpisodeCards(): List<EpisodeCard> =
+    mapIndexed { index, item ->
+        EpisodeCard(
+            title = item.title.ifBlank { "第 ${index + 1} 集" },
+            caption = item.caption,
+            stillUrl = item.stillUrl,
+            progress = item.progress?.takeIf { it > 0.01f },
+            watchKey = item.watchKey,
+            watchMatchKeys = item.matchKeys,
+        )
+    }
 
 /**
  * 剧集列表 — a strip of stills along the bottom, in front of the picture.
@@ -91,8 +92,7 @@ internal fun EpisodeStrip(
                     0f to Color.Black.copy(alpha = 0.86f),
                     1f to Color.Transparent,
                 ),
-            )
-            .padding(top = 14.dp, bottom = 16.dp),
+            ).padding(top = 14.dp, bottom = 16.dp),
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 2.dp),
