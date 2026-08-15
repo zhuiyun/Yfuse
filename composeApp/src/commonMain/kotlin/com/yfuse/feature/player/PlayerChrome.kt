@@ -500,6 +500,9 @@ internal fun BottomBar(
     onScrub: () -> Unit,
     trickplay: TrickplayStoryboard?,
     onOpenTab: (Tab) -> Unit,
+    hasMultipleSources: Boolean,
+    onOpenSources: () -> Unit,
+    onOpenSpeed: () -> Unit,
     danmakuEnabled: Boolean,
     onOpenDanmaku: () -> Unit,
     modifier: Modifier = Modifier,
@@ -607,26 +610,85 @@ internal fun BottomBar(
             }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (hasMultipleSources) {
+                    CircleControl(
+                        AppIcons.Server,
+                        "播放服务器",
+                        26.dp,
+                        12.dp,
+                        onClick = onOpenSources,
+                    )
+                }
                 CircleControl(
                     AppIcons.Danmaku,
                     "弹幕",
                     26.dp,
                     12.dp,
+                    filled = danmakuEnabled,
                     onClick = onOpenDanmaku,
                 )
-                // 字幕、音轨、投屏、倍速和画面选项统一进入同一个设置面板，首层只
-                // 留弹幕与更多；空间关系和关闭方式因此完全一致。
+                CircleControl(
+                    AppIcons.Subtitle,
+                    "字幕与音轨",
+                    26.dp,
+                    12.dp,
+                    onClick = { onOpenTab(Tab.Tracks) },
+                )
+                SpeedControl(
+                    speed = state.speed,
+                    onClick = onOpenSpeed,
+                )
+                CircleControl(
+                    AppIcons.Cast,
+                    "投屏",
+                    26.dp,
+                    12.dp,
+                    onClick = { onOpenTab(Tab.Cast) },
+                )
                 CircleControl(
                     AppIcons.More,
                     "更多",
                     26.dp,
                     12.dp,
-                    onClick = { onOpenTab(Tab.Playback) },
+                    onClick = { onOpenTab(Tab.Advanced) },
                 )
             }
+        }
+    }
+}
+
+/** Playback speed is clearer as its value than as another abstract glyph. */
+@Composable
+private fun SpeedControl(
+    speed: Float,
+    onClick: () -> Unit,
+) {
+    val label =
+        when {
+            speed % 1f == 0f -> "${speed.toInt()}×"
+            else -> "$speed×"
+        }
+    Box(
+        Modifier
+            .noRippleClickable(onClick)
+            .size(40.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(26.dp)
+                .border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                label,
+                style = AppTypography.caption.strong,
+                color = Color.White,
+                maxLines = 1,
+            )
         }
     }
 }

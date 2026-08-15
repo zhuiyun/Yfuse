@@ -624,7 +624,7 @@ private fun PopupBackLabel(
 }
 
 @Composable
-private fun SourcePickerPopup(
+internal fun SourcePickerPopup(
     options: List<Pair<String, String>>,
     selectedId: String?,
     onSelect: (String) -> Unit,
@@ -689,6 +689,35 @@ private fun SourcePickerPopup(
         }
         Text(
             "播放失败时会自动切换到下一条可用线路",
+            style = AppTypography.caption.medium,
+            color = Color.White.copy(alpha = 0.40f),
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 9.dp),
+        )
+    }
+}
+
+/** Dedicated speed popup opened from the playback page; no unrelated settings are mixed in. */
+@Composable
+internal fun SpeedPickerPopup(
+    speeds: List<Float>,
+    selectedSpeed: Float,
+    onSelect: (Float) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PlayerPopupPanel(
+        onDismiss = onDismiss,
+        modifier = modifier,
+        compact = true,
+    ) {
+        CompactChoiceGrid(
+            options = speeds.map(::speedLabel),
+            selectedIndex = speeds.indexOf(selectedSpeed),
+            columns = 4,
+            onSelect = { onSelect(speeds[it]) },
+        )
+        Text(
+            "选择后立即生效",
             style = AppTypography.caption.medium,
             color = Color.White.copy(alpha = 0.40f),
             modifier = Modifier.padding(horizontal = 2.dp, vertical = 9.dp),

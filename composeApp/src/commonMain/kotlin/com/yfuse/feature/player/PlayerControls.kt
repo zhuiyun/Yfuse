@@ -60,6 +60,12 @@ private const val VOLUME_SLIDER_HIDE_MS = 1_600L
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 
+/** Single-purpose popups opened by their own playback-page buttons. */
+private enum class QuickPopup {
+    Source,
+    Speed,
+}
+
 /**
  * 长按快进/快退 — how fast the playhead runs while a press is held down.
  *
@@ -173,6 +179,7 @@ internal fun PlayerControls(
     var visible by remember { mutableStateOf(true) }
     var locked by remember { mutableStateOf(false) }
     var settingsTab by remember { mutableStateOf<Tab?>(null) }
+    var quickPopup by remember { mutableStateOf<QuickPopup?>(null) }
     var drawerOpen by remember { mutableStateOf(false) }
     var gestureHelpOpen by remember { mutableStateOf(false) }
     var watchDialogOpen by remember { mutableStateOf(false) }
@@ -257,6 +264,7 @@ internal fun PlayerControls(
 
     fun openWatchChat() {
         settingsTab = null
+        quickPopup = null
         drawerOpen = false
         danmakuSearchOpen = false
         danmakuSendOpen = false
@@ -268,6 +276,7 @@ internal fun PlayerControls(
     }
 
     fun openSettings(tab: Tab) {
+        quickPopup = null
         drawerOpen = false
         watchChatOpen = false
         danmakuSearchOpen = false
@@ -277,8 +286,20 @@ internal fun PlayerControls(
         poke()
     }
 
+    fun openQuickPopup(popup: QuickPopup) {
+        settingsTab = null
+        drawerOpen = false
+        watchChatOpen = false
+        danmakuSearchOpen = false
+        danmakuSendOpen = false
+        watchDialogOpen = false
+        quickPopup = popup
+        poke()
+    }
+
     fun openEpisodeDrawer() {
         settingsTab = null
+        quickPopup = null
         watchChatOpen = false
         danmakuSearchOpen = false
         danmakuSendOpen = false
@@ -302,6 +323,7 @@ internal fun PlayerControls(
         visible,
         locked,
         settingsTab,
+        quickPopup,
         drawerOpen,
         danmakuSearchOpen,
         danmakuSendOpen,
@@ -314,6 +336,7 @@ internal fun PlayerControls(
         val overlayOpen =
             gestureHelpOpen ||
                 settingsTab != null ||
+                quickPopup != null ||
                 drawerOpen ||
                 danmakuSearchOpen ||
                 danmakuSendOpen ||
@@ -499,6 +522,7 @@ internal fun PlayerControls(
                                 watchChatOpen -> watchChatOpen = false
                                 danmakuSendOpen -> danmakuSendOpen = false
                                 danmakuSearchOpen -> danmakuSearchOpen = false
+                                quickPopup != null -> quickPopup = null
                                 settingsTab != null -> settingsTab = null
                                 drawerOpen -> drawerOpen = false
                                 visible -> visible = false
@@ -705,6 +729,9 @@ internal fun PlayerControls(
                 onScrub = { interactions++ },
                 trickplay = trickplay,
                 onOpenTab = ::openSettings,
+                hasMultipleSources = sourceOptions.size > 1,
+                onOpenSources = { openQuickPopup(QuickPopup.Source) },
+                onOpenSpeed = { openQuickPopup(QuickPopup.Speed) },
                 danmakuEnabled = danmaku.enabled,
                 onOpenDanmaku = { openSettings(Tab.Danmaku) },
             )
@@ -859,6 +886,40 @@ internal fun PlayerControls(
                     skipActions = skipActions,
                     onDismiss = { settingsTab = null },
                 )
+            }
+        }
+
+        quickPopup?.let { popup ->
+            BackOverlay(onBack = { quickPopup = null }) {
+                val popupModifier =
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 18.dp, bottom = 70.dp)
+                when (popup) {
+                    QuickPopup.Source ->
+                        SourcePickerPopup(
+                            options = sourceOptions,
+                            selectedId = selectedSourceId,
+                            onSelect = {
+                                onSelectSource(it)
+                                quickPopup = null
+                            },
+                            onDismiss = { quickPopup = null },
+                            modifier = popupModifier,
+                        )
+
+                    QuickPopup.Speed ->
+                        SpeedPickerPopup(
+                            speeds = SPEEDS,
+                            selectedSpeed = state.speed,
+                            onSelect = {
+                                onSpeed(it)
+                                quickPopup = null
+                            },
+                            onDismiss = { quickPopup = null },
+                            modifier = popupModifier,
+                        )
+                }
             }
         }
 

@@ -9,9 +9,7 @@ import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.SettingTint
-import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.PlaybackQuality
@@ -282,16 +280,12 @@ internal fun WatchTogetherSettingsScreen(
 @Composable
 internal fun AppearanceSettingsScreen(
     onBack: () -> Unit,
-    mode: ThemeMode,
-    glassStyle: GlassStyle,
     brandSummary: String,
     backgroundSummary: String,
     startupSummary: String,
     reduceTransparency: Boolean,
     largeText: Boolean,
     reduceMotion: Boolean,
-    onThemeMode: (ThemeMode) -> Unit,
-    onGlassStyle: (GlassStyle) -> Unit,
     onBackground: () -> Unit,
     onBrand: () -> Unit,
     onStartupTab: () -> Unit,
@@ -301,30 +295,12 @@ internal fun AppearanceSettingsScreen(
 ) {
     SettingsPage(
         title = "外观与辅助",
-        subtitle = "主题、材质与辅助显示",
+        subtitle = "背景、启动与辅助显示",
         onBack = onBack,
     ) {
         item {
             Section(title = "外观") {
                 SettingsCard {
-                    SettingSegmentRow(
-                        title = "主题",
-                        options = ThemeModeOrder.map { it.label },
-                        selectedIndex = ThemeModeOrder.indexOf(mode).coerceAtLeast(0),
-                        onSelect = { onThemeMode(ThemeModeOrder[it]) },
-                        icon = AppIcons.Cloud,
-                        iconTint = SettingTint.appearance,
-                    )
-                    SettingsDivider()
-                    SettingSegmentRow(
-                        title = "视觉效果",
-                        options = GlassStyle.entries.map { it.label },
-                        selectedIndex = GlassStyle.entries.indexOf(glassStyle),
-                        onSelect = { onGlassStyle(GlassStyle.entries[it]) },
-                        icon = AppIcons.Grid,
-                        iconTint = SettingTint.components,
-                    )
-                    SettingsDivider()
                     SettingRow(
                         "Logo 与开屏动画",
                         brandSummary,
@@ -388,9 +364,3 @@ internal fun AppearanceSettingsScreen(
         }
     }
 }
-
-/**
- * Light to dark, which is how the control is read left to right. [ThemeMode]'s declaration
- * order leads with 跟随系统 and cannot be changed — it is persisted by name.
- */
-private val ThemeModeOrder = listOf(ThemeMode.Light, ThemeMode.System, ThemeMode.Dark)
