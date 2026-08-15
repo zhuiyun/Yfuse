@@ -733,6 +733,7 @@ internal fun PlayerControls(
                 },
                 onScrub = { interactions++ },
                 trickplay = trickplay,
+                progressMarkers = playbackProgressMarkers(skip, state.durationMs),
                 hasMultipleSources = sourceOptions.size > 1,
                 onOpenSources = { openQuickPopup(QuickPopup.Source) },
                 onOpenSubtitles = {
@@ -757,8 +758,8 @@ internal fun PlayerControls(
             CircleControl(
                 icon = AppIcons.Pause,
                 description = "已暂停，点击继续",
-                size = 42.dp,
-                iconSize = 17.dp,
+                size = 28.dp,
+                iconSize = 14.dp,
                 enabled = !watchLocked,
                 interactive = false,
                 onClick = {},
