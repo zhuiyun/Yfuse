@@ -103,25 +103,27 @@ class PlaybackHealthTest {
     private fun plan(
         path: PlaybackRenderPath,
         decoderMode: DecoderMode,
-    ): PlaybackPlan = PlaybackPlan(
-        primaryEngine = PlayerEngine.Exo,
-        decoderMode = decoderMode,
-        renderPath = path,
-        requiresServerTranscode = false,
-        engineOrder = listOf(PlayerEngine.Exo),
-    )
+    ): PlaybackPlan =
+        PlaybackPlan(
+            primaryEngine = PlayerEngine.Exo,
+            decoderMode = decoderMode,
+            renderPath = path,
+            requiresServerTranscode = false,
+            engineOrder = listOf(PlayerEngine.Exo),
+        )
 
-    private fun probe(): PlaybackMediaProbe = PlaybackMediaProbe(
-        container = "MKV",
-        discSource = false,
-        source =
-            PlaybackSourceRequirements(
-                dolbyVision = false,
-                needsDolbyDecoder = false,
-                dynamicRange = "HDR10",
-                width = 3_840,
-                height = 2_160,
-            ),
-        hasServerTranscode = true,
-    )
+    private fun probe(): PlaybackMediaProbe =
+        PlaybackMediaProbe(
+            container = "MKV",
+            discSource = false,
+            source =
+                PlaybackSourceRequirements(
+                    dolbyVision = false,
+                    needsDolbyDecoder = false,
+                    dynamicRange = "HDR10",
+                    width = 3_840,
+                    height = 2_160,
+                ),
+            hasServerTranscode = true,
+        )
 }
