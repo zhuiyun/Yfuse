@@ -2,6 +2,8 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.PlaybackFailureRecord
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,6 +84,14 @@ private data class StoredSeriesPlaybackPreference(
     val value: SeriesPlaybackPreference,
 )
 
+@Serializable
+private data class StoredPlaybackFailureRecord(
+    val signature: String,
+    val engine: String,
+    val count: Int,
+    val lastFailureEpochMs: Long,
+)
+
 /** Playback settings that are independent from appearance and decoder selection. */
 class PlaybackPreferences(
     private val settings: Settings,
@@ -133,6 +143,73 @@ class PlaybackPreferences(
     fun setOptimizationMode(mode: PlaybackOptimizationMode) {
         _optimizationMode.value = mode
         settings.putString(KEY_OPTIMIZATION_MODE, mode.name)
+    }
+
+    internal fun playbackFailureRecords(): List<PlaybackFailureRecord> =
+        settings
+            .getStringOrNull(KEY_PLAYBACK_FAILURES)
+            ?.let { stored ->
+                runCatching {
+                    json.decodeFromString<List<StoredPlaybackFailureRecord>>(stored)
+                }.getOrNull()
+            }.orEmpty()
+            .takeLast(MAX_PLAYBACK_FAILURE_RECORDS)
+            .mapNotNull { stored ->
+                val engine = PlayerEngine.entries.firstOrNull { it.name == stored.engine }
+                val signature =
+                    stored.signature
+                        .trim()
+                        .take(MAX_PLAYBACK_FAILURE_SIGNATURE_CHARS)
+                        .takeIf(String::isNotEmpty)
+                if (
+                    engine == null ||
+                    engine !in PlayerEngine.selectable ||
+                    signature == null ||
+                    stored.count <= 0 ||
+                    stored.lastFailureEpochMs <= 0L
+                ) {
+                    null
+                } else {
+                    PlaybackFailureRecord(
+                        signature = signature,
+                        engine = engine,
+                        count = stored.count.coerceAtMost(MAX_PLAYBACK_FAILURE_COUNT),
+                        lastFailureEpochMs = stored.lastFailureEpochMs,
+                    )
+                }
+            }
+
+    internal fun storePlaybackFailureRecords(records: List<PlaybackFailureRecord>) {
+        val stored =
+            records
+                .takeLast(MAX_PLAYBACK_FAILURE_RECORDS)
+                .mapNotNull { record ->
+                    val signature =
+                        record.signature
+                            .trim()
+                            .take(MAX_PLAYBACK_FAILURE_SIGNATURE_CHARS)
+                            .takeIf(String::isNotEmpty)
+                    if (
+                        signature == null ||
+                        record.engine !in PlayerEngine.selectable ||
+                        record.count <= 0 ||
+                        record.lastFailureEpochMs <= 0L
+                    ) {
+                        null
+                    } else {
+                        StoredPlaybackFailureRecord(
+                            signature = signature,
+                            engine = record.engine.name,
+                            count = record.count.coerceAtMost(MAX_PLAYBACK_FAILURE_COUNT),
+                            lastFailureEpochMs = record.lastFailureEpochMs,
+                        )
+                    }
+                }
+        if (stored.isEmpty()) {
+            settings.remove(KEY_PLAYBACK_FAILURES)
+        } else {
+            settings.putString(KEY_PLAYBACK_FAILURES, json.encodeToString(stored))
+        }
     }
 
     private val _smartCrossServerSource =
@@ -321,6 +398,7 @@ class PlaybackPreferences(
         const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
         const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
         const val KEY_OPTIMIZATION_MODE = "player.optimizationMode"
+        const val KEY_PLAYBACK_FAILURES = "player.ycore.failures.v1"
         const val KEY_SMART_CROSS_SERVER_SOURCE = "player.smartCrossServerSource"
         const val KEY_WIFI_QUALITY_CAP = "player.networkQuality.wifi"
         const val KEY_CELLULAR_QUALITY_CAP = "player.networkQuality.cellular"
@@ -336,3 +414,6 @@ class PlaybackPreferences(
 }
 
 internal const val MAX_SERIES_PLAYBACK_PREFERENCES = 32
+internal const val MAX_PLAYBACK_FAILURE_RECORDS = 96
+private const val MAX_PLAYBACK_FAILURE_SIGNATURE_CHARS = 256
+private const val MAX_PLAYBACK_FAILURE_COUNT = 100

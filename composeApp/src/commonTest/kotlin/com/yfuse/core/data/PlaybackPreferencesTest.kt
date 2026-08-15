@@ -2,6 +2,8 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.PlaybackFailureRecord
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -75,6 +77,29 @@ class PlaybackPreferencesTest {
             PlaybackOptimizationMode.PowerSaver,
             PlaybackPreferences(settings).optimizationMode.value,
         )
+    }
+
+    @Test
+    fun ycore_device_quirks_are_bounded_and_persist_without_media_identity() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+        val records =
+            List(MAX_PLAYBACK_FAILURE_RECORDS + 1) { index ->
+                PlaybackFailureRecord(
+                    signature = "MKV|HEVC|$index",
+                    engine = PlayerEngine.Exo,
+                    count = 2,
+                    lastFailureEpochMs = 1_000L + index,
+                )
+            }
+
+        first.storePlaybackFailureRecords(records)
+        val restored = PlaybackPreferences(settings).playbackFailureRecords()
+
+        assertEquals(MAX_PLAYBACK_FAILURE_RECORDS, restored.size)
+        assertEquals("MKV|HEVC|1", restored.first().signature)
+        assertEquals("MKV|HEVC|$MAX_PLAYBACK_FAILURE_RECORDS", restored.last().signature)
+        assertTrue(restored.none { it.signature.contains("http", ignoreCase = true) })
     }
 
     @Test

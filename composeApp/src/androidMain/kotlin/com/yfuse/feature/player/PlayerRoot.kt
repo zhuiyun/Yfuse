@@ -52,8 +52,13 @@ import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
+import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackFailureMemory
+import com.yfuse.core.playback.PlaybackHealthSample
+import com.yfuse.core.playback.PlaybackHealthSession
+import com.yfuse.core.playback.assessPlaybackHealth
 import com.yfuse.core.playback.classifyPlaybackFailure
+import com.yfuse.core.playback.playbackPowerAssessment
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.sync.WatchTogetherClient
 import kotlinx.coroutines.CancellationException
@@ -147,7 +152,15 @@ internal fun PlayerRoot(
                 .getOrNull()
                 ?: PlaybackDeviceCapabilities.conservative()
         }
-    val failureMemoryState = remember { mutableStateOf(PlaybackFailureMemory()) }
+    val failureMemoryState =
+        remember(playbackPreferences) {
+            mutableStateOf(
+                PlaybackFailureMemory(
+                    initialRecords = playbackPreferences.playbackFailureRecords(),
+                    onChanged = playbackPreferences::storePlaybackFailureRecords,
+                ),
+            )
+        }
     val failureMemory = failureMemoryState.value
     val initialPlaybackPlan =
         run {
@@ -435,6 +448,93 @@ internal fun PlayerRoot(
                 capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
                     ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
         )
+    val healthSessionState =
+        remember(engine, activeProbe.capabilitySignature) {
+            mutableStateOf(
+                PlaybackHealthSession(
+                    startedAtEpochMs = System.currentTimeMillis(),
+                    initialPositionMs = localState.positionMs,
+                    initialBufferEvents = localState.diagnostics.bufferEvents,
+                    initialDroppedFrames = localState.diagnostics.droppedFrames,
+                ),
+            )
+        }
+    val healthSession = healthSessionState.value
+    var healthAssessment by remember(engine, activeProbe.capabilitySignature) {
+        mutableStateOf(
+            assessPlaybackHealth(
+                PlaybackHealthSample(
+                    startupTimeMs = null,
+                    observedPlaybackMs = 0L,
+                    rebufferEvents = 0,
+                    droppedFrames = 0,
+                ),
+            ),
+        )
+    }
+    var healthReportLogged by remember(engine, activeProbe.capabilitySignature) {
+        mutableStateOf(false)
+    }
+    var healthPenaltyRecorded by remember(engine, activeProbe.capabilitySignature) {
+        mutableStateOf(false)
+    }
+    val powerAssessment = playbackPowerAssessment(activePlan, activeProbe)
+    LaunchedEffect(
+        engine,
+        castAuthoritative,
+        activeProbe.capabilitySignature,
+        localState.positionMs,
+        localState.buffering,
+        localState.videoHeight,
+        localState.error,
+        localState.ended,
+        localState.diagnostics.bufferEvents,
+        localState.diagnostics.droppedFrames,
+        localState.diagnostics.videoOutput,
+    ) {
+        if (castAuthoritative) return@LaunchedEffect
+        val assessment =
+            healthSession.observe(
+                nowEpochMs = System.currentTimeMillis(),
+                positionMs = localState.positionMs,
+                activelyRendering =
+                    engine.playbackRequested &&
+                        !localState.buffering &&
+                        localState.error == null &&
+                        !localState.ended,
+                videoReady =
+                    localState.videoHeight > 0 ||
+                        localState.diagnostics.videoOutput != "等待首帧",
+                bufferEvents = localState.diagnostics.bufferEvents,
+                droppedFrames = localState.diagnostics.droppedFrames,
+            )
+        healthAssessment = assessment
+        if (assessment.evaluationReady && !healthReportLogged) {
+            healthReportLogged = true
+            AppLog.info(
+                category = "player.health",
+                event = "playback_health_assessed",
+                message = "YCore assessed the active playback pipeline",
+                attributes =
+                    mapOf(
+                        "engine" to kind.name,
+                        "grade" to assessment.grade.name,
+                        "startupMs" to assessment.startupTimeMs.toString(),
+                        "rebufferEvents" to assessment.rebufferEvents.toString(),
+                        "droppedFrames" to assessment.droppedFrames.toString(),
+                        "powerProfile" to powerAssessment.profile.name,
+                    ),
+            )
+        }
+        if (assessment.enginePenaltyRecommended && !healthPenaltyRecorded) {
+            healthPenaltyRecorded = true
+            failureMemory.record(
+                signature = activeProbe.capabilitySignature,
+                engine = kind,
+                kind = PlaybackFailureKind.Renderer,
+            )
+        }
+    }
     val state =
         baseState.copy(
             diagnostics =
@@ -442,6 +542,9 @@ internal fun PlayerRoot(
                     deviceOutputCapabilities = deviceCapabilityLabel,
                     plannedRenderPath = activePlan.renderPath.name,
                     planningReason = activePlan.reason,
+                    playbackHealth = healthAssessment.diagnosticLabel,
+                    powerProfile = powerAssessment.diagnosticLabel,
+                    startupTimeMs = healthAssessment.startupTimeMs ?: 0L,
                 ),
         )
 
@@ -943,13 +1046,15 @@ internal fun PlayerRoot(
     LaunchedEffect(
         engine,
         activeProbe.capabilitySignature,
-        state.positionMs,
+        healthAssessment.evaluationReady,
+        healthAssessment.enginePenaltyRecommended,
         state.buffering,
         state.error,
     ) {
         if (
             !engineCapabilityConfirmed &&
-            state.positionMs >= 5_000L &&
+            healthAssessment.evaluationReady &&
+            !healthAssessment.enginePenaltyRecommended &&
             !state.buffering &&
             state.error == null
         ) {

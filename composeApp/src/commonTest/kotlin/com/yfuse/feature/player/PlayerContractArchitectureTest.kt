@@ -32,6 +32,8 @@ class PlayerContractArchitectureTest {
     fun playback_planning_stays_common_and_player_root_uses_its_ranked_fallbacks() {
         val planner =
             projectFile("src/commonMain/kotlin/com/yfuse/core/playback/PlaybackPlanner.kt").readText()
+        val health =
+            projectFile("src/commonMain/kotlin/com/yfuse/core/playback/PlaybackHealth.kt").readText()
         val root =
             projectFile("src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt").readText()
 
@@ -39,6 +41,9 @@ class PlayerContractArchitectureTest {
         assertFalse("import android." in planner)
         assertFalse("import androidx.compose." in planner)
         assertFalse("import io.ktor." in planner)
+        assertTrue("class PlaybackHealthSession" in health)
+        assertFalse("import android." in health)
+        assertFalse("import androidx.compose." in health)
         assertTrue("recoveryPlan.engineOrder" in root)
         assertTrue(".firstOrNull { backendFallbackEligible && it !in triedEngines }" in root)
         assertFalse("PlayerEngine.selectable.firstOrNull { it !in triedEngines }" in root)

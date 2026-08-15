@@ -418,6 +418,8 @@ internal fun SettingsPanel(
                                 "YCore 管线",
                                 diagnostics.plannedRenderPath.ifBlank { "等待规划" },
                             )
+                            DiagnosticRow("运行健康", diagnostics.playbackHealth)
+                            DiagnosticRow("功耗估计", diagnostics.powerProfile)
                             DiagnosticRow(
                                 "分辨率",
                                 when {

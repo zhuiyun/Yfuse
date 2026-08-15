@@ -42,6 +42,11 @@ data class PlaybackDiagnostics(
     val plannedRenderPath: String = "",
     /** Human-readable explanation when content or device facts override the preferred backend. */
     val planningReason: String? = null,
+    /** Runtime first-frame, rebuffer and dropped-frame assessment for the active engine binding. */
+    val playbackHealth: String = "采集中",
+    /** Local device-cost estimate; server energy use is deliberately outside this label. */
+    val powerProfile: String = "待规划",
+    val startupTimeMs: Long = 0L,
     /** Why playback is not using the original direct-play path. */
     val fallbackReason: String? = null,
     val bitrateBitsPerSecond: Long = 0L,

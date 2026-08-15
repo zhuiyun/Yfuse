@@ -62,4 +62,34 @@ class PlaybackFailureMemoryTest {
         assertEquals(1, memory.failureCount("second", PlayerEngine.Exo))
         assertEquals(1, memory.failureCount("third", PlayerEngine.Exo))
     }
+
+    @Test
+    fun persisted_quirks_restore_and_expire_after_the_cooling_period() {
+        var now = 10_000L
+        var persisted = emptyList<PlaybackFailureRecord>()
+        val first =
+            PlaybackFailureMemory(
+                failureThreshold = 2,
+                failureTtlMs = 1_000L,
+                nowEpochMs = { now },
+                onChanged = { persisted = it },
+            )
+        repeat(2) {
+            first.record("MKV|HEVC|2160", PlayerEngine.Exo, PlaybackFailureKind.Decoder)
+        }
+
+        val restored =
+            PlaybackFailureMemory(
+                failureThreshold = 2,
+                failureTtlMs = 1_000L,
+                nowEpochMs = { now },
+                initialRecords = persisted,
+                onChanged = { persisted = it },
+            )
+
+        assertTrue(PlayerEngine.Exo in restored.excludedEngines("MKV|HEVC|2160"))
+        now += 1_001L
+        assertTrue(restored.excludedEngines("MKV|HEVC|2160").isEmpty())
+        assertTrue(persisted.isEmpty())
+    }
 }
