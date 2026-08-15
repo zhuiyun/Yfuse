@@ -147,7 +147,8 @@ internal fun PlayerRoot(
                 .getOrNull()
                 ?: PlaybackDeviceCapabilities.conservative()
         }
-    val failureMemory = remember { PlaybackFailureMemory() }
+    val failureMemoryState = remember { mutableStateOf(PlaybackFailureMemory()) }
+    val failureMemory = failureMemoryState.value
     val initialPlaybackPlan =
         run {
             val probe = items.getOrNull(startIndex).playbackMediaProbe()
