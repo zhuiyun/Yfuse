@@ -156,8 +156,8 @@ private fun createYCorePlaybackSession(
     performanceMemory: PlaybackPerformanceMemory,
     startedAtEpochMs: Long,
     initialPositionMs: Long,
-    initialBufferEvents: Long,
-    initialDroppedFrames: Long,
+    initialBufferEvents: Int,
+    initialDroppedFrames: Int,
 ): YCorePlaybackSession =
     YCorePlaybackSession(
         engine = engine,
