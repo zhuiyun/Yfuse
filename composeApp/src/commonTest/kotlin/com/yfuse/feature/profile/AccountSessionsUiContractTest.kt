@@ -35,7 +35,8 @@ class AccountSessionsUiContractTest {
                 "src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
             ).readText()
 
-        assertEquals(1, Regex("Text\\(\"登录与会话\"").findAll(accountSource).count())
+        val sessionsEntry = Regex("(?:Text\\(|title\\s*=\\s*)\"登录与会话\"")
+        assertEquals(1, sessionsEntry.findAll(accountSource).count())
         assertFalse(accountSource.contains("sessions.forEach"))
         assertTrue(sessionsSource.contains("LaunchedEffect(userId)"))
         assertTrue(sessionsSource.contains("internal fun AccountSessionsContent("))
