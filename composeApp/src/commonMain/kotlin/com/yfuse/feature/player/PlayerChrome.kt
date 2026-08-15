@@ -586,8 +586,10 @@ internal fun BottomBar(
             Column(Modifier.weight(1f)) {
                 if (scrubbed != null && trickplay != null) {
                     val previewHeight =
-                        (TrickplayPreviewWidth.value * trickplay.height /
-                            trickplay.width.coerceAtLeast(1)).dp + 30.dp
+                        (
+                            TrickplayPreviewWidth.value * trickplay.height /
+                                trickplay.width.coerceAtLeast(1)
+                        ).dp + 30.dp
                     BoxWithConstraints(
                         Modifier
                             .fillMaxWidth()
