@@ -304,7 +304,8 @@ object AppIcons {
             horizontalLineTo(15.6f)
             moveTo(9.4f, 15.4f)
             horizontalLineTo(18.1f)
-        }.andDots(5.4f to 9.2f, 18.3f to 12.3f, 6.9f to 15.4f).build()
+        }.andDots(5.4f to 9.2f, 18.3f to 12.3f, 6.9f to 15.4f)
+            .build()
 
     /** Room chat — the same bubble as 弹幕, saying nothing rather than carrying lines. */
     val Chat =

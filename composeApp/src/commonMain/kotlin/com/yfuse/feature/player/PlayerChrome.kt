@@ -633,10 +633,10 @@ internal fun BottomBar(
                     onPrevious = onPrevious,
                     onNext = onNext,
                     onSeekBackward = {
-                        onSeek((state.positionMs - SeekStepMs).coerceAtLeast(0L))
+                        onSeek((state.positionMs - SEEK_STEP_MS).coerceAtLeast(0L))
                     },
                     onSeekForward = {
-                        val target = state.positionMs + SeekStepMs
+                        val target = state.positionMs + SEEK_STEP_MS
                         onSeek(
                             if (state.durationMs > 0L) {
                                 target.coerceAtMost(state.durationMs)
@@ -1112,7 +1112,7 @@ private val TransportKeySize = 28.dp
 
 private val TransportIconSize = 14.dp
 
-private const val SeekStepMs = 10_000L
+private const val SEEK_STEP_MS = 10_000L
 
 /** Slack around a control's ring, so a small ring still has a thumb-sized target. */
 private val ControlTouchPadding = 7.dp
