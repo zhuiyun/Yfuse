@@ -47,4 +47,3 @@ or backends implement an interface instead of adding conditions to `PlayerRoot`.
 - Failure and performance stores are bounded to 96 records.
 - Deep probes have a four-second budget and a 24-entry in-memory cache.
 - No media title, item id, server id, account, URL or access token is persisted by YCore.
-
