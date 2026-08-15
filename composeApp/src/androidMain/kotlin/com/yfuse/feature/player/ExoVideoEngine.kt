@@ -716,21 +716,21 @@ class ExoVideoEngine(
         val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return
 
         if (type == C.TRACK_TYPE_AUDIO && !group.isTrackSupported(trackIndex)) {
+            val format = group.getTrackFormat(trackIndex)
             AppLog.warning(
                 category = "player.exo",
                 event = "unsupported_audio_track_selected",
-                message = "Selected audio track is unsupported; attempting server transcode",
+                message = "Selected audio track is unsupported; trying another playback engine",
                 attributes =
                     mapOf(
                         "itemIndex" to player.currentMediaItemIndex.toString(),
                         "trackId" to id,
+                        "sampleMimeType" to format.sampleMimeType.orEmpty(),
+                        "codecs" to format.codecs.orEmpty(),
                     ),
             )
-            if (!switchToTranscode()) {
-                _state.update {
-                    it.copy(error = "当前音轨无法解码，且服务器未提供可用转码流")
-                }
-            }
+            player.pause()
+            failPlayback("当前音轨不受 ExoPlayer 支持，正在尝试其他播放器")
             return
         }
 
@@ -783,21 +783,58 @@ class ExoVideoEngine(
                 audioSupported = audioSupported,
             ) ?: return
 
-        if (index in transcodedIndices) return
         val type = unsupported.name.lowercase()
-        safeLogcat(Log.WARN, TAG, "no supported $type track; switching to transcode")
+        val alreadyTranscoding = index in transcodedIndices
+        val recovery = unsupportedTrackRecovery(unsupported, alreadyTranscoding)
+        val unsupportedFormats =
+            when (unsupported) {
+                UnsupportedMediaTrack.Audio -> audioGroups
+                UnsupportedMediaTrack.Video -> videoGroups
+            }.flatMap { group ->
+                (0 until group.length).map { trackIndex ->
+                    group.getTrackFormat(trackIndex).let { format ->
+                        format.sampleMimeType ?: format.codecs ?: "unknown"
+                    }
+                }
+            }.distinct()
+                .joinToString(",")
+                .take(160)
+        safeLogcat(Log.WARN, TAG, "no supported $type track; recovery=$recovery")
         AppLog.warning(
             category = "player.exo",
             event = "unsupported_${type}_tracks",
-            message = "No supported $type track; attempting server transcode",
+            message =
+                when (recovery) {
+                    UnsupportedTrackRecovery.SwitchEngine ->
+                        "No supported $type track; trying another playback engine"
+                    UnsupportedTrackRecovery.ServerTranscode ->
+                        "No supported $type track; attempting server transcode"
+                },
             attributes =
                 mapOf(
                     "itemIndex" to index.toString(),
                     "missingExpectedAudio" to
                         (expectedAudio && audioGroups.isEmpty()).toString(),
+                    "alreadyTranscoding" to alreadyTranscoding.toString(),
+                    "formats" to unsupportedFormats,
                 ),
         )
-        switchToTranscode()
+        when (recovery) {
+            UnsupportedTrackRecovery.SwitchEngine -> {
+                player.pause()
+                failPlayback(
+                    if (alreadyTranscoding) {
+                        "服务器转码流没有可播放的声音，正在尝试其他播放器"
+                    } else {
+                        "当前音轨不受 ExoPlayer 支持，正在尝试其他播放器"
+                    },
+                )
+            }
+            UnsupportedTrackRecovery.ServerTranscode ->
+                if (!switchToTranscode()) {
+                    failPlayback("当前视频无法解码，正在尝试其他播放器")
+                }
+        }
     }
 
     override fun switchToTranscode(reason: String?): Boolean {
