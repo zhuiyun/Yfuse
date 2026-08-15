@@ -439,8 +439,9 @@ class LibraryGridStoreTest {
     @Test
     fun failed_container_removal_rolls_the_item_back_in_place() =
         runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher) { request ->
                     if (request.method == HttpMethod.Delete) {
                         throw kotlinx.io.IOException("offline")
                     }
@@ -456,16 +457,16 @@ class LibraryGridStoreTest {
                     "p1",
                     serverId = "id1",
                     containerKind = MediaContainerKind.Playlist,
-                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                    mainContext = dispatcher,
                 ).create()
-            store.states.first { !it.loading && it.items.size == 2 }
+            advanceUntilIdle()
+            assertEquals(2, store.state.items.size)
 
             store.accept(GridIntent.RequestRemove("e1"))
             store.accept(GridIntent.ConfirmRemove)
 
-            // Let the failed MockEngine call and the executor's onFailure callback finish before
-            // disposing the store. Observing the first rollback state alone can resume this test
-            // while the producer coroutine is still unwinding, which is flaky on Linux CI.
+            // MockEngine and the Store share this scheduler, so the failed request and rollback
+            // finish deterministically before the state is asserted or the Store is disposed.
             advanceUntilIdle()
             val rolledBack = store.state
             assertTrue(rolledBack.actionMessage != null)
