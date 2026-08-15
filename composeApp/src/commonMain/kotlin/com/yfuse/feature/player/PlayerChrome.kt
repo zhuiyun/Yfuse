@@ -744,36 +744,70 @@ internal fun BottomBar(
     }
 }
 
-/** A compact odometer transition keeps changing timestamps legible without moving the row. */
+/**
+ * A compact odometer keeps the timestamp still while only the digits that changed roll up.
+ * Separators never animate, so the progress row does not pulse sideways once per second.
+ */
 @Composable
 private fun RollingTimeText(timeMs: Long) {
+    val wholeSeconds = timeMs.coerceAtLeast(0L) / 1000L
+    val time = remember(wholeSeconds) { formatTime(wholeSeconds * 1000L) }
+
+    Row(
+        modifier = Modifier.widthIn(min = 44.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        time.forEach { character ->
+            RollingTimeGlyph(character)
+        }
+    }
+}
+
+@Composable
+private fun RollingTimeGlyph(character: Char) {
+    if (!character.isDigit()) {
+        Text(
+            character.toString(),
+            style = AppTypography.caption.regular,
+            color = PlayerTokens.timeTextLandscape,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(4.dp),
+        )
+        return
+    }
+
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val wholeSeconds = (timeMs.coerceAtLeast(0L) / 1000L)
     AnimatedContent(
-        targetState = wholeSeconds,
+        targetState = character,
         transitionSpec = {
-            val duration = if (reduceMotion) 0 else Motion.QUICK
             val enter =
                 if (reduceMotion) {
                     fadeIn(snap())
                 } else {
-                    fadeIn(tween(duration, easing = Motion.Curve)) +
-                        slideInVertically(tween(duration, easing = Motion.Curve)) { it / 2 }
+                    fadeIn(tween(Motion.STANDARD, easing = Motion.Curve)) +
+                        slideInVertically(tween(Motion.STANDARD, easing = Motion.Curve)) { it }
                 }
             val exit =
                 if (reduceMotion) {
                     fadeOut(snap())
                 } else {
-                    fadeOut(tween(duration, easing = Motion.Curve)) +
-                        slideOutVertically(tween(duration, easing = Motion.Curve)) { -it / 2 }
+                    fadeOut(tween(Motion.STANDARD, easing = Motion.Curve)) +
+                        slideOutVertically(tween(Motion.STANDARD, easing = Motion.Curve)) { -it }
                 }
             enter togetherWith exit
         },
-        modifier = Modifier.widthIn(min = 44.dp).clipToBounds(),
-        label = "player-time-marquee",
-    ) { seconds ->
+        contentAlignment = Alignment.Center,
+        modifier =
+            Modifier
+                .width(7.dp)
+                .height(18.dp)
+                .clipToBounds(),
+        label = "player-time-digit-roll",
+    ) { digit ->
         Text(
-            formatTime(seconds * 1000L),
+            digit.toString(),
             style = AppTypography.caption.regular,
             color = PlayerTokens.timeTextLandscape,
             maxLines = 1,
