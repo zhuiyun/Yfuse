@@ -147,8 +147,7 @@ internal fun SettingsPanel(
                     shape = AppShapes.pill,
                     fill = Color.White.copy(alpha = 0.06f),
                     border = Color.White.copy(alpha = 0.10f),
-                )
-                .padding(3.dp),
+                ).padding(3.dp),
         ) {
             tabs.forEach { entry ->
                 val active = entry == tab
@@ -670,8 +669,7 @@ private fun SourcePickerPopup(
                             shape = AppShapes.card,
                             fill = if (selected) accent.container else Color.White.copy(alpha = 0.05f),
                             border = if (selected) accent.border else Color.White.copy(alpha = 0.08f),
-                        )
-                        .noRippleClickable { onSelect(id) }
+                        ).noRippleClickable { onSelect(id) }
                         .padding(horizontal = 11.dp, vertical = 10.dp),
                 ) {
                     Text(
@@ -728,8 +726,7 @@ private fun CompactChoiceGrid(
                                     shape = AppShapes.pill,
                                     fill = if (selected) accent.container else Color.White.copy(alpha = 0.045f),
                                     border = if (selected) accent.border else Color.White.copy(alpha = 0.07f),
-                                )
-                                .noRippleClickable { onSelect(index) }
+                                ).noRippleClickable { onSelect(index) }
                                 .padding(vertical = 9.dp),
                     )
                 }

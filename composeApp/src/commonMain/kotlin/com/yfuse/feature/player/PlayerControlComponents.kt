@@ -65,8 +65,7 @@ internal fun SegmentedRow(
                 shape = AppShapes.pill,
                 fill = Color.White.copy(alpha = 0.07f),
                 border = Color.White.copy(alpha = 0.12f),
-            )
-            .padding(3.dp),
+            ).padding(3.dp),
     ) {
         options.forEachIndexed { index, label ->
             val active = index == selectedIndex
