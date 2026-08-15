@@ -11,15 +11,15 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackTruthTest {
-
     @Test
     fun manual_cap_starts_on_transcode_and_records_the_user_reason() {
-        val item = PlayerMediaItem(
-            id = "movie",
-            url = "direct",
-            transcodeUrl = "hls",
-            title = "电影",
-        )
+        val item =
+            PlayerMediaItem(
+                id = "movie",
+                url = "direct",
+                transcodeUrl = "hls",
+                title = "电影",
+            )
 
         assertTrue(item.startsWithServerTranscode(PlaybackQuality.FullHd))
         assertEquals(
@@ -31,13 +31,14 @@ class PlaybackTruthTest {
 
     @Test
     fun auto_preserves_the_server_negotiated_direct_stream_truth() {
-        val item = PlayerMediaItem(
-            id = "movie",
-            url = "direct-stream",
-            transcodeUrl = "hls",
-            title = "电影",
-            playMethod = PlaybackMethod.DirectStream,
-        )
+        val item =
+            PlayerMediaItem(
+                id = "movie",
+                url = "direct-stream",
+                transcodeUrl = "hls",
+                title = "电影",
+                playMethod = PlaybackMethod.DirectStream,
+            )
 
         assertFalse(item.startsWithServerTranscode(PlaybackQuality.Auto))
         assertEquals(PlaybackMethod.DirectStream, item.effectivePlaybackMethod(PlaybackQuality.Auto))

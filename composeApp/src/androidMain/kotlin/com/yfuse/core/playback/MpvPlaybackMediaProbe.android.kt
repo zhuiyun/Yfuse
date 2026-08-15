@@ -197,11 +197,9 @@ internal class MpvPlaybackMediaProbe(
     private fun MPVLib.propertyString(name: String): String? =
         runCatching { getPropertyString(name) }.getOrNull()?.takeIf(String::isNotBlank)
 
-    private fun MPVLib.propertyInt(name: String): Int? =
-        runCatching { getPropertyInt(name) }.getOrNull()
+    private fun MPVLib.propertyInt(name: String): Int? = runCatching { getPropertyInt(name) }.getOrNull()
 
-    private fun MPVLib.propertyDouble(name: String): Double? =
-        runCatching { getPropertyDouble(name) }.getOrNull()
+    private fun MPVLib.propertyDouble(name: String): Double? = runCatching { getPropertyDouble(name) }.getOrNull()
 
     private fun failedResult(
         request: PlaybackProbeRequest,
@@ -225,8 +223,7 @@ private data class NativeTrack(
     val channels: Int?,
 )
 
-private fun elapsedSince(startedAtMs: Long): Long =
-    (SystemClock.elapsedRealtime() - startedAtMs).coerceAtLeast(0L)
+private fun elapsedSince(startedAtMs: Long): Long = (SystemClock.elapsedRealtime() - startedAtMs).coerceAtLeast(0L)
 
 private val STYLED_NATIVE_SUBTITLES =
     setOf("ass", "ssa", "hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle")

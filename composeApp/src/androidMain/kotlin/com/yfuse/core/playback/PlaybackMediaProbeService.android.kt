@@ -31,6 +31,7 @@ private class AndroidPlaybackMediaProbeService(
     private val context: Context,
 ) : PlaybackMediaProbeService {
     private val nativeProbe = MpvPlaybackMediaProbe(context)
+
     // An ordinary map plus explicit eviction avoids a Kotlin 2.1 KMP actualization compiler bug
     // triggered by anonymous Java collection subclasses.
     private val cache =
