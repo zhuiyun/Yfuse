@@ -88,7 +88,6 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.launch
-import com.yfuse.core.designsystem.flatGlass as glass
 
 /** Mirrors the minimum the repository and the account service both enforce. */
 private const val MIN_PASSWORD_LENGTH = 8

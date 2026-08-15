@@ -179,13 +179,15 @@ fun Modifier.backdropBlur(
     val blurEffect = remember(radiusPx) { BlurEffect(radiusPx, radiusPx) }
     // The saturation is a property of the material, not of this surface, so it is built once
     // rather than per frame.
-    val vibrancy = remember(saturation) {
-        Paint().apply {
-            colorFilter = ColorFilter.colorMatrix(
-                ColorMatrix().apply { setToSaturation(saturation) },
-            )
+    val vibrancy =
+        remember(saturation) {
+            Paint().apply {
+                colorFilter =
+                    ColorFilter.colorMatrix(
+                        ColorMatrix().apply { setToSaturation(saturation) },
+                    )
+            }
         }
-    }
     var origin by remember { mutableStateOf(Offset.Zero) }
     if (!state.enabled) return this
     return this
