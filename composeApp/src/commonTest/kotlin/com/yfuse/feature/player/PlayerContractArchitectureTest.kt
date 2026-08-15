@@ -39,7 +39,8 @@ class PlayerContractArchitectureTest {
         assertFalse("import android." in planner)
         assertFalse("import androidx.compose." in planner)
         assertFalse("import io.ktor." in planner)
-        assertTrue("recoveryPlan.engineOrder.firstOrNull" in root)
+        assertTrue("recoveryPlan.engineOrder" in root)
+        assertTrue(".firstOrNull { backendFallbackEligible && it !in triedEngines }" in root)
         assertFalse("PlayerEngine.selectable.firstOrNull { it !in triedEngines }" in root)
     }
 
