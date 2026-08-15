@@ -39,6 +39,18 @@ class PlayerPopupRoutingContractTest {
         assertTrue("将当前时间标记为片尾开始" in panel)
     }
 
+    @Test
+    fun function_popups_keep_the_picture_visible() {
+        val panel = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerPanel.kt").readText()
+
+        assertTrue("PlayerPopupWidth = 320.dp" in panel)
+        assertTrue("PlayerPopupCompactMinHeight = 124.dp" in panel)
+        assertTrue("PlayerPopupMaxHeight = 308.dp" in panel)
+        assertTrue("copy(alpha = 0.86f)" in panel)
+        assertFalse("PlayerPopupWidth = 378.dp" in panel)
+        assertFalse("max = if (compact) 310.dp else 390.dp" in panel)
+    }
+
     private fun projectFile(moduleRelativePath: String): File =
         sequenceOf(
             File(moduleRelativePath),

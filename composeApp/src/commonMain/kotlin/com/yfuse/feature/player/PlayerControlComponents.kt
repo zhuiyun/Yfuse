@@ -228,15 +228,15 @@ internal fun PopupMenuRow(
         Modifier
             .fillMaxWidth()
             .noRippleClickable(onClick)
-            .padding(horizontal = 5.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(13.dp),
+            .padding(horizontal = 4.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = if (selected) accent.accent else Color.White.copy(alpha = 0.86f),
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier.size(21.dp),
         )
         Column(Modifier.weight(1f)) {
             Text(
