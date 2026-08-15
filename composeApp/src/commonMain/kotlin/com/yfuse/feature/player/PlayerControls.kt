@@ -178,7 +178,8 @@ internal fun PlayerControls(
 ) {
     var visible by remember { mutableStateOf(true) }
     var locked by remember { mutableStateOf(false) }
-    var settingsTab by remember { mutableStateOf<Tab?>(null) }
+    var settingsPanelKind by remember { mutableStateOf<SettingsPanelKind?>(null) }
+    var trackPanelMode by remember { mutableStateOf(TrackPanelMode.Subtitle) }
     var quickPopup by remember { mutableStateOf<QuickPopup?>(null) }
     var drawerOpen by remember { mutableStateOf(false) }
     var gestureHelpOpen by remember { mutableStateOf(false) }
@@ -263,7 +264,7 @@ internal fun PlayerControls(
     }
 
     fun openWatchChat() {
-        settingsTab = null
+        settingsPanelKind = null
         quickPopup = null
         drawerOpen = false
         danmakuSearchOpen = false
@@ -275,19 +276,23 @@ internal fun PlayerControls(
         poke()
     }
 
-    fun openSettings(tab: Tab) {
+    fun openSettingsPanel(
+        kind: SettingsPanelKind,
+        trackMode: TrackPanelMode = TrackPanelMode.Subtitle,
+    ) {
         quickPopup = null
         drawerOpen = false
         watchChatOpen = false
         danmakuSearchOpen = false
         danmakuSendOpen = false
         watchDialogOpen = false
-        settingsTab = tab
+        trackPanelMode = trackMode
+        settingsPanelKind = kind
         poke()
     }
 
     fun openQuickPopup(popup: QuickPopup) {
-        settingsTab = null
+        settingsPanelKind = null
         drawerOpen = false
         watchChatOpen = false
         danmakuSearchOpen = false
@@ -298,7 +303,7 @@ internal fun PlayerControls(
     }
 
     fun openEpisodeDrawer() {
-        settingsTab = null
+        settingsPanelKind = null
         quickPopup = null
         watchChatOpen = false
         danmakuSearchOpen = false
@@ -322,7 +327,7 @@ internal fun PlayerControls(
     LaunchedEffect(
         visible,
         locked,
-        settingsTab,
+        settingsPanelKind,
         quickPopup,
         drawerOpen,
         danmakuSearchOpen,
@@ -335,7 +340,7 @@ internal fun PlayerControls(
     ) {
         val overlayOpen =
             gestureHelpOpen ||
-                settingsTab != null ||
+                settingsPanelKind != null ||
                 quickPopup != null ||
                 drawerOpen ||
                 danmakuSearchOpen ||
@@ -497,7 +502,7 @@ internal fun PlayerControls(
         Box(
             Modifier
                 .fillMaxSize()
-                // Keyed on nothing: `settingsTab`, `drawerOpen` and `visible` are read
+                // Keyed on nothing: `settingsPanelKind`, `drawerOpen` and `visible` are read
                 // through their state delegates below, so the detector already sees the
                 // current values without being torn down. Keying on them meant any of
                 // them changing restarted the gesture stream mid-press — which the hold
@@ -523,7 +528,7 @@ internal fun PlayerControls(
                                 danmakuSendOpen -> danmakuSendOpen = false
                                 danmakuSearchOpen -> danmakuSearchOpen = false
                                 quickPopup != null -> quickPopup = null
-                                settingsTab != null -> settingsTab = null
+                                settingsPanelKind != null -> settingsPanelKind = null
                                 drawerOpen -> drawerOpen = false
                                 visible -> visible = false
                                 else -> poke()
@@ -728,12 +733,19 @@ internal fun PlayerControls(
                 },
                 onScrub = { interactions++ },
                 trickplay = trickplay,
-                onOpenTab = ::openSettings,
                 hasMultipleSources = sourceOptions.size > 1,
                 onOpenSources = { openQuickPopup(QuickPopup.Source) },
+                onOpenSubtitles = {
+                    openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
+                },
+                onOpenAudio = {
+                    openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
+                },
                 onOpenSpeed = { openQuickPopup(QuickPopup.Speed) },
                 danmakuEnabled = danmaku.enabled,
-                onOpenDanmaku = { openSettings(Tab.Danmaku) },
+                onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
+                onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
+                onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
             )
         }
 
@@ -784,18 +796,21 @@ internal fun PlayerControls(
                 )
         }
 
-        settingsTab?.let { tab ->
+        // Every playback function popup uses the same bottom-right anchor. Content may be
+        // shorter or taller, but switching buttons never makes the surface jump position.
+        val functionPopupModifier =
+            Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 18.dp, bottom = 70.dp)
+
+        settingsPanelKind?.let { kind ->
             BackOverlay(
-                onBack = { settingsTab = null },
+                onBack = { settingsPanelKind = null },
             ) {
                 SettingsPanel(
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 18.dp, bottom = 70.dp),
-                    tab = tab,
+                    modifier = functionPopupModifier,
+                    kind = kind,
                     state = state,
-                    speeds = SPEEDS,
                     engineOptions = engineOptions,
                     qualityOptions = qualityOptions,
                     transcodeLabel = transcodeLabel,
@@ -810,18 +825,17 @@ internal fun PlayerControls(
                     danmaku = danmaku,
                     danmakuActions = danmakuActions,
                     onOpenDanmakuSearch = {
-                        settingsTab = null
+                        settingsPanelKind = null
                         danmakuActions.onOpenSearch()
                         danmakuSearchOpen = true
                     },
                     onOpenDanmakuSend = {
-                        settingsTab = null
+                        settingsPanelKind = null
                         danmakuSendOpen = true
                     },
-                    onTab = { settingsTab = it },
                     onSelectSubtitle = {
                         onSelectSubtitle(it)
-                        settingsTab = null
+                        settingsPanelKind = null
                     },
                     subtitleControls = subtitleControls,
                     subtitleActions = subtitleActions,
@@ -829,72 +843,57 @@ internal fun PlayerControls(
                     remoteSubtitleActions = remoteSubtitleActions,
                     onSelectAudio = {
                         onSelectAudio(it)
-                        settingsTab = null
-                    },
-                    onSpeed = {
-                        onSpeed(it)
-                        settingsTab = null
+                        settingsPanelKind = null
                     },
                     sleepTimer = sleepTimer,
                     sleepTimerActions = sleepTimerActions,
-                    filled = filled,
-                    onToggleFill = onToggleFill,
                     onSelectEngine = {
                         onSelectEngine(it)
-                        settingsTab = null
+                        settingsPanelKind = null
                     },
                     onSelectQuality = {
                         onSelectQuality(it)
-                        settingsTab = null
+                        settingsPanelKind = null
                     },
                     onTranscode = {
                         onTranscode()
-                        settingsTab = null
+                        settingsPanelKind = null
                     },
                     onDiscoverCast = onDiscoverCast,
                     onCastTo = onCastTo,
                     onStopCast = onStopCast,
                     onLock = {
-                        settingsTab = null
+                        settingsPanelKind = null
                         locked = true
                         visible = true
                     },
                     onOpenGestureHelp = {
-                        settingsTab = null
+                        settingsPanelKind = null
                         gestureHelpOpen = true
                     },
                     watch = watch,
                     onOpenWatchTogether = {
-                        settingsTab = null
+                        settingsPanelKind = null
                         watchDialogOpen = true
-                    },
-                    sourceOptions = sourceOptions,
-                    selectedSourceId = selectedSourceId,
-                    onSelectSource = {
-                        onSelectSource(it)
-                        settingsTab = null
                     },
                     versions = versions,
                     selectedVersionId = selectedVersionId,
                     onSelectVersion = {
                         onSelectVersion(it)
-                        settingsTab = null
+                        settingsPanelKind = null
                     },
                     skip = skip,
                     // The panel stays open: setting a boundary is something you check against
                     // the picture behind it, and often two of the three in one visit.
                     skipActions = skipActions,
-                    onDismiss = { settingsTab = null },
+                    trackPanelMode = trackPanelMode,
+                    onDismiss = { settingsPanelKind = null },
                 )
             }
         }
 
         quickPopup?.let { popup ->
             BackOverlay(onBack = { quickPopup = null }) {
-                val popupModifier =
-                    Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 18.dp, bottom = 70.dp)
                 when (popup) {
                     QuickPopup.Source ->
                         SourcePickerPopup(
@@ -905,7 +904,7 @@ internal fun PlayerControls(
                                 quickPopup = null
                             },
                             onDismiss = { quickPopup = null },
-                            modifier = popupModifier,
+                            modifier = functionPopupModifier,
                         )
 
                     QuickPopup.Speed ->
@@ -917,7 +916,7 @@ internal fun PlayerControls(
                                 quickPopup = null
                             },
                             onDismiss = { quickPopup = null },
-                            modifier = popupModifier,
+                            modifier = functionPopupModifier,
                         )
                 }
             }

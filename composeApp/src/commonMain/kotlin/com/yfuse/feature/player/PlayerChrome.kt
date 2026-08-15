@@ -499,12 +499,15 @@ internal fun BottomBar(
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
     trickplay: TrickplayStoryboard?,
-    onOpenTab: (Tab) -> Unit,
     hasMultipleSources: Boolean,
     onOpenSources: () -> Unit,
+    onOpenSubtitles: () -> Unit,
+    onOpenAudio: () -> Unit,
     onOpenSpeed: () -> Unit,
     danmakuEnabled: Boolean,
     onOpenDanmaku: () -> Unit,
+    onOpenCast: () -> Unit,
+    onOpenMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Non-null only while the thumb is held; the engine's position is ignored then
@@ -632,10 +635,17 @@ internal fun BottomBar(
                 )
                 CircleControl(
                     AppIcons.Subtitle,
-                    "字幕与音轨",
+                    "字幕",
                     26.dp,
                     12.dp,
-                    onClick = { onOpenTab(Tab.Tracks) },
+                    onClick = onOpenSubtitles,
+                )
+                CircleControl(
+                    AppIcons.Volume,
+                    "音轨",
+                    26.dp,
+                    12.dp,
+                    onClick = onOpenAudio,
                 )
                 SpeedControl(
                     speed = state.speed,
@@ -646,14 +656,14 @@ internal fun BottomBar(
                     "投屏",
                     26.dp,
                     12.dp,
-                    onClick = { onOpenTab(Tab.Cast) },
+                    onClick = onOpenCast,
                 )
                 CircleControl(
                     AppIcons.More,
                     "更多",
                     26.dp,
                     12.dp,
-                    onClick = { onOpenTab(Tab.Advanced) },
+                    onClick = onOpenMore,
                 )
             }
         }
