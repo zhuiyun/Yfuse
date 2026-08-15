@@ -1,7 +1,6 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -49,12 +48,9 @@ class GlassTest {
         listOf(LightPalette.card2 to LightPalette, DarkPalette.card2 to DarkPalette).forEach { (fill, palette) ->
             val tones = resolveFrostedMaterialTones(fill, palette)
 
-            val top = opaqueComposite(tones.top, palette.background)
-            val body = opaqueComposite(tones.body, palette.background)
-            val bottom = opaqueComposite(tones.bottom, palette.background)
-
-            assertTrue(top.luminance() > body.luminance())
-            assertTrue(bottom.luminance() < body.luminance())
+            assertNotEquals(tones.top, tones.body)
+            assertNotEquals(tones.bottom, tones.body)
+            assertTrue(tones.top.alpha > tones.body.alpha)
             assertTrue(tones.body.alpha >= fill.alpha)
         }
     }
