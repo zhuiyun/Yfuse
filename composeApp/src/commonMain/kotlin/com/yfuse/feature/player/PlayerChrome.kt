@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -693,14 +694,14 @@ private fun RollingTimeText(timeMs: Long) {
             val duration = if (reduceMotion) 0 else Motion.QUICK
             val enter =
                 if (reduceMotion) {
-                    fadeIn(tween(0))
+                    fadeIn(snap())
                 } else {
                     fadeIn(tween(duration, easing = Motion.Curve)) +
                         slideInVertically(tween(duration, easing = Motion.Curve)) { it / 2 }
                 }
             val exit =
                 if (reduceMotion) {
-                    fadeOut(tween(0))
+                    fadeOut(snap())
                 } else {
                     fadeOut(tween(duration, easing = Motion.Curve)) +
                         slideOutVertically(tween(duration, easing = Motion.Curve)) { -it / 2 }
