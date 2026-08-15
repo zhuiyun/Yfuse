@@ -89,6 +89,7 @@ import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.backdropSource
+import com.yfuse.core.designsystem.frostedGlass
 import com.yfuse.core.designsystem.overlayGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberBackdropState
@@ -827,6 +828,7 @@ private fun CollapsedNavButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val frosted = frostedGlass()
     val item = tabs.firstOrNull { it.tab == active } ?: tabs.first()
     Box(
         Modifier
@@ -843,7 +845,15 @@ private fun CollapsedNavButton(
             .backdropBlur(backdrop, CircleShape)
             .overlayGlass(
                 CircleShape,
-                palette.glassStrong.copy(alpha = if (palette.isDark) 0.86f else 0.92f),
+                palette.glassStrong.copy(
+                    alpha =
+                        when {
+                            frosted && palette.isDark -> 0.68f
+                            frosted -> 0.58f
+                            palette.isDark -> 0.86f
+                            else -> 0.92f
+                        },
+                ),
                 palette.tabbarBorder,
             ),
         contentAlignment = Alignment.Center,
@@ -868,6 +878,7 @@ private fun SearchButton(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val frosted = frostedGlass()
     val tint by animateColorAsState(
         targetValue = if (selected) accent.accent else palette.sub2,
         animationSpec = Motion.settle<Color>(reduceMotion),
@@ -890,7 +901,15 @@ private fun SearchButton(
                 if (selected) {
                     accent.container
                 } else {
-                    palette.glassStrong.copy(alpha = if (palette.isDark) 0.86f else 0.92f)
+                    palette.glassStrong.copy(
+                        alpha =
+                            when {
+                                frosted && palette.isDark -> 0.68f
+                                frosted -> 0.58f
+                                palette.isDark -> 0.86f
+                                else -> 0.92f
+                            },
+                    )
                 },
                 if (selected) accent.border else palette.tabbarBorder,
             ),
@@ -922,6 +941,7 @@ private fun GlassTabBar(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val frosted = frostedGlass()
     // -1 while 搜索 is open: it is not one of the cells any more, so the pill has nowhere to
     // be and is not drawn rather than parking under 首页 and claiming the user is there.
     val selectedIndex = tabs.indexOfFirst { it.tab == active }
@@ -929,7 +949,16 @@ private fun GlassTabBar(
     // Reference-style shell: almost-opaque light glass with a quiet neutral selected island.
     // The accent stays on the icon/label so theme colours remain expressive without tinting
     // the whole selected cell. Dark mode keeps the same hierarchy with a stronger dark glass.
-    val barFill = palette.glassStrong.copy(alpha = if (palette.isDark) 0.86f else 0.92f)
+    val barFill =
+        palette.glassStrong.copy(
+            alpha =
+                when {
+                    frosted && palette.isDark -> 0.68f
+                    frosted -> 0.58f
+                    palette.isDark -> 0.86f
+                    else -> 0.92f
+                },
+        )
     val selectionFill = accent.container.copy(alpha = if (palette.isDark) 0.46f else 0.72f)
     // The pill travels between cells rather than appearing under the new one. Tabs are
     // equal-weight quarters of the bar, so its position is the animated index and nothing
