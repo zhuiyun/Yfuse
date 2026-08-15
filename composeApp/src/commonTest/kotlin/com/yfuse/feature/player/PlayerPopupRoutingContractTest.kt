@@ -13,6 +13,7 @@ class PlayerPopupRoutingContractTest {
 
         assertTrue("onOpenSubtitles" in chrome)
         assertTrue("onOpenAudio" in chrome)
+        assertTrue("onOpenSkipSettings" in chrome)
         assertTrue("onOpenCast" in chrome)
         assertTrue("onOpenMore" in chrome)
         assertFalse("字幕与音轨" in chrome)
@@ -20,8 +21,22 @@ class PlayerPopupRoutingContractTest {
 
         assertTrue("TrackPanelMode.Subtitle" in controls)
         assertTrue("TrackPanelMode.Audio" in controls)
+        assertTrue("SettingsPanelKind.Skip" in controls)
         assertFalse("onTab =" in controls)
         assertTrue(controls.split("modifier = functionPopupModifier").size - 1 == 3)
+    }
+
+    @Test
+    fun skip_is_not_nested_in_more_and_time_uses_odometer_transition() {
+        val chrome = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerChrome.kt").readText()
+        val panel = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt").readText()
+
+        assertTrue("RollingTimeText(shownPosition)" in chrome)
+        assertTrue("player-time-marquee" in chrome)
+        assertTrue("SettingsPanelKind.Skip ->" in panel)
+        assertFalse("AdvancedPage.Skip" in panel)
+        assertTrue("将当前时间标记为片头结束" in panel)
+        assertTrue("将当前时间标记为片尾开始" in panel)
     }
 
     private fun projectFile(moduleRelativePath: String): File =

@@ -26,7 +26,7 @@ import com.yfuse.core.designsystem.shadow
 internal val PlayerPanelWidth = 340.dp
 
 /** Compact floating settings popover. Search, chat, and episode lists keep their drawers. */
-internal val PlayerPopupWidth = 420.dp
+internal val PlayerPopupWidth = 378.dp
 
 /** Rounded on the leading edge only; the panel is attached to the screen's right edge. */
 internal val PlayerPanelShape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp)
@@ -95,8 +95,10 @@ internal fun PlayerPopupPanel(
     Column(
         modifier
             .width(PlayerPopupWidth)
-            .heightIn(max = if (compact) 210.dp else 470.dp)
-            .shadow(Shadows.playerSheet, AppShapes.sheet)
+            .heightIn(
+                min = if (compact) 250.dp else 280.dp,
+                max = if (compact) 310.dp else 390.dp,
+            ).shadow(Shadows.playerSheet, AppShapes.sheet)
             .glass(
                 shape = AppShapes.sheet,
                 fill = PlayerTokens.drawerFillLandscape.copy(alpha = 0.94f),

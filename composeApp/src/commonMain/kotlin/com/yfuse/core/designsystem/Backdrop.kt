@@ -43,7 +43,7 @@ expect val supportsBackdropBlur: Boolean
 val BackdropBlurRadius: Dp = 20.dp
 
 /** 毛玻璃 diffuses detail further than the clearer liquid material. */
-val FrostedBackdropBlurRadius: Dp = 30.dp
+val FrostedBackdropBlurRadius: Dp = 24.dp
 
 /**
  * Vibrancy paired with the blur. Liquid glass keeps more of the source colour; 毛玻璃 uses
@@ -57,7 +57,7 @@ val FrostedBackdropBlurRadius: Dp = 30.dp
  * *made of* the content underneath instead of merely covering it.
  */
 private const val LIQUID_BACKDROP_SATURATION = 1.55f
-private const val FROSTED_BACKDROP_SATURATION = 1.12f
+private const val FROSTED_BACKDROP_SATURATION = 1.04f
 
 /**
  * The page content, captured so the floating chrome above it can blur what it covers.
