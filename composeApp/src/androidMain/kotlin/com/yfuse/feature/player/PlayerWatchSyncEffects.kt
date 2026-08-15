@@ -43,7 +43,9 @@ internal fun PlayerWatchSyncEffects(
     val latestRemotePlayRequested by rememberUpdatedState(onRemotePlayRequested)
     val mediaMatcher =
         remember(watchTogether) {
-            WatchMediaMatcher { warning -> watchTogether.setSyncWarning(warning) }
+            WatchMediaMatcher(
+                onWarning = { warning -> watchTogether.setSyncWarning(warning) },
+            )
         }
 
     // The room timeline is server-authoritative and mostly silent between events, so guests
