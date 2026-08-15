@@ -49,8 +49,12 @@ class GlassTest {
         listOf(LightPalette.card2 to LightPalette, DarkPalette.card2 to DarkPalette).forEach { (fill, palette) ->
             val tones = resolveFrostedMaterialTones(fill, palette)
 
-            assertTrue(tones.top.luminance() > tones.body.luminance())
-            assertTrue(tones.bottom.luminance() < tones.body.luminance())
+            val top = opaqueComposite(tones.top, palette.background)
+            val body = opaqueComposite(tones.body, palette.background)
+            val bottom = opaqueComposite(tones.bottom, palette.background)
+
+            assertTrue(top.luminance() > body.luminance())
+            assertTrue(bottom.luminance() < body.luminance())
             assertTrue(tones.body.alpha >= fill.alpha)
         }
     }
