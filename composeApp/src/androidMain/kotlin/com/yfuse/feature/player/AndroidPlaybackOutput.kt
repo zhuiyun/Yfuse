@@ -209,6 +209,7 @@ internal fun playbackOutputDiagnosticLabel(
         is PlaybackOutputStatus.Unsupported -> "当前平台不支持"
     }
 
+@UnstableApi
 internal fun exoAudioEncodingLabel(encoding: Int): String =
     when (encoding) {
         C.ENCODING_AC3 -> "Dolby Digital"
