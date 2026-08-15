@@ -1,6 +1,13 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -36,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -54,6 +62,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -504,6 +513,8 @@ internal fun BottomBar(
     onOpenSubtitles: () -> Unit,
     onOpenAudio: () -> Unit,
     onOpenSpeed: () -> Unit,
+    skipSettingsAvailable: Boolean,
+    onOpenSkipSettings: () -> Unit,
     danmakuEnabled: Boolean,
     onOpenDanmaku: () -> Unit,
     onOpenCast: () -> Unit,
@@ -532,7 +543,7 @@ internal fun BottomBar(
                     0f to Color.Black.copy(alpha = 0.55f),
                     1f to Color.Transparent,
                 ),
-            ).padding(start = 22.dp, end = 22.dp, top = 14.dp, bottom = 16.dp),
+            ).padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
     ) {
         if (scrubbed != null && trickplay != null) {
             TrickplayPreview(
@@ -549,11 +560,7 @@ internal fun BottomBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                formatTime(shownPosition),
-                style = AppTypography.caption.regular,
-                color = PlayerTokens.timeTextLandscape,
-            )
+            RollingTimeText(shownPosition)
             SeekBar(
                 fraction = fraction,
                 bufferedFraction = bufferedFraction,
@@ -571,11 +578,7 @@ internal fun BottomBar(
                 onCancel = { scrubbed = null },
                 modifier = Modifier.weight(1f),
             )
-            Text(
-                formatTime(state.durationMs),
-                style = AppTypography.caption.regular,
-                color = PlayerTokens.timeTextLandscape,
-            )
+            RollingTimeText(state.durationMs)
         }
 
         if (skipCountdownLabel != null) {
@@ -587,7 +590,7 @@ internal fun BottomBar(
             )
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(4.dp))
 
         Row(
             Modifier.fillMaxWidth(),
@@ -651,6 +654,15 @@ internal fun BottomBar(
                     speed = state.speed,
                     onClick = onOpenSpeed,
                 )
+                if (skipSettingsAvailable) {
+                    CircleControl(
+                        AppIcons.Bookmark,
+                        "标记片头片尾",
+                        26.dp,
+                        12.dp,
+                        onClick = onOpenSkipSettings,
+                    )
+                }
                 CircleControl(
                     AppIcons.Cast,
                     "投屏",
@@ -667,6 +679,44 @@ internal fun BottomBar(
                 )
             }
         }
+    }
+}
+
+/** A compact odometer transition keeps changing timestamps legible without moving the row. */
+@Composable
+private fun RollingTimeText(timeMs: Long) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val wholeSeconds = (timeMs.coerceAtLeast(0L) / 1000L)
+    AnimatedContent(
+        targetState = wholeSeconds,
+        transitionSpec = {
+            val duration = if (reduceMotion) 0 else Motion.QUICK
+            val enter =
+                if (reduceMotion) {
+                    fadeIn(tween(0))
+                } else {
+                    fadeIn(tween(duration, easing = Motion.Curve)) +
+                        slideInVertically(tween(duration, easing = Motion.Curve)) { it / 2 }
+                }
+            val exit =
+                if (reduceMotion) {
+                    fadeOut(tween(0))
+                } else {
+                    fadeOut(tween(duration, easing = Motion.Curve)) +
+                        slideOutVertically(tween(duration, easing = Motion.Curve)) { -it / 2 }
+                }
+            enter togetherWith exit
+        },
+        modifier = Modifier.widthIn(min = 44.dp).clipToBounds(),
+        label = "player-time-marquee",
+    ) { seconds ->
+        Text(
+            formatTime(seconds * 1000L),
+            style = AppTypography.caption.regular,
+            color = PlayerTokens.timeTextLandscape,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
