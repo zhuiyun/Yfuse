@@ -1,14 +1,11 @@
 package com.yfuse.feature.player
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -33,22 +30,25 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 
 /**
- * The player's settings panel and the tabs inside it.
+ * Single-purpose playback popups. The playback page chooses one kind per button; there is
+ * deliberately no tab strip that can turn the popup back into a combined settings drawer.
  *
  * Split out of `PlayerControls` because it is a different kind of thing: the controls are a
  * layer over the picture that has to stay out of the way, this is a list of choices that
  * only exists once someone has asked for it. Nothing here runs while the film plays.
  */
 
-internal enum class Tab(
-    val label: String,
-) {
-    Playback("播放"),
-    Tracks("音轨"),
-    Picture("画面"),
-    Danmaku("弹幕"),
-    Cast("投屏"),
-    Advanced("高级"),
+internal enum class SettingsPanelKind {
+    Tracks,
+    Danmaku,
+    Cast,
+    More,
+}
+
+/** The playback page exposes subtitle and audio as two independent controls. */
+internal enum class TrackPanelMode {
+    Subtitle,
+    Audio,
 }
 
 private enum class AdvancedPage {
@@ -61,9 +61,8 @@ private enum class AdvancedPage {
 /** Compact function popup; long choices scroll inside without turning into a screen drawer. */
 @Composable
 internal fun SettingsPanel(
-    tab: Tab,
+    kind: SettingsPanelKind,
     state: PlaybackState,
-    speeds: List<Float>,
     engineOptions: List<Pair<String, Boolean>>,
     qualityOptions: List<Pair<String, Boolean>>,
     transcodeLabel: String?,
@@ -79,18 +78,14 @@ internal fun SettingsPanel(
     danmakuActions: DanmakuPanelActions,
     onOpenDanmakuSearch: () -> Unit,
     onOpenDanmakuSend: () -> Unit,
-    onTab: (Tab) -> Unit,
     onSelectSubtitle: (String) -> Unit,
     subtitleControls: SubtitleControlState,
     subtitleActions: SubtitleControlActions,
     remoteSubtitles: RemoteSubtitlePanelState,
     remoteSubtitleActions: RemoteSubtitleActions,
     onSelectAudio: (String) -> Unit,
-    onSpeed: (Float) -> Unit,
     sleepTimer: SleepTimerState,
     sleepTimerActions: SleepTimerActions,
-    filled: Boolean,
-    onToggleFill: () -> Unit,
     onSelectEngine: (Int) -> Unit,
     onSelectQuality: (Int) -> Unit,
     onTranscode: () -> Unit,
@@ -101,108 +96,28 @@ internal fun SettingsPanel(
     onOpenGestureHelp: () -> Unit,
     watch: WatchRoomState,
     onOpenWatchTogether: () -> Unit,
-    sourceOptions: List<Pair<String, String>>,
-    selectedSourceId: String?,
-    onSelectSource: (String) -> Unit,
     versions: List<Pair<String, String>>,
     selectedVersionId: String?,
     onSelectVersion: (String) -> Unit,
     skip: SkipSegmentState,
     skipActions: SkipSegmentActions,
+    trackPanelMode: TrackPanelMode = TrackPanelMode.Subtitle,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var sourcePickerOpen by remember { mutableStateOf(false) }
-    var advancedPage by remember(tab) { mutableStateOf(AdvancedPage.Root) }
-    val tabs =
-        buildList {
-            add(Tab.Playback)
-            // Keep the subtitle entry reachable even when the current file has no embedded
-            // track: online/third-party search is the recovery path in exactly that state.
-            add(Tab.Tracks)
-            add(Tab.Picture)
-            add(Tab.Danmaku)
-            add(Tab.Cast)
-            add(Tab.Advanced)
-        }
-    if (sourcePickerOpen) {
-        SourcePickerPopup(
-            options = sourceOptions,
-            selectedId = selectedSourceId,
-            onSelect = onSelectSource,
-            onDismiss = { sourcePickerOpen = false },
-            modifier = modifier,
-        )
-        return
-    }
+    var advancedPage by remember(kind) { mutableStateOf(AdvancedPage.Root) }
 
     PlayerPopupPanel(onDismiss = onDismiss, modifier = modifier) {
-        // One quiet capsule replaces six unrelated icon buttons. Text is clearer here and
-        // avoids making settings glyphs compete with the transport controls behind them.
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .glass(
-                    shape = AppShapes.pill,
-                    fill = Color.White.copy(alpha = 0.06f),
-                    border = Color.White.copy(alpha = 0.10f),
-                ).padding(3.dp),
-        ) {
-            tabs.forEach { entry ->
-                val active = entry == tab
-                Text(
-                    entry.label,
-                    style = if (active) AppTypography.body.strong else AppTypography.body.medium,
-                    color =
-                        if (active) {
-                            Color.White
-                        } else {
-                            Color.White.copy(alpha = 0.58f)
-                        },
-                    maxLines = 1,
-                    modifier =
-                        Modifier
-                            .widthIn(min = 60.dp)
-                            .glass(
-                                shape = AppShapes.pill,
-                                fill =
-                                    if (active) {
-                                        Color.White.copy(alpha = 0.18f)
-                                    } else {
-                                        Color.Transparent
-                                    },
-                                border =
-                                    if (active) {
-                                        Color.White.copy(alpha = 0.26f)
-                                    } else {
-                                        null
-                                    },
-                            ).noRippleClickable { onTab(entry) }
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .padding(top = 9.dp)
-                .height(1.dp)
-                .background(Color.White.copy(alpha = 0.10f)),
-        )
-
         // The list takes whatever height the drawer has left instead of the old fixed
         // 210dp window, which scrolled a short slot inside a mostly empty screen.
         Column(
             Modifier
                 .weight(1f, fill = false)
-                .verticalScroll(rememberScrollState())
-                .padding(top = 10.dp),
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            when (tab) {
-                Tab.Danmaku ->
+            when (kind) {
+                SettingsPanelKind.Danmaku ->
                     DanmakuTab(
                         state = danmaku,
                         actions = danmakuActions,
@@ -210,8 +125,11 @@ internal fun SettingsPanel(
                         onOpenSend = onOpenDanmakuSend,
                     )
 
-                Tab.Tracks -> {
-                    if (state.subtitleTracks.isNotEmpty()) {
+                SettingsPanelKind.Tracks -> {
+                    if (
+                        trackPanelMode == TrackPanelMode.Subtitle &&
+                        state.subtitleTracks.isNotEmpty()
+                    ) {
                         GroupLabel("主字幕")
                         OptionRow(
                             "关闭",
@@ -275,119 +193,96 @@ internal fun SettingsPanel(
                                     onClick = { subtitleActions.onBrightness(brightness) },
                                 )
                             }
-                    } else {
+                    } else if (trackPanelMode == TrackPanelMode.Subtitle) {
                         Text(
                             "当前版本没有可用字幕，可继续搜索第三方字幕。",
                             style = AppTypography.caption.medium,
                             color = Color.White.copy(alpha = 0.68f),
                         )
                     }
-                    GroupLabel("第三方字幕")
-                    OptionRow(
-                        if (remoteSubtitles.loading) "正在搜索中文字幕…" else "搜索中文字幕",
-                        false,
-                        onClick = remoteSubtitleActions.onSearch,
-                    )
-                    remoteSubtitles.results.forEach { result ->
+                    if (trackPanelMode == TrackPanelMode.Subtitle) {
+                        GroupLabel("第三方字幕")
                         OptionRow(
-                            label =
-                                listOf(result.label, result.detail)
-                                    .filter(String::isNotBlank)
-                                    .joinToString(" · "),
-                            selected = remoteSubtitles.downloadingId == result.id,
-                            onClick = { remoteSubtitleActions.onDownload(result.id) },
+                            if (remoteSubtitles.loading) "正在搜索中文字幕…" else "搜索中文字幕",
+                            false,
+                            onClick = remoteSubtitleActions.onSearch,
                         )
-                    }
-                    remoteSubtitles.message?.let { message ->
+                        remoteSubtitles.results.forEach { result ->
+                            OptionRow(
+                                label =
+                                    listOf(result.label, result.detail)
+                                        .filter(String::isNotBlank)
+                                        .joinToString(" · "),
+                                selected = remoteSubtitles.downloadingId == result.id,
+                                onClick = { remoteSubtitleActions.onDownload(result.id) },
+                            )
+                        }
+                        remoteSubtitles.message?.let { message ->
+                            Text(
+                                message,
+                                style = AppTypography.caption.medium,
+                                color = Color.White.copy(alpha = 0.68f),
+                            )
+                        }
+                    } else if (state.audioTracks.isNotEmpty()) {
+                        state.audioTracks.forEach { track ->
+                            OptionRow(
+                                track.label,
+                                track.selected,
+                                onClick = { onSelectAudio(track.id) },
+                            )
+                        }
+                    } else {
                         Text(
-                            message,
+                            "当前版本没有可切换的音轨。",
                             style = AppTypography.caption.medium,
                             color = Color.White.copy(alpha = 0.68f),
                         )
                     }
-                    if (state.audioTracks.isNotEmpty()) {
-                        GroupLabel("音轨")
-                        state.audioTracks.forEach { track ->
-                            OptionRow(track.label, track.selected, onClick = { onSelectAudio(track.id) })
-                        }
-                    }
                 }
 
-                Tab.Playback -> {
-                    // 剧集列表与画面比例都在顶栏有常驻圆钮，这里不再重复列一遍；
-                    // 只留顶栏没有的入口。
-                    GroupLabel("播放")
-                    OptionRow("锁定控制", false, onClick = onLock)
-                    OptionRow("手势说明", false, onClick = onOpenGestureHelp)
-                    if (watch.available || watch.connected) {
-                        OptionRow(
-                            if (watch.connected) {
-                                "一起看 · ${watch.roomCode.orEmpty()}"
-                            } else {
-                                "一起看"
-                            },
-                            watch.connected,
-                            onClick = onOpenWatchTogether,
-                        )
-                    }
-
-                    if (sourceOptions.size > 1) {
-                        OptionRow(
-                            label = "播放服务器",
-                            selected = false,
-                            onClick = { sourcePickerOpen = true },
-                            detailLabel =
-                                sourceOptions
-                                    .firstOrNull { it.first == selectedSourceId }
-                                    ?.second
-                                    ?: "${sourceOptions.size} 个可用",
-                        )
-                    }
-
-                    // A single file is not a choice, so the group only appears once
-                    // the library actually holds more than one copy of this title.
-                    if (versions.size > 1) {
-                        GroupLabel("版本")
-                        versions.forEach { (id, label) ->
-                            OptionRow(label, id == selectedVersionId, onClick = { onSelectVersion(id) })
-                        }
-                    }
-
-                    GroupLabel("播放速度")
-                    CompactChoiceGrid(
-                        options = speeds.map(::speedLabel),
-                        selectedIndex = speeds.indexOf(state.speed),
-                        columns = 4,
-                        onSelect = { onSpeed(speeds[it]) },
-                    )
-
-                    GroupLabel("睡眠定时")
-                    SleepTimerOption.entries.forEach { option ->
-                        OptionRow(
-                            option.label,
-                            sleepTimer.selected == option,
-                            onClick = { sleepTimerActions.onSelect(option) },
-                        )
-                    }
-
-                    if (qualityOptions.isNotEmpty()) {
-                        GroupLabel("播放画质")
-                        qualityOptions.forEachIndexed { index, (label, selected) ->
-                            OptionRow(label, selected, onClick = { onSelectQuality(index) })
-                        }
-                        Text(
-                            "4K / 1080P / 720P / 480P 会请求服务器按该上限转码；" +
-                                "原画与自动优先采用服务器协商的直放。",
-                            style = AppTypography.caption.medium,
-                            color = Color.White.copy(alpha = 0.62f),
-                        )
-                    }
-                }
-
-                Tab.Advanced -> {
+                SettingsPanelKind.More -> {
                     val diagnostics = state.diagnostics
                     when (advancedPage) {
                         AdvancedPage.Root -> {
+                            GroupLabel("播放控制")
+                            OptionRow("锁定控制", false, onClick = onLock)
+                            OptionRow("手势说明", false, onClick = onOpenGestureHelp)
+                            if (watch.available || watch.connected) {
+                                OptionRow(
+                                    if (watch.connected) {
+                                        "一起看 · ${watch.roomCode.orEmpty()}"
+                                    } else {
+                                        "一起看"
+                                    },
+                                    watch.connected,
+                                    onClick = onOpenWatchTogether,
+                                )
+                            }
+                            if (versions.size > 1) {
+                                GroupLabel("播放版本")
+                                versions.forEach { (id, label) ->
+                                    OptionRow(
+                                        label,
+                                        id == selectedVersionId,
+                                        onClick = { onSelectVersion(id) },
+                                    )
+                                }
+                            }
+                            GroupLabel("睡眠定时")
+                            SleepTimerOption.entries.forEach { option ->
+                                OptionRow(
+                                    option.label,
+                                    sleepTimer.selected == option,
+                                    onClick = { sleepTimerActions.onSelect(option) },
+                                )
+                            }
+                            if (qualityOptions.isNotEmpty()) {
+                                GroupLabel("播放画质")
+                                qualityOptions.forEachIndexed { index, (label, selected) ->
+                                    OptionRow(label, selected, onClick = { onSelectQuality(index) })
+                                }
+                            }
                             GroupLabel("高级播放")
                             if (skip.seriesName != null) {
                                 OptionRow(
@@ -564,16 +459,7 @@ internal fun SettingsPanel(
                     }
                 }
 
-                Tab.Picture -> {
-                    GroupLabel("画面")
-                    OptionRow(if (filled) "填充屏幕" else "适应画面", filled, onClick = onToggleFill)
-                    if (transcodeLabel != null) {
-                        GroupLabel("兼容播放")
-                        OptionRow(transcodeLabel, transcodeActive, onClick = onTranscode)
-                    }
-                }
-
-                Tab.Cast -> {
+                SettingsPanelKind.Cast -> {
                     GroupLabel("局域网投屏设备")
                     castStatus?.let { DiagnosticRow("状态", it) }
                     castPosition?.let { DiagnosticRow("远端进度", it) }
