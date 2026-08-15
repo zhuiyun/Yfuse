@@ -733,6 +733,7 @@ internal fun PlayerControls(
                 },
                 onScrub = { interactions++ },
                 trickplay = trickplay,
+                progressMarkers = playbackProgressMarkers(skip, state.durationMs),
                 hasMultipleSources = sourceOptions.size > 1,
                 onOpenSources = { openQuickPopup(QuickPopup.Source) },
                 onOpenSubtitles = {

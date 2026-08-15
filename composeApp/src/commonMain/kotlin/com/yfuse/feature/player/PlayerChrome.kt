@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -45,7 +46,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -85,8 +88,14 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.currentClockTime
 import kotlinx.coroutines.delay
 
-/** A forgiving touch target around the visually slim playback track. */
-private val SeekBarTouchHeight = 44.dp
+/** A forgiving touch target around the visually slim playback track and its boundary labels. */
+private val SeekBarTouchHeight = 48.dp
+
+private val TrickplayPreviewWidth = 160.dp
+
+private val LiquidProgressBlue = Color(0xFF4F8DFF)
+
+private val LiquidProgressViolet = Color(0xFF7D5FF6)
 
 @Composable
 internal fun PlaybackErrorOverlay(
@@ -528,6 +537,7 @@ internal fun BottomBar(
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
     trickplay: TrickplayStoryboard?,
+    progressMarkers: List<PlaybackProgressMarker>,
     hasMultipleSources: Boolean,
     onOpenSources: () -> Unit,
     onOpenSubtitles: () -> Unit,
@@ -565,40 +575,57 @@ internal fun BottomBar(
                 ),
             ).padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
     ) {
-        if (scrubbed != null && trickplay != null) {
-            TrickplayPreview(
-                storyboard = trickplay,
-                positionMs = shownPosition,
-                modifier =
-                    Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(bottom = 8.dp),
-            )
-        }
         // Progress row — `gap:10px`, `400 11px Manrope`, `rgba(255,255,255,.75)`.
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            RollingTimeText(shownPosition)
-            SeekBar(
-                fraction = fraction,
-                bufferedFraction = bufferedFraction,
-                positionMs = shownPosition,
-                durationMs = state.durationMs,
-                enabled = !seekLocked && state.durationMs > 0L,
-                onScrubTo = {
-                    scrubbed = it
-                    onScrub()
-                },
-                onCommit = {
-                    onSeek(scrubPositionMs(it, state.durationMs))
-                    scrubbed = null
-                },
-                onCancel = { scrubbed = null },
-                modifier = Modifier.weight(1f),
-            )
-            RollingTimeText(state.durationMs)
+            Box(Modifier.height(SeekBarTouchHeight), contentAlignment = Alignment.Center) {
+                RollingTimeText(shownPosition)
+            }
+            Column(Modifier.weight(1f)) {
+                if (scrubbed != null && trickplay != null) {
+                    val previewHeight =
+                        (TrickplayPreviewWidth.value * trickplay.height /
+                            trickplay.width.coerceAtLeast(1)).dp + 30.dp
+                    BoxWithConstraints(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(previewHeight + 8.dp),
+                    ) {
+                        val availableWidth = (maxWidth - TrickplayPreviewWidth).coerceAtLeast(0.dp)
+                        val previewX =
+                            (maxWidth * fraction - TrickplayPreviewWidth / 2f)
+                                .coerceIn(0.dp, availableWidth)
+                        TrickplayPreview(
+                            storyboard = trickplay,
+                            positionMs = shownPosition,
+                            modifier = Modifier.offset(x = previewX),
+                        )
+                    }
+                }
+                SeekBar(
+                    fraction = fraction,
+                    bufferedFraction = bufferedFraction,
+                    positionMs = shownPosition,
+                    durationMs = state.durationMs,
+                    progressMarkers = progressMarkers,
+                    enabled = !seekLocked && state.durationMs > 0L,
+                    onScrubTo = {
+                        scrubbed = it
+                        onScrub()
+                    },
+                    onCommit = {
+                        onSeek(scrubPositionMs(it, state.durationMs))
+                        scrubbed = null
+                    },
+                    onCancel = { scrubbed = null },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Box(Modifier.height(SeekBarTouchHeight), contentAlignment = Alignment.Center) {
+                RollingTimeText(state.durationMs)
+            }
         }
 
         if (skipCountdownLabel != null) {
@@ -793,50 +820,127 @@ internal fun TrickplayPreview(
     modifier: Modifier = Modifier,
 ) {
     val frame = storyboard.frameAt(positionMs)
-    val previewWidth = 160.dp
-    val previewHeight = (previewWidth.value * storyboard.height / storyboard.width.coerceAtLeast(1)).dp
+    val previewHeight =
+        (TrickplayPreviewWidth.value * storyboard.height / storyboard.width.coerceAtLeast(1)).dp
     Box(
         modifier
-            .size(previewWidth, previewHeight)
-            .clip(AppShapes.thumb)
-            .background(Color.Black),
+            .width(TrickplayPreviewWidth)
+            .height(previewHeight + 30.dp),
     ) {
-        AsyncImage(
-            model = frame.url,
-            contentDescription = "${formatTime(positionMs)} 预览",
-            contentScale = ContentScale.FillBounds,
+        Box(
             modifier =
                 Modifier
-                    .width((previewWidth.value * storyboard.tileColumns).dp)
-                    .height((previewHeight.value * storyboard.tileRows).dp)
-                    .offset(
-                        x = -(previewWidth.value * frame.column).dp,
-                        y = -(previewHeight.value * frame.row).dp,
-                    ),
+                    .align(Alignment.BottomCenter)
+                    .offset(y = (-2).dp)
+                    .size(10.dp)
+                    .rotate(45f)
+                    .background(Color(0xFF171A23).copy(alpha = 0.92f), AppShapes.micro)
+                    .border(1.dp, Color.White.copy(alpha = 0.22f), AppShapes.micro),
         )
-        Text(
-            formatTime(positionMs),
-            style = AppTypography.caption.strong,
-            color = Color.White,
-            modifier =
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .glass(
+                    shape = AppShapes.thumb,
+                    fill = Color(0xFF151821).copy(alpha = 0.82f),
+                    border = Color.White.copy(alpha = 0.28f),
+                ).padding(4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
                 Modifier
-                    .align(Alignment.BottomEnd)
-                    .background(Color.Black.copy(alpha = 0.68f), AppShapes.micro)
-                    .padding(horizontal = 5.dp, vertical = 2.dp),
-        )
+                    .size(TrickplayPreviewWidth - 8.dp, previewHeight)
+                    .clip(AppShapes.thumb)
+                    .background(Color.Black),
+            ) {
+                AsyncImage(
+                    model = frame.url,
+                    contentDescription = "${formatTime(positionMs)} 预览",
+                    contentScale = ContentScale.FillBounds,
+                    modifier =
+                        Modifier
+                            .width(
+                                (TrickplayPreviewWidth.value - 8f).dp *
+                                    storyboard.tileColumns.toFloat(),
+                            ).height(previewHeight * storyboard.tileRows.toFloat())
+                            .offset(
+                                x =
+                                    -(
+                                        (TrickplayPreviewWidth.value - 8f).dp *
+                                            frame.column.toFloat()
+                                    ),
+                                y = -(previewHeight * frame.row.toFloat()),
+                            ),
+                )
+            }
+            Text(
+                formatTime(positionMs),
+                style = AppTypography.caption.strong,
+                color = Color.White,
+                modifier = Modifier.padding(top = 4.dp, bottom = 1.dp),
+            )
+        }
     }
 }
 
 /**
- * `4px` track, `radius:2px`, `rgba(255,255,255,.24)`, filled with
- * `linear-gradient(90deg,#7FA2E8,#A7C0F2)`. Tap to seek, drag to scrub.
+ * A quiet glass rail in normal playback. Scrubbing enlarges the liquid thumb and reveals a
+ * short specular streak; reduced-motion mode keeps the same hierarchy without animation.
  */
+internal data class PlaybackProgressMarker(
+    val positionMs: Long,
+    val label: String? = null,
+    val emphasized: Boolean = false,
+)
+
+/** Converts the player's real skip boundaries into the semantic nodes shown on the rail. */
+internal fun playbackProgressMarkers(
+    skip: SkipSegmentState,
+    durationMs: Long,
+): List<PlaybackProgressMarker> {
+    if (durationMs <= 0L) return emptyList()
+    val markers = mutableListOf<PlaybackProgressMarker>()
+    if (skip.introEndSeconds > 0L) {
+        markers +=
+            PlaybackProgressMarker(
+                positionMs =
+                    (skip.introStartSeconds.coerceAtLeast(0L) * 1_000L)
+                        .coerceAtMost(durationMs),
+                label = "片头",
+                emphasized = true,
+            )
+        markers +=
+            PlaybackProgressMarker(
+                positionMs = (skip.introEndSeconds * 1_000L).coerceAtMost(durationMs),
+            )
+    } else if (skip.introStartSeconds > 0L) {
+        markers +=
+            PlaybackProgressMarker(
+                positionMs = (skip.introStartSeconds * 1_000L).coerceAtMost(durationMs),
+                label = "片头",
+                emphasized = true,
+            )
+    }
+    if (skip.creditsLeadSeconds > 0L) {
+        markers +=
+            PlaybackProgressMarker(
+                positionMs = (durationMs - skip.creditsLeadSeconds * 1_000L).coerceAtLeast(0L),
+                label = "片尾",
+                emphasized = true,
+            )
+    }
+    return markers
+        .sortedBy(PlaybackProgressMarker::positionMs)
+        .distinctBy(PlaybackProgressMarker::positionMs)
+}
+
 @Composable
 internal fun SeekBar(
     fraction: Float,
     bufferedFraction: Float,
     positionMs: Long,
     durationMs: Long,
+    progressMarkers: List<PlaybackProgressMarker> = emptyList(),
     onScrubTo: (Float) -> Unit,
     onCommit: (Float) -> Unit,
     onCancel: () -> Unit,
@@ -860,7 +964,8 @@ internal fun SeekBar(
         label = "seek-interaction",
     )
     val trackHeight = 4.dp + 2.dp * interaction
-    val thumbDiameter = 8.dp + 6.dp * interaction
+    val thumbDiameter = 9.dp + 5.dp * interaction
+    val haloDiameter = 15.dp + 11.dp * interaction
     val keyStep = (5_000f / durationMs.coerceAtLeast(1L)).coerceIn(0.01f, 0.1f)
     val commit: (Float) -> Boolean = { target ->
         if (!enabled) {
@@ -942,23 +1047,132 @@ internal fun SeekBar(
                 .fillMaxWidth()
                 .height(trackHeight)
                 .clip(AppShapes.track)
-                .background(PlayerTokens.trackFillLandscape),
+                .background(Color.Black.copy(alpha = 0.28f))
+                .border(1.dp, Color.White.copy(alpha = 0.18f), AppShapes.track),
         ) {
             Box(
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(bufferedFraction.coerceIn(shownFraction, 1f))
                     .clip(AppShapes.track)
-                    .background(Color.White.copy(alpha = 0.44f)),
+                    .background(Color.White.copy(alpha = 0.22f)),
             )
             Box(
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(shownFraction)
                     .clip(AppShapes.track)
-                    .background(accent.accent),
-            )
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(LiquidProgressBlue, LiquidProgressViolet),
+                        ),
+                    ),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.38f)),
+                )
+                if (interaction > 0f) {
+                    Box(
+                        Modifier
+                            .width(58.dp)
+                            .fillMaxHeight()
+                            .offset {
+                                val streakWidth = 58.dp.roundToPx()
+                                IntOffset(
+                                    x =
+                                        (widthPx * shownFraction - streakWidth * 0.72f)
+                                            .toInt()
+                                            .coerceAtLeast(0),
+                                    y = 0,
+                                )
+                            }.graphicsLayer { alpha = interaction }
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color.Transparent,
+                                        Color.White.copy(alpha = 0.58f),
+                                        Color.Transparent,
+                                    ),
+                                ),
+                            ),
+                    )
+                }
+            }
         }
+
+        progressMarkers.forEach { marker ->
+            val markerFraction =
+                (marker.positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
+            val markerDiameter = if (marker.emphasized) 7.dp else 5.dp
+            Box(
+                Modifier
+                    .size(markerDiameter)
+                    .offset {
+                        val markerPx = markerDiameter.roundToPx()
+                        IntOffset(
+                            x =
+                                (widthPx * markerFraction - markerPx / 2f)
+                                    .toInt()
+                                    .coerceIn(
+                                        -markerPx / 2,
+                                        (widthPx - markerPx / 2).coerceAtLeast(0),
+                                    ),
+                            y = 0,
+                        )
+                    }.background(
+                        if (marker.emphasized) LiquidProgressViolet else Color(0xFFDDE8FF),
+                        CircleShape,
+                    ).border(1.dp, Color.White.copy(alpha = 0.90f), CircleShape),
+            )
+            marker.label?.let { label ->
+                Text(
+                    label,
+                    style = AppTypography.caption.medium,
+                    color = Color.White.copy(alpha = 0.72f),
+                    maxLines = 1,
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .offset {
+                                val labelHalfWidth = 12.dp.roundToPx()
+                                IntOffset(
+                                    x =
+                                        (widthPx * markerFraction - labelHalfWidth)
+                                            .toInt()
+                                            .coerceIn(
+                                                0,
+                                                (widthPx - labelHalfWidth * 2).coerceAtLeast(0),
+                                            ),
+                                    y = 0,
+                                )
+                            },
+                )
+            }
+        }
+
+        Box(
+            Modifier
+                .size(haloDiameter)
+                .offset {
+                    val haloPx = haloDiameter.roundToPx()
+                    IntOffset(
+                        x =
+                            (widthPx * shownFraction - haloPx / 2f)
+                                .toInt()
+                                .coerceIn(-haloPx / 2, (widthPx - haloPx / 2).coerceAtLeast(0)),
+                        y = 0,
+                    )
+                }.graphicsLayer { alpha = 0.12f + 0.34f * interaction }
+                .background(
+                    Brush.radialGradient(
+                        listOf(LiquidProgressBlue.copy(alpha = 0.92f), Color.Transparent),
+                    ),
+                    CircleShape,
+                ),
+        )
         Box(
             Modifier
                 .size(thumbDiameter)
@@ -971,8 +1185,11 @@ internal fun SeekBar(
                                 .coerceIn(-thumbPx / 2, (widthPx - thumbPx / 2).coerceAtLeast(0)),
                         y = 0,
                     )
-                }.graphicsLayer { alpha = 0.72f + 0.28f * interaction }
-                .background(Color.White, CircleShape),
+                }.graphicsLayer { alpha = 0.88f + 0.12f * interaction }
+                .background(
+                    Brush.linearGradient(listOf(Color.White, Color(0xFFDCE8FF))),
+                    CircleShape,
+                ).border(1.dp, Color.White.copy(alpha = 0.94f), CircleShape),
         )
     }
 }
