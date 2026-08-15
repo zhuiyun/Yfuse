@@ -469,8 +469,6 @@ class PlayerActivity : ComponentActivity() {
                         updatePictureInPictureParams()
                         if (state.playing) {
                             startPlaybackKeepAliveService()
-                        } else {
-                            stopPlaybackKeepAliveService()
                         }
                     },
                     onVideoBounds = { bounds ->
@@ -616,7 +614,7 @@ class PlayerActivity : ComponentActivity() {
     /** Removes notifications/services left behind when process death made a launch token stale. */
     private fun clearStalePlaybackArtifacts() {
         runCatching {
-            stopService(Intent(this, PlaybackKeepAliveService::class.java))
+            PlaybackKeepAliveService.requestStop(this)
         }
         runCatching {
             getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
@@ -1089,19 +1087,22 @@ class PlayerActivity : ComponentActivity() {
     }
 
     /**
-     * Requests the playback foreground service once per playing interval.
+     * Requests the playback foreground service once per player session.
      *
      * Engine state is emitted continuously, including while this activity is in PiP or stopped.
      * Calling `startForegroundService` for every emission eventually makes Android treat one as a
      * background start and throw `ForegroundServiceStartNotAllowedException`. A rejected request
      * is deferred until the activity becomes visible again; notification/media-session actions
-     * get one immediate retry because they are explicit user actions.
+     * get one immediate retry because they are explicit user actions. Once started, the service is
+     * retained across pause/buffer/engine-handover states and is stopped by the player lifecycle;
+     * otherwise a fast Exo -> MPV handover can stop it before Android delivers Service.onCreate.
      */
     private fun startPlaybackKeepAliveService(fromUserAction: Boolean = false) {
         if (playbackKeepAliveRequested) return
         if (playbackKeepAliveStartDeferred && !activityStarted && !fromUserAction) return
 
         try {
+            PlaybackKeepAliveService.prepareStart()
             ContextCompat.startForegroundService(
                 this,
                 Intent(this, PlaybackKeepAliveService::class.java),
@@ -1129,7 +1130,7 @@ class PlayerActivity : ComponentActivity() {
 
     private fun stopPlaybackKeepAliveService() {
         if (!playbackKeepAliveRequested && !playbackKeepAliveStartDeferred) return
-        stopService(Intent(this, PlaybackKeepAliveService::class.java))
+        PlaybackKeepAliveService.requestStop(this)
         playbackKeepAliveRequested = false
         playbackKeepAliveStartDeferred = false
     }
