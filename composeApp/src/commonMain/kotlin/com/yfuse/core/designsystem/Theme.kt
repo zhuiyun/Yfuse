@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.Density
 enum class GlassStyle(
     val label: String,
 ) {
-    /** Softer and quieter: the sheen without the specular. */
+    /** Softer and quieter: wider diffusion, a cool mist and no specular sweep. */
     Frosted("毛玻璃"),
 
     /** The product default — lit edges, a body ramp, and a highlight that reads as a surface. */

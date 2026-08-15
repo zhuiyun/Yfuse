@@ -25,7 +25,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -283,6 +282,7 @@ private fun SignedInAccountCard(
     var avatarId by rememberSaveable(user.id) { mutableStateOf(user.avatarId) }
     var busy by remember { mutableStateOf(false) }
     var localError by remember { mutableStateOf<String?>(null) }
+    var profileSaved by remember { mutableStateOf(false) }
     var showPasswordForm by remember { mutableStateOf(false) }
     var currentPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
@@ -305,7 +305,7 @@ private fun SignedInAccountCard(
     var inviteBusy by remember { mutableStateOf(false) }
     val share = rememberShareHandler()
 
-    LaunchedEffect(user.updatedAtEpochMs) {
+    LaunchedEffect(user.nickname, user.avatarId) {
         nickname = user.nickname
         avatarId = user.avatarId
     }
@@ -318,7 +318,7 @@ private fun SignedInAccountCard(
 
     AccountCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AccountAvatar(nickname.ifBlank { user.nickname }, avatarId)
+            AccountAvatar(avatarId)
             Spacer(Modifier.width(13.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -339,7 +339,10 @@ private fun SignedInAccountCard(
         Spacer(Modifier.height(15.dp))
         YfFormField(
             value = nickname,
-            onValueChange = { nickname = it.take(24) },
+            onValueChange = {
+                nickname = it.take(24)
+                profileSaved = false
+            },
             label = "昵称",
             enabled = !busy && !state.syncing,
         )
@@ -349,7 +352,10 @@ private fun SignedInAccountCard(
         AvatarPicker(
             selected = avatarId,
             enabled = !busy && !state.syncing,
-            onSelect = { avatarId = it },
+            onSelect = {
+                avatarId = it
+                profileSaved = false
+            },
         )
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -358,11 +364,12 @@ private fun SignedInAccountCard(
                 onClick = {
                     busy = true
                     localError = null
+                    profileSaved = false
                     scope.launch {
                         account
                             .updateProfile(nickname, avatarId)
-                            .exceptionOrNull()
-                            ?.let { localError = it.message }
+                            .onSuccess { profileSaved = true }
+                            .onFailure { localError = it.message ?: "保存资料失败" }
                         busy = false
                     }
                 },
@@ -383,6 +390,10 @@ private fun SignedInAccountCard(
                 enabled = !busy && !state.syncing,
                 tone = YfButtonTone.Secondary,
             )
+        }
+        if (profileSaved) {
+            Spacer(Modifier.height(8.dp))
+            Text("资料已保存", style = AppTypography.caption.medium, color = accent.accent)
         }
         if (showPasswordForm) {
             Spacer(Modifier.height(12.dp))
@@ -1283,36 +1294,12 @@ private fun AvatarPicker(
 }
 
 /**
- * The signed-in identity: the first character of the nickname, or the chosen avatar when
- * there is no nickname to take one from.
+ * The signed-in identity always reflects the chosen avatar.
  *
- * The fallback was `avatarId + 1`, which put a bare digit where every other surface in the
- * app shows this account's actual avatar.
+ * Showing the nickname initial whenever a nickname existed hid every successful avatar
+ * change, so saving looked broken even though the server and account state had updated.
  */
 @Composable
-private fun AccountAvatar(
-    nickname: String,
-    avatarId: Int,
-) {
-    val accent = LocalAccentColors.current
-    val initial = nickname.take(1)
-    if (initial.isBlank()) {
-        WatchAvatar(avatarId = avatarId, size = 54.dp)
-        return
-    }
-    Box(
-        modifier =
-            Modifier
-                .size(54.dp)
-                .clip(CircleShape)
-                .glass(CircleShape, accent.container, accent.border),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            initial,
-            style = AppTypography.section.strong,
-            color = accent.accent,
-            textAlign = TextAlign.Center,
-        )
-    }
+private fun AccountAvatar(avatarId: Int) {
+    WatchAvatar(avatarId = avatarId, size = 54.dp)
 }

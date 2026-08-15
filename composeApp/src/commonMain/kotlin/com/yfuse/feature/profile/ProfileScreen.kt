@@ -76,6 +76,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -92,6 +93,7 @@ import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.SplashPreview
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.defaultAnimation
 import com.yfuse.core.designsystem.liquidGlass
@@ -111,7 +113,7 @@ import com.yfuse.feature.player.PlayerMediaItem
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.flatGlass as glass
 
-/** Which option sheet is open. Theme mode is answered in place on the appearance page. */
+/** Which option sheet is open. Theme and glass style are answered in place on the root page. */
 private enum class Sheet {
     StartupTab,
     Background,
@@ -127,6 +129,9 @@ private enum class Sheet {
     WifiQuality,
     CellularQuality,
 }
+
+/** Light to dark, which is how the segmented control is read left to right. */
+private val ThemeModeDisplayOrder = listOf(ThemeMode.Light, ThemeMode.System, ThemeMode.Dark)
 
 private enum class ProfilePage {
     Root,
@@ -308,8 +313,6 @@ fun ProfileScreen(component: ProfileComponent) {
                 ProfilePage.Appearance ->
                     AppearanceSettingsScreen(
                         onBack = ::closePage,
-                        mode = mode,
-                        glassStyle = glassStyle,
                         brandSummary =
                             if (splashAnimation) {
                                 "${appIcon.label} · ${splashVariant.label} ›"
@@ -326,8 +329,6 @@ fun ProfileScreen(component: ProfileComponent) {
                         reduceTransparency = reduceTransparency,
                         largeText = largeText,
                         reduceMotion = reduceMotion,
-                        onThemeMode = prefs::setMode,
-                        onGlassStyle = prefs::setGlassStyle,
                         onBackground = { sheet = Sheet.Background },
                         onBrand = { openPage(ProfilePage.Splash) },
                         onStartupTab = { sheet = Sheet.StartupTab },
@@ -427,6 +428,39 @@ fun ProfileScreen(component: ProfileComponent) {
                         }
 
                         item {
+                            Section(title = "外观") {
+                                SettingsCard {
+                                    SettingSegmentRow(
+                                        title = "主题",
+                                        options = ThemeModeDisplayOrder.map { it.label },
+                                        selectedIndex = ThemeModeDisplayOrder.indexOf(mode).coerceAtLeast(0),
+                                        onSelect = { prefs.setMode(ThemeModeDisplayOrder[it]) },
+                                        icon = AppIcons.Cloud,
+                                        iconTint = SettingTint.appearance,
+                                    )
+                                    SettingsDivider()
+                                    SettingSegmentRow(
+                                        title = "视觉效果",
+                                        options = GlassStyle.entries.map { it.label },
+                                        selectedIndex = GlassStyle.entries.indexOf(glassStyle),
+                                        onSelect = { prefs.setGlassStyle(GlassStyle.entries[it]) },
+                                        icon = AppIcons.Grid,
+                                        iconTint = SettingTint.components,
+                                    )
+                                    SettingsDivider()
+                                    SettingRow(
+                                        "更多外观与辅助",
+                                        "背景 · 启动 · 辅助功能 ›",
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.Appearance) },
+                                        icon = AppIcons.Info,
+                                        iconTint = SettingTint.appearance,
+                                    )
+                                }
+                            }
+                        }
+
+                        item {
                             Section(title = "设置") {
                                 SettingsCard {
                                     SettingRow(
@@ -471,15 +505,6 @@ fun ProfileScreen(component: ProfileComponent) {
                                         },
                                         icon = AppIcons.Chat,
                                         iconTint = SettingTint.watchTogether,
-                                    )
-                                    SettingsDivider()
-                                    SettingRow(
-                                        "外观与辅助",
-                                        "${mode.label} ›",
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.Appearance) },
-                                        icon = AppIcons.Cloud,
-                                        iconTint = SettingTint.appearance,
                                     )
                                 }
                             }

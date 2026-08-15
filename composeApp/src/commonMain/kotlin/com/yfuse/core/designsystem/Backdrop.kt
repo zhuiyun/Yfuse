@@ -42,9 +42,13 @@ expect val supportsBackdropBlur: Boolean
 /** 设计说明文档 §8.1 — `blur(20-22px)`. */
 val BackdropBlurRadius: Dp = 20.dp
 
+/** 毛玻璃 diffuses detail further than the clearer liquid material. */
+val FrostedBackdropBlurRadius: Dp = 30.dp
+
 /**
- * 设计说明文档 §8.1 — the `saturate(180%)` that goes with the blur, and the half that was
- * missing.
+ * Vibrancy paired with the blur. Liquid glass keeps more of the source colour; 毛玻璃 uses
+ * a calmer near-neutral sample and a larger radius so it reads as diffusion rather than a
+ * smeared duplicate of the artwork.
  *
  * Blur alone averages a picture towards its mean, and the mean of almost any frame is grey.
  * That is why an unsaturated blur under a translucent fill reads as dirty glass rather than
@@ -52,13 +56,14 @@ val BackdropBlurRadius: Dp = 20.dp
  * pick up a poster's colour, and it is the whole reason Apple's materials feel like they are
  * *made of* the content underneath instead of merely covering it.
  */
-private const val BACKDROP_SATURATION = 1.8f
+private const val LIQUID_BACKDROP_SATURATION = 1.55f
+private const val FROSTED_BACKDROP_SATURATION = 1.12f
 
 /**
  * The page content, captured so the floating chrome above it can blur what it covers.
  *
- * §8.1 specifies the tab bar and mini player as `blur(20-22px) saturate(180%)` over a
- * 0.74–0.82 fill, and [Palette.glassStrong] exists only because that blur was missing:
+ * §8.1 specifies the tab bar and mini player as a saturated blur over a translucent fill,
+ * and [Palette.glassStrong] exists only because that blur was missing:
  * Compose Multiplatform has no backdrop filter, so the alpha was raised until posters
  * stopped reading through the bar. This is the blur, so the fill can go back to being a
  * fill.
@@ -157,19 +162,27 @@ fun Modifier.backdropSource(state: BackdropState): Modifier {
 fun Modifier.backdropBlur(
     state: BackdropState,
     shape: Shape,
-    radius: Dp = BackdropBlurRadius,
+    radius: Dp? = null,
 ): Modifier {
+    val frosted = frostedGlass()
+    val resolvedRadius = radius ?: if (frosted) FrostedBackdropBlurRadius else BackdropBlurRadius
+    val saturation =
+        if (frosted) {
+            FROSTED_BACKDROP_SATURATION
+        } else {
+            LIQUID_BACKDROP_SATURATION
+        }
     val blurLayer = rememberGraphicsLayer()
-    val radiusPx = with(LocalDensity.current) { radius.toPx() }
+    val radiusPx = with(LocalDensity.current) { resolvedRadius.toPx() }
     // Radius changes only with density or the caller's material token. Reuse the effect
     // instead of allocating an identical RenderEffect from every draw pass.
     val blurEffect = remember(radiusPx) { BlurEffect(radiusPx, radiusPx) }
     // The saturation is a property of the material, not of this surface, so it is built once
     // rather than per frame.
-    val vibrancy = remember {
+    val vibrancy = remember(saturation) {
         Paint().apply {
             colorFilter = ColorFilter.colorMatrix(
-                ColorMatrix().apply { setToSaturation(BACKDROP_SATURATION) },
+                ColorMatrix().apply { setToSaturation(saturation) },
             )
         }
     }

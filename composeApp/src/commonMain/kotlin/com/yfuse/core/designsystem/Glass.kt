@@ -142,26 +142,132 @@ internal fun resolveGlassMaterialBorder(
         else -> null
     }
 
+internal data class FrostedMaterialTones(
+    val top: Color,
+    val body: Color,
+    val bottom: Color,
+)
+
 /**
- * A visibly diffused pane for 毛玻璃.
+ * Diffused colour field shared by every 毛玻璃 surface.
  *
- * Simply removing the liquid specular left the same translucent fill underneath, which made
- * the two settings nearly indistinguishable on real artwork. Frosted glass keeps the source
- * colour but adds a restrained mist and a little more body; liquid glass keeps the clearer
- * pane and directional reflection. Reduced transparency still wins before this is consulted.
+ * The old material was one flat, raised-alpha colour. It hid the page but never looked like
+ * light had travelled through it, so cards read as cloudy plastic. The new material keeps the
+ * semantic source colour, mixes in a cool mist, and gives the pane a very small density ramp.
+ * Actual backdrop blur is added where the surface owns a [BackdropState]; these tones are the
+ * coherent fallback for ordinary content cards and pre-Android-12 devices.
  */
-private fun frostedSurfaceFill(
+internal fun resolveFrostedMaterialTones(
     fill: Color,
     palette: Palette,
-): Color {
+    density: Float = 1f,
+): FrostedMaterialTones {
+    val resolvedDensity = density.coerceIn(0.75f, 1.25f)
     val composited = fill.compositeOver(palette.background)
     val pale = composited.luminance() >= 0.48f
-    val mist = if (pale) Color.White else Color(0xFF182235)
-    val mistAmount = if (pale) 0.18f else 0.12f
-    val minimumAlpha = if (pale) 0.68f else 0.52f
-    return lerp(fill, mist, mistAmount).copy(
-        alpha = maxOf(fill.alpha, minimumAlpha).coerceAtMost(0.94f),
+    val mist = if (pale) Color(0xFFF6FAFF) else Color(0xFF182438)
+    val depth = if (pale) Color(0xFFDCE6F2) else Color(0xFF09111F)
+    val mistAmount = (if (pale) 0.24f else 0.20f) * resolvedDensity
+    val minimumAlpha =
+        ((if (pale) 0.66f else 0.58f) + (resolvedDensity - 1f) * 0.10f)
+            .coerceIn(0.54f, 0.76f)
+    val body =
+        lerp(fill, mist, mistAmount).copy(
+            alpha = maxOf(fill.alpha, minimumAlpha).coerceAtMost(0.94f),
+        )
+    val top =
+        lerp(body, Color.White, (if (pale) 0.13f else 0.08f) * resolvedDensity).copy(
+            alpha = (body.alpha + 0.05f * resolvedDensity).coerceAtMost(0.96f),
+        )
+    val bottom =
+        lerp(body, depth, (if (pale) 0.08f else 0.10f) * resolvedDensity).copy(
+            alpha = (body.alpha + 0.015f * resolvedDensity).coerceAtMost(0.95f),
+        )
+    return FrostedMaterialTones(top = top, body = body, bottom = bottom)
+}
+
+private fun frostedSurfaceBrush(
+    fill: Color,
+    palette: Palette,
+    density: Float,
+): Brush {
+    val tones = resolveFrostedMaterialTones(fill, palette, density)
+    return cssLinearGradient(
+        165f,
+        0f to tones.top,
+        0.46f to tones.body,
+        1f to tones.bottom,
     )
+}
+
+private enum class GlassSurfaceWeight(
+    val liquidSheen: Float,
+    val frostDensity: Float,
+) {
+    Quiet(liquidSheen = 0.62f, frostDensity = 0.88f),
+    Standard(liquidSheen = 0.82f, frostDensity = 1f),
+    Strong(liquidSheen = 1f, frostDensity = 1.10f),
+}
+
+private fun liquidSurfaceBrush(
+    fill: Color,
+    palette: Palette,
+    weight: GlassSurfaceWeight,
+): Brush {
+    val pale = fill.compositeOver(palette.background).luminance() >= 0.48f
+    val depth = if (pale) Color(0xFFDCE5F1) else Color(0xFF070C16)
+    val top =
+        lerp(fill, Color.White, (if (pale) 0.18f else 0.11f) * weight.liquidSheen).copy(
+            alpha = (fill.alpha + 0.055f * weight.liquidSheen).coerceAtMost(0.94f),
+        )
+    val bottom =
+        lerp(fill, depth, (if (pale) 0.07f else 0.10f) * weight.liquidSheen).copy(
+            alpha = (fill.alpha * 0.96f).coerceIn(0f, 1f),
+        )
+    return cssLinearGradient(
+        145f,
+        0f to top,
+        0.34f to fill,
+        0.76f to fill.copy(alpha = (fill.alpha * 0.98f).coerceIn(0f, 1f)),
+        1f to bottom,
+    )
+}
+
+@Composable
+private fun Modifier.glassMaterial(
+    shape: Shape,
+    fill: Color,
+    border: Color?,
+    weight: GlassSurfaceWeight,
+): Modifier {
+    val palette = LocalPalette.current
+    val accessibility = LocalAccessibilityOptions.current
+    val materialBorder = resolveGlassMaterialBorder(border, palette)
+    val resolvedBorder =
+        if (accessibility.reduceTransparency) {
+            reducedTransparencyBorder(materialBorder, palette)
+        } else {
+            materialBorder
+        }
+    val surface =
+        when {
+            accessibility.reduceTransparency -> {
+                val opaque = reducedTransparencyFill(fill, palette)
+                Brush.linearGradient(listOf(opaque, opaque))
+            }
+
+            frostedGlass() -> frostedSurfaceBrush(fill, palette, weight.frostDensity)
+            else -> liquidSurfaceBrush(fill, palette, weight)
+        }
+    return clip(shape)
+        .background(surface)
+        .let { modifier ->
+            if (resolvedBorder != null) {
+                modifier.border(Dimens.hairline, resolvedBorder, shape)
+            } else {
+                modifier
+            }
+        }
 }
 
 /**
@@ -173,55 +279,7 @@ fun Modifier.glass(
     shape: Shape = GlassShapes.card,
     fill: Color = LocalPalette.current.card,
     border: Color? = null,
-): Modifier {
-    val palette = LocalPalette.current
-    val accessibility = LocalAccessibilityOptions.current
-    val resolvedFill =
-        if (accessibility.reduceTransparency) {
-            reducedTransparencyFill(fill, palette)
-        } else {
-            fill
-        }
-    val materialBorder = resolveGlassMaterialBorder(border, palette)
-    val resolvedBorder =
-        if (accessibility.reduceTransparency) {
-            reducedTransparencyBorder(materialBorder, palette)
-        } else {
-            materialBorder
-        }
-    val sheen =
-        if (palette.isDark) {
-            Color.White.copy(alpha = 0.13f)
-        } else {
-            Color.White.copy(alpha = 0.58f)
-        }
-    val surface =
-        when {
-            accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
-            frostedGlass() -> {
-                val frost = frostedSurfaceFill(resolvedFill, palette)
-                Brush.linearGradient(listOf(frost, frost))
-            }
-            else ->
-                cssLinearGradient(
-                    145f,
-                    0f to sheen,
-                    0.26f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f)),
-                    0.72f to resolvedFill,
-                    1f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.78f).coerceIn(0f, 1f)),
-                )
-        }
-    return this
-        .clip(shape)
-        .background(surface)
-        .let { modifier ->
-            if (resolvedBorder != null) {
-                modifier.border(Dimens.hairline, resolvedBorder, shape)
-            } else {
-                modifier
-            }
-        }
-}
+): Modifier = glassMaterial(shape, fill, border, GlassSurfaceWeight.Standard)
 
 /**
  * Quiet glass surface used by dense forms and settings.
@@ -234,55 +292,7 @@ fun Modifier.flatGlass(
     shape: Shape = GlassShapes.card,
     fill: Color = LocalPalette.current.card,
     border: Color? = null,
-): Modifier {
-    val palette = LocalPalette.current
-    val accessibility = LocalAccessibilityOptions.current
-    val resolvedFill =
-        if (accessibility.reduceTransparency) {
-            reducedTransparencyFill(fill, palette)
-        } else {
-            fill
-        }
-    val materialBorder = resolveGlassMaterialBorder(border, palette)
-    val resolvedBorder =
-        if (accessibility.reduceTransparency) {
-            reducedTransparencyBorder(materialBorder, palette)
-        } else {
-            materialBorder
-        }
-    val surface =
-        when {
-            accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
-            frostedGlass() -> {
-                val frost = frostedSurfaceFill(resolvedFill, palette)
-                Brush.linearGradient(listOf(frost, frost))
-            }
-            else ->
-                cssLinearGradient(
-                    145f,
-                    0f to Color.White.copy(alpha = if (palette.isDark) 0.13f else 0.58f),
-                    0.26f to
-                        resolvedFill.copy(
-                            alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f),
-                        ),
-                    0.72f to resolvedFill,
-                    1f to
-                        resolvedFill.copy(
-                            alpha = (resolvedFill.alpha * 0.80f).coerceIn(0f, 1f),
-                        ),
-                )
-        }
-    return this
-        .clip(shape)
-        .background(surface)
-        .let { modifier ->
-            if (resolvedBorder != null) {
-                modifier.border(Dimens.hairline, resolvedBorder, shape)
-            } else {
-                modifier
-            }
-        }
-}
+): Modifier = glassMaterial(shape, fill, border, GlassSurfaceWeight.Quiet)
 
 /**
  * Liquid-glass surface with a single-colour edge.
@@ -296,49 +306,7 @@ fun Modifier.solidGlass(
     shape: Shape = GlassShapes.card,
     fill: Color = LocalPalette.current.card,
     border: Color? = null,
-): Modifier {
-    val palette = LocalPalette.current
-    val accessibility = LocalAccessibilityOptions.current
-    val resolvedFill =
-        if (accessibility.reduceTransparency) {
-            reducedTransparencyFill(fill, palette)
-        } else {
-            fill
-        }
-    val materialBorder = resolveGlassMaterialBorder(border, palette)
-    val resolvedBorder =
-        if (accessibility.reduceTransparency) {
-            reducedTransparencyBorder(materialBorder, palette)
-        } else {
-            materialBorder
-        }
-    val surface =
-        when {
-            accessibility.reduceTransparency -> Brush.linearGradient(listOf(resolvedFill, resolvedFill))
-            frostedGlass() -> {
-                val frost = frostedSurfaceFill(resolvedFill, palette)
-                Brush.linearGradient(listOf(frost, frost))
-            }
-            else ->
-                cssLinearGradient(
-                    145f,
-                    0f to Color.White.copy(alpha = if (palette.isDark) 0.16f else 0.72f),
-                    0.30f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.92f).coerceIn(0f, 1f)),
-                    0.72f to resolvedFill,
-                    1f to resolvedFill.copy(alpha = (resolvedFill.alpha * 0.80f).coerceIn(0f, 1f)),
-                )
-        }
-    return this
-        .clip(shape)
-        .background(surface)
-        .let { modifier ->
-            if (resolvedBorder != null) {
-                modifier.border(Dimens.hairline, resolvedBorder, shape)
-            } else {
-                modifier
-            }
-        }
-}
+): Modifier = glassMaterial(shape, fill, border, GlassSurfaceWeight.Strong)
 
 /**
  * 液态玻璃 — the material for interactive controls.
@@ -387,10 +355,10 @@ fun Modifier.liquidGlass(
                 if (edge != null) modifier.border(Dimens.hairline, edge, shape) else modifier
             }
     }
-    // 毛玻璃: no specular, no body ramp — a flat translucent pane and its edge. Routing to
-    // glass() was not enough, because that variant has a diagonal sheen of its own.
+    // 毛玻璃 uses the same diffused mist and density ramp as every other surface. It never
+    // inherits liquid glass's specular sweep or raised button body.
     if (frostedGlass()) {
-        val frost = frostedSurfaceFill(fill, palette)
+        val frost = frostedSurfaceBrush(fill, palette, GlassSurfaceWeight.Strong.frostDensity)
         return this
             .clip(shape)
             .background(frost)

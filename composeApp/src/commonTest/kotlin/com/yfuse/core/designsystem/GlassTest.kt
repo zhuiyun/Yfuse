@@ -1,10 +1,12 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class GlassTest {
     @Test
@@ -40,5 +42,25 @@ class GlassTest {
     fun absent_material_border_stays_absent() {
         assertNull(resolveGlassMaterialBorder(null, LightPalette))
         assertNull(resolveGlassMaterialBorder(null, DarkPalette))
+    }
+
+    @Test
+    fun frosted_material_has_diffused_light_and_depth_in_both_themes() {
+        listOf(LightPalette.card2 to LightPalette, DarkPalette.card2 to DarkPalette).forEach { (fill, palette) ->
+            val tones = resolveFrostedMaterialTones(fill, palette)
+
+            assertTrue(tones.top.luminance() > tones.body.luminance())
+            assertTrue(tones.bottom.luminance() < tones.body.luminance())
+            assertTrue(tones.body.alpha >= fill.alpha)
+        }
+    }
+
+    @Test
+    fun stronger_frosted_surfaces_have_more_body_than_quiet_ones() {
+        val quiet = resolveFrostedMaterialTones(LightPalette.card2, LightPalette, density = 0.88f)
+        val strong = resolveFrostedMaterialTones(LightPalette.card2, LightPalette, density = 1.10f)
+
+        assertTrue(strong.body.alpha > quiet.body.alpha)
+        assertNotEquals(strong.body, quiet.body)
     }
 }
