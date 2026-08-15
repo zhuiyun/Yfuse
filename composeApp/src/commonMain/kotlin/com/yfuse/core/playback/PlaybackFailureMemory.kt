@@ -184,8 +184,7 @@ class PlaybackFailureMemory(
         }
 }
 
-private fun String.normalizedSignature(): String? =
-    trim().take(MAX_FAILURE_SIGNATURE_CHARS).takeIf(String::isNotEmpty)
+private fun String.normalizedSignature(): String? = trim().take(MAX_FAILURE_SIGNATURE_CHARS).takeIf(String::isNotEmpty)
 
 internal const val DEFAULT_FAILURE_TTL_MS = 7L * 24L * 60L * 60L * 1_000L
 private const val MAX_FAILURE_COUNT = 100
