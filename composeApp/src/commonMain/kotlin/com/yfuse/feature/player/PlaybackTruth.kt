@@ -52,9 +52,7 @@ internal fun PlayerMediaVersion.sourceRequirements(): PlaybackSourceRequirements
     )
 
 /** Fast PlaybackInfo-backed probe; FFmpeg probing can enrich the same core model later. */
-internal fun PlayerMediaItem?.playbackMediaProbe(
-    usingServerTranscode: Boolean = false,
-): PlaybackMediaProbe {
+internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean = false): PlaybackMediaProbe {
     val version = this?.activeVersion
     return PlaybackMediaProbe(
         container = version?.container,

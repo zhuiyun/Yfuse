@@ -97,8 +97,7 @@ internal fun PlaybackOptimizationMode.playbackOptionCopy(): PlaybackOptionCopy =
 internal fun playbackSettingsSummary(
     optimizationMode: PlaybackOptimizationMode,
     decoder: DecoderMode,
-): String =
-    "${optimizationMode.playbackOptionCopy().summary} · ${decoder.playbackOptionCopy().summary}"
+): String = "${optimizationMode.playbackOptionCopy().summary} · ${decoder.playbackOptionCopy().summary}"
 
 @Composable
 internal fun PlaybackSettingsScreen(

@@ -744,4 +744,3 @@ private fun CompactChoiceGrid(
         }
     }
 }
-
