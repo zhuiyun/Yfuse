@@ -5,6 +5,7 @@ import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackFailureRecord
 import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core.playback.PlaybackPerformanceRecord
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -90,6 +91,17 @@ private data class StoredPlaybackFailureRecord(
     val engine: String,
     val count: Int,
     val lastFailureEpochMs: Long,
+)
+
+@Serializable
+private data class StoredPlaybackPerformanceRecord(
+    val signature: String,
+    val engine: String,
+    val sessions: Int,
+    val averageStartupMs: Long,
+    val averageRebufferEventsPerMinute: Float,
+    val averageDroppedFramesPerMinute: Float,
+    val lastObservedEpochMs: Long,
 )
 
 /** Playback settings that are independent from appearance and decoder selection. */
@@ -209,6 +221,96 @@ class PlaybackPreferences(
             settings.remove(KEY_PLAYBACK_FAILURES)
         } else {
             settings.putString(KEY_PLAYBACK_FAILURES, json.encodeToString(stored))
+        }
+    }
+
+    internal fun playbackPerformanceRecords(): List<PlaybackPerformanceRecord> =
+        settings
+            .getStringOrNull(KEY_PLAYBACK_PERFORMANCE)
+            ?.let { stored ->
+                runCatching {
+                    json.decodeFromString<List<StoredPlaybackPerformanceRecord>>(stored)
+                }.getOrNull()
+            }.orEmpty()
+            .takeLast(MAX_PLAYBACK_PERFORMANCE_RECORDS)
+            .mapNotNull { stored ->
+                val engine = PlayerEngine.entries.firstOrNull { it.name == stored.engine }
+                val signature = stored.signature.normalizedPerformanceSignature()
+                if (
+                    engine == null ||
+                    engine !in PlayerEngine.selectable ||
+                    signature == null ||
+                    stored.sessions <= 0 ||
+                    stored.averageStartupMs < 0L ||
+                    !stored.averageRebufferEventsPerMinute.isFinite() ||
+                    !stored.averageDroppedFramesPerMinute.isFinite() ||
+                    stored.lastObservedEpochMs <= 0L
+                ) {
+                    null
+                } else {
+                    PlaybackPerformanceRecord(
+                        signature = signature,
+                        engine = engine,
+                        sessions = stored.sessions.coerceAtMost(MAX_PLAYBACK_PERFORMANCE_SESSIONS),
+                        averageStartupMs =
+                            stored.averageStartupMs.coerceAtMost(MAX_PLAYBACK_STARTUP_MS),
+                        averageRebufferEventsPerMinute =
+                            stored.averageRebufferEventsPerMinute.coerceIn(
+                                0f,
+                                MAX_PLAYBACK_RATE_PER_MINUTE,
+                            ),
+                        averageDroppedFramesPerMinute =
+                            stored.averageDroppedFramesPerMinute.coerceIn(
+                                0f,
+                                MAX_PLAYBACK_RATE_PER_MINUTE,
+                            ),
+                        lastObservedEpochMs = stored.lastObservedEpochMs,
+                    )
+                }
+            }
+
+    internal fun storePlaybackPerformanceRecords(records: List<PlaybackPerformanceRecord>) {
+        val stored =
+            records
+                .takeLast(MAX_PLAYBACK_PERFORMANCE_RECORDS)
+                .mapNotNull { record ->
+                    val signature = record.signature.normalizedPerformanceSignature()
+                    if (
+                        signature == null ||
+                        record.engine !in PlayerEngine.selectable ||
+                        record.sessions <= 0 ||
+                        record.averageStartupMs < 0L ||
+                        !record.averageRebufferEventsPerMinute.isFinite() ||
+                        !record.averageDroppedFramesPerMinute.isFinite() ||
+                        record.lastObservedEpochMs <= 0L
+                    ) {
+                        null
+                    } else {
+                        StoredPlaybackPerformanceRecord(
+                            signature = signature,
+                            engine = record.engine.name,
+                            sessions =
+                                record.sessions.coerceAtMost(MAX_PLAYBACK_PERFORMANCE_SESSIONS),
+                            averageStartupMs =
+                                record.averageStartupMs.coerceAtMost(MAX_PLAYBACK_STARTUP_MS),
+                            averageRebufferEventsPerMinute =
+                                record.averageRebufferEventsPerMinute.coerceIn(
+                                    0f,
+                                    MAX_PLAYBACK_RATE_PER_MINUTE,
+                                ),
+                            averageDroppedFramesPerMinute =
+                                record.averageDroppedFramesPerMinute.coerceIn(
+                                    0f,
+                                    MAX_PLAYBACK_RATE_PER_MINUTE,
+                                ),
+                            lastObservedEpochMs = record.lastObservedEpochMs,
+                        )
+                    }
+                }
+        if (stored.isEmpty()) {
+            settings.remove(KEY_PLAYBACK_PERFORMANCE)
+        } else {
+            settings.putString(KEY_PLAYBACK_PERFORMANCE, json.encodeToString(stored))
         }
     }
 
@@ -384,6 +486,9 @@ class PlaybackPreferences(
             codec = codec?.trim()?.take(MAX_TRACK_FIELD_CHARS)?.takeIf(String::isNotEmpty),
         )
 
+    private fun String.normalizedPerformanceSignature(): String? =
+        trim().take(MAX_PLAYBACK_PERFORMANCE_SIGNATURE_CHARS).takeIf(String::isNotEmpty)
+
     private inline fun <reified T : Enum<T>> enumSetting(
         key: String,
         fallback: T,
@@ -399,6 +504,7 @@ class PlaybackPreferences(
         const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
         const val KEY_OPTIMIZATION_MODE = "player.optimizationMode"
         const val KEY_PLAYBACK_FAILURES = "player.ycore.failures.v1"
+        const val KEY_PLAYBACK_PERFORMANCE = "player.ycore.performance.v1"
         const val KEY_SMART_CROSS_SERVER_SOURCE = "player.smartCrossServerSource"
         const val KEY_WIFI_QUALITY_CAP = "player.networkQuality.wifi"
         const val KEY_CELLULAR_QUALITY_CAP = "player.networkQuality.cellular"
@@ -415,5 +521,10 @@ class PlaybackPreferences(
 
 internal const val MAX_SERIES_PLAYBACK_PREFERENCES = 32
 internal const val MAX_PLAYBACK_FAILURE_RECORDS = 96
+internal const val MAX_PLAYBACK_PERFORMANCE_RECORDS = 96
 private const val MAX_PLAYBACK_FAILURE_SIGNATURE_CHARS = 256
 private const val MAX_PLAYBACK_FAILURE_COUNT = 100
+private const val MAX_PLAYBACK_PERFORMANCE_SIGNATURE_CHARS = 320
+private const val MAX_PLAYBACK_PERFORMANCE_SESSIONS = 1_000
+private const val MAX_PLAYBACK_STARTUP_MS = 120_000L
+private const val MAX_PLAYBACK_RATE_PER_MINUTE = 10_000f

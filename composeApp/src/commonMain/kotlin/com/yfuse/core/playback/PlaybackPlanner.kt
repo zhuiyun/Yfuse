@@ -22,8 +22,8 @@ enum class PlaybackRenderPath {
 /**
  * Immutable facts discovered before playback starts.
  *
- * The first implementation is populated from Emby PlaybackInfo. A future FFmpeg probe can fill
- * the same model without changing the planner or the player UI.
+ * Fast facts come from Emby PlaybackInfo and a bounded platform extractor enriches the same model
+ * after launch without coupling the planner to Android or a concrete backend.
  */
 data class PlaybackMediaProbe(
     val container: String?,
@@ -33,6 +33,12 @@ data class PlaybackMediaProbe(
     val styledSubtitles: Boolean = false,
     val drmProtected: Boolean = false,
     val usingServerTranscode: Boolean = false,
+    val discKind: PlaybackDiscKind = PlaybackDiscKind.None,
+    val localSource: Boolean = false,
+    val audioCodec: PlaybackAudioCodec? = null,
+    val audioChannelCount: Int? = null,
+    val durationMs: Long? = null,
+    val probeDepth: PlaybackProbeDepth = PlaybackProbeDepth.ServerMetadata,
 ) {
     val normalizedContainer: String
         get() = container?.trim()?.uppercase().orEmpty()
@@ -51,6 +57,11 @@ data class PlaybackMediaProbe(
                 source.frameRate?.frameRateBucket() ?: "UnknownFps",
                 source.bitDepth?.toString() ?: "UnknownDepth",
                 source.hdrFormat?.name ?: "Sdr",
+                audioCodec?.name ?: "UnknownAudio",
+                audioChannelCount?.toString() ?: "UnknownChannels",
+                discKind.name,
+                if (styledSubtitles) "StyledSubtitles" else "PlainSubtitles",
+                if (drmProtected) "Drm" else "Clear",
                 if (usingServerTranscode) "Transcode" else "Original",
             ).joinToString("|")
 }
@@ -79,8 +90,12 @@ fun planPlayback(
     preferredDecoderMode: DecoderMode,
     optimizationMode: PlaybackOptimizationMode = PlaybackOptimizationMode.Balanced,
     excludedEngines: Set<PlayerEngine> = emptySet(),
+    engineCosts: Map<PlayerEngine, Int> = emptyMap(),
     videoSupport: PlaybackVideoSupport = capabilities.videoSupport(probe.source.videoRequirements),
 ): PlaybackPlan {
+    val discDecision = planDiscPlayback(probe)
+    val audioNeedsNative =
+        probe.audioCodec != null && probe.audioCodec !in capabilities.directPlayableAudio
     val hdrRoute =
         playbackHdrRoute(
             source = probe.source,
@@ -89,7 +104,7 @@ fun planPlayback(
             preferredDecoderMode = preferredDecoderMode,
             videoSupport = videoSupport,
         )
-    val discNeedsServer = probe.discSource && probe.hasServerTranscode
+    val discNeedsServer = discDecision.requiresServerTranscode
     val powerSaverToneMapTranscode =
         optimizationMode == PlaybackOptimizationMode.PowerSaver &&
             hdrRoute.engine == PlayerEngine.Mpv &&
@@ -115,7 +130,9 @@ fun planPlayback(
             powerSaverToneMapTranscode -> PlayerEngine.Exo
             hdrRoute.engine != preferredEngine -> hdrRoute.engine
             preferredDecoderMode == DecoderMode.Software -> PlayerEngine.Mpv
+            discDecision.requiresNativeEngine -> PlayerEngine.Mpv
             probe.requiresNativeDemuxer || probe.styledSubtitles -> PlayerEngine.Mpv
+            audioNeedsNative -> PlayerEngine.Mpv
             optimizationMode == PlaybackOptimizationMode.PowerSaver -> PlayerEngine.Exo
             optimizationMode == PlaybackOptimizationMode.Quality && probe.source.hdrFormat != null ->
                 PlayerEngine.Exo
@@ -136,7 +153,28 @@ fun planPlayback(
                 listOf(contentEngine, preferredEngine, PlayerEngine.Exo, PlayerEngine.Mpv, PlayerEngine.Mdk)
         }.filter(PlayerEngine.selectable::contains).distinct()
 
-    val availableOrder = requestedOrder.filterNot(excludedEngines::contains)
+    val performanceRankingEligible =
+        optimizationMode == PlaybackOptimizationMode.Balanced &&
+            !strictPlatformPath &&
+            !discDecision.requiresNativeEngine &&
+            !probe.requiresNativeDemuxer &&
+            !probe.styledSubtitles &&
+            !audioNeedsNative &&
+            hdrRoute.engine == preferredEngine
+    val rankedOrder =
+        if (performanceRankingEligible) {
+            requestedOrder
+                .withIndex()
+                .sortedWith(
+                    compareBy<IndexedValue<PlayerEngine>>(
+                        { engineCosts[it.value] ?: 0 },
+                        IndexedValue<PlayerEngine>::index,
+                    ),
+                ).map(IndexedValue<PlayerEngine>::value)
+        } else {
+            requestedOrder
+        }
+    val availableOrder = rankedOrder.filterNot(excludedEngines::contains)
     val primary = availableOrder.firstOrNull() ?: requestedOrder.first()
     val finalOrder = listOf(primary) + availableOrder.filterNot { it == primary }
     val renderPath =
@@ -149,11 +187,13 @@ fun planPlayback(
         }
     val reason =
         when {
-            discNeedsServer -> "光盘源由服务器解析主标题后交给平台硬解"
+            discDecision.reason != null -> discDecision.reason
             powerSaverToneMapTranscode -> "当前显示设备不支持片源 HDR，省电模式使用服务器色调映射"
             hdrRoute.reason != null -> hdrRoute.reason
             preferredDecoderMode == DecoderMode.Software -> "用户要求软件解码，选择 FFmpeg 兼容管线"
             probe.requiresNativeDemuxer -> "${probe.normalizedContainer} 需要原生解封装管线"
+            audioNeedsNative ->
+                "平台未声明 ${probe.audioCodec.name} 音频解码，使用原生音频管线"
             probe.styledSubtitles -> "复杂字幕需要原生样式渲染"
             primary != contentEngine -> "已避开当前设备上重复失败的 ${contentEngine.label}"
             optimizationMode == PlaybackOptimizationMode.PowerSaver -> "省电模式优先平台硬解直出"

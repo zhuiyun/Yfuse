@@ -5,6 +5,7 @@ import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackMediaProbe
 import com.yfuse.core.playback.PlaybackSourceRequirements
 import com.yfuse.core.playback.PlaybackVideoCodec
+import com.yfuse.core.playback.detectPlaybackDiscKind
 
 /** True when this request must begin on the server output rather than the original file. */
 internal fun PlayerMediaItem.startsWithServerTranscode(quality: PlaybackQuality): Boolean =
@@ -54,6 +55,12 @@ internal fun PlayerMediaVersion.sourceRequirements(): PlaybackSourceRequirements
 /** Fast PlaybackInfo-backed probe; FFmpeg probing can enrich the same core model later. */
 internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean = false): PlaybackMediaProbe {
     val version = this?.activeVersion
+    val sourceUrl =
+        if (usingServerTranscode) {
+            this?.transcodeUrl
+        } else {
+            this?.url
+        }.orEmpty()
     return PlaybackMediaProbe(
         container = version?.container,
         discSource = version?.discSource == true,
@@ -69,6 +76,15 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
                 item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
             } == true,
         usingServerTranscode = usingServerTranscode,
+        discKind =
+            detectPlaybackDiscKind(
+                container = version?.container,
+                labelHint = version?.label,
+                declaredDiscSource = version?.discSource == true,
+            ),
+        localSource =
+            sourceUrl.startsWith("file://", ignoreCase = true) ||
+                sourceUrl.startsWith("content://", ignoreCase = true),
     )
 }
 

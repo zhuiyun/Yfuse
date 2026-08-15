@@ -34,6 +34,12 @@ class PlayerContractArchitectureTest {
             projectFile("src/commonMain/kotlin/com/yfuse/core/playback/PlaybackPlanner.kt").readText()
         val health =
             projectFile("src/commonMain/kotlin/com/yfuse/core/playback/PlaybackHealth.kt").readText()
+        val session =
+            projectFile("src/commonMain/kotlin/com/yfuse/core/playback/YCorePlaybackSession.kt").readText()
+        val mediaProbe =
+            projectFile(
+                "src/commonMain/kotlin/com/yfuse/core/playback/PlaybackMediaProbeService.kt",
+            ).readText()
         val root =
             projectFile("src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt").readText()
 
@@ -44,6 +50,12 @@ class PlayerContractArchitectureTest {
         assertTrue("class PlaybackHealthSession" in health)
         assertFalse("import android." in health)
         assertFalse("import androidx.compose." in health)
+        assertTrue("class YCorePlaybackSession" in session)
+        assertFalse("import android." in session)
+        assertFalse("import androidx.compose." in session)
+        assertTrue("fun interface PlaybackMediaProbeService" in mediaProbe)
+        assertFalse("import android." in mediaProbe)
+        assertFalse("PlaybackHealthSession(" in root)
         assertTrue("recoveryPlan.engineOrder" in root)
         assertTrue(".firstOrNull { backendFallbackEligible && it !in triedEngines }" in root)
         assertFalse("PlayerEngine.selectable.firstOrNull { it !in triedEngines }" in root)

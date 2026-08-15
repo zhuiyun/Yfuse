@@ -139,6 +139,51 @@ class PlaybackPlannerTest {
     }
 
     @Test
+    fun balanced_mode_uses_device_performance_history_for_equivalent_engines() {
+        val plan =
+            planPlayback(
+                probe = probe(container = "mkv"),
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Auto,
+                engineCosts = mapOf(PlayerEngine.Exo to 6),
+            )
+
+        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertEquals(listOf(PlayerEngine.Mpv, PlayerEngine.Mdk, PlayerEngine.Exo), plan.engineOrder)
+    }
+
+    @Test
+    fun drm_remains_on_the_platform_path_even_when_history_prefers_native() {
+        val plan =
+            planPlayback(
+                probe = probe(container = "mp4").copy(drmProtected = true),
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Mpv,
+                preferredDecoderMode = DecoderMode.Auto,
+                engineCosts = mapOf(PlayerEngine.Exo to 10),
+            )
+
+        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
+        assertEquals(listOf(PlayerEngine.Exo), plan.engineOrder)
+    }
+
+    @Test
+    fun unsupported_platform_audio_keeps_native_demux_ahead_of_performance_ranking() {
+        val plan =
+            planPlayback(
+                probe = probe(container = "mkv").copy(audioCodec = PlaybackAudioCodec.TrueHd),
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Auto,
+                engineCosts = mapOf(PlayerEngine.Mpv to 10),
+            )
+
+        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertTrue(plan.reason.orEmpty().contains("TrueHd"))
+    }
+
+    @Test
     fun dolby_only_source_never_routes_original_frames_through_a_native_engine() {
         val dolbySource =
             PlaybackSourceRequirements(

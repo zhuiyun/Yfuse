@@ -54,12 +54,11 @@ import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackFailureMemory
-import com.yfuse.core.playback.PlaybackHealthSample
-import com.yfuse.core.playback.PlaybackHealthSession
-import com.yfuse.core.playback.assessPlaybackHealth
+import com.yfuse.core.playback.PlaybackPerformanceMemory
+import com.yfuse.core.playback.PlaybackProbeStatus
 import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core.playback.planPlayback
-import com.yfuse.core.playback.playbackPowerAssessment
+import com.yfuse.core.playback.resolvePlaybackOptimization
 import com.yfuse.core.sync.WatchTogetherClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -152,6 +151,12 @@ internal fun PlayerRoot(
                 .getOrNull()
                 ?: PlaybackDeviceCapabilities.conservative()
         }
+    val runtimeEnvironment = rememberPlaybackRuntimeEnvironment()
+    val resolvedOptimization =
+        remember(optimizationMode, runtimeEnvironment) {
+            resolvePlaybackOptimization(optimizationMode, runtimeEnvironment)
+        }
+    val effectiveOptimizationMode = resolvedOptimization.mode
     val failureMemoryState =
         remember(playbackPreferences) {
             mutableStateOf(
@@ -162,6 +167,14 @@ internal fun PlayerRoot(
             )
         }
     val failureMemory = failureMemoryState.value
+    val performanceMemory =
+        remember(playbackPreferences) {
+            PlaybackPerformanceMemory(
+                nowEpochMs = System::currentTimeMillis,
+                initialRecords = playbackPreferences.playbackPerformanceRecords(),
+                onChanged = playbackPreferences::storePlaybackPerformanceRecords,
+            )
+        }
     val initialPlaybackPlan =
         run {
             val probe = items.getOrNull(startIndex).playbackMediaProbe()
@@ -170,7 +183,8 @@ internal fun PlayerRoot(
                 capabilities = deviceCapabilities,
                 preferredEngine = initialEngine,
                 preferredDecoderMode = decoderMode,
-                optimizationMode = optimizationMode,
+                optimizationMode = effectiveOptimizationMode,
+                engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                 videoSupport =
                     capabilityProvider?.videoSupport(probe.source.videoRequirements)
                         ?: deviceCapabilities.videoSupport(probe.source.videoRequirements),
@@ -240,7 +254,7 @@ internal fun PlayerRoot(
             capabilityRevision,
             kind,
             effectiveDecoderMode,
-            optimizationMode,
+            effectiveOptimizationMode,
         ) {
             activeItems.map { item ->
                 val probe = item.playbackMediaProbe()
@@ -253,7 +267,8 @@ internal fun PlayerRoot(
                         capabilities = deviceCapabilities,
                         preferredEngine = kind,
                         preferredDecoderMode = effectiveDecoderMode,
-                        optimizationMode = optimizationMode,
+                        optimizationMode = effectiveOptimizationMode,
+                        engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                         videoSupport = videoSupport,
                     )
                 val incompatibleQueuedDolbyEngine =
@@ -303,7 +318,7 @@ internal fun PlayerRoot(
                 startIndex = resume.first,
                 startPositionMs = resume.second,
                 decoderMode = effectiveDecoderMode,
-                optimizationMode = optimizationMode,
+                optimizationMode = effectiveOptimizationMode,
                 autoNext = autoNext,
                 quality = selectedQuality,
                 customUserAgent = customUserAgent,
@@ -345,16 +360,16 @@ internal fun PlayerRoot(
 
     val localState by engine.state.collectAsState()
     var appliedCapabilityRevision by remember { mutableStateOf(capabilityRevision) }
-    var appliedOptimizationMode by remember { mutableStateOf(optimizationMode) }
-    LaunchedEffect(capabilityRevision, optimizationMode) {
+    var appliedOptimizationMode by remember { mutableStateOf(effectiveOptimizationMode) }
+    LaunchedEffect(capabilityRevision, effectiveOptimizationMode) {
         if (
             capabilityRevision == appliedCapabilityRevision &&
-            optimizationMode == appliedOptimizationMode
+            effectiveOptimizationMode == appliedOptimizationMode
         ) {
             return@LaunchedEffect
         }
         appliedCapabilityRevision = capabilityRevision
-        appliedOptimizationMode = optimizationMode
+        appliedOptimizationMode = effectiveOptimizationMode
         val index = localState.currentIndex.coerceIn(0, (activeItems.size - 1).coerceAtLeast(0))
         val plan =
             activeItems.getOrNull(index)?.let { item ->
@@ -364,7 +379,8 @@ internal fun PlayerRoot(
                     capabilities = deviceCapabilities,
                     preferredEngine = kind,
                     preferredDecoderMode = effectiveDecoderMode,
-                    optimizationMode = optimizationMode,
+                    optimizationMode = effectiveOptimizationMode,
+                    engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                     videoSupport =
                         capabilityProvider?.videoSupport(probe.source.videoRequirements)
                             ?: deviceCapabilities.videoSupport(probe.source.videoRequirements),
@@ -434,105 +450,50 @@ internal fun PlayerRoot(
         }
     val deviceCapabilityLabel =
         remember(deviceCapabilities) { deviceCapabilities.diagnosticLabel() }
-    val activeProbe =
-        localCastItem.playbackMediaProbe(usingServerTranscode = localState.transcoding)
+    val activeProbeResult =
+        rememberDeepPlaybackProbe(
+            item = localCastItem,
+            transcoding = localState.transcoding,
+            customUserAgent = customUserAgent,
+        )
+    val activeProbe = activeProbeResult.probe
     val activePlan =
         planPlayback(
             probe = activeProbe,
             capabilities = deviceCapabilities,
             preferredEngine = kind,
             preferredDecoderMode = effectiveDecoderMode,
-            optimizationMode = optimizationMode,
+            optimizationMode = effectiveOptimizationMode,
             excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
+            engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
             videoSupport =
                 capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
                     ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
         )
-    val healthSessionState =
-        remember(engine, activeProbe.capabilitySignature) {
-            mutableStateOf(
-                PlaybackHealthSession(
-                    startedAtEpochMs = System.currentTimeMillis(),
-                    initialPositionMs = localState.positionMs,
-                    initialBufferEvents = localState.diagnostics.bufferEvents,
-                    initialDroppedFrames = localState.diagnostics.droppedFrames,
-                ),
-            )
-        }
-    val healthSession = healthSessionState.value
-    var healthAssessment by remember(engine, activeProbe.capabilitySignature) {
-        mutableStateOf(
-            assessPlaybackHealth(
-                PlaybackHealthSample(
-                    startupTimeMs = null,
-                    observedPlaybackMs = 0L,
-                    rebufferEvents = 0,
-                    droppedFrames = 0,
-                ),
-            ),
+    val runtimeAssessment =
+        rememberYCoreRuntimeAssessment(
+            engine = engine,
+            engineKind = kind,
+            probe = activeProbe,
+            plan = activePlan,
+            failureMemory = failureMemory,
+            performanceMemory = performanceMemory,
+            castAuthoritative = castAuthoritative,
+            state = localState,
         )
-    }
-    var healthReportLogged by remember(engine, activeProbe.capabilitySignature) {
-        mutableStateOf(false)
-    }
-    var healthPenaltyRecorded by remember(engine, activeProbe.capabilitySignature) {
-        mutableStateOf(false)
-    }
-    val powerAssessment = playbackPowerAssessment(activePlan, activeProbe)
-    LaunchedEffect(
-        engine,
-        castAuthoritative,
-        activeProbe.capabilitySignature,
-        localState.positionMs,
-        localState.buffering,
-        localState.videoHeight,
-        localState.error,
-        localState.ended,
-        localState.diagnostics.bufferEvents,
-        localState.diagnostics.droppedFrames,
-        localState.diagnostics.videoOutput,
-    ) {
-        if (castAuthoritative) return@LaunchedEffect
-        val assessment =
-            healthSession.observe(
-                nowEpochMs = System.currentTimeMillis(),
-                positionMs = localState.positionMs,
-                activelyRendering =
-                    engine.playbackRequested &&
-                        !localState.buffering &&
-                        localState.error == null &&
-                        !localState.ended,
-                videoReady =
-                    localState.videoHeight > 0 ||
-                        localState.diagnostics.videoOutput != "等待首帧",
-                bufferEvents = localState.diagnostics.bufferEvents,
-                droppedFrames = localState.diagnostics.droppedFrames,
-            )
-        healthAssessment = assessment
-        if (assessment.evaluationReady && !healthReportLogged) {
-            healthReportLogged = true
-            AppLog.info(
-                category = "player.health",
-                event = "playback_health_assessed",
-                message = "YCore assessed the active playback pipeline",
-                attributes =
-                    mapOf(
-                        "engine" to kind.name,
-                        "grade" to assessment.grade.name,
-                        "startupMs" to assessment.startupTimeMs.toString(),
-                        "rebufferEvents" to assessment.rebufferEvents.toString(),
-                        "droppedFrames" to assessment.droppedFrames.toString(),
-                        "powerProfile" to powerAssessment.profile.name,
-                    ),
-            )
+    LaunchedEffect(activeProbe.probeDepth, activeProbe.capabilitySignature) {
+        if (activeProbeResult.status != PlaybackProbeStatus.Complete || castAuthoritative) {
+            return@LaunchedEffect
         }
-        if (assessment.enginePenaltyRecommended && !healthPenaltyRecorded) {
-            healthPenaltyRecorded = true
-            failureMemory.record(
-                signature = activeProbe.capabilitySignature,
-                engine = kind,
-                kind = PlaybackFailureKind.Renderer,
-            )
+        if (activePlan.requiresServerTranscode && !localState.transcoding) {
+            engine.switchToTranscode(activePlan.reason)
+            return@LaunchedEffect
+        }
+        if (activePlan.primaryEngine != kind || activePlan.decoderMode != effectiveDecoderMode) {
+            resume = localState.currentIndex to engine.currentPositionMs()
+            kind = activePlan.primaryEngine
+            effectiveDecoderMode = activePlan.decoderMode
+            engineGeneration++
         }
     }
     val state =
@@ -541,10 +502,14 @@ internal fun PlayerRoot(
                 baseState.diagnostics.copy(
                     deviceOutputCapabilities = deviceCapabilityLabel,
                     plannedRenderPath = activePlan.renderPath.name,
-                    planningReason = activePlan.reason,
-                    playbackHealth = healthAssessment.diagnosticLabel,
-                    powerProfile = powerAssessment.diagnosticLabel,
-                    startupTimeMs = healthAssessment.startupTimeMs ?: 0L,
+                    planningReason = activePlan.reason ?: resolvedOptimization.reason,
+                    playbackHealth = runtimeAssessment.health.diagnosticLabel,
+                    powerProfile = runtimeAssessment.power.diagnosticLabel,
+                    resourcePressure = runtimeEnvironment.diagnosticLabel,
+                    mediaProbe = activeProbeResult.diagnosticLabel,
+                    performanceBaseline =
+                        performanceMemory.diagnosticLabel(activeProbe.capabilitySignature),
+                    startupTimeMs = runtimeAssessment.health.startupTimeMs ?: 0L,
                 ),
         )
 
@@ -1040,29 +1005,6 @@ internal fun PlayerRoot(
     var serverSwitchJob by remember { mutableStateOf<Job?>(null) }
     var serverSwitchNonce by remember { mutableIntStateOf(0) }
 
-    var engineCapabilityConfirmed by remember(engine, activeProbe.capabilitySignature) {
-        mutableStateOf(false)
-    }
-    LaunchedEffect(
-        engine,
-        activeProbe.capabilitySignature,
-        healthAssessment.evaluationReady,
-        healthAssessment.enginePenaltyRecommended,
-        state.buffering,
-        state.error,
-    ) {
-        if (
-            !engineCapabilityConfirmed &&
-            healthAssessment.evaluationReady &&
-            !healthAssessment.enginePenaltyRecommended &&
-            !state.buffering &&
-            state.error == null
-        ) {
-            failureMemory.recordSuccess(activeProbe.capabilitySignature, kind)
-            engineCapabilityConfirmed = true
-        }
-    }
-
     /**
      * Plays the current entry from a different file. The old server-side encoder is ended
      * before another engine is created, and every binding gets a fresh playback-session id.
@@ -1441,8 +1383,9 @@ internal fun PlayerRoot(
                 capabilities = deviceCapabilities,
                 preferredEngine = kind,
                 preferredDecoderMode = effectiveDecoderMode,
-                optimizationMode = optimizationMode,
+                optimizationMode = effectiveOptimizationMode,
                 excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
+                engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
                 videoSupport =
                     capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
                         ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),

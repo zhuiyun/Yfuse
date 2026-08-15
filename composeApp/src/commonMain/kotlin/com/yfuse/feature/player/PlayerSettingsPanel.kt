@@ -420,6 +420,9 @@ internal fun SettingsPanel(
                             )
                             DiagnosticRow("运行健康", diagnostics.playbackHealth)
                             DiagnosticRow("功耗估计", diagnostics.powerProfile)
+                            DiagnosticRow("资源压力", diagnostics.resourcePressure)
+                            DiagnosticRow("媒体探测", diagnostics.mediaProbe)
+                            DiagnosticRow("历史基线", diagnostics.performanceBaseline)
                             DiagnosticRow(
                                 "分辨率",
                                 when {

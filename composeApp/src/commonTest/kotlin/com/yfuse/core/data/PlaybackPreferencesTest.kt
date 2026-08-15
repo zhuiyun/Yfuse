@@ -5,6 +5,7 @@ import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackFailureRecord
 import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core.playback.PlaybackPerformanceRecord
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -99,6 +100,31 @@ class PlaybackPreferencesTest {
         assertEquals(MAX_PLAYBACK_FAILURE_RECORDS, restored.size)
         assertEquals("MKV|HEVC|1", restored.first().signature)
         assertEquals("MKV|HEVC|$MAX_PLAYBACK_FAILURE_RECORDS", restored.last().signature)
+        assertTrue(restored.none { it.signature.contains("http", ignoreCase = true) })
+    }
+
+    @Test
+    fun ycore_performance_baselines_are_bounded_and_private() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+        val records =
+            List(MAX_PLAYBACK_PERFORMANCE_RECORDS + 1) { index ->
+                PlaybackPerformanceRecord(
+                    signature = "MKV|HEVC|$index",
+                    engine = PlayerEngine.Exo,
+                    sessions = 3,
+                    averageStartupMs = 1_200L,
+                    averageRebufferEventsPerMinute = 0.5f,
+                    averageDroppedFramesPerMinute = 1f,
+                    lastObservedEpochMs = 1_000L + index,
+                )
+            }
+
+        first.storePlaybackPerformanceRecords(records)
+        val restored = PlaybackPreferences(settings).playbackPerformanceRecords()
+
+        assertEquals(MAX_PLAYBACK_PERFORMANCE_RECORDS, restored.size)
+        assertEquals("MKV|HEVC|1", restored.first().signature)
         assertTrue(restored.none { it.signature.contains("http", ignoreCase = true) })
     }
 
