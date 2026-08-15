@@ -4,6 +4,8 @@ import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.network.createEmbyClient
+import com.yfuse.core.playback.PlaybackDeviceCapabilities
+import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.security.TestSecureStore
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockEngineConfig
@@ -22,6 +24,9 @@ private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
 /** Builds a repository whose HTTP calls are served by [handler]. */
 fun testRepo(
     dispatcher: CoroutineDispatcher? = null,
+    capabilitiesProvider: PlaybackDeviceCapabilitiesProvider =
+        PlaybackDeviceCapabilitiesProvider { PlaybackDeviceCapabilities.conservative() },
+    audioPassthroughEnabled: () -> Boolean = { false },
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ): EmbyRepository =
     EmbyRepository(
@@ -36,6 +41,8 @@ fun testRepo(
                 ),
             timeouts = null,
         ),
+        capabilitiesProvider,
+        audioPassthroughEnabled,
     )
 
 /** A fresh in-memory server registry for tests. */

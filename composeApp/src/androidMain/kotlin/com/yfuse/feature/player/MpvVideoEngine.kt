@@ -363,6 +363,7 @@ class MpvVideoEngine(
                         }
                         readTracks()
                         readVideoSize()
+                        readVideoOutput()
                         logAudioOutput()
                         AppLog.info(
                             category = "player.mpv",
@@ -376,7 +377,10 @@ class MpvVideoEngine(
                         )
                     }
 
-                    MPVLib.MpvEvent.MPV_EVENT_VIDEO_RECONFIG -> readVideoSize()
+                    MPVLib.MpvEvent.MPV_EVENT_VIDEO_RECONFIG -> {
+                        readVideoSize()
+                        readVideoOutput()
+                    }
                     MPVLib.MpvEvent.MPV_EVENT_AUDIO_RECONFIG -> logAudioOutput()
                     MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART ->
                         AppLog.info(
@@ -800,6 +804,8 @@ class MpvVideoEngine(
                         playMethod = "服务器转码",
                         dynamicRange = "",
                         audioFormat = "",
+                        videoOutput = "等待转码视频输出",
+                        audioOutput = "等待转码音频输出",
                         fallbackReason =
                             reason ?: when (next) {
                                 Step.Transcode -> "直放失败，已切换服务器转码"
@@ -907,7 +913,9 @@ class MpvVideoEngine(
                 bucket +=
                     EngineTrack(
                         id = id.toString(),
-                        label = title ?: language ?: "${if (type == "audio") "音轨" else "字幕"} ${bucket.size + 1}",
+                        label =
+                            title ?: language
+                                ?: "${if (type == "audio") "音轨" else "字幕"} ${bucket.size + 1}",
                         language = language,
                         selected = id.toString() == if (type == "audio") selectedAudio else selectedSubtitle,
                         codec = codec,
@@ -934,6 +942,38 @@ class MpvVideoEngine(
         }
     }
 
+    private fun readVideoOutput() {
+        val instance = mpv ?: return
+        runCatching {
+            val input =
+                instance.getPropertyString("video-params/gamma")
+                    ?.let(::mpvDynamicRange)
+                    .orEmpty()
+            val output =
+                instance.getPropertyString("video-out-params/gamma")
+                    ?.let(::mpvDynamicRange)
+                    .orEmpty()
+            val label =
+                when {
+                    input.isNotBlank() && output.isNotBlank() && input != output ->
+                        "$input → $output · mpv 色调映射"
+                    output.isNotBlank() -> "$output · mpv 视频输出已建立"
+                    input.isNotBlank() -> "$input · mpv 渲染已建立，输出范围未知"
+                    else -> "mpv 渲染已建立，输出范围未知"
+                }
+            _state.update { state ->
+                state.copy(diagnostics = state.diagnostics.copy(videoOutput = label))
+            }
+        }.onFailure { error ->
+            AppLog.warning(
+                category = "player.mpv",
+                event = "video_output_probe_failed",
+                message = "Could not read mpv video output diagnostics",
+                throwable = error,
+            )
+        }
+    }
+
     private fun logAudioOutput() {
         val instance = mpv ?: return
         runCatching {
@@ -945,6 +985,18 @@ class MpvVideoEngine(
                     audioOutputFormat = outputFormat,
                     audioDecoder = decoder,
                 )
+            _state.update { state ->
+                state.copy(
+                    diagnostics =
+                        state.diagnostics.copy(
+                            audioOutput =
+                                playbackOutputDiagnosticLabel(
+                                    status = passthroughStatus,
+                                    activeLabel = "源码输出 · ${decoder ?: outputFormat ?: "未知编码"}",
+                                ),
+                        ),
+                )
+            }
             AppLog.info(
                 category = "player.mpv",
                 event = "audio_output_configured",

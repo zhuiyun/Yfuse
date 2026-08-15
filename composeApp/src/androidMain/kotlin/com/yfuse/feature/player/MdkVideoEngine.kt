@@ -67,6 +67,9 @@ class MdkVideoEngine(
                         decoder = decoderMode.label,
                         item = items.getOrNull(startIndex),
                         quality = quality,
+                    ).copy(
+                        videoOutput = "MDK 未提供可验证的视频输出状态",
+                        audioOutput = "MDK 未提供可验证的音频输出状态",
                     ),
             ),
         )
@@ -252,6 +255,9 @@ class MdkVideoEngine(
                         item = nextItem,
                         quality = quality,
                         transcoding = transcoding,
+                    ).copy(
+                        videoOutput = "MDK 未提供可验证的视频输出状态",
+                        audioOutput = "MDK 未提供可验证的音频输出状态",
                     ),
             )
         }
@@ -573,6 +579,8 @@ class MdkVideoEngine(
                         playMethod = "服务器转码",
                         dynamicRange = "",
                         audioFormat = "",
+                        videoOutput = "MDK 未提供可验证的视频输出状态",
+                        audioOutput = "MDK 未提供可验证的音频输出状态",
                         fallbackReason =
                             reason ?: if (progressive) {
                                 "HLS 转码不可用，已改用 MP4 转码"

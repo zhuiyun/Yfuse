@@ -51,6 +51,17 @@ class AndroidPlaybackOutputTest {
         )
     }
 
+    @Test
+    fun initialized_encoded_audio_track_is_named_as_runtime_output() {
+        val config = audioTrackConfig(encoding = C.ENCODING_E_AC3_JOC)
+        val status = exoAudioPassthroughStatus(AudioPassthroughMode.Compatible, config)
+
+        assertEquals(
+            "源码输出 · Dolby Atmos / E-AC-3 JOC",
+            playbackOutputDiagnosticLabel(status, "源码输出 · ${exoAudioEncodingLabel(config.encoding)}"),
+        )
+    }
+
     private fun audioTrackConfig(
         encoding: Int,
         offload: Boolean = false,

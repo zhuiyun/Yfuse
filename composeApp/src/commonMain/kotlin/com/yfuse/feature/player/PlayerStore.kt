@@ -31,6 +31,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 
+private const val DISC_SOURCE_TRANSCODE_REASON =
+    "ISO/DVD/Blu-ray 光盘源需要服务器解析主标题，已使用服务器转码"
+
 /**
  * One selectable file behind a queue entry, with its stream URLs already built.
  *
@@ -50,6 +53,8 @@ data class PlayerMediaVersion(
     val fallbackTranscodeUrl: String,
     /** `MKV`, for the player's readout line. */
     val container: String? = null,
+    /** True for ISO/DVD/Blu-ray sources that cannot use an ordinary original-file URL. */
+    val discSource: Boolean = false,
     /**
      * What the file carries, decided by [com.yfuse.core.model.MediaVersion] rather than
      * re-derived here — Emby hides Dolby Vision in four different fields and one place
@@ -71,6 +76,10 @@ data class PlayerMediaVersion(
     val sourceWidth: Int? = null,
     val sourceHeight: Int? = null,
     val sourceBitrateBps: Int? = null,
+    val sourceVideoCodec: String? = null,
+    val sourceFrameRate: Double? = null,
+    val sourceVideoLevel: Double? = null,
+    val sourceBitDepth: Int? = null,
     /** Source facts used until an engine reports the actual decoded output. */
     val sourceDynamicRange: String? = null,
     val sourceAudio: String? = null,
@@ -146,14 +155,25 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                     localCleartextConfirmed = localCleartextConfirmed,
                 )
             }
+        val requiresDiscStream = version.requiresDiscNavigation
         val hlsTranscode =
             when {
                 negotiatedTranscode != null -> negotiatedTranscode
+                // A raw disc URL cannot be consumed by any Android backend. Even servers
+                // that omit/deny the capability flag get one best-effort main-title request.
+                requiresDiscStream -> generated.transcode.withPlaySessionId(sessionId)
                 version.supportsTranscoding == false -> ""
                 else -> generated.transcode.withPlaySessionId(sessionId)
             }
         val method =
             when {
+                // A server-provided direct-stream URL has already selected/remuxed the disc
+                // title and is safe. The original ISO URL has not, even when an older server
+                // incorrectly marks it as direct playable.
+                requiresDiscStream &&
+                    version.supportsDirectStream == true &&
+                    directStream != null -> PlaybackMethod.DirectStream
+                requiresDiscStream && hlsTranscode.isNotBlank() -> PlaybackMethod.Transcode
                 version.supportsDirectPlay != false -> PlaybackMethod.DirectPlay
                 version.supportsDirectStream == true && directStream != null -> PlaybackMethod.DirectStream
                 version.supportsTranscoding == true && hlsTranscode.isNotBlank() -> PlaybackMethod.Transcode
@@ -166,7 +186,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                 PlaybackMethod.Transcode -> hlsTranscode
             }
         val progressiveTranscode =
-            if (version.supportsTranscoding == false) {
+            if (version.supportsTranscoding == false && !requiresDiscStream) {
                 ""
             } else {
                 generated.progressiveTranscode.withPlaySessionId(sessionId)
@@ -181,6 +201,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             playSessionId = sessionId,
             playMethod = method,
             container = version.container?.uppercase(),
+            discSource = requiresDiscStream,
             dolbyVision = version.isDolbyVision,
             dolbyAtmos = version.hasDolbyAtmos,
             dolbyProfile = version.dolbyProfile,
@@ -188,6 +209,10 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             sourceWidth = version.video?.width,
             sourceHeight = version.videoHeight ?: version.video?.height,
             sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
+            sourceVideoCodec = version.videoCodec ?: version.video?.codec,
+            sourceFrameRate = version.video?.frameRate,
+            sourceVideoLevel = version.video?.level,
+            sourceBitDepth = version.video?.bitDepth,
             sourceDynamicRange = version.rangeLabel,
             sourceAudio =
                 (
@@ -247,6 +272,8 @@ data class PlayerMediaItem(
     /** See [PlayerMediaVersion.playSessionId]; this is the active version's. */
     val playSessionId: String = "",
     val playMethod: PlaybackMethod = PlaybackMethod.DirectPlay,
+    /** Local preflight reason when the device forces the prepared server stream before rendering. */
+    val forcedTranscodeReason: String? = null,
     val trickplay: TrickplayStoryboard? = null,
     /** Optional process-local offline sidecar; never contains an account token. */
     val externalSubtitleUri: String? = null,
@@ -290,6 +317,13 @@ data class PlayerMediaItem(
             // and reporting one session's id against another's stream ends the wrong job.
             playSessionId = version.playSessionId,
             playMethod = version.playMethod,
+            forcedTranscodeReason =
+                when {
+                    version.discSource && version.playMethod == PlaybackMethod.Transcode ->
+                        DISC_SOURCE_TRANSCODE_REASON
+                    forcedTranscodeReason == DISC_SOURCE_TRANSCODE_REASON -> null
+                    else -> forcedTranscodeReason
+                },
             // A storyboard tile URL is qualified by MediaSourceId. Carrying it to another
             // physical file shows wrong/missing thumbnails; PlayerActivity lazily reloads it.
             trickplay = trickplay.takeIf { version.id == previousMediaSourceId },
@@ -645,6 +679,11 @@ class PlayerStoreFactory(
                         fallbackTranscodeUrl = unqualified.fallbackTranscodeUrl,
                         playSessionId = unqualified.playSessionId,
                         playMethod = unqualified.playMethod,
+                        forcedTranscodeReason =
+                            DISC_SOURCE_TRANSCODE_REASON.takeIf {
+                                unqualified.discSource &&
+                                    unqualified.playMethod == PlaybackMethod.Transcode
+                            },
                         trickplay =
                             (if (id == effectiveItemId) negotiatedTrickplay else null)?.let { info ->
                                 TrickplayStoryboard(
@@ -1034,6 +1073,10 @@ class PlayerStoreFactory(
                 versionId = selected?.id,
                 playSessionId = playable.playSessionId,
                 playMethod = playable.playMethod,
+                forcedTranscodeReason =
+                    DISC_SOURCE_TRANSCODE_REASON.takeIf {
+                        playable.discSource && playable.playMethod == PlaybackMethod.Transcode
+                    },
                 serverFallbacks = emptyList(),
             )
         }

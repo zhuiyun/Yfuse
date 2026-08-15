@@ -31,6 +31,7 @@ import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 
@@ -54,6 +55,7 @@ internal fun NextUpCard(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val accent = rememberAccentColorsForSurface(dark = true)
     val progress = (remainingMs.toFloat() / NEXT_UP_WINDOW_MS).coerceIn(0f, 1f)
     Row(
         modifier
@@ -82,7 +84,7 @@ internal fun NextUpCard(
         }
         Text(
             "取消",
-            style = AppTypography.body.strong,
+            style = AppTypography.caption.medium,
             color = PlayerTokens.timeText,
             modifier =
                 Modifier
@@ -114,7 +116,7 @@ internal fun NextUpCard(
                 )
                 // Drains clockwise from the top as the episode runs out.
                 drawArc(
-                    color = PlayerTokens.nextUpRing,
+                    color = accent.accent,
                     startAngle = -90f,
                     sweepAngle = -360f * (1f - progress),
                     useCenter = false,

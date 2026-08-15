@@ -1,0 +1,97 @@
+package com.yfuse.feature.player
+
+/** Converts a scrubber fraction to a clamped media position. */
+internal fun scrubPositionMs(
+    fraction: Float,
+    durationMs: Long,
+): Long {
+    val duration = durationMs.coerceAtLeast(0L)
+    return (fraction.coerceIn(0f, 1f).toDouble() * duration).toLong().coerceIn(0L, duration)
+}
+
+/** "片头结束 · 90 秒" / "片头结束 · 未设置". */
+internal fun skipBoundaryLabel(
+    name: String,
+    seconds: Long,
+): String = if (seconds > 0L) "$name · $seconds 秒" else "$name · 未设置"
+
+/** "片尾开始 · 距结束 120 秒" / "片尾开始 · 未设置". */
+internal fun skipCreditsLabel(seconds: Long): String =
+    if (seconds > 0L) "片尾开始 · 距结束 $seconds 秒" else "片尾开始 · 未设置"
+
+internal fun Long.asBitrate(): String {
+    if (this <= 0L) return "等待数据"
+    val tenths = this / 100_000L
+    return "${tenths / 10}.${tenths % 10} Mbps"
+}
+
+internal fun Float.asFrameRate(): String {
+    val tenths = (this * 10f).toInt()
+    return "${tenths / 10}.${tenths % 10} fps"
+}
+
+internal fun speedLabel(speed: Float): String =
+    if (speed == speed.toInt().toFloat()) "${speed.toInt()}x" else "${speed}x"
+
+internal fun Long.asClock(): String {
+    val seconds = (this / 1_000L).coerceAtLeast(0L)
+    return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
+}
+
+/**
+ * `alphatv · 1080P · EXO · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.
+ *
+ * Every part is dropped the moment it has nothing to say: one server means no server name,
+ * a first frame that has not arrived means no resolution, an engine that has not measured a
+ * bitrate yet means no bitrate. The line grows into itself over the first second or two
+ * rather than printing 未知 six times.
+ */
+internal fun PlaybackState.readoutLine(
+    sourceLabel: String?,
+    containerLabel: String?,
+): String =
+    listOfNotNull(
+        sourceLabel?.takeIf { it.isNotBlank() },
+        diagnostics.playMethod.takeIf { it.isNotBlank() },
+        resolutionLabel(videoHeight),
+        diagnostics.dynamicRange.takeIf { it.isNotBlank() },
+        containerLabel?.takeIf { it.isNotBlank() },
+        diagnostics.engine.takeIf { it.isNotBlank() }?.let(::engineShortLabel),
+        diagnostics.videoCodec.takeIf { it.isNotBlank() && it != "未知" }?.uppercase(),
+        diagnostics.bitrateBitsPerSecond.takeIf { it > 0L }?.asBitrate(),
+        diagnostics.frameRate.takeIf { it > 0f }?.asFrameRate(),
+    ).joinToString(" · ")
+
+/**
+ * `Media3 / ExoPlayer` reads as a sentence; this line has room for a word.
+ *
+ * Unmatched names pass through as their first word rather than being dropped — a future
+ * engine should show up here without anyone remembering to add it to a list.
+ */
+private fun engineShortLabel(engine: String): String =
+    when {
+        engine.contains("exo", ignoreCase = true) -> "EXO"
+        engine.contains("mpv", ignoreCase = true) -> "MPV"
+        engine.contains("mdk", ignoreCase = true) -> "MDK"
+        else -> engine.substringBefore(' ').uppercase()
+    }
+
+private fun resolutionLabel(height: Int): String? =
+    when {
+        height <= 0 -> null
+        height >= 2000 -> "4K"
+        height >= 1400 -> "2K"
+        height >= 1000 -> "1080P"
+        height >= 700 -> "720P"
+        else -> "${height}P"
+    }
+
+internal fun formatTime(ms: Long): String {
+    val total = (ms / 1000).coerceAtLeast(0L)
+    val hours = total / 3600
+    val minutes = (total % 3600) / 60
+    val seconds = total % 60
+    val mm = minutes.toString().padStart(2, '0')
+    val ss = seconds.toString().padStart(2, '0')
+    return if (hours > 0) "$hours:$mm:$ss" else "$mm:$ss"
+}

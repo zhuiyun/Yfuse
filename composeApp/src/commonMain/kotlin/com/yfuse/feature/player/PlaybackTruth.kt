@@ -2,6 +2,8 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackSourceRequirements
+import com.yfuse.core.playback.PlaybackVideoCodec
 
 /** True when this request must begin on the server output rather than the original file. */
 internal fun PlayerMediaItem.startsWithServerTranscode(quality: PlaybackQuality): Boolean =
@@ -14,12 +16,57 @@ internal fun PlayerMediaItem.effectivePlaybackMethod(quality: PlaybackQuality): 
 
 /** Human-readable cause paired with the actual method, never inferred from a badge. */
 internal fun PlayerMediaItem.initialFallbackReason(quality: PlaybackQuality): String? = when {
+    forcedTranscodeReason != null && transcodeUrl.isNotBlank() -> forcedTranscodeReason
     quality.requiresServerTranscode && transcodeUrl.isNotBlank() -> "用户选择 ${quality.label}"
     quality.requiresServerTranscode -> "服务器未提供转码地址，已保留原始播放方式"
     playMethod == PlaybackMethod.DirectStream -> "服务器协商为直串流"
     playMethod == PlaybackMethod.Transcode -> "服务器协商要求转码"
     else -> null
 }
+
+/** Selects the server output before a backend can render an unsupported source frame. */
+internal fun PlayerMediaItem.withForcedServerTranscode(reason: String): PlayerMediaItem {
+    val preparedUrl = transcodeUrl.ifBlank { fallbackTranscodeUrl }
+    if (preparedUrl.isBlank()) return this
+    return copy(
+        transcodeUrl = preparedUrl,
+        playMethod = PlaybackMethod.Transcode,
+        forcedTranscodeReason = reason,
+    )
+}
+
+internal fun PlayerMediaVersion.sourceRequirements(): PlaybackSourceRequirements =
+    PlaybackSourceRequirements(
+        dolbyVision = dolbyVision,
+        needsDolbyDecoder = needsDolbyDecoder,
+        dynamicRange = sourceDynamicRange,
+        videoCodec = sourceVideoCodec.toPlaybackVideoCodec(),
+        width = sourceWidth,
+        height = sourceHeight,
+        frameRate = sourceFrameRate,
+        bitrateBitsPerSecond = sourceBitrateBps,
+        bitDepth = sourceBitDepth,
+        videoLevel = sourceVideoLevel,
+    )
+
+private fun String?.toPlaybackVideoCodec(): PlaybackVideoCodec? {
+    val normalized = this?.trim()?.lowercase().orEmpty()
+    return PlaybackVideoCodec.entries.firstOrNull { codec ->
+        normalized in codec.embyNames || codec.embyNames.any(normalized::startsWith)
+    }
+}
+
+internal fun PlaybackDiagnostics.hasActiveDolbyVisionOutput(): Boolean =
+    videoOutput.contains("Dolby Vision", ignoreCase = true) &&
+        videoOutput.contains("首帧已输出") &&
+        !videoOutput.contains("未声明支持")
+
+internal fun PlaybackDiagnostics.hasActiveDolbyAtmosOutput(): Boolean =
+    audioOutput.contains("源码输出") &&
+        (
+            audioOutput.contains("Atmos", ignoreCase = true) ||
+                audioOutput.contains("TrueHD", ignoreCase = true)
+        )
 
 internal fun PlayerMediaItem.sourceDynamicRange(transcoding: Boolean): String =
     activeVersion?.sourceDynamicRange.orEmpty().takeUnless { transcoding }.orEmpty()
@@ -42,6 +89,7 @@ internal fun initialPlaybackDiagnostics(
     playMethod = item?.effectivePlaybackMethod(quality)?.label
         ?: PlaybackMethod.DirectPlay.label,
     requestedQuality = quality.label,
+    videoCodec = item?.activeVersion?.sourceVideoCodec?.uppercase() ?: "未知",
     videoWidth = item?.activeVersion?.sourceWidth?.takeUnless { transcoding } ?: 0,
     dynamicRange = item?.sourceDynamicRange(transcoding).orEmpty(),
     audioFormat = item?.sourceAudioFormat(transcoding).orEmpty(),

@@ -1,0 +1,274 @@
+package com.yfuse.feature.detail
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OverlayButtonRow
+import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.OverlayOptionRow
+import com.yfuse.core.designsystem.OverlayOptionSpacing
+import com.yfuse.core.model.Episode
+import com.yfuse.core.model.MediaContainer
+import com.yfuse.core.model.MediaContainerKind
+import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.offline.OfflineBatchMode
+import com.yfuse.core.offline.OfflineDownloadQuality
+import com.yfuse.core.offline.OfflineDownloadSelection
+import com.yfuse.core.offline.estimateOfflineDownloadBytes
+import com.yfuse.feature.profile.formatDownloadBytes
+
+@Composable
+internal fun OfflineDownloadDialog(
+    detail: MediaDetail,
+    episodes: List<Episode>,
+    selectedVersionId: String?,
+    onConfirm: (OfflineDownloadSelection) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val versions = detail.versions
+    var versionId by remember(detail.id, selectedVersionId) {
+        mutableStateOf(selectedVersionId ?: versions.firstOrNull()?.id)
+    }
+    var quality by remember(detail.id) { mutableStateOf(OfflineDownloadQuality.Original) }
+    var subtitleIndex by remember(detail.id) { mutableStateOf<Int?>(null) }
+    var batchMode by remember(detail.id) { mutableStateOf(OfflineBatchMode.Current) }
+    val selectedVersion = versions.firstOrNull { it.id == versionId } ?: versions.firstOrNull()
+    val selectedSubtitle = selectedVersion?.subtitleTracks?.firstOrNull { it.index == subtitleIndex }
+    val batchCount =
+        when (batchMode) {
+            OfflineBatchMode.Current -> 1
+            OfflineBatchMode.Season -> episodes.size.coerceAtLeast(1)
+            OfflineBatchMode.Unwatched -> episodes.count { !it.played }
+        }
+    val selection =
+        OfflineDownloadSelection(
+            batchMode = batchMode,
+            mediaSourceId = selectedVersion?.id,
+            quality = quality,
+            subtitleStreamIndex = selectedSubtitle?.index,
+            subtitleCodec = selectedSubtitle?.codec,
+            subtitleLanguage = selectedSubtitle?.language,
+            subtitleDefault = selectedSubtitle?.default == true,
+            subtitleForced = selectedSubtitle?.forced == true,
+        )
+    val totalEstimate =
+        estimateOfflineDownloadBytes(
+            currentItemId = detail.id,
+            currentTitle = detail.title,
+            currentRuntimeMinutes = detail.runtimeMinutes,
+            currentVersions = detail.versions,
+            seasonEpisodes = episodes,
+            selection = selection,
+        )
+
+    GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "智能离线",
+            subtitle =
+                buildString {
+                    append("下载前确认版本、画质和字幕")
+                    append(" · ")
+                    append(totalEstimate?.let { "预计 ${formatDownloadBytes(it)}" } ?: "空间待服务器确认")
+                },
+            onClose = onDismiss,
+        )
+
+        Text("范围", style = AppTypography.caption.strong, color = palette.sub2)
+        OfflineChoiceRow(OfflineBatchMode.entries, batchMode, { it.label }) { batchMode = it }
+
+        if (versions.size > 1) {
+            Text("版本", style = AppTypography.caption.strong, color = palette.sub2)
+            versions.forEach { version ->
+                OverlayOptionRow(
+                    label =
+                        listOfNotNull(version.name, version.summary.takeIf(String::isNotBlank))
+                            .joinToString(" · "),
+                    selected = version.id == selectedVersion?.id,
+                    onClick = {
+                        versionId = version.id
+                        subtitleIndex = null
+                    },
+                )
+            }
+        }
+
+        Text("画质", style = AppTypography.caption.strong, color = palette.sub2)
+        OfflineChoiceRow(OfflineDownloadQuality.entries, quality, { it.label }) { quality = it }
+
+        selectedVersion?.subtitleTracks?.takeIf { it.isNotEmpty() }?.let { tracks ->
+            Text("字幕", style = AppTypography.caption.strong, color = palette.sub2)
+            OverlayOptionRow(
+                label = "不下载字幕",
+                selected = subtitleIndex == null,
+                onClick = { subtitleIndex = null },
+            )
+            tracks.forEach { track ->
+                val index = track.index ?: return@forEach
+                OverlayOptionRow(
+                    label = track.label,
+                    selected = index == subtitleIndex,
+                    onClick = { subtitleIndex = index },
+                )
+            }
+        }
+
+        Text(
+            when (batchMode) {
+                OfflineBatchMode.Current -> "将加入 1 个下载任务"
+                OfflineBatchMode.Season -> "将加入 $batchCount 集；每集自动选择对应媒体源"
+                OfflineBatchMode.Unwatched ->
+                    if (batchCount == 0) {
+                        "本季已全部看完，没有可下载的未看剧集"
+                    } else {
+                        "将加入 $batchCount 集，已看剧集会跳过"
+                    }
+            },
+            style = AppTypography.caption.regular,
+            color = palette.sub2,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        OverlayButtonRow(
+            dismissLabel = "取消",
+            confirmLabel = "加入下载",
+            onDismiss = onDismiss,
+            onConfirm = { onConfirm(selection) },
+            confirmEnabled =
+                (versions.isEmpty() || selectedVersion != null) &&
+                    !(batchMode == OfflineBatchMode.Unwatched && batchCount == 0),
+        )
+    }
+}
+
+@Composable
+private fun <T> OfflineChoiceRow(
+    values: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(values) { value ->
+            OverlayOptionRow(
+                label = label(value),
+                selected = value == selected,
+                onClick = { onSelect(value) },
+                modifier = Modifier.width(118.dp),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun OrganizationContainerDialog(
+    containers: List<MediaContainer>,
+    loading: Boolean,
+    error: String?,
+    addingIds: Set<String>,
+    addedIds: Set<String>,
+    onRetry: () -> Unit,
+    onAdd: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    GlassDialog(liquidButtons = false, onDismiss = onDismiss, scrollable = false) {
+        OverlayHeader(
+            title = "加入合集或播放列表",
+            subtitle = "使用服务器上已有的容器",
+            onClose = onDismiss,
+        )
+        when {
+            loading && containers.isEmpty() ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(Modifier.size(22.dp))
+                    Text("正在读取服务器容器…", style = AppTypography.body.regular, color = palette.sub)
+                }
+
+            error != null && containers.isEmpty() -> {
+                Text(
+                    text = error,
+                    style = AppTypography.body.regular,
+                    color = palette.sub,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+                OverlayOptionRow(label = "重试", selected = false, onClick = onRetry)
+            }
+
+            containers.isEmpty() ->
+                Text(
+                    text = "此服务器没有可用的合集或播放列表。Yfuse 不会偷偷创建替代片单。",
+                    style = AppTypography.body.regular,
+                    color = palette.sub,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                )
+
+            else -> {
+                if (error != null) {
+                    Text(
+                        text = error,
+                        style = AppTypography.caption.medium,
+                        color = palette.sub,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                }
+                LazyColumn(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing),
+                ) {
+                    items(
+                        items = containers,
+                        key = { "${it.serverId}-${it.kind}-${it.id}" },
+                    ) { container ->
+                        val added = container.id in addedIds
+                        val adding = container.id in addingIds
+                        val kind =
+                            if (container.kind == MediaContainerKind.BoxSet) {
+                                "合集"
+                            } else {
+                                "播放列表"
+                            }
+                        OverlayOptionRow(
+                            label =
+                                buildString {
+                                    append(kind)
+                                    append(" · ")
+                                    append(container.title)
+                                    if (adding) append(" · 正在加入…")
+                                },
+                            selected = added,
+                            onClick = { if (!adding && !added) onAdd(container.id) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

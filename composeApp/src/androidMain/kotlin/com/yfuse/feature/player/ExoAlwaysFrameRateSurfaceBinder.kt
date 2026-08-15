@@ -171,7 +171,7 @@ private fun View.findExoPlayerView(): PlayerView? {
     if (this is PlayerView && player is ExoPlayer) return this
     if (this !is ViewGroup) return null
     for (index in 0 until childCount) {
-        childAt(index).findExoPlayerView()?.let { return it }
+        getChildAt(index).findExoPlayerView()?.let { return it }
     }
     return null
 }

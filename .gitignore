@@ -43,3 +43,6 @@ composeApp/libs/
 
 # Local scratch files, generated QA captures, and design experiments
 tmp/
+
+# Downloaded GitHub Actions packages kept only for local verification
+artifacts/

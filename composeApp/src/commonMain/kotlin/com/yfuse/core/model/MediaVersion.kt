@@ -26,6 +26,8 @@ data class MediaVersion(
     val videoRange: String?,
     /** Where the file sits on the server. Shown verbatim — it is how a user finds it. */
     val path: String? = null,
+    /** Server media kind, notably `Iso`, `Dvd`, or `BluRay` for navigable disc sources. */
+    val videoType: String? = null,
     /** Everything the server knows about the picture, for the 媒体信息 table. */
     val video: VideoStreamInfo? = null,
     val audioTracks: List<AudioTrackInfo> = emptyList(),
@@ -135,6 +137,25 @@ data class MediaVersion(
             else -> videoRange?.takeIf { it.isNotBlank() } ?: "SDR"
         }
 
+    /**
+     * A disc image/folder is not one linear media container. It needs DVD/Blu-ray title
+     * navigation and random block access, neither of which is available when an Android
+     * backend receives the server's ordinary `/Videos/{id}/stream` HTTP URL.
+     */
+    val requiresDiscNavigation: Boolean
+        get() {
+            val declaredType = videoType?.trim()?.lowercase()
+            val declaredContainer = container?.trim()?.lowercase()
+            val normalizedPath = path?.trim()?.replace('\\', '/')?.lowercase()
+            return (declaredType != null && declaredType in DISC_VIDEO_TYPES) ||
+                (declaredContainer != null && declaredContainer in DISC_CONTAINERS) ||
+                normalizedPath?.endsWith(".iso") == true ||
+                normalizedPath?.contains("/video_ts/") == true ||
+                normalizedPath?.contains("/bdmv/") == true ||
+                normalizedPath?.endsWith("/video_ts") == true ||
+                normalizedPath?.endsWith("/bdmv") == true
+        }
+
     /** `60fps` — whole frames, for a chip that sits beside a bitrate. */
     val frameRateLabel: String?
         get() = video?.frameRate?.takeIf { it > 0 }?.let { rate ->
@@ -142,6 +163,9 @@ data class MediaVersion(
             "${rounded}fps"
         }
 }
+
+private val DISC_VIDEO_TYPES = setOf("iso", "dvd", "bluray", "blu-ray")
+private val DISC_CONTAINERS = setOf("iso", "dvd", "bluray", "blu-ray", "bdmv", "video_ts", "udf")
 
 private fun String?.mentionsDolbyVision(): Boolean {
     val value = this?.lowercase() ?: return false

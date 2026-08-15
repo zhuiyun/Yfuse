@@ -32,6 +32,12 @@ data class PlaybackDiagnostics(
     val videoWidth: Int = 0,
     val dynamicRange: String = "",
     val audioFormat: String = "",
+    /** Decoder + rendered-frame evidence; unlike [dynamicRange], this is not source metadata. */
+    val videoOutput: String = "等待首帧",
+    /** The AudioTrack/mpv output format, distinguishing encoded passthrough from decoded PCM. */
+    val audioOutput: String = "等待音频输出",
+    /** Current display/audio-route capability snapshot, kept separate from active output. */
+    val deviceOutputCapabilities: String = "未探测",
     /** Why playback is not using the original direct-play path. */
     val fallbackReason: String? = null,
     val bitrateBitsPerSecond: Long = 0L,

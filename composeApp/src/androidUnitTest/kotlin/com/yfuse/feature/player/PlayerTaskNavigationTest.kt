@@ -72,18 +72,21 @@ class PlayerTaskNavigationTest {
         val activitySource = projectFile(
             "src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
         ).readText()
+        val notificationSource = projectFile(
+            "src/androidMain/kotlin/com/yfuse/feature/player/PlayerNotificationController.kt",
+        ).readText()
         val serviceSource = projectFile(
             "src/androidMain/kotlin/com/yfuse/feature/player/PlaybackKeepAliveService.kt",
         ).readText()
         val openIntentBlock = activitySource
             .substringAfter("internal fun openIntent")
             .substringBefore("internal fun discardLaunch")
-        val transportNotificationBlock = activitySource
-            .substringAfter("private fun updatePlaybackNotification")
+        val transportNotificationBlock = notificationSource
+            .substringAfter("fun update(")
             .substringBefore("private fun mediaPendingIntent")
 
         assertTrue("PlayerActivity.openIntent(this)" in serviceSource)
-        assertTrue("openIntent(this)" in transportNotificationBlock)
+        assertTrue("PlayerActivity.openIntent(activity)" in transportNotificationBlock)
         assertFalse("getLaunchIntentForPackage" in serviceSource)
         assertFalse("PlayerLaunchIntentPayload" in serviceSource)
         assertFalse("PlayerLaunchIntentPayload" in openIntentBlock)

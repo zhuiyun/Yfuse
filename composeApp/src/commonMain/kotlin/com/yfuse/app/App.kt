@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,16 +39,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -936,7 +929,7 @@ private fun GlassTabBar(
     // The accent stays on the icon/label so theme colours remain expressive without tinting
     // the whole selected cell. Dark mode keeps the same hierarchy with a stronger dark glass.
     val barFill = palette.glassStrong.copy(alpha = if (palette.isDark) 0.86f else 0.92f)
-    val selectionFill = palette.text.copy(alpha = if (palette.isDark) 0.12f else 0.08f)
+    val selectionFill = accent.container.copy(alpha = if (palette.isDark) 0.46f else 0.72f)
     // The pill travels between cells rather than appearing under the new one. Tabs are
     // equal-weight quarters of the bar, so its position is the animated index and nothing
     // has to be measured.
@@ -974,8 +967,8 @@ private fun GlassTabBar(
                 // artwork-heavy roots and plain roots without turning into a filled button.
                 // The selected region nearly fills its cell, matching the broad soft island
                 // in the reference instead of reading as a small Material indicator.
-                val pillWidth = cell * 0.92f
-                val pillHeight = size.height * 0.88f
+                val pillWidth = cell * 0.82f
+                val pillHeight = size.height * 0.86f
                 drawRoundRect(
                     color = selectionFill,
                     topLeft =
@@ -1121,70 +1114,24 @@ private fun LiquidGlassTabIcon(
     tint: Color,
     compact: Boolean = false,
 ) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val boxSize = if (compact) 36.dp else 40.dp
+    val boxSize = if (compact) 34.dp else 38.dp
     val iconSize =
         when {
-            compact && selected -> 29.dp
-            compact -> 27.dp
-            selected -> 31.dp
-            else -> 29.dp
-        }
-    // Keep the glass chroma quiet: one hue per state, with only luminance changing along
-    // the stroke. The previous white/accent/text mix produced a muddy rainbow edge.
-    val body = tint
-    val highlight =
-        if (palette.isDark) {
-            body.copy(alpha = if (selected) 1f else 0.92f)
-        } else {
-            lerp(body, Color.White, if (selected) 0.30f else 0.20f)
-        }
-    val depth =
-        if (palette.isDark) {
-            lerp(body, Color.Black, 0.18f)
-        } else {
-            lerp(body, Color.Black, 0.12f)
+            compact -> 25.dp
+            selected -> 28.dp
+            else -> 27.dp
         }
 
     Box(
         Modifier.size(boxSize),
         contentAlignment = Alignment.Center,
     ) {
-        // A restrained lower refraction keeps the glass depth without visually doubling
-        // the stroke. It is the same size as the foreground and displaced by only half a dp.
-        Icon(
-            item.icon,
-            contentDescription = null,
-            tint = depth.copy(alpha = if (palette.isDark) 0.20f else 0.14f),
-            modifier =
-                Modifier
-                    .offset(y = 0.5.dp)
-                    .size(iconSize),
-        )
         Icon(
             item.icon,
             contentDescription = item.label,
-            tint = Color.White,
-            modifier =
-                Modifier
-                    .size(iconSize)
-                    // SrcIn needs an offscreen layer; otherwise the mask can tint siblings in
-                    // the tab cell on some Android renderers.
-                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-                    .drawWithCache {
-                        val glassInk =
-                            Brush.verticalGradient(
-                                0f to highlight,
-                                0.30f to body,
-                                0.82f to body,
-                                1f to depth,
-                            )
-                        onDrawWithContent {
-                            drawContent()
-                            drawRect(glassInk, blendMode = BlendMode.SrcIn)
-                        }
-                    },
+            tint = tint,
+            modifier = Modifier.size(iconSize),
         )
     }
+
 }

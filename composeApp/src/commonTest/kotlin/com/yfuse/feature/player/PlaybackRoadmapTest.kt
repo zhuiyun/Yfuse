@@ -112,6 +112,62 @@ class PlaybackRoadmapTest {
     }
 
     @Test
+    fun iso_never_falls_through_to_the_original_file_when_negotiation_is_incomplete() {
+        val player =
+            listOf(
+                version(
+                    supportsDirectPlay = null,
+                    supportsDirectStream = null,
+                    supportsTranscoding = null,
+                    container = "iso",
+                    videoType = "Iso",
+                    path = "/media/Movie/Movie.iso",
+                ),
+            ).toPlayerMediaVersions("http://host", "item", "token", "session").single()
+
+        assertTrue(player.discSource)
+        assertEquals(PlaybackMethod.Transcode, player.playMethod)
+        assertContains(player.url, "/Videos/item/master.m3u8")
+        assertEquals(player.transcodeUrl, player.url)
+    }
+
+    @Test
+    fun iso_uses_a_best_effort_server_stream_even_when_an_old_server_denies_the_flag() {
+        val player =
+            listOf(
+                version(
+                    supportsDirectPlay = true,
+                    supportsDirectStream = false,
+                    supportsTranscoding = false,
+                    container = "iso",
+                ),
+            ).toPlayerMediaVersions("http://host", "item", "token", "session").single()
+
+        assertEquals(PlaybackMethod.Transcode, player.playMethod)
+        assertContains(player.transcodeUrl, "/Videos/item/master.m3u8")
+        assertContains(player.fallbackTranscodeUrl, "/Videos/item/stream.mp4")
+    }
+
+    @Test
+    fun a_server_selected_disc_direct_stream_is_used_instead_of_the_raw_iso() {
+        val player =
+            listOf(
+                version(
+                    supportsDirectPlay = true,
+                    supportsDirectStream = true,
+                    supportsTranscoding = true,
+                    directStreamUrl = "/Videos/item/stream.m2ts?MediaSourceId=source",
+                    container = "iso",
+                    videoType = "BluRay",
+                ),
+            ).toPlayerMediaVersions("http://host", "item", "token", "session").single()
+
+        assertEquals(PlaybackMethod.DirectStream, player.playMethod)
+        assertContains(player.url, "/Videos/item/stream.m2ts")
+        assertFalse("static=true" in player.url)
+    }
+
+    @Test
     fun unsupportedTranscodingDoesNotCreateFallbackUrls() {
         val player =
             listOf(
@@ -257,15 +313,20 @@ class PlaybackRoadmapTest {
         supportsTranscoding: Boolean?,
         directStreamUrl: String? = null,
         transcodingUrl: String? = null,
+        container: String = "mkv",
+        videoType: String? = null,
+        path: String? = null,
     ) = MediaVersion(
         id = "source",
         name = "Source",
-        container = "mkv",
+        container = container,
         sizeBytes = null,
         bitrateBps = 8_000_000,
         videoCodec = "h264",
         videoHeight = 1080,
         videoRange = null,
+        path = path,
+        videoType = videoType,
         supportsDirectPlay = supportsDirectPlay,
         supportsDirectStream = supportsDirectStream,
         supportsTranscoding = supportsTranscoding,

@@ -1,5 +1,6 @@
 package com.yfuse.core.data
 
+import com.yfuse.core.data.dto.PlaybackInfoRequestDto
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaDetail
@@ -7,17 +8,26 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.playback.PlaybackAudioCodec
+import com.yfuse.core.playback.PlaybackAudioRoute
+import com.yfuse.core.playback.PlaybackDeviceCapabilities
+import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
+import com.yfuse.core.playback.PlaybackHdrFormat
+import com.yfuse.core.playback.PlaybackVideoCodec
 import com.yfuse.feature.authRoutes
 import com.yfuse.feature.homeRoutes
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.IOException
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -26,6 +36,7 @@ import kotlin.test.assertTrue
 
 class EmbyRepositoryTest {
     private val server = SavedServer("id", "http://host:8096", "zhuiyun", "u1", "zhuiyun", "tok")
+    private val requestJson = Json { ignoreUnknownKeys = true }
 
     private fun itemPageWithoutTotal(count: Int): String {
         val items =
@@ -88,6 +99,79 @@ class EmbyRepositoryTest {
                     .MediaSources
                     .single()
                     .Id,
+            )
+        }
+
+    @Test
+    fun playback_info_uses_current_device_and_audio_route_capabilities() =
+        runTest {
+            val discovered =
+                PlaybackDeviceCapabilities(
+                    hdrFormats = setOf(PlaybackHdrFormat.Hdr10, PlaybackHdrFormat.DolbyVision),
+                    videoDecoders =
+                        setOf(
+                            PlaybackVideoCodec.H264,
+                            PlaybackVideoCodec.Hevc,
+                            PlaybackVideoCodec.DolbyVision,
+                        ),
+                    hdrDecoders =
+                        mapOf(
+                            PlaybackVideoCodec.Hevc to setOf(PlaybackHdrFormat.Hdr10),
+                            PlaybackVideoCodec.DolbyVision to
+                                setOf(PlaybackHdrFormat.DolbyVision),
+                        ),
+                    audioDecoders = setOf(PlaybackAudioCodec.Aac),
+                    directAudioFormats = setOf(PlaybackAudioCodec.TrueHd),
+                    dolbyVisionCodecProfiles = setOf(1),
+                    dolbyVisionBaseCodecs = setOf(PlaybackVideoCodec.Hevc),
+                    audioRoutes = setOf(PlaybackAudioRoute.Hdmi),
+                    maxAudioChannels = 8,
+                )
+            val repo =
+                testRepo(
+                    capabilitiesProvider = PlaybackDeviceCapabilitiesProvider { discovered },
+                    audioPassthroughEnabled = { true },
+                ) { request ->
+                    val posted =
+                        requestJson.decodeFromString<PlaybackInfoRequestDto>(
+                            request.body.toByteArray().decodeToString(),
+                        )
+                    val direct = posted.DeviceProfile.DirectPlayProfiles.single()
+                    assertEquals(8, posted.MaxAudioChannels)
+                    assertTrue("hevc" in direct.VideoCodec.split(','))
+                    assertTrue("truehd" in direct.AudioCodec.split(','))
+                    json("""{"MediaSources":[]}""")
+                }
+
+            assertTrue(
+                repo.playbackInfo(server, "m1", playSessionId = "session").isSuccess,
+            )
+        }
+
+    @Test
+    fun playback_info_does_not_claim_route_only_audio_when_passthrough_is_disabled() =
+        runTest {
+            val discovered =
+                PlaybackDeviceCapabilities.conservative().copy(
+                    directAudioFormats = setOf(PlaybackAudioCodec.TrueHd),
+                    audioRoutes = setOf(PlaybackAudioRoute.Hdmi),
+                    maxAudioChannels = 8,
+                )
+            val repo =
+                testRepo(
+                    capabilitiesProvider = PlaybackDeviceCapabilitiesProvider { discovered },
+                ) { request ->
+                    val posted =
+                        requestJson.decodeFromString<PlaybackInfoRequestDto>(
+                            request.body.toByteArray().decodeToString(),
+                        )
+                    val audio = posted.DeviceProfile.DirectPlayProfiles.single().AudioCodec
+                    assertFalse("truehd" in audio.split(','))
+                    json("""{"MediaSources":[]}""")
+                }
+
+            assertTrue(
+                repo.playbackInfo(server, "m1", playSessionId = "session").isSuccess,
             )
         }
 

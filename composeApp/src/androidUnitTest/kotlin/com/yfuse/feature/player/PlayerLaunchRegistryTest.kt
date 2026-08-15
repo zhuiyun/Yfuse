@@ -243,6 +243,10 @@ class PlayerLaunchRegistryTest {
             projectFile(
                 "src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
             ).readText()
+        val notificationSource =
+            projectFile(
+                "src/androidMain/kotlin/com/yfuse/feature/player/PlayerNotificationController.kt",
+            ).readText()
         assertTrue("return Intent(context, PlayerActivity::class.java)" in source)
         assertTrue(".apply(payload::writeTo)" in source)
         assertFalse("getStringArrayExtra" in source)
@@ -261,10 +265,10 @@ class PlayerLaunchRegistryTest {
         assertFalse("yfuse.player.launchId" in openIntentBlock)
 
         val notificationBlock =
-            source
-                .substringAfter("private fun updatePlaybackNotification")
+            notificationSource
+                .substringAfter("fun update(")
                 .substringBefore("private fun mediaPendingIntent")
-        assertTrue("openIntent(this)" in notificationBlock)
+        assertTrue("PlayerActivity.openIntent(activity)" in notificationBlock)
         assertFalse("Intent.FLAG_ACTIVITY_CLEAR_TASK" in notificationBlock)
         assertFalse("Intent.FLAG_ACTIVITY_NEW_TASK" in notificationBlock)
         assertFalse("yfuse.player.launchId" in notificationBlock)
@@ -273,7 +277,7 @@ class PlayerLaunchRegistryTest {
             source
                 .substringAfter("override fun onDestroy()")
                 .substringBefore("private fun closePlayerAndReturn")
-        assertTrue("if (::notificationManager.isInitialized)" in destroyBlock)
+        assertTrue("if (::notificationController.isInitialized)" in destroyBlock)
         assertTrue("if (::mediaSession.isInitialized)" in destroyBlock)
 
         val expiredBlock =

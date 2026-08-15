@@ -189,3 +189,38 @@ internal fun exoAudioPassthroughStatus(
         PlaybackOutputStatus.Active("Media3 encoded AudioTrack (${audioTrackConfig.encoding})")
     }
 }
+
+internal fun playbackOutputDiagnosticLabel(
+    status: PlaybackOutputStatus,
+    activeLabel: String? = null,
+): String =
+    when (status) {
+        PlaybackOutputStatus.Disabled -> "PCM 解码输出 · 源码输出已关闭"
+        is PlaybackOutputStatus.Active -> activeLabel ?: status.detail
+        is PlaybackOutputStatus.Inactive ->
+            if (status.detail.contains("PCM", ignoreCase = true)) {
+                "PCM 解码输出"
+            } else {
+                status.detail
+            }
+        is PlaybackOutputStatus.Configured -> status.detail
+        is PlaybackOutputStatus.Requested -> status.detail
+        is PlaybackOutputStatus.Rejected -> "输出被拒绝 · ${status.detail}"
+        is PlaybackOutputStatus.Unsupported -> "当前平台不支持"
+    }
+
+internal fun exoAudioEncodingLabel(encoding: Int): String =
+    when (encoding) {
+        C.ENCODING_AC3 -> "Dolby Digital"
+        C.ENCODING_E_AC3 -> "Dolby Digital Plus"
+        C.ENCODING_E_AC3_JOC -> "Dolby Atmos / E-AC-3 JOC"
+        C.ENCODING_DOLBY_TRUEHD -> "Dolby TrueHD"
+        C.ENCODING_DTS -> "DTS"
+        C.ENCODING_DTS_HD -> "DTS-HD"
+        C.ENCODING_AC4 -> "Dolby AC-4"
+        C.ENCODING_AAC_LC,
+        C.ENCODING_AAC_HE_V1,
+        C.ENCODING_AAC_HE_V2,
+        -> "AAC"
+        else -> if (Util.isEncodingLinearPcm(encoding)) "PCM" else "编码 $encoding"
+    }

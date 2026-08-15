@@ -100,13 +100,6 @@ internal class SourceSelectionCoordinator(
     }
 }
 
-private fun Throwable.isTransientSourceFailure(): Boolean =
-    when (val error = (this as? EmbyErrorException)?.error) {
-        EmbyError.Network -> true
-        is EmbyError.Server -> error.code in 500..599
-        else -> false
-    }
-
 internal data class SeriesCatalog(
     val seasons: List<Season>,
     val selectedSeasonId: String?,

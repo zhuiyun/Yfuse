@@ -155,6 +155,7 @@ internal fun Format.trackQualifier(type: Int): String? {
 @UnstableApi
 internal fun Format.dynamicRangeLabel(): String =
     when {
+        sampleMimeType.equals("video/dolby-vision", ignoreCase = true) -> "Dolby Vision"
         codecs.orEmpty().contains("dvhe", ignoreCase = true) ||
             codecs.orEmpty().contains("dvh1", ignoreCase = true) -> "Dolby Vision"
         colorInfo?.colorTransfer == C.COLOR_TRANSFER_ST2084 -> "HDR10 / PQ"

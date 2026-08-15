@@ -14,6 +14,7 @@ import com.yfuse.core.model.SubtitleTrackInfo
 import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.model.VideoStreamInfo
 import com.yfuse.core.model.languageDisplayName
+import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -137,6 +138,8 @@ data class MediaSourceDto(
     val Id: String? = null,
     val Name: String? = null,
     val Container: String? = null,
+    /** `VideoFile`, `Iso`, `Dvd`, or `BluRay` on Emby/Jellyfin servers. */
+    val VideoType: String? = null,
     val Size: Long? = null,
     val Bitrate: Int? = null,
     /** The file's location on the server, shown at the foot of 媒体信息. */
@@ -189,47 +192,13 @@ data class DeviceProfileDto(
     val MaxStreamingBitrate: Long = 120_000_000L,
     val DirectPlayProfiles: List<DirectPlayProfileDto> = emptyList(),
     val TranscodingProfiles: List<TranscodingProfileDto> = emptyList(),
+    val CodecProfiles: List<CodecProfileDto> = emptyList(),
     val SubtitleProfiles: List<SubtitleProfileDto> = emptyList(),
 ) {
     companion object {
-        fun yfuseAndroid(): DeviceProfileDto =
-            DeviceProfileDto(
-                DirectPlayProfiles =
-                    listOf(
-                        DirectPlayProfileDto(
-                            Container = "mkv,mp4,m4v,mov,ts,m2ts,webm,avi,flv,wmv,mpg,mpeg",
-                            VideoCodec = "h264,hevc,h265,vp8,vp9,av1,mpeg2video,mpeg4,vc1",
-                            AudioCodec = "aac,mp3,ac3,eac3,truehd,dts,flac,opus,vorbis,pcm",
-                        ),
-                    ),
-                TranscodingProfiles =
-                    listOf(
-                        TranscodingProfileDto(
-                            Container = "ts",
-                            VideoCodec = "h264",
-                            AudioCodec = "aac",
-                            Protocol = "hls",
-                        ),
-                        TranscodingProfileDto(
-                            Container = "mp4",
-                            VideoCodec = "h264",
-                            AudioCodec = "aac",
-                            Protocol = "http",
-                        ),
-                    ),
-                SubtitleProfiles =
-                    listOf(
-                        SubtitleProfileDto("srt", "External"),
-                        SubtitleProfileDto("vtt", "External"),
-                        SubtitleProfileDto("subrip", "External"),
-                        SubtitleProfileDto("ass", "Embed"),
-                        SubtitleProfileDto("ssa", "Embed"),
-                        SubtitleProfileDto("pgs", "Embed"),
-                        SubtitleProfileDto("pgssub", "Embed"),
-                        SubtitleProfileDto("dvdsub", "Embed"),
-                        SubtitleProfileDto("dvbsub", "Embed"),
-                    ),
-            )
+        fun yfuseAndroid(
+            capabilities: PlaybackDeviceCapabilities = PlaybackDeviceCapabilities.conservative(),
+        ): DeviceProfileDto = EmbyDeviceProfileFactory.create(capabilities)
     }
 }
 
@@ -252,6 +221,23 @@ data class TranscodingProfileDto(
     val MaxAudioChannels: String = "8",
     val MinSegments: Int = 2,
     val BreakOnNonKeyFrames: Boolean = true,
+)
+
+@Serializable
+data class CodecProfileDto(
+    val Type: String,
+    val Conditions: List<ProfileConditionDto>,
+    val ApplyConditions: List<ProfileConditionDto> = emptyList(),
+    val Codec: String? = null,
+    val Container: String? = null,
+)
+
+@Serializable
+data class ProfileConditionDto(
+    val Condition: String,
+    val Property: String,
+    val Value: String,
+    val IsRequired: Boolean = false,
 )
 
 @Serializable
@@ -535,6 +521,7 @@ fun MediaSourceDto.toMediaVersion(
         videoHeight = video?.Height,
         videoRange = video?.VideoRange?.takeIf { !it.equals("SDR", ignoreCase = true) },
         path = Path?.takeIf { it.isNotBlank() },
+        videoType = VideoType?.takeIf { it.isNotBlank() },
         video =
             video?.let { stream ->
                 VideoStreamInfo(

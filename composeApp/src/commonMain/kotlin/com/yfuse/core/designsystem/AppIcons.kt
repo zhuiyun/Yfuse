@@ -456,49 +456,40 @@ object AppIcons {
     // offset edge of a stack, a status lamp, a shoulder. They share [TAB_STROKE], the same
     // optical box, and the same corner radius, so they still read as one set.
 
-    /** 首页 — a screen with a play mark: what the app is for, not where you live. */
+    /** 首页 — a fine playback display with a solid optical anchor. */
     val TabHome =
         strokeVector("tab-home", width = TAB_STROKE) {
-            roundRect(2.6f, 4.4f, 18.8f, 13.4f, 3.1f)
+            roundRect(2.9f, 4.7f, 18.2f, 12.8f, 2.7f)
         }.andPath(width = TAB_STROKE) {
-            moveTo(8.4f, 20.9f)
-            horizontalLineTo(15.6f)
-        }.andPath(width = TAB_STROKE) {
-            // A triangle with its own rounded joins, set slightly right of centre so its optical
-            // mass lands on the middle of the screen rather than its geometric centre.
-            moveTo(10.3f, 8.1f)
-            lineTo(15.1f, 11.1f)
-            lineTo(10.3f, 14.1f)
+            moveTo(8.2f, 20.3f)
+            horizontalLineTo(15.8f)
+        }.andSolidPath {
+            moveTo(10.1f, 8.3f)
+            lineTo(15.2f, 11.1f)
+            lineTo(10.1f, 13.9f)
             close()
         }.build()
 
-    /** 库 — a stack of posters seen from the front, the top one offset. */
+    /** 库 — two slim viewing panes with a restrained overlap. */
     val TabLibrary =
         strokeVector("tab-library", width = TAB_STROKE) {
-            roundRect(3.1f, 6.5f, 11.4f, 14.2f, 2.4f)
+            roundRect(8.8f, 4.1f, 11.6f, 15.2f, 2.5f)
         }.andPath(width = TAB_STROKE) {
-            // Two receding edges rather than two more rectangles: at 30dp a second full outline
-            // closes up into a blob, while a pair of arcs reads as depth.
-            moveTo(17f, 8.4f)
-            verticalLineTo(18.8f)
-        }.andPath(width = TAB_STROKE) {
-            moveTo(20.4f, 10.6f)
-            verticalLineTo(16.6f)
-        }.build()
+            roundRect(3.6f, 6.6f, 11.6f, 13.3f, 2.5f)
+        }.andDots(12.2f to 16.9f, 17.3f to 16.4f)
+            .build()
 
-    /** 服务器 — one unit with its lamp lit and the signal it is answering on. */
+    /** 服务器 — one reachable unit, two lamps and a short grounding line. */
     val TabServers =
         strokeVector("tab-servers", width = TAB_STROKE) {
-            roundRect(2.7f, 9.4f, 18.6f, 8.4f, 2.6f)
+            roundRect(2.9f, 9.3f, 18.2f, 8.2f, 2.5f)
         }.andPath(width = TAB_STROKE) {
-            // The arc above is what separates this from a plain box: a machine that is reachable,
-            // rather than a machine.
-            moveTo(7.1f, 6.2f)
-            curveToRelative(2.9f, -2.6f, 6.9f, -2.6f, 9.8f, 0f)
+            moveTo(7.2f, 6.1f)
+            curveToRelative(2.8f, -2.45f, 6.8f, -2.45f, 9.6f, 0f)
         }.andPath(width = TAB_STROKE) {
-            moveTo(6.6f, 20.6f)
-            horizontalLineTo(17.4f)
-        }.andDots(6.6f to 13.6f)
+            moveTo(7f, 20.4f)
+            horizontalLineTo(17f)
+        }.andDots(6.7f to 13.4f, 9.8f to 13.4f)
             .build()
 
     /** 我的 — head and shoulders, with the shoulder line left open. */
@@ -585,6 +576,19 @@ private fun VectorParts.andDots(vararg centres: Pair<Float, Float>): VectorParts
         builder.path(fill = SolidColor(Color.Black)) {
             centres.forEach { (x, y) -> circle(x, y, DOT) }
         }
+    }
+
+/** A small solid accent inside an otherwise fine-line navigation glyph. */
+private fun VectorParts.andSolidPath(block: PathBuilder.() -> Unit): VectorParts =
+    apply {
+        builder.path(
+            fill = SolidColor(Color.Black),
+            stroke = SolidColor(Color.Black),
+            strokeLineWidth = 0.45f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            pathBuilder = block,
+        )
     }
 
 private fun VectorParts.build(): ImageVector = builder.build()

@@ -54,4 +54,38 @@ class PlaybackTruthTest {
         )
         assertNull(item.initialFallbackReason(PlaybackQuality.Original))
     }
+
+    @Test
+    fun device_preflight_starts_on_transcode_before_the_engine_is_created() {
+        val item =
+            PlayerMediaItem(
+                id = "dolby",
+                url = "direct-dolby",
+                transcodeUrl = "safe-hls",
+                title = "杜比视界",
+            ).withForcedServerTranscode("设备不支持 4K60 Dolby Vision")
+
+        assertTrue(item.startsWithServerTranscode(PlaybackQuality.Auto))
+        assertEquals(PlaybackMethod.Transcode, item.effectivePlaybackMethod(PlaybackQuality.Auto))
+        assertEquals(
+            "设备不支持 4K60 Dolby Vision",
+            item.initialFallbackReason(PlaybackQuality.Auto),
+        )
+    }
+
+    @Test
+    fun dolby_badges_require_runtime_output_evidence_not_source_metadata() {
+        assertTrue(
+            PlaybackDiagnostics(
+                videoOutput = "Dolby Vision · 硬件解码 · HDR 首帧已输出",
+                audioOutput = "源码输出 · Dolby Atmos / E-AC-3 JOC",
+            ).let { it.hasActiveDolbyVisionOutput() && it.hasActiveDolbyAtmosOutput() },
+        )
+        assertFalse(
+            PlaybackDiagnostics(
+                videoOutput = "Dolby Vision · 等待首帧",
+                audioOutput = "PCM 解码输出",
+            ).let { it.hasActiveDolbyVisionOutput() || it.hasActiveDolbyAtmosOutput() },
+        )
+    }
 }

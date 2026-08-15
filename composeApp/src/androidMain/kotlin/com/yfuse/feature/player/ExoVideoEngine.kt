@@ -21,6 +21,7 @@ import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -30,6 +31,9 @@ import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackDeviceCapabilities
+import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
+import com.yfuse.core.playback.PlaybackHdrFormat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -70,6 +74,8 @@ class ExoVideoEngine(
 ) : VideoEngine {
     private val items = items.map { it.withPlaybackQuality(quality) }.toMutableList()
     private val outputPreferences = GlobalContext.get().get<PlaybackPreferences>()
+    private val capabilityProvider =
+        runCatching { GlobalContext.get().get<PlaybackDeviceCapabilitiesProvider>() }.getOrNull()
     internal val frameRateMatchMode = outputPreferences.frameRateMatch.value.toPlayerMode()
     private val audioPassthroughMode = outputPreferences.audioPassthrough.value.toPlayerMode()
     private val dualSubtitleCueMerger = ExoDualSubtitleCueMerger()
@@ -195,6 +201,40 @@ class ExoVideoEngine(
 
     private var wasBuffering = true
     private var droppedFrames = 0
+    private var currentVideoDecoder = decoderMode.label
+    private var currentVideoFormat: Format? = null
+    private var renderedFirstFrame = false
+
+    private fun updateVideoOutput() {
+        val format = currentVideoFormat
+        if (format == null) return
+        val range = format.dynamicRangeLabel().ifBlank { "未知动态范围" }
+        val capabilities =
+            runCatching { capabilityProvider?.current() }
+                .getOrNull()
+                ?: PlaybackDeviceCapabilities.conservative()
+        val hdrFormat =
+            when {
+                range.contains("Dolby Vision", ignoreCase = true) -> PlaybackHdrFormat.DolbyVision
+                range.contains("HLG", ignoreCase = true) -> PlaybackHdrFormat.Hlg
+                range.contains("HDR", ignoreCase = true) || range.contains("PQ", ignoreCase = true) ->
+                    PlaybackHdrFormat.Hdr10
+                else -> null
+            }
+        val displayReady = hdrFormat == null || hdrFormat in capabilities.hdrFormats
+        val decoderKind =
+            if (currentVideoDecoder.isSoftwareVideoDecoder()) "软件解码" else "硬件解码"
+        val label =
+            when {
+                !renderedFirstFrame -> "$range · $decoderKind · 等待首帧"
+                hdrFormat == null -> "SDR · $decoderKind · 首帧已输出"
+                displayReady -> "$range · $decoderKind · HDR 首帧已输出"
+                else -> "$range · $decoderKind · 当前显示链路未声明支持"
+            }
+        _state.update { state ->
+            state.copy(diagnostics = state.diagnostics.copy(videoOutput = label))
+        }
+    }
 
     private val analyticsListener =
         object : AnalyticsListener {
@@ -204,9 +244,11 @@ class ExoVideoEngine(
                 initializedTimestampMs: Long,
                 initializationDurationMs: Long,
             ) {
+                currentVideoDecoder = decoderName
                 _state.update {
                     it.copy(diagnostics = it.diagnostics.copy(decoder = decoderName))
                 }
+                updateVideoOutput()
             }
 
             override fun onVideoInputFormatChanged(
@@ -214,6 +256,7 @@ class ExoVideoEngine(
                 format: Format,
                 decoderReuseEvaluation: DecoderReuseEvaluation?,
             ) {
+                currentVideoFormat = format
                 _state.update {
                     it.copy(
                         diagnostics =
@@ -236,6 +279,16 @@ class ExoVideoEngine(
                             ),
                     )
                 }
+                updateVideoOutput()
+            }
+
+            override fun onRenderedFirstFrame(
+                eventTime: AnalyticsListener.EventTime,
+                output: Any,
+                renderTimeMs: Long,
+            ) {
+                renderedFirstFrame = true
+                updateVideoOutput()
             }
 
             override fun onAudioInputFormatChanged(
@@ -253,6 +306,35 @@ class ExoVideoEngine(
                                         .ifBlank { it.diagnostics.audioFormat },
                             ),
                     )
+                }
+            }
+
+            override fun onAudioTrackInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                audioTrackConfig: AudioSink.AudioTrackConfig,
+            ) {
+                val status = exoAudioPassthroughStatus(audioPassthroughMode, audioTrackConfig)
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                audioOutput =
+                                    playbackOutputDiagnosticLabel(
+                                        status = status,
+                                        activeLabel =
+                                            "源码输出 · ${exoAudioEncodingLabel(audioTrackConfig.encoding)}",
+                                    ),
+                            ),
+                    )
+                }
+            }
+
+            override fun onAudioTrackReleased(
+                eventTime: AnalyticsListener.EventTime,
+                audioTrackConfig: AudioSink.AudioTrackConfig,
+            ) {
+                _state.update {
+                    it.copy(diagnostics = it.diagnostics.copy(audioOutput = "音频输出已释放"))
                 }
             }
 
@@ -324,6 +406,8 @@ class ExoVideoEngine(
                 mediaItem: MediaItem?,
                 reason: Int,
             ) {
+                currentVideoFormat = null
+                renderedFirstFrame = false
                 val index = player.currentMediaItemIndex
                 val item = items.getOrNull(index)
                 val transcoding = index in transcodedIndices
@@ -734,6 +818,8 @@ class ExoVideoEngine(
                         playMethod = "服务器转码",
                         dynamicRange = "",
                         audioFormat = "",
+                        videoOutput = "等待转码视频首帧",
+                        audioOutput = "等待转码音频输出",
                         fallbackReason = reason ?: "直放失败，已切换服务器转码",
                         bufferedDurationMs = 0L,
                     ),
@@ -803,6 +889,8 @@ class ExoVideoEngine(
                         playMethod = PlaybackMethod.Transcode.label,
                         dynamicRange = "",
                         audioFormat = "",
+                        videoOutput = "等待转码视频首帧",
+                        audioOutput = "等待转码音频输出",
                         fallbackReason = "HLS 转码不可用，已改用 MP4 转码",
                     ),
             )
@@ -910,4 +998,12 @@ class ExoVideoEngine(
     }
 
     private fun knownDuration(): Long = player.duration.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
+}
+
+private fun String.isSoftwareVideoDecoder(): Boolean {
+    val normalized = lowercase()
+    return normalized.startsWith("omx.google.") ||
+        normalized.startsWith("c2.android.") ||
+        normalized.contains("ffmpeg") ||
+        normalized.contains("software")
 }

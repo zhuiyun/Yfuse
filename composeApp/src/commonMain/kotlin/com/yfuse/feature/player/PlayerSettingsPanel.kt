@@ -326,7 +326,8 @@ internal fun SettingsPanel(
                             OptionRow(label, selected, onClick = { onSelectQuality(index) })
                         }
                         Text(
-                            "4K / 1080P / 720P / 480P 会请求服务器按该上限转码；原画与自动优先采用服务器协商的直放。",
+                            "4K / 1080P / 720P / 480P 会请求服务器按该上限转码；" +
+                                "原画与自动优先采用服务器协商的直放。",
                             style = AppTypography.caption.medium,
                             color = Color.White.copy(alpha = 0.62f),
                         )
@@ -439,6 +440,7 @@ internal fun SettingsPanel(
                     DiagnosticRow("解码器", diagnostics.decoder)
                     DiagnosticRow("播放方式", diagnostics.playMethod)
                     DiagnosticRow("所选画质", diagnostics.requestedQuality)
+                    DiagnosticRow("设备链路", diagnostics.deviceOutputCapabilities)
                     DiagnosticRow(
                         "画面",
                         buildString {
@@ -458,7 +460,9 @@ internal fun SettingsPanel(
                     )
                     DiagnosticRow("视频编码", diagnostics.videoCodec)
                     DiagnosticRow("动态范围", diagnostics.dynamicRange.ifBlank { "未知" })
+                    DiagnosticRow("视频输出", diagnostics.videoOutput)
                     DiagnosticRow("音频", diagnostics.audioFormat.ifBlank { "未知" })
+                    DiagnosticRow("音频输出", diagnostics.audioOutput)
                     DiagnosticRow("当前码率", diagnostics.bitrateBitsPerSecond.asBitrate())
                     DiagnosticRow("网络速度", diagnostics.networkBitsPerSecond.asBitrate())
                     DiagnosticRow(
