@@ -669,7 +669,7 @@ private fun SpeedControl(
     val label =
         when {
             speed % 1f == 0f -> "${speed.toInt()}×"
-            else -> "${speed}×"
+            else -> "$speed×"
         }
     Box(
         Modifier
