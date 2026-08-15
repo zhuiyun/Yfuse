@@ -58,7 +58,8 @@ fun resolvePlaybackOptimization(
             setOf(
                 PlaybackResourcePressure.SystemPowerSaver,
                 PlaybackResourcePressure.BatteryLow,
-            ) && requested != PlaybackOptimizationMode.Compatibility ->
+            ) &&
+            requested != PlaybackOptimizationMode.Compatibility ->
             ResolvedPlaybackOptimization(
                 mode = PlaybackOptimizationMode.PowerSaver,
                 reason = "${environment.pressure.label}，YCore 临时启用省电管线",
@@ -67,4 +68,3 @@ fun resolvePlaybackOptimization(
     }
 
 internal expect fun createPlaybackRuntimeEnvironmentProvider(): PlaybackRuntimeEnvironmentProvider
-
