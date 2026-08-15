@@ -1,12 +1,14 @@
 package com.yfuse.feature.player
 
 import android.content.Context
+import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import kotlinx.coroutines.CoroutineScope
 
 /** Android engine construction boundary; callers depend only on [VideoEngine]. */
+@OptIn(UnstableApi::class)
 internal fun createVideoEngine(
     kind: PlayerEngine,
     context: Context,
