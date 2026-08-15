@@ -152,23 +152,17 @@ internal fun PlayerRoot(
                 ?: PlaybackDeviceCapabilities.conservative()
         }
     val runtimeEnvironment = rememberPlaybackRuntimeEnvironment()
-    val resolvedOptimization =
-        remember(optimizationMode, runtimeEnvironment) {
-            resolvePlaybackOptimization(optimizationMode, runtimeEnvironment)
-        }
+    val resolvedOptimization = resolvePlaybackOptimization(optimizationMode, runtimeEnvironment)
     val effectiveOptimizationMode = resolvedOptimization.mode
-    val failureMemoryState =
-        remember(playbackPreferences) {
-            mutableStateOf(
-                PlaybackFailureMemory(
-                    initialRecords = playbackPreferences.playbackFailureRecords(),
-                    onChanged = playbackPreferences::storePlaybackFailureRecords,
-                ),
+    val failureMemory =
+        remember<PlaybackFailureMemory>(playbackPreferences) {
+            PlaybackFailureMemory(
+                initialRecords = playbackPreferences.playbackFailureRecords(),
+                onChanged = playbackPreferences::storePlaybackFailureRecords,
             )
         }
-    val failureMemory = failureMemoryState.value
     val performanceMemory =
-        remember(playbackPreferences) {
+        remember<PlaybackPerformanceMemory>(playbackPreferences) {
             PlaybackPerformanceMemory(
                 nowEpochMs = System::currentTimeMillis,
                 initialRecords = playbackPreferences.playbackPerformanceRecords(),
