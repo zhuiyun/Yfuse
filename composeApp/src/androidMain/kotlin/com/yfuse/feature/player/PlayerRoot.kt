@@ -898,3 +898,897 @@ internal fun PlayerRoot(
     /**
      * Plays the current entry from a different file. The old server-side encoder is ended
      * before another engine is created, and every binding gets a fresh playback-session id.
+     * That ordering prevents a late DELETE for A from killing a rapid A -> B -> A switch.
+     */
+    fun selectVersion(
+        versionId: String,
+        automaticRecovery: Boolean = false,
+    ) {
+        val switchState = latestState
+        val item = latestActiveItems.getOrNull(switchState.currentIndex) ?: return
+        val committedVersionId = versionChoices[item.id]?.id ?: item.versionId
+        if (committedVersionId == versionId && pendingVersionId == null) return
+        if (pendingVersionId == versionId) return
+        val version = item.versions.firstOrNull { it.id == versionId } ?: return
+        val freshVersion = version.withFreshPlaySession()
+        val itemIndex = switchState.currentIndex
+        val itemId = item.id
+        val oldSessionId = item.playSessionId
+
+        versionSwitchNonce++
+        val operation = versionSwitchNonce
+        versionSwitchJob?.cancel()
+        pendingVersionId = versionId
+        AppLog.info(
+            category = "player",
+            event = "version_switch_requested",
+            message = "Playback media version switch requested",
+            attributes =
+                mapOf(
+                    "itemIndex" to itemIndex.toString(),
+                    "engine" to kind.name,
+                    "fromVersionId" to committedVersionId.orEmpty(),
+                    "toVersionId" to versionId,
+                ),
+        )
+
+        versionSwitchJob =
+            scope.launch {
+                try {
+                    val cleanupSucceeded =
+                        if (oldSessionId.isBlank() || playbackSink == null) {
+                            true
+                        } else {
+                            try {
+                                withTimeoutOrNull(5_000L) {
+                                    playbackSink.stopEncoding(oldSessionId)
+                                } == true
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Throwable) {
+                                AppLog.warning(
+                                    category = "player",
+                                    event = "version_switch_cleanup_failed",
+                                    message = "Old transcode cleanup threw before a version switch",
+                                    throwable = failure,
+                                    attributes =
+                                        mapOf(
+                                            "itemIndex" to itemIndex.toString(),
+                                            "fromVersionId" to committedVersionId.orEmpty(),
+                                            "toVersionId" to versionId,
+                                            "playSessionId" to oldSessionId,
+                                        ),
+                                )
+                                false
+                            }
+                        }
+
+                    if (operation != versionSwitchNonce) return@launch
+                    val latestItem = latestActiveItems.getOrNull(latestState.currentIndex)
+                    if (latestState.currentIndex != itemIndex || latestItem?.id != itemId) {
+                        return@launch
+                    }
+                    if (!cleanupSucceeded) {
+                        AppLog.warning(
+                            category = "player",
+                            event = "version_switch_cleanup_rejected",
+                            message = "Old transcode could not be cleaned up; keeping current version",
+                            attributes =
+                                mapOf(
+                                    "itemIndex" to itemIndex.toString(),
+                                    "fromVersionId" to committedVersionId.orEmpty(),
+                                    "toVersionId" to versionId,
+                                    "playSessionId" to oldSessionId,
+                                ),
+                        )
+                        Toast
+                            .makeText(
+                                context,
+                                "切换版本失败：无法清理旧的服务器转码，请稍后重试",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        return@launch
+                    }
+
+                    // Read the position only after cleanup succeeds. Until this point the old
+                    // engine remains attached, so a rejected/timeout cleanup is non-destructive.
+                    capturePlaybackHandover()
+                    engine.pause()
+                    resume = itemIndex to engine.currentPositionMs()
+                    versionsTried =
+                        updatedVersionAttempts(
+                            tried = versionsTried,
+                            selected = versionId,
+                            automaticRecovery = automaticRecovery,
+                        )
+                    versionChoices = versionChoices + (itemId to freshVersion)
+                    engineGeneration++
+                } finally {
+                    if (operation == versionSwitchNonce) {
+                        pendingVersionId = null
+                        versionSwitchJob = null
+                    }
+                }
+            }
+    }
+
+    fun switchEngine(target: PlayerEngine) {
+        if (target == kind) return
+        // Read the position before the old engine is torn down.
+        capturePlaybackHandover()
+        engine.pause()
+        val positionMs = engine.currentPositionMs()
+        AppLog.info(
+            category = "player",
+            event = "engine_switch_requested",
+            message = "Playback engine switch requested",
+            attributes =
+                mapOf(
+                    "from" to kind.name,
+                    "to" to target.name,
+                    "itemIndex" to state.currentIndex.toString(),
+                    "positionMs" to positionMs.toString(),
+                ),
+        )
+        resume = state.currentIndex to positionMs
+        kind = target
+    }
+
+    fun selectQuality(target: PlaybackQuality) {
+        if (target == selectedQuality) return
+        capturePlaybackHandover()
+        engine.pause()
+        resume = state.currentIndex to engine.currentPositionMs()
+        selectedQuality = target
+        onQualityChanged(target, currentItem?.serverId)
+        engineGeneration++
+    }
+
+    var lastAdaptiveBufferEvents by remember(engine) {
+        mutableIntStateOf(state.diagnostics.bufferEvents)
+    }
+    var adaptiveBufferStrikes by remember(state.currentIndex, currentItem?.serverId) {
+        mutableIntStateOf(0)
+    }
+    LaunchedEffect(
+        engine,
+        state.diagnostics.bufferEvents,
+        state.currentIndex,
+        autoQualityDowngrade,
+        qualityLocked,
+    ) {
+        val newEvents = state.diagnostics.bufferEvents - lastAdaptiveBufferEvents
+        if (newEvents <= 0) return@LaunchedEffect
+        lastAdaptiveBufferEvents = state.diagnostics.bufferEvents
+        adaptiveBufferStrikes += newEvents
+        if (!autoQualityDowngrade || qualityLocked || state.positionMs < 5_000L) {
+            return@LaunchedEffect
+        }
+        if (adaptiveBufferStrikes < AUTO_QUALITY_DOWNGRADE_BUFFER_STRIKES) {
+            return@LaunchedEffect
+        }
+        val target = lowerPlaybackQuality(selectedQuality) ?: return@LaunchedEffect
+        adaptiveBufferStrikes = 0
+        AppLog.info(
+            category = "player.quality",
+            event = "automatic_downgrade",
+            message = "Playback quality was lowered after buffering",
+            attributes = mapOf("from" to selectedQuality.name, "to" to target.name),
+        )
+        selectQuality(target)
+    }
+
+    LaunchedEffect(engine, requestedPlaybackSpeed) {
+        if (state.speed != requestedPlaybackSpeed) engine.setSpeed(requestedPlaybackSpeed)
+    }
+    LaunchedEffect(engine, currentItem?.id, state.audioTracks, audioRestore) {
+        if (currentItem?.id != handoverItemId) return@LaunchedEffect
+        val target = audioRestore?.let(state.audioTracks::bestRestoreMatch) ?: return@LaunchedEffect
+        if (!target.selected) engine.selectAudioTrack(target.id)
+    }
+    LaunchedEffect(
+        engine,
+        currentItem?.id,
+        state.subtitleTracks,
+        subtitleRestore,
+        restoreSubtitlesOff,
+    ) {
+        if (currentItem?.id != handoverItemId || state.subtitleTracks.isEmpty()) {
+            return@LaunchedEffect
+        }
+        if (restoreSubtitlesOff) {
+            if (state.subtitleTracks.any { it.selected }) engine.selectSubtitleTrack(EngineTrack.OFF)
+            return@LaunchedEffect
+        }
+        val target =
+            subtitleRestore?.let(state.subtitleTracks::bestRestoreMatch)
+                ?: return@LaunchedEffect
+        if (!target.selected) engine.selectSubtitleTrack(target.id)
+    }
+    LaunchedEffect(
+        engine,
+        currentItem?.id,
+        state.subtitleTracks,
+        secondarySubtitleRestore,
+        engine.supportsSecondarySubtitleTrack,
+    ) {
+        if (currentItem?.id != handoverItemId || state.subtitleTracks.isEmpty()) {
+            return@LaunchedEffect
+        }
+        if (!engine.supportsSecondarySubtitleTrack) {
+            secondarySubtitleTrackId = null
+            return@LaunchedEffect
+        }
+        val target =
+            secondarySubtitleRestore?.let(state.subtitleTracks::bestRestoreMatch)
+        if (target == null || target.selected) {
+            engine.selectSecondarySubtitleTrack(EngineTrack.OFF)
+            secondarySubtitleTrackId = null
+            return@LaunchedEffect
+        }
+        if (engine.selectSecondarySubtitleTrack(target.id)) {
+            secondarySubtitleTrackId = target.id
+        }
+    }
+
+    LaunchedEffect(engine, kind, subtitleControls.offsetMs) {
+        val applied = engine.setSubtitleOffsetMs(subtitleControls.offsetMs)
+        if (!applied && subtitleControls.offsetMs != 0L && kind != PlayerEngine.Mpv) {
+            switchEngine(PlayerEngine.Mpv)
+        }
+    }
+    LaunchedEffect(engine, kind, subtitleControls.scale) {
+        if (kind != PlayerEngine.Exo) {
+            val applied = engine.setSubtitleScale(subtitleControls.scale)
+            if (!applied && subtitleControls.scale != 1f && kind != PlayerEngine.Mpv) {
+                switchEngine(PlayerEngine.Mpv)
+            }
+        }
+    }
+    LaunchedEffect(engine, kind, subtitleControls.brightness) {
+        val applied = engine.setSubtitleBrightness(subtitleControls.brightness)
+        if (!applied && subtitleControls.brightness != 1f && kind != PlayerEngine.Mpv) {
+            switchEngine(PlayerEngine.Mpv)
+        }
+    }
+    LaunchedEffect(engine, scaleMode) {
+        (engine as? MpvVideoEngine)?.setScaleMode(scaleMode)
+        (engine as? MdkVideoEngine)?.setFill(scaleMode != VideoScaleMode.Fit)
+    }
+    LaunchedEffect(engine, state.subtitleTracks, pendingSubtitleLanguage) {
+        val language = pendingSubtitleLanguage ?: return@LaunchedEffect
+        state.subtitleTracks.matchingLanguage(language)?.let { trackId ->
+            engine.selectSubtitleTrack(trackId)
+            pendingSubtitleLanguage = null
+        }
+    }
+
+    LaunchedEffect(
+        state.fallbacksExhausted,
+        state.automaticFallbackBlocked,
+        state.currentIndex,
+        kind,
+        currentItem?.serverId,
+        currentItem?.versionId,
+    ) {
+        if (!state.fallbacksExhausted || state.automaticFallbackBlocked) {
+            return@LaunchedEffect
+        }
+        val triedEngines = enginesTried + kind
+        enginesTried = triedEngines
+        val nextEngine = PlayerEngine.selectable.firstOrNull { it !in triedEngines }
+        if (nextEngine != null) {
+            AppLog.info(
+                category = "player",
+                event = "engine_fallback",
+                message = "Playback exhausted its streams; trying another engine",
+                attributes =
+                    mapOf(
+                        "from" to kind.name,
+                        "to" to nextEngine.name,
+                        "itemIndex" to state.currentIndex.toString(),
+                    ),
+            )
+            enginesTried = triedEngines + nextEngine
+            switchEngine(nextEngine)
+            return@LaunchedEffect
+        }
+
+        val nextVersion = currentItem?.nextFallbackVersionId(versionsTried)
+        if (nextVersion != null) {
+            AppLog.info(
+                category = "player",
+                event = "version_fallback",
+                message = "Playback exhausted every engine; trying another media version",
+                attributes =
+                    mapOf(
+                        "itemIndex" to state.currentIndex.toString(),
+                        "failedVersionId" to currentItem.versionId.orEmpty(),
+                        "nextVersionId" to nextVersion,
+                    ),
+            )
+            selectVersion(nextVersion, automaticRecovery = true)
+            return@LaunchedEffect
+        }
+
+        val plan = serverFallbackPlans[state.currentIndex].orEmpty()
+        val nextServer =
+            plan.firstOrNull { candidate ->
+                candidate.serverId != null && candidate.serverId !in serversTried
+            } ?: return@LaunchedEffect
+        val failedServerId = currentItem?.serverId
+        val targetServerId = nextServer.serverId ?: return@LaunchedEffect
+        capturePlaybackHandover()
+        engine.pause()
+        val positionMs = engine.currentPositionMs()
+        serversTried = serversTried + targetServerId
+        versionChoices = versionChoices - (currentItem?.id ?: "")
+        serverChoices = serverChoices + (state.currentIndex to nextServer)
+        resume = state.currentIndex to positionMs
+        engineGeneration++
+        AppLog.warning(
+            category = "player",
+            event = "playback_server_failover",
+            message = "Playback exhausted local engines and versions; switched to another server",
+            attributes =
+                mapOf(
+                    "itemIndex" to state.currentIndex.toString(),
+                    "fromServerId" to failedServerId.orEmpty(),
+                    "toServerId" to targetServerId,
+                    "positionMs" to positionMs.toString(),
+                ),
+        )
+        Toast.makeText(context, "当前线路播放失败，已切换服务器", Toast.LENGTH_SHORT).show()
+    }
+    val (volume, setVolume) = rememberSystemVolume()
+    val (brightness, setBrightness) = rememberWindowBrightness()
+
+    suspend fun loadCastItem(
+        deviceId: String,
+        index: Int,
+        positionMs: Long,
+    ): Boolean {
+        val item = latestActiveItems.getOrNull(index) ?: return false
+        // Receiver compatibility is explicit: prefer Emby's H.264/AAC stream and only use
+        // the original when the server did not provide one. CastManager validates before it
+        // touches the current receiver session, so a bad next URL cannot evict this item.
+        val castUrl = item.transcodeUrl.ifBlank { item.url }
+        val loaded =
+            castManager.play(
+                deviceId = deviceId,
+                mediaUrl = castUrl,
+                title = item.title,
+                positionMs = positionMs,
+            )
+        if (!loaded) return false
+        if (localState.currentIndex != index) engine.selectItem(index)
+        engine.pause()
+        if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
+            sleepTimerEndIndex = index
+            sleepTimerEndSessionRevision = castManager.state.value.sessionRevision
+            sleepTimerArmedItemReachedEnd = false
+        }
+        return true
+    }
+
+    var autoAdvancedCastRevision by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(
+        castState.status,
+        castState.sessionRevision,
+        localState.currentIndex,
+        autoNext,
+        sleepTimerOption,
+        sleepTimerEndIndex,
+        sleepTimerEndSessionRevision,
+    ) {
+        if (
+            sleepTimerOption == SleepTimerOption.EndOfEpisode &&
+            shouldCompleteCastEndOfEpisodeTimer(
+                armedIndex = sleepTimerEndIndex,
+                armedSessionRevision = sleepTimerEndSessionRevision,
+                currentIndex = localState.currentIndex,
+                currentSessionRevision = castState.sessionRevision,
+                castEnded = castState.status == CastPlaybackStatus.Ended,
+            )
+        ) {
+            autoAdvancedCastRevision = castState.sessionRevision
+            pauseForSleepTimer("本集已结束，投屏已暂停")
+            return@LaunchedEffect
+        }
+        if (
+            !autoNext ||
+            castState.status != CastPlaybackStatus.Ended ||
+            autoAdvancedCastRevision == castState.sessionRevision
+        ) {
+            return@LaunchedEffect
+        }
+        val deviceId = castState.activeDeviceId ?: return@LaunchedEffect
+        val next = localState.currentIndex + 1
+        if (next !in activeItems.indices) return@LaunchedEffect
+        autoAdvancedCastRevision = castState.sessionRevision
+        loadCastItem(deviceId, next, 0L)
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInWindow()
+                onVideoBounds(
+                    Rect(
+                        bounds.left.roundToInt(),
+                        bounds.top.roundToInt(),
+                        bounds.right.roundToInt(),
+                        bounds.bottom.roundToInt(),
+                    ),
+                )
+            },
+    ) {
+        when (engine) {
+            is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize())
+            is MpvVideoEngine -> MpvSurface(engine, Modifier.fillMaxSize())
+            is ExoVideoEngine ->
+                ExoSurface(
+                    engine = engine,
+                    scaleMode = scaleMode,
+                    subtitleScale = subtitleControls.scale,
+                    subtitleBrightness = subtitleControls.brightness,
+                    modifier = Modifier.fillMaxSize(),
+                )
+        }
+
+        if (!inPictureInPicture && danmaku.enabled && danmaku.visibleComments.isNotEmpty()) {
+            DanmakuOverlay(
+                comments = danmaku.visibleComments,
+                positionMs = state.positionMs,
+                playing = state.playing && !state.buffering,
+                playbackRate = state.speed,
+                displayArea = danmaku.displayArea,
+                fontSize = danmaku.fontSize,
+                speed = danmaku.speed,
+                opacity = danmaku.opacity,
+            )
+        }
+
+        if (!inPictureInPicture) {
+            PlayerControls(
+                state = state,
+                episodes = activeItems.toEpisodeCards(),
+                filled = scaleMode != VideoScaleMode.Fit,
+                onBack = onBack,
+                onEnterPictureInPicture = onEnterPictureInPicture,
+                onPlayPause = {
+                    if (castState.hasActiveSession) {
+                        scope.launch {
+                            if (
+                                castState.status == CastPlaybackStatus.Playing ||
+                                castState.status == CastPlaybackStatus.Buffering ||
+                                (
+                                    castState.status == CastPlaybackStatus.Error &&
+                                        castState.lastRemoteWasPlaying
+                                )
+                            ) {
+                                castManager.pause()
+                            } else {
+                                castManager.resume()
+                            }
+                        }
+                    } else {
+                        playbackGate.togglePlayPause()
+                    }
+                },
+                onRetry = {
+                    val deviceId = castState.activeDeviceId
+                    if (castState.hasActiveSession && deviceId != null) {
+                        scope.launch { loadCastItem(deviceId, state.currentIndex, state.positionMs) }
+                    } else {
+                        playbackGate.retry()
+                    }
+                },
+                onSeek = { positionMs ->
+                    if (castState.hasActiveSession) {
+                        scope.launch { castManager.seekTo(positionMs) }
+                    } else {
+                        playbackGate.seekTo(positionMs)
+                    }
+                },
+                onSelectItem = { index ->
+                    if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
+                        sleepTimerEndIndex = index
+                        sleepTimerEndSessionRevision =
+                            castState.sessionRevision.takeIf { castState.hasActiveSession }
+                        sleepTimerArmedItemReachedEnd = false
+                    }
+                    val deviceId = castState.activeDeviceId
+                    if (castState.hasActiveSession && deviceId != null) {
+                        scope.launch { loadCastItem(deviceId, index, 0L) }
+                    } else {
+                        playbackGate.selectItem(index)
+                    }
+                },
+                onPreviousItem = {
+                    val previous = state.currentIndex - 1
+                    if (sleepTimerOption == SleepTimerOption.EndOfEpisode && previous in activeItems.indices) {
+                        sleepTimerEndIndex = previous
+                        sleepTimerEndSessionRevision =
+                            castState.sessionRevision.takeIf { castState.hasActiveSession }
+                        sleepTimerArmedItemReachedEnd = false
+                    }
+                    val deviceId = castState.activeDeviceId
+                    if (castState.hasActiveSession && deviceId != null && previous in activeItems.indices) {
+                        scope.launch { loadCastItem(deviceId, previous, 0L) }
+                        true
+                    } else {
+                        playbackGate.selectPrevious()
+                    }
+                },
+                onNextItem = {
+                    val next = state.currentIndex + 1
+                    if (sleepTimerOption == SleepTimerOption.EndOfEpisode && next in activeItems.indices) {
+                        sleepTimerEndIndex = next
+                        sleepTimerEndSessionRevision =
+                            castState.sessionRevision.takeIf { castState.hasActiveSession }
+                        sleepTimerArmedItemReachedEnd = false
+                    }
+                    val deviceId = castState.activeDeviceId
+                    if (castState.hasActiveSession && deviceId != null && next in activeItems.indices) {
+                        scope.launch { loadCastItem(deviceId, next, 0L) }
+                        true
+                    } else {
+                        playbackGate.selectNext()
+                    }
+                },
+                onRefreshEpisodes = onRefreshEpisodes,
+                onSelectAudio = { id ->
+                    state.audioTracks.firstOrNull { it.id == id }?.let { track ->
+                        handoverItemId = currentItem?.id
+                        audioRestore = track.toRestorePreference()
+                        rememberSeriesPlayback { remembered ->
+                            remembered.copy(audio = track.toRememberedPlaybackTrack())
+                        }
+                    }
+                    engine.selectAudioTrack(id)
+                },
+                onSelectSubtitle = { id ->
+                    val track = state.subtitleTracks.firstOrNull { it.id == id }
+                    if (id == EngineTrack.OFF) {
+                        handoverItemId = currentItem?.id
+                        subtitleRestore = null
+                        restoreSubtitlesOff = true
+                        engine.selectSubtitleTrack(id)
+                        rememberSeriesPlayback { remembered ->
+                            remembered.copy(
+                                primarySubtitlesOff = true,
+                                primarySubtitle = null,
+                            )
+                        }
+                    } else if (track?.requiresStyledRenderer == true && kind != PlayerEngine.Mpv) {
+                        pendingSubtitleLanguage = track.language ?: track.label
+                        switchEngine(PlayerEngine.Mpv)
+                        handoverItemId = currentItem?.id
+                        subtitleRestore = track.toRestorePreference()
+                        restoreSubtitlesOff = false
+                        if (secondarySubtitleTrackId == id) {
+                            secondarySubtitleTrackId = null
+                            secondarySubtitleRestore = null
+                        }
+                        rememberSeriesPlayback { remembered ->
+                            remembered.copy(
+                                primarySubtitlesOff = false,
+                                primarySubtitle = track.toRememberedPlaybackTrack(),
+                                secondarySubtitle =
+                                    remembered.secondarySubtitle.takeUnless {
+                                        it == track.toRememberedPlaybackTrack()
+                                    },
+                            )
+                        }
+                    } else {
+                        track?.let {
+                            handoverItemId = currentItem?.id
+                            subtitleRestore = it.toRestorePreference()
+                            restoreSubtitlesOff = false
+                            if (secondarySubtitleTrackId == id) {
+                                engine.selectSecondarySubtitleTrack(EngineTrack.OFF)
+                                secondarySubtitleTrackId = null
+                                secondarySubtitleRestore = null
+                            }
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(
+                                    primarySubtitlesOff = false,
+                                    primarySubtitle = it.toRememberedPlaybackTrack(),
+                                    secondarySubtitle =
+                                        remembered.secondarySubtitle.takeUnless { secondary ->
+                                            secondary == it.toRememberedPlaybackTrack()
+                                        },
+                                )
+                            }
+                        }
+                        engine.selectSubtitleTrack(id)
+                    }
+                },
+                subtitleControls =
+                    subtitleControls.copy(
+                        secondaryTrackId = secondarySubtitleTrackId,
+                        secondarySupported = engine.supportsSecondarySubtitleTrack,
+                        secondaryUnavailableReason =
+                            if (engine.supportsSecondarySubtitleTrack) {
+                                null
+                            } else {
+                                "ExoPlayer 当前仅支持单字幕；切换至 MPV 或 MDK 可启用副字幕。"
+                            },
+                    ),
+                subtitleActions =
+                    SubtitleControlActions(
+                        onOffset = {
+                            subtitleControls = subtitleControls.copy(offsetMs = it)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(subtitleOffsetMs = it)
+                            }
+                        },
+                        onScale = {
+                            subtitleControls = subtitleControls.copy(scale = it)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(subtitleScale = it)
+                            }
+                        },
+                        onBrightness = {
+                            subtitleControls = subtitleControls.copy(brightness = it)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(subtitleBrightness = it)
+                            }
+                        },
+                        onSecondaryTrack = secondary@{ id ->
+                            if (id == EngineTrack.OFF) {
+                                engine.selectSecondarySubtitleTrack(EngineTrack.OFF)
+                                secondarySubtitleTrackId = null
+                                secondarySubtitleRestore = null
+                                rememberSeriesPlayback { remembered ->
+                                    remembered.copy(secondarySubtitle = null)
+                                }
+                                return@secondary
+                            }
+                            val track =
+                                state.subtitleTracks.firstOrNull { it.id == id }
+                                    ?: return@secondary
+                            if (track.selected) {
+                                Toast
+                                    .makeText(context, "主字幕和副字幕不能选择同一轨", Toast.LENGTH_SHORT)
+                                    .show()
+                                return@secondary
+                            }
+                            if (!engine.selectSecondarySubtitleTrack(id)) {
+                                Toast
+                                    .makeText(context, "当前播放器内核不支持副字幕", Toast.LENGTH_SHORT)
+                                    .show()
+                                return@secondary
+                            }
+                            handoverItemId = currentItem?.id
+                            secondarySubtitleTrackId = id
+                            secondarySubtitleRestore = track.toRestorePreference()
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(secondarySubtitle = track.toRememberedPlaybackTrack())
+                            }
+                        },
+                    ),
+                remoteSubtitles = remoteSubtitles,
+                remoteSubtitleActions = remoteSubtitleActions,
+                onSpeed = { newSpeed ->
+                    requestedPlaybackSpeed = newSpeed
+                    playbackGate.setSpeed(newSpeed)
+                    rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
+                },
+                sleepTimer = SleepTimerState(sleepTimerOption),
+                sleepTimerActions =
+                    SleepTimerActions(
+                        onSelect = { option ->
+                            sleepTimerOption = option
+                            sleepTimerEndIndex =
+                                state.currentIndex.takeIf { option == SleepTimerOption.EndOfEpisode }
+                            sleepTimerEndSessionRevision =
+                                castState.sessionRevision.takeIf {
+                                    option == SleepTimerOption.EndOfEpisode && castState.hasActiveSession
+                                }
+                            sleepTimerArmedItemReachedEnd = false
+                            sleepTimerRevision++
+                        },
+                    ),
+                onToggleFill = {
+                    scaleMode = scaleMode.next()
+                    (engine as? MpvVideoEngine)?.setScaleMode(scaleMode)
+                    (engine as? MdkVideoEngine)?.setFill(scaleMode != VideoScaleMode.Fit)
+                    rememberSeriesPlayback { remembered ->
+                        remembered.copy(aspectMode = scaleMode.name)
+                    }
+                    Toast.makeText(context, "画面：${scaleMode.label}", Toast.LENGTH_SHORT).show()
+                },
+                trickplay = currentTrickplay,
+                volume = castState.volume?.takeIf { castState.hasActiveSession } ?: volume,
+                onVolume = { requestedVolume ->
+                    if (castState.hasActiveSession) {
+                        scope.launch { castManager.setVolume(requestedVolume) }
+                    } else {
+                        setVolume(requestedVolume)
+                    }
+                },
+                volumeKeyPresses = volumeKeyPresses.collectAsState().value,
+                brightness = brightness,
+                onBrightness = { setBrightness(it) },
+                engineOptions = PlayerEngine.selectable.map { it.label to (it == kind) },
+                onSelectEngine = { index -> switchEngine(PlayerEngine.selectable[index]) },
+                qualityOptions =
+                    PlaybackQuality.entries.map {
+                        it.dataEstimateLabel() to (it == selectedQuality)
+                    },
+                onSelectQuality = { index ->
+                    PlaybackQuality.entries.getOrNull(index)?.let(::selectQuality)
+                },
+                // Manual escape hatch when the picture is black but audio plays. Offered on
+                // every engine now — it used to be ExoPlayer-only, which left the native
+                // engines with no way out of a file the device can't decode.
+                transcodeLabel = "转码播放",
+                transcodeActive = state.transcoding,
+                onTranscode = {
+                    if (!state.transcoding) {
+                        engine.switchToTranscode("用户手动选择服务器转码")
+                    }
+                },
+                castDevices = castState.devices.map { it.id to it.name },
+                castingDeviceId = castState.activeDeviceId,
+                castDiscovering = castState.discovering,
+                castError = castState.error,
+                castStatus =
+                    castState.activeDevice?.let {
+                        "${it.name} · ${castState.status.label}"
+                    },
+                castPosition =
+                    castState.activeDevice?.let {
+                        if (!castState.positionConfirmed) {
+                            "等待接收端确认"
+                        } else {
+                            buildString {
+                                append(formatDlnaTime(castState.positionMs))
+                                if (castState.durationMs > 0L) {
+                                    append(" / ")
+                                    append(formatDlnaTime(castState.durationMs))
+                                }
+                            }
+                        }
+                    },
+                castCapabilities =
+                    castState.activeDevice?.let {
+                        val capabilities = castState.capabilities
+                        "播放 ${capabilities.playPause.label} · " +
+                            "跳转 ${capabilities.seek.label} · " +
+                            "音量 ${capabilities.volume.label}"
+                    },
+                onDiscoverCast = requestCastDiscovery,
+                onCastTo = { deviceId ->
+                    val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls
+                    scope.launch {
+                        loadCastItem(deviceId, state.currentIndex, state.positionMs)
+                    }
+                },
+                onStopCast = {
+                    scope.launch {
+                        val handoffPosition =
+                            if (castState.positionConfirmed) {
+                                castState.positionMs
+                            } else {
+                                localState.positionMs
+                            }
+                        val resumeLocally = castState.lastRemoteWasPlaying
+                        if (castManager.stop()) {
+                            engine.seekTo(handoffPosition)
+                            if (resumeLocally) engine.play() else engine.pause()
+                        }
+                    }
+                },
+                danmaku = danmaku.panelState,
+                danmakuActions = danmaku.actions,
+                // Only worth naming when there is more than one server to be on. On a
+                // single-server install it is a constant, and a constant on a line meant
+                // for live facts is noise.
+                sourceLabel =
+                    currentItem
+                        ?.serverId
+                        ?.takeIf { serverNames.size > 1 }
+                        ?.let(serverNames::get),
+                containerLabel = currentItem?.activeVersion?.container,
+                dolbyVision =
+                    !state.transcoding &&
+                        currentItem?.activeVersion?.dolbyVision == true &&
+                        state.diagnostics.hasActiveDolbyVisionOutput(),
+                dolbyAtmos =
+                    !state.transcoding &&
+                        currentItem?.activeVersion?.dolbyAtmos == true &&
+                        state.diagnostics.hasActiveDolbyAtmosOutput(),
+                versions =
+                    currentItem?.versions.orEmpty().map { version ->
+                        version.id to
+                            listOfNotNull(
+                                version.label,
+                                version.detail.takeIf { it.isNotBlank() },
+                            ).joinToString(" · ")
+                    },
+                selectedVersionId = currentItem?.versionId,
+                onSelectVersion = { versionId -> selectVersion(versionId) },
+                skip = skip.state,
+                skipActions = skip.actions,
+                watch =
+                    WatchRoomState(
+                        available = watchAvailable,
+                        endpoint = watchEndpoint,
+                        connecting = watchState.connecting,
+                        connected = watchState.connected,
+                        reconnecting = watchState.reconnecting,
+                        roomCode = watchState.roomCode,
+                        isHost = watchState.isHost,
+                        canControl = watchState.canControl,
+                        controlMode = watchState.controlMode,
+                        participantCount = watchState.participantCount,
+                        participants = watchState.participants,
+                        chatMessages = watchState.chatMessages,
+                        chatError = watchState.chatError,
+                        reactions = watchState.reactions,
+                        chatPreviewEnabled = watchChatPreview,
+                        chatDanmakuEnabled = watchChatDanmaku,
+                        error = watchState.error ?: watchState.syncWarning,
+                        controlRequested = watchState.controlRequested,
+                        controlRequesterName = watchState.controlRequest?.name,
+                    ),
+                watchActions =
+                    WatchRoomActions(
+                        onCreate = { endpoint ->
+                            currentItem?.let { item ->
+                                watchTogether.createRoom(endpoint, item.watchKey)
+                            }
+                        },
+                        onJoin = { endpoint, roomCode ->
+                            currentItem?.let { item ->
+                                watchTogether.joinRoom(endpoint, roomCode, item.watchKey)
+                            }
+                        },
+                        onLeave = watchTogether::leave,
+                        onRequestControl = watchTogether::requestControl,
+                        onGrantControl = {
+                            watchState.controlRequest?.let { watchTogether.grantControl(it.clientId) }
+                        },
+                        onDenyControl = {
+                            watchState.controlRequest?.let { watchTogether.denyControl(it.clientId) }
+                        },
+                        onSendChat = watchTogether::sendChat,
+                        onRetryChat = watchTogether::retryChat,
+                        onClearChatError = watchTogether::clearChatError,
+                        onSetControlMode = watchTogether::setControlMode,
+                        onSetModerator = watchTogether::setModerator,
+                        onKickParticipant = watchTogether::kickParticipant,
+                        onToggleChatDanmaku = {
+                            watchTogetherPreferences.setChatDanmakuEnabled(!watchChatDanmaku)
+                        },
+                        onReact = { watchTogether.sendReaction(it) },
+                        onReactionFinished = watchTogether::clearReaction,
+                    ),
+            )
+        }
+    }
+}
+
+private fun PlaybackDeviceCapabilities.diagnosticLabel(): String {
+    val display =
+        hdrFormats
+            .sortedBy { it.ordinal }
+            .joinToString { it.name }
+            .ifBlank { "SDR" }
+    val routes =
+        audioRoutes
+            .sortedBy { it.ordinal }
+            .joinToString { it.name }
+            .ifBlank { "未知音频线路" }
+    val passthrough =
+        directAudioFormats
+            .sortedBy { it.ordinal }
+            .joinToString { it.name }
+            .ifBlank { "PCM" }
+    return "显示 $display · 线路 $routes · 音频 $passthrough"
+}
