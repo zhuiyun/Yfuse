@@ -1,26 +1,36 @@
 package com.yfuse.feature.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.SkipMode
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 
 /**
  * The player's settings panel and the tabs inside it.
@@ -41,10 +51,14 @@ internal enum class Tab(
     Advanced("高级"),
 }
 
-/**
- * Settings panel — `right:120px; bottom:70px; width:230px`, `rgba(255,255,255,.92)`,
- * `radius:18px`, `padding:6px 0 12px`, `0 20px 50px -12px rgba(30,40,70,.3)`.
- */
+private enum class AdvancedPage {
+    Root,
+    Skip,
+    Engine,
+    Media,
+}
+
+/** Compact function popup; long choices scroll inside without turning into a screen drawer. */
 @Composable
 internal fun SettingsPanel(
     tab: Tab,
@@ -87,6 +101,9 @@ internal fun SettingsPanel(
     onOpenGestureHelp: () -> Unit,
     watch: WatchRoomState,
     onOpenWatchTogether: () -> Unit,
+    sourceOptions: List<Pair<String, String>>,
+    selectedSourceId: String?,
+    onSelectSource: (String) -> Unit,
     versions: List<Pair<String, String>>,
     selectedVersionId: String?,
     onSelectVersion: (String) -> Unit,
@@ -95,6 +112,8 @@ internal fun SettingsPanel(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var sourcePickerOpen by remember { mutableStateOf(false) }
+    var advancedPage by remember(tab) { mutableStateOf(AdvancedPage.Root) }
     val tabs =
         buildList {
             add(Tab.Playback)
@@ -106,15 +125,30 @@ internal fun SettingsPanel(
             add(Tab.Cast)
             add(Tab.Advanced)
         }
-    // The settings panel is now the same drawer as 搜索弹幕 and 房间聊天 — see
-    // [PlayerSidePanel]. It is not dimmed: a list of choices about the picture must not
-    // dim the picture it is describing.
-    PlayerSidePanel(onDismiss = onDismiss, modifier = modifier) {
-        // Segmented tab row. The pill alone carries the active state; the 2px rule
-        // underneath it was a second signal saying the same thing.
+    if (sourcePickerOpen) {
+        SourcePickerPopup(
+            options = sourceOptions,
+            selectedId = selectedSourceId,
+            onSelect = onSelectSource,
+            onDismiss = { sourcePickerOpen = false },
+            modifier = modifier,
+        )
+        return
+    }
+
+    PlayerPopupPanel(onDismiss = onDismiss, modifier = modifier) {
+        // One quiet capsule replaces six unrelated icon buttons. Text is clearer here and
+        // avoids making settings glyphs compete with the transport controls behind them.
         Row(
-            Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .glass(
+                    shape = AppShapes.pill,
+                    fill = Color.White.copy(alpha = 0.06f),
+                    border = Color.White.copy(alpha = 0.10f),
+                )
+                .padding(3.dp),
         ) {
             tabs.forEach { entry ->
                 val active = entry == tab
@@ -130,9 +164,9 @@ internal fun SettingsPanel(
                     maxLines = 1,
                     modifier =
                         Modifier
-                            .weight(1f)
+                            .widthIn(min = 60.dp)
                             .glass(
-                                shape = GlassShapes.thumb,
+                                shape = AppShapes.pill,
                                 fill =
                                     if (active) {
                                         Color.White.copy(alpha = 0.18f)
@@ -146,7 +180,7 @@ internal fun SettingsPanel(
                                         null
                                     },
                             ).noRippleClickable { onTab(entry) }
-                            .padding(vertical = 7.dp),
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
                     textAlign = TextAlign.Center,
                 )
             }
@@ -154,6 +188,7 @@ internal fun SettingsPanel(
         Box(
             Modifier
                 .fillMaxWidth()
+                .padding(top = 9.dp)
                 .height(1.dp)
                 .background(Color.White.copy(alpha = 0.10f)),
         )
@@ -297,6 +332,19 @@ internal fun SettingsPanel(
                         )
                     }
 
+                    if (sourceOptions.size > 1) {
+                        OptionRow(
+                            label = "播放服务器",
+                            selected = false,
+                            onClick = { sourcePickerOpen = true },
+                            detailLabel =
+                                sourceOptions
+                                    .firstOrNull { it.first == selectedSourceId }
+                                    ?.second
+                                    ?: "${sourceOptions.size} 个可用",
+                        )
+                    }
+
                     // A single file is not a choice, so the group only appears once
                     // the library actually holds more than one copy of this title.
                     if (versions.size > 1) {
@@ -307,9 +355,12 @@ internal fun SettingsPanel(
                     }
 
                     GroupLabel("播放速度")
-                    speeds.forEach { speed ->
-                        OptionRow(speedLabel(speed), speed == state.speed, onClick = { onSpeed(speed) })
-                    }
+                    CompactChoiceGrid(
+                        options = speeds.map(::speedLabel),
+                        selectedIndex = speeds.indexOf(state.speed),
+                        columns = 4,
+                        onSelect = { onSpeed(speeds[it]) },
+                    )
 
                     GroupLabel("睡眠定时")
                     SleepTimerOption.entries.forEach { option ->
@@ -335,162 +386,182 @@ internal fun SettingsPanel(
                 }
 
                 Tab.Advanced -> {
-                    GroupLabel("高级播放")
-                    // Only for a series: an opening belongs to the show, and there is
-                    // nothing sensible to hang a film's times off. Setting a boundary
-                    // from where playback already is beats typing seconds at a
-                    // fullscreen landscape keyboard — 我的 has the numeric editor for
-                    // when a value needs nudging afterwards.
-                    if (skip.seriesName != null) {
-                        GroupLabel("片头片尾 · 点按设为当前进度")
-                        val here = (state.positionMs / 1000).coerceAtLeast(0L)
-                        // 片尾 is kept as a distance from the end, so what gets stored
-                        // is how much of the episode is left — the same tap, counted
-                        // from the other side. Zero when the duration is not known yet,
-                        // which reads as "unset" rather than "starts at the very end".
-                        val leftFromHere =
-                            ((state.durationMs - state.positionMs) / 1000)
-                                .coerceAtLeast(0L)
-                        OptionRow(
-                            label = skipBoundaryLabel("片头开始", skip.introStartSeconds),
-                            selected = skip.introStartSeconds > 0L,
-                            onClick = {
-                                skipActions.onSetTimes(
-                                    here,
-                                    skip.introEndSeconds,
-                                    skip.creditsLeadSeconds,
+                    val diagnostics = state.diagnostics
+                    when (advancedPage) {
+                        AdvancedPage.Root -> {
+                            GroupLabel("高级播放")
+                            if (skip.seriesName != null) {
+                                OptionRow(
+                                    label = "片头片尾",
+                                    selected = false,
+                                    onClick = { advancedPage = AdvancedPage.Skip },
+                                    detailLabel =
+                                        if (skip.mode == SkipMode.Button) "显示跳过" else skip.mode.label,
                                 )
-                            },
-                            // Setting a boundary is one tap, so clearing one has to be
-                            // too: without this the only way back from a mistimed tap
-                            // was to wipe all three and re-enter the others.
-                            actionLabel = "取消".takeIf { skip.introStartSeconds > 0L },
-                            onAction = {
-                                skipActions.onSetTimes(0L, skip.introEndSeconds, skip.creditsLeadSeconds)
-                            },
-                        )
-                        OptionRow(
-                            label = skipBoundaryLabel("片头结束", skip.introEndSeconds),
-                            selected = skip.introEndSeconds > 0L,
-                            onClick = {
-                                skipActions.onSetTimes(
-                                    skip.introStartSeconds,
-                                    here,
-                                    skip.creditsLeadSeconds,
+                            }
+                            if (engineOptions.isNotEmpty() || transcodeLabel != null) {
+                                OptionRow(
+                                    label = "播放内核",
+                                    selected = false,
+                                    onClick = { advancedPage = AdvancedPage.Engine },
+                                    detailLabel =
+                                        engineOptions.firstOrNull { it.second }?.first
+                                            ?: diagnostics.engine.ifBlank { "默认" },
                                 )
-                            },
-                            actionLabel = "取消".takeIf { skip.introEndSeconds > 0L },
-                            onAction = {
-                                skipActions.onSetTimes(
-                                    skip.introStartSeconds,
-                                    0L,
-                                    skip.creditsLeadSeconds,
-                                )
-                            },
-                        )
-                        OptionRow(
-                            label = skipCreditsLabel(skip.creditsLeadSeconds),
-                            selected = skip.creditsLeadSeconds > 0L,
-                            onClick = {
-                                skipActions.onSetTimes(
-                                    skip.introStartSeconds,
-                                    skip.introEndSeconds,
-                                    leftFromHere,
-                                )
-                            },
-                            actionLabel = "取消".takeIf { skip.creditsLeadSeconds > 0L },
-                            onAction = {
-                                skipActions.onSetTimes(skip.introStartSeconds, skip.introEndSeconds, 0L)
-                            },
-                        )
-                        // Three answers, not a switch: "don't skip automatically" and
-                        // "don't offer it at all" are different requests, and the second
-                        // used to be reachable only by deleting the times.
-                        GroupLabel("到达片头片尾时")
-                        SegmentedRow(
-                            options = SkipMode.entries.map { it.label },
-                            selectedIndex = SkipMode.entries.indexOf(skip.mode),
-                            onSelect = { skipActions.onSelectMode(SkipMode.entries[it]) },
-                        )
-                        // Also offered for a half-entered intro, which is exactly when
-                        // starting over is most likely to be what's wanted.
-                        if (skip.anySet) {
+                            }
                             OptionRow(
-                                "清除《${skip.seriesName}》的设置",
-                                false,
-                                onClick = { skipActions.onSetTimes(0L, 0L, 0L) },
+                                label = "媒体信息",
+                                selected = false,
+                                onClick = { advancedPage = AdvancedPage.Media },
+                                detailLabel = diagnostics.playMethod.ifBlank { "实时诊断" },
                             )
                         }
-                    }
 
-                    if (engineOptions.isNotEmpty() || transcodeLabel != null) {
-                        GroupLabel("播放器内核")
-                    }
-                    engineOptions.forEachIndexed { index, (label, selected) ->
-                        OptionRow(label, selected, onClick = { onSelectEngine(index) })
-                    }
-                    if (transcodeLabel != null) {
-                        OptionRow(transcodeLabel, transcodeActive, onClick = onTranscode)
-                    }
-
-                    GroupLabel("诊断")
-                    val diagnostics = state.diagnostics
-                    GroupLabel("实时播放信息")
-                    DiagnosticRow("内核", diagnostics.engine.ifBlank { "未知" })
-                    DiagnosticRow("解码器", diagnostics.decoder)
-                    DiagnosticRow("播放方式", diagnostics.playMethod)
-                    DiagnosticRow("所选画质", diagnostics.requestedQuality)
-                    DiagnosticRow("设备链路", diagnostics.deviceOutputCapabilities)
-                    DiagnosticRow(
-                        "画面",
-                        buildString {
-                            append(
-                                when {
-                                    diagnostics.videoWidth > 0 && state.videoHeight > 0 ->
-                                        "${diagnostics.videoWidth} × ${state.videoHeight}"
-                                    state.videoHeight > 0 -> "${state.videoHeight}P"
-                                    else -> "未知分辨率"
+                        AdvancedPage.Skip -> {
+                            PopupBackLabel("片头片尾") { advancedPage = AdvancedPage.Root }
+                            val here = (state.positionMs / 1000).coerceAtLeast(0L)
+                            val leftFromHere =
+                                ((state.durationMs - state.positionMs) / 1000).coerceAtLeast(0L)
+                            GroupLabel("点按设为当前进度")
+                            OptionRow(
+                                label = skipBoundaryLabel("片头开始", skip.introStartSeconds),
+                                selected = skip.introStartSeconds > 0L,
+                                onClick = {
+                                    skipActions.onSetTimes(
+                                        here,
+                                        skip.introEndSeconds,
+                                        skip.creditsLeadSeconds,
+                                    )
+                                },
+                                actionLabel = "取消".takeIf { skip.introStartSeconds > 0L },
+                                onAction = {
+                                    skipActions.onSetTimes(
+                                        0L,
+                                        skip.introEndSeconds,
+                                        skip.creditsLeadSeconds,
+                                    )
                                 },
                             )
-                            if (diagnostics.frameRate > 0f) {
-                                append(" · ")
-                                append(diagnostics.frameRate.asFrameRate())
+                            OptionRow(
+                                label = skipBoundaryLabel("片头结束", skip.introEndSeconds),
+                                selected = skip.introEndSeconds > 0L,
+                                onClick = {
+                                    skipActions.onSetTimes(
+                                        skip.introStartSeconds,
+                                        here,
+                                        skip.creditsLeadSeconds,
+                                    )
+                                },
+                                actionLabel = "取消".takeIf { skip.introEndSeconds > 0L },
+                                onAction = {
+                                    skipActions.onSetTimes(
+                                        skip.introStartSeconds,
+                                        0L,
+                                        skip.creditsLeadSeconds,
+                                    )
+                                },
+                            )
+                            OptionRow(
+                                label = skipCreditsLabel(skip.creditsLeadSeconds),
+                                selected = skip.creditsLeadSeconds > 0L,
+                                onClick = {
+                                    skipActions.onSetTimes(
+                                        skip.introStartSeconds,
+                                        skip.introEndSeconds,
+                                        leftFromHere,
+                                    )
+                                },
+                                actionLabel = "取消".takeIf { skip.creditsLeadSeconds > 0L },
+                                onAction = {
+                                    skipActions.onSetTimes(
+                                        skip.introStartSeconds,
+                                        skip.introEndSeconds,
+                                        0L,
+                                    )
+                                },
+                            )
+                            GroupLabel("到达片头片尾时")
+                            SegmentedRow(
+                                options =
+                                    SkipMode.entries.map { mode ->
+                                        if (mode == SkipMode.Button) "显示跳过" else mode.label
+                                    },
+                                selectedIndex = SkipMode.entries.indexOf(skip.mode),
+                                onSelect = { skipActions.onSelectMode(SkipMode.entries[it]) },
+                            )
+                            if (skip.anySet) {
+                                OptionRow(
+                                    "清除《${skip.seriesName}》的设置",
+                                    false,
+                                    onClick = { skipActions.onSetTimes(0L, 0L, 0L) },
+                                )
                             }
-                        },
-                    )
-                    DiagnosticRow("视频编码", diagnostics.videoCodec)
-                    DiagnosticRow("动态范围", diagnostics.dynamicRange.ifBlank { "未知" })
-                    DiagnosticRow("视频输出", diagnostics.videoOutput)
-                    DiagnosticRow("音频", diagnostics.audioFormat.ifBlank { "未知" })
-                    DiagnosticRow("音频输出", diagnostics.audioOutput)
-                    DiagnosticRow("当前码率", diagnostics.bitrateBitsPerSecond.asBitrate())
-                    DiagnosticRow("网络速度", diagnostics.networkBitsPerSecond.asBitrate())
-                    DiagnosticRow(
-                        "缓冲",
-                        "${diagnostics.bufferedDurationMs / 1000.0f}s · ${diagnostics.bufferEvents} 次",
-                    )
-                    DiagnosticRow("丢帧", "${diagnostics.droppedFrames} 帧")
-                    diagnostics.fallbackReason?.takeIf(String::isNotBlank)?.let { reason ->
-                        DiagnosticRow("降级原因", reason)
-                    }
+                        }
 
-                    // The room's own state, next to the playback state it is driving.
-                    // When 一起看 misbehaves the question is always the same — am I
-                    // still connected, who is in charge, how many of us are there —
-                    // and until now the only answer was the one-line banner.
-                    if (watch.connected || watch.roomCode != null) {
-                        GroupLabel("一起看")
-                        DiagnosticRow(
-                            "状态",
-                            when {
-                                watch.reconnecting -> "重连中"
-                                watch.connected -> "已连接"
-                                else -> "未连接"
-                            },
-                        )
-                        DiagnosticRow("房间", watch.roomCode ?: "—")
-                        DiagnosticRow("身份", if (watch.isHost) "房主" else "参与者")
-                        DiagnosticRow("在线", "${watch.participantCount} 人")
+                        AdvancedPage.Engine -> {
+                            PopupBackLabel("播放内核") { advancedPage = AdvancedPage.Root }
+                            engineOptions.forEachIndexed { index, (label, selected) ->
+                                OptionRow(label, selected, onClick = { onSelectEngine(index) })
+                            }
+                            if (transcodeLabel != null) {
+                                OptionRow(transcodeLabel, transcodeActive, onClick = onTranscode)
+                            }
+                        }
+
+                        AdvancedPage.Media -> {
+                            PopupBackLabel("媒体信息") { advancedPage = AdvancedPage.Root }
+                            DiagnosticRow("内核", diagnostics.engine.ifBlank { "未知" })
+                            DiagnosticRow("解码器", diagnostics.decoder)
+                            DiagnosticRow("播放方式", diagnostics.playMethod)
+                            DiagnosticRow("所选画质", diagnostics.requestedQuality)
+                            DiagnosticRow("设备链路", diagnostics.deviceOutputCapabilities)
+                            DiagnosticRow(
+                                "画面",
+                                buildString {
+                                    append(
+                                        when {
+                                            diagnostics.videoWidth > 0 && state.videoHeight > 0 ->
+                                                "${diagnostics.videoWidth} × ${state.videoHeight}"
+                                            state.videoHeight > 0 -> "${state.videoHeight}P"
+                                            else -> "未知分辨率"
+                                        },
+                                    )
+                                    if (diagnostics.frameRate > 0f) {
+                                        append(" · ")
+                                        append(diagnostics.frameRate.asFrameRate())
+                                    }
+                                },
+                            )
+                            DiagnosticRow("视频编码", diagnostics.videoCodec)
+                            DiagnosticRow("动态范围", diagnostics.dynamicRange.ifBlank { "未知" })
+                            DiagnosticRow("视频输出", diagnostics.videoOutput)
+                            DiagnosticRow("音频", diagnostics.audioFormat.ifBlank { "未知" })
+                            DiagnosticRow("音频输出", diagnostics.audioOutput)
+                            DiagnosticRow("当前码率", diagnostics.bitrateBitsPerSecond.asBitrate())
+                            DiagnosticRow("网络速度", diagnostics.networkBitsPerSecond.asBitrate())
+                            DiagnosticRow(
+                                "缓冲",
+                                "${diagnostics.bufferedDurationMs / 1000.0f}s · ${diagnostics.bufferEvents} 次",
+                            )
+                            DiagnosticRow("丢帧", "${diagnostics.droppedFrames} 帧")
+                            diagnostics.fallbackReason?.takeIf(String::isNotBlank)?.let { reason ->
+                                DiagnosticRow("降级原因", reason)
+                            }
+                            if (watch.connected || watch.roomCode != null) {
+                                GroupLabel("一起看")
+                                DiagnosticRow(
+                                    "状态",
+                                    when {
+                                        watch.reconnecting -> "重连中"
+                                        watch.connected -> "已连接"
+                                        else -> "未连接"
+                                    },
+                                )
+                                DiagnosticRow("房间", watch.roomCode ?: "—")
+                                DiagnosticRow("身份", if (watch.isHost) "房主" else "参与者")
+                                DiagnosticRow("在线", "${watch.participantCount} 人")
+                            }
+                        }
                     }
                 }
 
@@ -531,6 +602,139 @@ internal fun SettingsPanel(
                         )
                     }
                     OptionRow("重新扫描", false, onClick = onDiscoverCast)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PopupBackLabel(
+    title: String,
+    onBack: () -> Unit,
+) {
+    Text(
+        "‹  $title",
+        style = AppTypography.body.strong,
+        color = Color.White.copy(alpha = 0.90f),
+        modifier =
+            Modifier
+                .noRippleClickable(onBack)
+                .padding(horizontal = 3.dp, vertical = 6.dp),
+    )
+}
+
+@Composable
+private fun SourcePickerPopup(
+    options: List<Pair<String, String>>,
+    selectedId: String?,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accent = rememberAccentColorsForSurface(dark = true)
+    PlayerPopupPanel(
+        onDismiss = onDismiss,
+        modifier = modifier,
+        compact = true,
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 1.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "${options.size} 个可用",
+                style = AppTypography.caption.strong,
+                color = Color.White.copy(alpha = 0.86f),
+            )
+            Text(
+                "切换不改变播放进度",
+                style = AppTypography.caption.medium,
+                color = Color.White.copy(alpha = 0.44f),
+            )
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(top = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            options.forEach { (id, label) ->
+                val selected = id == selectedId
+                Column(
+                    Modifier
+                        .widthIn(min = 116.dp, max = 150.dp)
+                        .glass(
+                            shape = AppShapes.card,
+                            fill = if (selected) accent.container else Color.White.copy(alpha = 0.05f),
+                            border = if (selected) accent.border else Color.White.copy(alpha = 0.08f),
+                        )
+                        .noRippleClickable { onSelect(id) }
+                        .padding(horizontal = 11.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        label,
+                        style = AppTypography.body.strong,
+                        color = if (selected) accent.accent else Color.White.copy(alpha = 0.88f),
+                        maxLines = 1,
+                    )
+                    Text(
+                        if (selected) "当前线路" else "可用线路",
+                        style = AppTypography.caption.medium,
+                        color = Color.White.copy(alpha = 0.44f),
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
+            }
+        }
+        Text(
+            "播放失败时会自动切换到下一条可用线路",
+            style = AppTypography.caption.medium,
+            color = Color.White.copy(alpha = 0.40f),
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 9.dp),
+        )
+    }
+}
+
+@Composable
+private fun CompactChoiceGrid(
+    options: List<String>,
+    selectedIndex: Int,
+    columns: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val accent = rememberAccentColorsForSurface(dark = true)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.chunked(columns).forEachIndexed { rowIndex, rowOptions ->
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                rowOptions.forEachIndexed { columnIndex, label ->
+                    val index = rowIndex * columns + columnIndex
+                    val selected = index == selectedIndex
+                    Text(
+                        label,
+                        style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
+                        color = if (selected) accent.accent else Color.White.copy(alpha = 0.68f),
+                        maxLines = 1,
+                        textAlign = TextAlign.Center,
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .glass(
+                                    shape = AppShapes.pill,
+                                    fill = if (selected) accent.container else Color.White.copy(alpha = 0.045f),
+                                    border = if (selected) accent.border else Color.White.copy(alpha = 0.07f),
+                                )
+                                .noRippleClickable { onSelect(index) }
+                                .padding(vertical = 9.dp),
+                    )
+                }
+                repeat(columns - rowOptions.size) {
+                    Spacer(Modifier.weight(1f).size(1.dp))
                 }
             }
         }

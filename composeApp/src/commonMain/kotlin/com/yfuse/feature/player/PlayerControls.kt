@@ -152,6 +152,10 @@ internal fun PlayerControls(
     danmakuActions: DanmakuPanelActions = DanmakuPanelActions(),
     // The server this file is on. Null when there is only ever one server to be on.
     sourceLabel: String? = null,
+    // Resolved copies of the current item on other servers.
+    sourceOptions: List<Pair<String, String>> = emptyList(),
+    selectedSourceId: String? = null,
+    onSelectSource: (String) -> Unit = {},
     // `MKV` — the container, which the engine cannot report but the library knows.
     containerLabel: String? = null,
     dolbyVision: Boolean = false,
@@ -758,7 +762,10 @@ internal fun PlayerControls(
                 onBack = { settingsTab = null },
             ) {
                 SettingsPanel(
-                    modifier = Modifier.align(Alignment.CenterEnd),
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 18.dp, bottom = 70.dp),
                     tab = tab,
                     state = state,
                     speeds = SPEEDS,
@@ -833,6 +840,12 @@ internal fun PlayerControls(
                     onOpenWatchTogether = {
                         settingsTab = null
                         watchDialogOpen = true
+                    },
+                    sourceOptions = sourceOptions,
+                    selectedSourceId = selectedSourceId,
+                    onSelectSource = {
+                        onSelectSource(it)
+                        settingsTab = null
                     },
                     versions = versions,
                     selectedVersionId = selectedVersionId,

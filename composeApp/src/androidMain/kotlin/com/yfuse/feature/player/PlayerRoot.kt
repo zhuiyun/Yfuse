@@ -730,6 +730,17 @@ internal fun PlayerRoot(
                 .data.value.servers
                 .associate { it.id to it.serverName }
         }
+    val sourceOptions =
+        remember(items, serverFallbackPlans, state.currentIndex, serverNames) {
+            buildList {
+                items.getOrNull(state.currentIndex)?.let(::add)
+                addAll(serverFallbackPlans[state.currentIndex].orEmpty())
+            }.distinctBy { it.serverId }
+                .mapNotNull { item ->
+                    val id = item.serverId ?: return@mapNotNull null
+                    id to (serverNames[id] ?: "服务器")
+                }
+        }
     val skip =
         rememberPlayerSkipController(
             currentItem = currentItem,
@@ -894,6 +905,8 @@ internal fun PlayerRoot(
     var versionSwitchJob by remember { mutableStateOf<Job?>(null) }
     var versionSwitchNonce by remember { mutableIntStateOf(0) }
     var pendingVersionId by remember { mutableStateOf<String?>(null) }
+    var serverSwitchJob by remember { mutableStateOf<Job?>(null) }
+    var serverSwitchNonce by remember { mutableIntStateOf(0) }
 
     /**
      * Plays the current entry from a different file. The old server-side encoder is ended
@@ -1008,6 +1021,90 @@ internal fun PlayerRoot(
                         pendingVersionId = null
                         versionSwitchJob = null
                     }
+                }
+            }
+    }
+
+    /** Manually moves the current episode to one of its already-resolved server copies. */
+    fun selectServer(serverId: String) {
+        val switchState = latestState
+        val itemIndex = switchState.currentIndex
+        val item = latestActiveItems.getOrNull(itemIndex) ?: return
+        if (item.serverId == serverId) return
+        val candidate =
+            buildList {
+                items.getOrNull(itemIndex)?.let(::add)
+                addAll(serverFallbackPlans[itemIndex].orEmpty())
+            }.firstOrNull { it.serverId == serverId } ?: return
+        val freshCandidate =
+            candidate.activeVersion
+                ?.withFreshPlaySession()
+                ?.let(candidate::withVersion)
+                ?: candidate
+        val oldSessionId = item.playSessionId
+
+        serverSwitchNonce++
+        val operation = serverSwitchNonce
+        serverSwitchJob?.cancel()
+        serverSwitchJob =
+            scope.launch {
+                try {
+                    val cleanupSucceeded =
+                        if (oldSessionId.isBlank() || playbackSink == null) {
+                            true
+                        } else {
+                            try {
+                                withTimeoutOrNull(5_000L) {
+                                    playbackSink.stopEncoding(oldSessionId)
+                                } == true
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Throwable) {
+                                AppLog.warning(
+                                    category = "player",
+                                    event = "server_switch_cleanup_failed",
+                                    message = "Old transcode cleanup threw before a server switch",
+                                    throwable = failure,
+                                    attributes =
+                                        mapOf(
+                                            "fromServerId" to item.serverId.orEmpty(),
+                                            "toServerId" to serverId,
+                                        ),
+                                )
+                                false
+                            }
+                        }
+                    if (operation != serverSwitchNonce) return@launch
+                    if (!cleanupSucceeded) {
+                        Toast
+                            .makeText(
+                                context,
+                                "切换服务器失败：无法清理旧的服务器转码，请稍后重试",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        return@launch
+                    }
+
+                    capturePlaybackHandover()
+                    engine.pause()
+                    resume = itemIndex to engine.currentPositionMs()
+                    versionChoices = versionChoices - item.id - freshCandidate.id
+                    serverChoices = serverChoices + (itemIndex to freshCandidate)
+                    serversTried = serversTried + serverId
+                    engineGeneration++
+                    AppLog.info(
+                        category = "player",
+                        event = "playback_server_switch_requested",
+                        message = "Playback server switch requested",
+                        attributes =
+                            mapOf(
+                                "itemIndex" to itemIndex.toString(),
+                                "fromServerId" to item.serverId.orEmpty(),
+                                "toServerId" to serverId,
+                            ),
+                    )
+                } finally {
+                    if (operation == serverSwitchNonce) serverSwitchJob = null
                 }
             }
     }
@@ -1694,6 +1791,9 @@ internal fun PlayerRoot(
                         ?.serverId
                         ?.takeIf { serverNames.size > 1 }
                         ?.let(serverNames::get),
+                sourceOptions = sourceOptions,
+                selectedSourceId = currentItem?.serverId,
+                onSelectSource = ::selectServer,
                 containerLabel = currentItem?.activeVersion?.container,
                 dolbyVision =
                     !state.transcoding &&

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -15,25 +16,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.shadow
 
-/**
- * One geometry for every panel the player opens.
- *
- * There used to be three. 设置 was a 248dp card floating 84dp off the bottom-right corner,
- * 搜索弹幕 and 房间聊天 were full-height 340dp drawers on the right edge — so the same
- * gesture, from the same row of chips, produced a panel of a different width, in a
- * different place, with a different corner radius, depending on which chip was tapped. The
- * settings panel also capped its own list at 210dp and scrolled inside that, which on the
- * 音轨 tab meant scrolling a short window inside a screen that was mostly empty picture.
- *
- * The drawer geometry won because it is the one that survives a long list, and because the
- * right edge is where the chips that open these already are.
- */
+/** Long-form typed/searchable panels keep a stable right-edge drawer geometry. */
 internal val PlayerPanelWidth = 340.dp
+
+/** Compact floating settings popover. Search, chat, and episode lists keep their drawers. */
+internal val PlayerPopupWidth = 420.dp
 
 /** Rounded on the leading edge only; the panel is attached to the screen's right edge. */
 internal val PlayerPanelShape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp)
@@ -76,6 +69,44 @@ internal fun PlayerSidePanel(
             .imePadding()
             .padding(horizontal = 14.dp, vertical = 16.dp),
         verticalArrangement = verticalArrangement,
+        content = content,
+    )
+}
+
+/**
+ * The function-menu shell used by playback, tracks, picture, danmaku, cast, and advanced.
+ *
+ * It deliberately does not fill the right edge. These are short, reversible choices, so a
+ * compact floating surface keeps the picture readable and makes the relationship to the
+ * bottom controls clearer. Long-form search/chat panels continue to use [PlayerSidePanel].
+ */
+@Composable
+internal fun PlayerPopupPanel(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .noRippleClickable(onDismiss),
+    )
+    Column(
+        modifier
+            .width(PlayerPopupWidth)
+            .heightIn(max = if (compact) 210.dp else 470.dp)
+            .shadow(Shadows.playerSheet, AppShapes.sheet)
+            .glass(
+                shape = AppShapes.sheet,
+                fill = PlayerTokens.drawerFillLandscape.copy(alpha = 0.94f),
+                border = Color.White.copy(alpha = 0.16f),
+            )
+            // Taps inside the popup must not reach the dismiss catcher behind it.
+            .noRippleClickable { }
+            .imePadding()
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.Top,
         content = content,
     )
 }

@@ -1,11 +1,13 @@
 package com.yfuse.feature.player
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -14,7 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
@@ -32,11 +34,7 @@ internal fun DiagnosticRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .glass(
-                shape = GlassShapes.thumb,
-                fill = Color.White.copy(alpha = 0.06f),
-                border = Color.White.copy(alpha = 0.10f),
-            ).padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -61,8 +59,14 @@ internal fun SegmentedRow(
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
     Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        Modifier
+            .fillMaxWidth()
+            .glass(
+                shape = AppShapes.pill,
+                fill = Color.White.copy(alpha = 0.07f),
+                border = Color.White.copy(alpha = 0.12f),
+            )
+            .padding(3.dp),
     ) {
         options.forEachIndexed { index, label ->
             val active = index == selectedIndex
@@ -76,11 +80,11 @@ internal fun SegmentedRow(
                     Modifier
                         .weight(1f)
                         .glass(
-                            shape = GlassShapes.thumb,
-                            fill = if (active) accent.container else Color.White.copy(alpha = 0.06f),
-                            border = if (active) accent.border else Color.White.copy(alpha = 0.10f),
+                            shape = AppShapes.pill,
+                            fill = if (active) accent.container else Color.Transparent,
+                            border = if (active) accent.border else null,
                         ).noRippleClickable { onSelect(index) }
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = 9.dp),
             )
         }
     }
@@ -103,6 +107,7 @@ internal fun OptionRow(
     onClick: () -> Unit,
     actionLabel: String? = null,
     onAction: () -> Unit = {},
+    detailLabel: String? = null,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
     Row(
@@ -110,10 +115,10 @@ internal fun OptionRow(
             .fillMaxWidth()
             .glass(
                 shape = GlassShapes.thumb,
-                fill = if (selected) accent.container else Color.White.copy(alpha = 0.06f),
-                border = if (selected) accent.border else Color.White.copy(alpha = 0.10f),
+                fill = if (selected) accent.container else Color.White.copy(alpha = 0.045f),
+                border = if (selected) accent.border else Color.White.copy(alpha = 0.07f),
             ).noRippleClickable(onClick)
-            .padding(horizontal = 10.dp, vertical = 9.dp),
+            .padding(horizontal = 11.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -138,7 +143,23 @@ internal fun OptionRow(
                             .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
                 )
 
-            selected -> Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(12.dp))
+            detailLabel != null ->
+                Text(
+                    detailLabel,
+                    style = AppTypography.caption.medium,
+                    color = Color.White.copy(alpha = 0.48f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 10.dp),
+                )
+
+            selected ->
+                Box(
+                    Modifier
+                        .padding(start = 10.dp)
+                        .size(6.dp)
+                        .background(accent.accent, CircleShape),
+                )
         }
     }
 }
