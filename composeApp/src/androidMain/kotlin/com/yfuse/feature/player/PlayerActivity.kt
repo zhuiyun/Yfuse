@@ -761,12 +761,16 @@ class PlayerActivity : ComponentActivity() {
 
         episodeRefreshJob =
             lifecycleScope.launch {
-                val seriesProviderIds =
-                    embyRepository
-                        .itemDetail(server, seriesId)
-                        .getOrNull()
-                        ?.providerIds
-                        .orEmpty()
+                val seriesDetail = embyRepository.itemDetail(server, seriesId).getOrNull()
+                val seriesProviderIds = seriesDetail?.providerIds.orEmpty()
+                val seriesPosterUrl =
+                    EmbyImages.primary(
+                        baseUrl = server.baseUrl,
+                        itemId = seriesDetail?.posterItemId ?: seriesId,
+                        tag = seriesDetail?.posterTag,
+                        maxHeight = 360,
+                        accessToken = server.accessToken,
+                    )
                 val episodes =
                     embyRepository
                         .episodes(
@@ -813,6 +817,7 @@ class PlayerActivity : ComponentActivity() {
                             seasonNumber = episode.seasonNumber,
                             episodeNumber = episode.indexNumber,
                             stillUrl = stillUrl,
+                            posterUrl = seriesPosterUrl,
                             progress = progress,
                             caption = episode.indexNumber?.let { "第 $it 集" },
                         ) ?: run {
@@ -869,6 +874,7 @@ class PlayerActivity : ComponentActivity() {
                                         fallbackId = episode.id,
                                     ),
                                 stillUrl = stillUrl,
+                                posterUrl = seriesPosterUrl,
                                 progress = progress,
                                 caption = episode.indexNumber?.let { "第 $it 集" },
                             )

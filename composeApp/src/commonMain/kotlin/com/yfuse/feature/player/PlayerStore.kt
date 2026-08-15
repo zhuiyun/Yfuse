@@ -265,6 +265,8 @@ data class PlayerMediaItem(
      * thumbnail the moment it opens is the reason the old drawer had grey tiles instead.
      */
     val stillUrl: String? = null,
+    /** Series poster shown when [stillUrl] is missing or the image request fails. */
+    val posterUrl: String? = null,
     /** 0f..1f, how far through this entry the viewer already is. Null for untouched. */
     val progress: Float? = null,
     /** `第 4 集` — the coordinate alone, under the episode's own name. */
@@ -633,6 +635,7 @@ class PlayerStoreFactory(
                     seriesProviderIds: Map<String, String>? = null,
                     versions: List<MediaVersion> = emptyList(),
                     stillTag: String? = null,
+                    posterUrl: String? = null,
                     progress: Float? = null,
                     caption: String? = null,
                 ): PlayerMediaItem {
@@ -741,6 +744,7 @@ class PlayerStoreFactory(
                                     accessToken = server.accessToken,
                                 )
                             },
+                        posterUrl = posterUrl,
                         progress = progress,
                         caption = caption,
                     )
@@ -837,12 +841,16 @@ class PlayerStoreFactory(
                     // episode recognisable on someone else's server (see episodeWatchKey).
                     // One extra request per queue, and a miss only costs the cross-server
                     // half of watch-together.
-                    val seriesProviderIds =
-                        repo
-                            .itemDetail(server, seriesId)
-                            .getOrNull()
-                            ?.providerIds
-                            .orEmpty()
+                    val seriesDetail = repo.itemDetail(server, seriesId).getOrNull()
+                    val seriesProviderIds = seriesDetail?.providerIds.orEmpty()
+                    val seriesPosterUrl =
+                        EmbyImages.primary(
+                            baseUrl = server.baseUrl,
+                            itemId = seriesDetail?.posterItemId ?: seriesId,
+                            tag = seriesDetail?.posterTag,
+                            maxHeight = 360,
+                            accessToken = server.accessToken,
+                        )
                     val episodesResult =
                         repo.episodes(
                             server,
@@ -879,6 +887,7 @@ class PlayerStoreFactory(
                                     // MediaSourceId and Emby rejected it with HTTP 400.
                                     versions = if (ep.id == effectiveItemId) detail.versions else ep.versions,
                                     stillTag = ep.primaryTag,
+                                    posterUrl = seriesPosterUrl,
                                     // A finished episode reads as full rather than as untouched:
                                     // Emby clears the resume percentage on completion, so the
                                     // two are indistinguishable without the played flag.

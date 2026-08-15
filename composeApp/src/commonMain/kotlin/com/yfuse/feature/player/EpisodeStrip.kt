@@ -38,6 +38,8 @@ internal data class EpisodeCard(
     val title: String,
     val caption: String?,
     val stillUrl: String?,
+    /** Series poster, used only after the episode still is absent or fails to load. */
+    val posterUrl: String?,
     val progress: Float?,
     /** Cross-server identities are also used by the room playlist to jump into this queue. */
     val watchKey: String,
@@ -50,11 +52,15 @@ internal fun List<PlayerMediaItem>.toEpisodeCards(): List<EpisodeCard> =
             title = item.title.ifBlank { "第 ${index + 1} 集" },
             caption = item.caption,
             stillUrl = item.stillUrl,
+            posterUrl = item.posterUrl,
             progress = item.progress?.takeIf { it > 0.01f },
             watchKey = item.watchKey,
             watchMatchKeys = item.matchKeys,
         )
     }
+
+/** Keep the episode still first; the series poster is a real artwork fallback, not a placeholder. */
+internal fun EpisodeCard.artworkUrls(): List<String?> = listOf(stillUrl, posterUrl)
 
 /**
  * 剧集列表 — a strip of stills along the bottom, in front of the picture.
@@ -144,7 +150,7 @@ private fun EpisodeStripCard(
                 .background(PlayerTokens.drawerFill),
         ) {
             FallbackImage(
-                urls = listOf(episode.stillUrl),
+                urls = episode.artworkUrls(),
                 contentDescription = episode.title,
                 modifier = Modifier.fillMaxWidth().height(79.dp),
             )

@@ -111,6 +111,11 @@ class PlayerStoreTest {
                                     """"IndexNumber":1,"ParentIndexNumber":2},""" +
                                     """{"Id":"e2","Name":"转折","Type":"Episode","IndexNumber":2,"ParentIndexNumber":2}]}""",
                             )
+                        request.url.encodedPath.endsWith("/Items/s1") ->
+                            json(
+                                """{"Id":"s1","Name":"某剧","Type":"Series",""" +
+                                    """"ImageTags":{"Primary":"series-poster"}}""",
+                            )
                         else ->
                             json(
                                 """{"Id":"e2","Name":"转折","Type":"Episode","SeriesId":"s1","SeriesName":"某剧"}""",
@@ -131,6 +136,13 @@ class PlayerStoreTest {
             assertEquals(listOf("e1", "e2"), state.items.map { it.id })
             assertEquals(listOf(2, 2), state.items.map { it.seasonNumber })
             assertEquals(listOf(1, 2), state.items.map { it.episodeNumber })
+            assertTrue(
+                state.items.all {
+                    it.posterUrl ==
+                        "http://host:8096/Items/s1/Images/Primary?tag=series-poster&" +
+                        "maxHeight=360&quality=90&api_key=tok"
+                },
+            )
             assertEquals(1, state.startIndex)
             assertEquals(2_500L, state.startPositionMs)
             store.dispose()
