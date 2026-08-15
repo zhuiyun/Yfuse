@@ -170,21 +170,21 @@ class PlaybackPlannerTest {
         disc: Boolean = false,
         transcode: Boolean = false,
     ) = PlaybackMediaProbe(
-            container = container,
-            discSource = disc,
-            source =
-                PlaybackSourceRequirements(
-                    dolbyVision = false,
-                    needsDolbyDecoder = false,
-                    dynamicRange = "SDR",
-                    videoCodec = PlaybackVideoCodec.H264,
-                    width = 1_920,
-                    height = 1_080,
-                    frameRate = 23.976,
-                    bitDepth = 8,
-                ),
-            hasServerTranscode = transcode,
-        )
+        container = container,
+        discSource = disc,
+        source =
+            PlaybackSourceRequirements(
+                dolbyVision = false,
+                needsDolbyDecoder = false,
+                dynamicRange = "SDR",
+                videoCodec = PlaybackVideoCodec.H264,
+                width = 1_920,
+                height = 1_080,
+                frameRate = 23.976,
+                bitDepth = 8,
+            ),
+        hasServerTranscode = transcode,
+    )
 
     private fun capabilities(dolby: Boolean = false): PlaybackDeviceCapabilities =
         PlaybackDeviceCapabilities(
