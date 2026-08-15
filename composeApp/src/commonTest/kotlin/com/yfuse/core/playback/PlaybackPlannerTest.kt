@@ -169,8 +169,7 @@ class PlaybackPlannerTest {
         container: String,
         disc: Boolean = false,
         transcode: Boolean = false,
-    ) =
-        PlaybackMediaProbe(
+    ) = PlaybackMediaProbe(
             container = container,
             discSource = disc,
             source =
