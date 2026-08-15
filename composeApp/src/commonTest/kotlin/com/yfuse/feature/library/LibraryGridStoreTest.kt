@@ -463,15 +463,17 @@ class LibraryGridStoreTest {
             store.accept(GridIntent.RequestRemove("e1"))
             store.accept(GridIntent.ConfirmRemove)
 
-            val rolledBack =
-                store.states.first {
-                    it.items.size == 2 && it.removingRowIds.isEmpty() && it.actionMessage != null
-                }
+            // Let the failed MockEngine call and the executor's onFailure callback finish before
+            // disposing the store. Observing the first rollback state alone can resume this test
+            // while the producer coroutine is still unwinding, which is flaky on Linux CI.
+            advanceUntilIdle()
+            val rolledBack = store.state
+            assertTrue(rolledBack.actionMessage != null)
             assertEquals(listOf("e1", "e2"), rolledBack.items.map { it.playlistItemId })
             assertEquals(2, rolledBack.totalCount)
             assertTrue(rolledBack.locallyRemovedRowIds.isEmpty())
             store.dispose()
-            runCurrent()
+            advanceUntilIdle()
         }
 
     @Test
