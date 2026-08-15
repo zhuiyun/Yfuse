@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -110,7 +111,7 @@ internal fun AccountSettingsScreen(
                 start = Dimens.pageHorizontal,
                 end = Dimens.pageHorizontal,
             ),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item { AccountHeader(onBack) }
         when (val current = state) {
@@ -154,25 +155,7 @@ internal fun AccountSettingsScreen(
                 }
         }
 
-        item {
-            AccountCard {
-                Text("加密说明", style = AppTypography.body.strong, color = palette.text)
-                Spacer(Modifier.height(7.dp))
-                Text(
-                    "服务器令牌、弹幕源链接、绑定和同步设置会在本机使用 AES-256-GCM " +
-                        "加密后上传，服务端数据库只保存密文；加密密钥由账号密码派生。",
-                    style = AppTypography.caption.regular,
-                    color = palette.sub,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "主要降低数据库或备份泄露风险；不防在线账号服务器被完全控制。同步只手动执行，" +
-                        "一起看设备 ID、缓存、离线文件、诊断日志和最近搜索不会同步。",
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                )
-            }
-        }
+        item { EncryptionInfoCard() }
     }
 }
 
@@ -335,152 +318,161 @@ private fun SignedInAccountCard(
 
     AccountCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // The *edited* nickname and avatar, not the saved ones.
-            //
-            // These two showed `user.…`, which is what the server last confirmed, while the
-            // picker below edited local state — so choosing an avatar moved the selection
-            // ring and left the avatar beside the name on the old one until 保存资料 came
-            // back. It read as the tap not registering. A picker and its preview have to be
-            // the same value; 保存资料 is what makes that value permanent, not what makes it
-            // visible.
             AccountAvatar(nickname.ifBlank { user.nickname }, avatarId)
-            Spacer(Modifier.width(11.dp))
+            Spacer(Modifier.width(13.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     nickname.ifBlank { user.nickname },
-                    style = AppTypography.body.strong,
+                    style = AppTypography.section.strong,
                     color = palette.text,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(2.dp))
                 Text("@${user.username}", style = AppTypography.caption.regular, color = palette.sub2)
             }
-            Text(
-                if (nickname != user.nickname || avatarId != user.avatarId) "未保存" else "已登录",
-                style = AppTypography.caption.strong,
-                color =
-                    if (nickname != user.nickname || avatarId != user.avatarId) {
-                        accent.accent
-                    } else {
-                        Brand.Online
-                    },
+            AccountStatusBadge(
+                label = if (nickname != user.nickname || avatarId != user.avatarId) "未保存" else "已登录",
+                active = nickname == user.nickname && avatarId == user.avatarId,
             )
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(15.dp))
         YfFormField(
             value = nickname,
             onValueChange = { nickname = it.take(24) },
             label = "昵称",
             enabled = !busy && !state.syncing,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
+        Text("选择头像", style = AppTypography.caption.strong, color = palette.sub)
+        Spacer(Modifier.height(8.dp))
         AvatarPicker(
             selected = avatarId,
             enabled = !busy && !state.syncing,
             onSelect = { avatarId = it },
         )
-        Spacer(Modifier.height(12.dp))
-        YfButton(
-            label = "保存资料",
-            onClick = {
-                busy = true
-                localError = null
-                scope.launch {
-                    account
-                        .updateProfile(nickname, avatarId)
-                        .exceptionOrNull()
-                        ?.let { localError = it.message }
-                    busy = false
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !busy && !state.syncing && nickname.isNotBlank(),
-            loading = busy && !state.syncing,
-        )
-        YfLinkButton(
-            label = if (showPasswordForm) "取消修改密码" else "修改登录密码",
-            onClick = {
-                showPasswordForm = !showPasswordForm
-                currentPassword = ""
-                newPassword = ""
-                confirmPassword = ""
-                localError = null
-            },
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-            enabled = !busy && !state.syncing,
-        )
-        if (showPasswordForm) {
-            YfFormField(
-                value = currentPassword,
-                onValueChange = { currentPassword = it.take(128) },
-                label = "当前密码",
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                enabled = !busy,
-            )
-            Spacer(Modifier.height(9.dp))
-            YfFormField(
-                value = newPassword,
-                onValueChange = { newPassword = it.take(128) },
-                label = "新密码（至少 $MIN_PASSWORD_LENGTH 位）",
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                enabled = !busy,
-            )
-            Spacer(Modifier.height(9.dp))
-            YfFormField(
-                value = confirmPassword,
-                onValueChange = { confirmPassword = it.take(128) },
-                label = "确认新密码",
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                enabled = !busy,
-            )
-            Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             YfButton(
-                label = "确认修改密码",
+                label = "保存资料",
                 onClick = {
-                    if (newPassword != confirmPassword) {
-                        localError = "两次输入的新密码不一致"
-                    } else {
-                        busy = true
-                        localError = null
-                        val currentSecret = currentPassword.toCharArray()
-                        val newSecret = newPassword.toCharArray()
-                        currentPassword = ""
-                        newPassword = ""
-                        confirmPassword = ""
-                        scope.launch {
-                            val result = account.changePassword(currentSecret, newSecret)
-                            result.exceptionOrNull()?.let { localError = it.message ?: "修改密码失败" }
-                            if (result.isSuccess) showPasswordForm = false
-                            busy = false
-                        }
+                    busy = true
+                    localError = null
+                    scope.launch {
+                        account
+                            .updateProfile(nickname, avatarId)
+                            .exceptionOrNull()
+                            ?.let { localError = it.message }
+                        busy = false
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
-                enabled =
-                    !busy &&
-                        currentPassword.isNotEmpty() &&
-                        newPassword.length >= MIN_PASSWORD_LENGTH &&
-                        confirmPassword.length >= MIN_PASSWORD_LENGTH,
-                loading = busy,
+                modifier = Modifier.weight(1f),
+                enabled = !busy && !state.syncing && nickname.isNotBlank(),
+                loading = busy && !state.syncing && !uploading && !downloading,
             )
+            YfButton(
+                label = if (showPasswordForm) "收起密码" else "修改密码",
+                onClick = {
+                    showPasswordForm = !showPasswordForm
+                    currentPassword = ""
+                    newPassword = ""
+                    confirmPassword = ""
+                    localError = null
+                },
+                modifier = Modifier.weight(1f),
+                enabled = !busy && !state.syncing,
+                tone = YfButtonTone.Secondary,
+            )
+        }
+        if (showPasswordForm) {
+            Spacer(Modifier.height(12.dp))
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .liquidGlass(
+                            shape = AppShapes.control,
+                            fill = palette.card2,
+                            border = palette.border,
+                            over = palette.card,
+                            sheen = 0.48f,
+                        ).padding(12.dp),
+            ) {
+                YfFormField(
+                    value = currentPassword,
+                    onValueChange = { currentPassword = it.take(128) },
+                    label = "当前密码",
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    enabled = !busy,
+                )
+                Spacer(Modifier.height(9.dp))
+                YfFormField(
+                    value = newPassword,
+                    onValueChange = { newPassword = it.take(128) },
+                    label = "新密码（至少 $MIN_PASSWORD_LENGTH 位）",
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    enabled = !busy,
+                )
+                Spacer(Modifier.height(9.dp))
+                YfFormField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it.take(128) },
+                    label = "确认新密码",
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    enabled = !busy,
+                )
+                Spacer(Modifier.height(10.dp))
+                YfButton(
+                    label = "确认修改密码",
+                    onClick = {
+                        if (newPassword != confirmPassword) {
+                            localError = "两次输入的新密码不一致"
+                        } else {
+                            busy = true
+                            localError = null
+                            val currentSecret = currentPassword.toCharArray()
+                            val newSecret = newPassword.toCharArray()
+                            currentPassword = ""
+                            newPassword = ""
+                            confirmPassword = ""
+                            scope.launch {
+                                val result = account.changePassword(currentSecret, newSecret)
+                                result.exceptionOrNull()?.let {
+                                    localError = it.message ?: "修改密码失败"
+                                }
+                                if (result.isSuccess) showPasswordForm = false
+                                busy = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled =
+                        !busy &&
+                            currentPassword.isNotEmpty() &&
+                            newPassword.length >= MIN_PASSWORD_LENGTH &&
+                            confirmPassword.length >= MIN_PASSWORD_LENGTH,
+                    loading = busy,
+                )
+            }
         }
     }
 
-    Spacer(Modifier.height(16.dp))
-    if (user.canIssueInvites()) {
-        AccountCard {
-            Text("注册邀请", style = AppTypography.body.strong, color = palette.text)
-            Spacer(Modifier.height(5.dp))
-            Text(
-                "生成一次性邀请码。明文只会显示这一次，请立即复制并安全发送。",
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
-            )
-            Spacer(Modifier.height(10.dp))
-            YfButton(
-                label = if (inviteBusy) "正在生成…" else "生成邀请码",
+    Spacer(Modifier.height(14.dp))
+    AccountSectionCard(
+        title = "访问与安全",
+        icon = AppIcons.Lock,
+    ) {
+        if (user.canIssueInvites()) {
+            AccountActionRow(
+                title = "注册邀请",
+                supporting = "生成一次性邀请码，明文仅显示一次",
+                trailingLabel = if (inviteBusy) null else "生成",
+                loading = inviteBusy,
+                enabled = !busy && !state.syncing && !inviteBusy,
+                showChevron = false,
                 onClick = {
                     inviteBusy = true
                     localError = null
@@ -492,60 +484,27 @@ private fun SignedInAccountCard(
                         inviteBusy = false
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !busy && !state.syncing && !inviteBusy,
-                loading = inviteBusy,
             )
+            AccountSectionDivider()
         }
-        Spacer(Modifier.height(16.dp))
-    }
-
-    AccountCard {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .pressable(
-                        haptic = HapticSignal.Select,
-                        onClickLabel = "打开登录与会话",
-                        onClick = onOpenSessions,
-                    ).touchTarget()
-                    .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("登录与会话", style = AppTypography.body.strong, color = palette.text)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    sessionCount?.let { "$it 个会话" } ?: "查看与管理",
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Icon(
-                imageVector = AppIcons.ChevronRight,
-                contentDescription = null,
-                tint = accent.accent,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
-
-    Spacer(Modifier.height(16.dp))
-    AccountCard {
-        Text("账号数据", style = AppTypography.body.strong, color = palette.text)
-        Spacer(Modifier.height(5.dp))
-        Text(
-            "导出仅含账号资料和端到端加密同步信封，不含密码或登录令牌。",
-            style = AppTypography.caption.regular,
-            color = palette.sub2,
+        AccountActionRow(
+            title = "登录与会话",
+            supporting = "查看和管理已登录设备",
+            trailingLabel = sessionCount?.let { "$it" },
+            onClick = onOpenSessions,
         )
-        Spacer(Modifier.height(10.dp))
-        YfButton(
-            label = "安全导出账号数据",
+    }
+
+    Spacer(Modifier.height(14.dp))
+    AccountSectionCard(
+        title = "数据与隐私",
+        icon = AppIcons.Download,
+    ) {
+        AccountActionRow(
+            title = "安全导出账号数据",
+            supporting = "不包含密码或登录令牌",
+            enabled = !busy,
+            loading = busy && !state.syncing && !uploading && !downloading,
             onClick = {
                 busy = true
                 scope.launch {
@@ -556,35 +515,28 @@ private fun SignedInAccountCard(
                     busy = false
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !busy,
         )
-        YfLinkButton(
-            label = "永久删除账号",
-            onClick = { confirmDeleteAccount = true },
-            modifier = Modifier.align(Alignment.CenterHorizontally),
+        AccountSectionDivider()
+        AccountActionRow(
+            title = "永久删除账号",
+            supporting = "账号、会话与云端数据将不可恢复",
+            destructive = true,
             enabled = !busy,
+            onClick = { confirmDeleteAccount = true },
         )
     }
 
-    Spacer(Modifier.height(16.dp))
-    AccountCard {
-        Text("加密同步", style = AppTypography.body.strong, color = palette.text)
-        Spacer(Modifier.height(5.dp))
+    Spacer(Modifier.height(14.dp))
+    AccountSectionCard(
+        title = "端到端加密同步",
+        icon = AppIcons.Cloud,
+        status = if (state.syncing) "同步中" else "已就绪",
+    ) {
         Text(
-            "云端版本 ${state.syncVersion}" +
-                if (state.syncing) " · 正在同步…" else " · 手动同步",
+            "云端版本 ${state.syncVersion} · 手动同步",
             style = AppTypography.caption.regular,
             color = palette.sub2,
         )
-        // One status line that is always here.
-        //
-        // This was two conditional `Text`s — a success message and an error — each of which
-        // appeared with its own spacer and disappeared again. Every action grew the card,
-        // and the next one shrank it, which shifted the two buttons and everything below
-        // them: that is the flashing. The slot is now reserved whether or not it has
-        // anything to say, so pressing a button changes what the card *says* and never how
-        // tall it is.
         Spacer(Modifier.height(7.dp))
         Text(
             text = localError ?: state.message ?: SYNC_IDLE_HINT,
@@ -599,12 +551,8 @@ private fun SignedInAccountCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(11.dp))
+        Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            // 上传 and 恢复 each overwrite one whole side with the other, and both used to do
-            // it on a single tap sitting inside a two-button row. The warning was printed
-            // under them, which is exactly the place a warning is not read. Neither is
-            // reversible and neither is urgent, so both now ask.
             OverlayButton(
                 label = "上传本机",
                 onClick = { confirmUpload = true },
@@ -621,20 +569,26 @@ private fun SignedInAccountCard(
                 enabled = !busy && !state.syncing && state.cloudHasData,
                 loading = downloading,
             )
+            OverlayButton(
+                label = "清空服务器",
+                onClick = { confirmClearRemote = true },
+                modifier = Modifier.weight(1f),
+                tone = OverlayButtonTone.Destructive,
+                enabled = !busy && !state.syncing && state.cloudHasData,
+            )
         }
-        OverlayButton(
-            label = "清空服务器数据",
-            onClick = { confirmClearRemote = true },
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            tone = OverlayButtonTone.Destructive,
-            enabled = !busy && !state.syncing && state.cloudHasData,
-        )
     }
 
-    Spacer(Modifier.height(16.dp))
-    AccountCard {
-        YfButton(
-            label = "退出 Yfuse 账号",
+    Spacer(Modifier.height(14.dp))
+    AccountSectionCard(
+        title = "账号操作",
+        icon = AppIcons.User,
+    ) {
+        AccountActionRow(
+            title = "退出 Yfuse 账号",
+            destructive = true,
+            enabled = !busy && !state.syncing,
+            loading = busy,
             onClick = {
                 busy = true
                 scope.launch {
@@ -642,10 +596,6 @@ private fun SignedInAccountCard(
                     busy = false
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !busy && !state.syncing,
-            loading = busy,
-            tone = YfButtonTone.Destructive,
         )
     }
 
@@ -1023,7 +973,7 @@ private fun AccountHeader(onBack: () -> Unit) {
     ) {
         SettingsBackButton(onBack)
         Column(Modifier.padding(start = 10.dp)) {
-            Text("账号与同步", style = AppTypography.section.strong, color = palette.text)
+            Text("账户与同步", style = AppTypography.section.strong, color = palette.text)
             Text("IP HTTPS · 敏感数据加密同步", style = AppTypography.caption.regular, color = palette.sub2)
         }
     }
@@ -1032,14 +982,264 @@ private fun AccountHeader(onBack: () -> Unit) {
 @Composable
 private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
     val palette = LocalPalette.current
+    val shape = RoundedCornerShape(26.dp)
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .glass(AppShapes.card, palette.card, palette.border)
-                .padding(horizontal = 16.dp, vertical = 15.dp),
+                .liquidGlass(
+                    shape = shape,
+                    fill = palette.card.copy(alpha = if (palette.isDark) 0.94f else 0.86f),
+                    border = palette.border.copy(alpha = 0.74f),
+                    over = palette.background,
+                    sheen = 0.56f,
+                ).padding(horizontal = 18.dp, vertical = 16.dp),
         content = content,
     )
+}
+
+@Composable
+private fun AccountSectionCard(
+    title: String,
+    icon: ImageVector,
+    status: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    AccountCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(34.dp)
+                        .liquidGlass(
+                            shape = AppShapes.control,
+                            fill = accent.container.copy(alpha = 0.56f),
+                            border = null,
+                            over = palette.card,
+                            sheen = 0.46f,
+                        ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accent.accent,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                title,
+                modifier = Modifier.weight(1f),
+                style = AppTypography.body.strong,
+                color = palette.text,
+            )
+            status?.let {
+                Text(
+                    text = it,
+                    modifier =
+                        Modifier
+                            .liquidGlass(
+                                shape = AppShapes.pill,
+                                fill = accent.container.copy(alpha = 0.52f),
+                                border = null,
+                                over = palette.card,
+                                sheen = 0.42f,
+                            ).padding(horizontal = 10.dp, vertical = 5.dp),
+                    style = AppTypography.caption.strong,
+                    color = accent.accent,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        content()
+    }
+}
+
+@Composable
+private fun AccountStatusBadge(
+    label: String,
+    active: Boolean,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val color = if (active) Brand.Online else accent.accent
+    Text(
+        text = label,
+        modifier =
+            Modifier
+                .liquidGlass(
+                    shape = AppShapes.pill,
+                    fill = color.copy(alpha = if (palette.isDark) 0.18f else 0.11f),
+                    border = null,
+                    over = palette.card,
+                    sheen = 0.40f,
+                ).padding(horizontal = 10.dp, vertical = 5.dp),
+        style = AppTypography.caption.strong,
+        color = color,
+    )
+}
+
+@Composable
+private fun AccountActionRow(
+    title: String,
+    onClick: () -> Unit,
+    supporting: String? = null,
+    trailingLabel: String? = null,
+    destructive: Boolean = false,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+    showChevron: Boolean = true,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val titleColor = if (destructive) palette.error else palette.text
+    val alpha = if (enabled) 1f else 0.46f
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 54.dp)
+                .pressable(
+                    enabled = enabled && !loading,
+                    haptic = HapticSignal.Confirm.takeIf { destructive },
+                    onClickLabel = title,
+                    onClick = onClick,
+                ).touchTarget()
+                .padding(horizontal = 2.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = AppTypography.body.strong,
+                color = titleColor.copy(alpha = alpha),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            supporting?.let {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    it,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2.copy(alpha = alpha),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                color = if (destructive) palette.error else accent.accent,
+                strokeWidth = 2.dp,
+            )
+        } else {
+            trailingLabel?.let {
+                Text(
+                    text = it,
+                    style = AppTypography.caption.strong,
+                    color = if (destructive) palette.error else accent.accent,
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+            if (showChevron) {
+                Icon(
+                    imageVector = AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = if (destructive) palette.error.copy(alpha = alpha) else palette.sub2.copy(alpha = alpha),
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountSectionDivider() {
+    val palette = LocalPalette.current
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(palette.border.copy(alpha = 0.58f)),
+    )
+}
+
+@Composable
+private fun EncryptionInfoCard() {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    AccountCard {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .pressable(
+                        haptic = HapticSignal.Select,
+                        onClickLabel = if (expanded) "收起加密说明" else "展开加密说明",
+                        onClick = { expanded = !expanded },
+                    ).touchTarget()
+                    .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(34.dp)
+                        .liquidGlass(
+                            shape = AppShapes.control,
+                            fill = accent.container.copy(alpha = 0.50f),
+                            border = null,
+                            over = palette.card,
+                            sheen = 0.44f,
+                        ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = AppIcons.Lock,
+                    contentDescription = null,
+                    tint = accent.accent,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("加密说明", style = AppTypography.body.strong, color = palette.text)
+                Text(
+                    "AES-256-GCM · 密钥由账号密码派生",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                )
+            }
+            Icon(
+                imageVector = if (expanded) AppIcons.ChevronDown else AppIcons.ChevronRight,
+                contentDescription = null,
+                tint = palette.sub2,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        if (expanded) {
+            Spacer(Modifier.height(13.dp))
+            Text(
+                "服务器令牌、弹幕源链接、绑定和同步设置会在本机使用 AES-256-GCM " +
+                    "加密后上传，服务端数据库只保存密文；加密密钥由账号密码派生。",
+                style = AppTypography.caption.regular,
+                color = palette.sub,
+            )
+            Spacer(Modifier.height(7.dp))
+            Text(
+                "主要降低数据库或备份泄露风险；不防在线账号服务器被完全控制。同步只手动执行，" +
+                    "一起看设备 ID、缓存、离线文件、诊断日志和最近搜索不会同步。",
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+            )
+        }
+    }
 }
 
 /**
@@ -1058,13 +1258,13 @@ private fun AvatarPicker(
 ) {
     LazyRow(
         modifier = Modifier.selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(WatchTogetherPreferences.AVATAR_COUNT) { id ->
             // WatchAvatar carries its own selected ring, so there is no glass layer here.
             WatchAvatar(
                 avatarId = id,
-                size = 38.dp,
+                size = 42.dp,
                 selected = id == selected,
                 modifier =
                     Modifier
@@ -1097,13 +1297,13 @@ private fun AccountAvatar(
     val accent = LocalAccentColors.current
     val initial = nickname.take(1)
     if (initial.isBlank()) {
-        WatchAvatar(avatarId = avatarId, size = 44.dp)
+        WatchAvatar(avatarId = avatarId, size = 54.dp)
         return
     }
     Box(
         modifier =
             Modifier
-                .size(44.dp)
+                .size(54.dp)
                 .clip(CircleShape)
                 .glass(CircleShape, accent.container, accent.border),
         contentAlignment = Alignment.Center,
