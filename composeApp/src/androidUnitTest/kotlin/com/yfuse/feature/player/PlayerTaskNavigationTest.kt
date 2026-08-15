@@ -69,21 +69,26 @@ class PlayerTaskNavigationTest {
 
     @Test
     fun foreground_and_transport_notifications_share_the_payload_free_player_open_intent() {
-        val activitySource = projectFile(
-            "src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
-        ).readText()
-        val notificationSource = projectFile(
-            "src/androidMain/kotlin/com/yfuse/feature/player/PlayerNotificationController.kt",
-        ).readText()
-        val serviceSource = projectFile(
-            "src/androidMain/kotlin/com/yfuse/feature/player/PlaybackKeepAliveService.kt",
-        ).readText()
-        val openIntentBlock = activitySource
-            .substringAfter("internal fun openIntent")
-            .substringBefore("internal fun discardLaunch")
-        val transportNotificationBlock = notificationSource
-            .substringAfter("fun update(")
-            .substringBefore("private fun mediaPendingIntent")
+        val activitySource =
+            projectFile(
+                "src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
+            ).readText()
+        val notificationSource =
+            projectFile(
+                "src/androidMain/kotlin/com/yfuse/feature/player/PlayerNotificationController.kt",
+            ).readText()
+        val serviceSource =
+            projectFile(
+                "src/androidMain/kotlin/com/yfuse/feature/player/PlaybackKeepAliveService.kt",
+            ).readText()
+        val openIntentBlock =
+            activitySource
+                .substringAfter("internal fun openIntent")
+                .substringBefore("internal fun discardLaunch")
+        val transportNotificationBlock =
+            notificationSource
+                .substringAfter("fun update(")
+                .substringBefore("private fun mediaPendingIntent")
 
         assertTrue("PlayerActivity.openIntent(this)" in serviceSource)
         assertTrue("PlayerActivity.openIntent(activity)" in transportNotificationBlock)
