@@ -4,6 +4,7 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineMedia
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -11,14 +12,25 @@ import kotlin.test.assertTrue
 
 class ProfileSettingsLogicTest {
     @Test
-    fun root_playback_summary_uses_user_goals_instead_of_backend_names() {
-        assertEquals("兼容优先 · 硬件优先", playbackSettingsSummary(PlayerEngine.Exo, DecoderMode.Hardware))
-        assertEquals("格式优先 · 自动选择", playbackSettingsSummary(PlayerEngine.Mpv, DecoderMode.Auto))
-        assertEquals("原生内核 · 软件兼容", playbackSettingsSummary(PlayerEngine.Mdk, DecoderMode.Software))
+    fun root_playback_summary_uses_ycore_goals_instead_of_backend_names() {
+        assertEquals(
+            "自动均衡 · 硬件优先",
+            playbackSettingsSummary(PlaybackOptimizationMode.Balanced, DecoderMode.Hardware),
+        )
+        assertEquals(
+            "省电优先 · 自动选择",
+            playbackSettingsSummary(PlaybackOptimizationMode.PowerSaver, DecoderMode.Auto),
+        )
+        assertEquals(
+            "兼容优先 · 软件兼容",
+            playbackSettingsSummary(PlaybackOptimizationMode.Compatibility, DecoderMode.Software),
+        )
 
-        PlayerEngine.selectable.forEach { engine ->
-            val summary = playbackSettingsSummary(engine, DecoderMode.Auto)
-            assertFalse(summary.contains(engine.label, ignoreCase = true))
+        PlaybackOptimizationMode.entries.forEach { mode ->
+            val summary = playbackSettingsSummary(mode, DecoderMode.Auto)
+            PlayerEngine.selectable.forEach { engine ->
+                assertFalse(summary.contains(engine.label, ignoreCase = true))
+            }
         }
     }
 
@@ -26,7 +38,8 @@ class ProfileSettingsLogicTest {
     fun every_real_engine_and_decoder_has_clear_non_empty_copy() {
         (
             PlayerEngine.selectable.map { it.playbackOptionCopy() } +
-                DecoderMode.entries.map { it.playbackOptionCopy() }
+                DecoderMode.entries.map { it.playbackOptionCopy() } +
+                PlaybackOptimizationMode.entries.map { it.playbackOptionCopy() }
         ).forEach { copy ->
             assertTrue(copy.label.isNotBlank())
             assertTrue(copy.summary.isNotBlank())

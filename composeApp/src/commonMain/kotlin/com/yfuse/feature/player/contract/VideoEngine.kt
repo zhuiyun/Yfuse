@@ -38,6 +38,10 @@ data class PlaybackDiagnostics(
     val audioOutput: String = "等待音频输出",
     /** Current display/audio-route capability snapshot, kept separate from active output. */
     val deviceOutputCapabilities: String = "未探测",
+    /** YCore route selected before backend construction: direct/native/GPU/server. */
+    val plannedRenderPath: String = "",
+    /** Human-readable explanation when content or device facts override the preferred backend. */
+    val planningReason: String? = null,
     /** Why playback is not using the original direct-play path. */
     val fallbackReason: String? = null,
     val bitrateBitsPerSecond: Long = 0L,

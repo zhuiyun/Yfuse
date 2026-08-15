@@ -88,4 +88,39 @@ class PlaybackTruthTest {
             ).let { it.hasActiveDolbyVisionOutput() || it.hasActiveDolbyAtmosOutput() },
         )
     }
+
+    @Test
+    fun fast_probe_builds_a_credential_free_capability_signature() {
+        val secret = "private-access-token"
+        val version =
+            PlayerMediaVersion(
+                id = "source",
+                label = "4K",
+                detail = "4K HEVC",
+                url = "https://example/video?api_key=$secret",
+                transcodeUrl = "https://example/master.m3u8?api_key=$secret",
+                fallbackTranscodeUrl = "",
+                container = "mkv",
+                sourceVideoCodec = "hevc",
+                sourceWidth = 3_840,
+                sourceHeight = 2_160,
+                sourceFrameRate = 23.976,
+                sourceBitDepth = 10,
+                sourceDynamicRange = "HDR10",
+            )
+        val probe =
+            PlayerMediaItem(
+                id = "movie",
+                url = version.url,
+                transcodeUrl = version.transcodeUrl,
+                title = "电影",
+                versions = listOf(version),
+                versionId = version.id,
+            ).playbackMediaProbe()
+
+        assertEquals("MKV", probe.normalizedContainer)
+        assertTrue(probe.hasServerTranscode)
+        assertFalse(secret in probe.capabilitySignature)
+        assertFalse("example" in probe.capabilitySignature)
+    }
 }

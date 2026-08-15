@@ -2,6 +2,7 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -121,6 +122,17 @@ class PlaybackPreferences(
     fun setAudioPassthrough(mode: PlaybackAudioPassthrough) {
         _audioPassthrough.value = mode
         settings.putString(KEY_AUDIO_PASSTHROUGH, mode.storageValue)
+    }
+
+    private val _optimizationMode =
+        MutableStateFlow(
+            enumSetting(KEY_OPTIMIZATION_MODE, PlaybackOptimizationMode.Balanced),
+        )
+    val optimizationMode: StateFlow<PlaybackOptimizationMode> = _optimizationMode.asStateFlow()
+
+    fun setOptimizationMode(mode: PlaybackOptimizationMode) {
+        _optimizationMode.value = mode
+        settings.putString(KEY_OPTIMIZATION_MODE, mode.name)
     }
 
     private val _smartCrossServerSource =
@@ -308,6 +320,7 @@ class PlaybackPreferences(
         const val KEY_VIDEO_CACHE_SIZE = "player.videoCacheSize"
         const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
         const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
+        const val KEY_OPTIMIZATION_MODE = "player.optimizationMode"
         const val KEY_SMART_CROSS_SERVER_SOURCE = "player.smartCrossServerSource"
         const val KEY_WIFI_QUALITY_CAP = "player.networkQuality.wifi"
         const val KEY_CELLULAR_QUALITY_CAP = "player.networkQuality.cellular"

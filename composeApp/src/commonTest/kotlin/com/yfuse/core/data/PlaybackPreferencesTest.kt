@@ -2,6 +2,7 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -60,6 +61,20 @@ class PlaybackPreferencesTest {
         val restored = PlaybackPreferences(settings)
         assertEquals(PlaybackFrameRateMatch.Always, restored.frameRateMatch.value)
         assertEquals(PlaybackAudioPassthrough.Compatible, restored.audioPassthrough.value)
+    }
+
+    @Test
+    fun ycore_optimization_mode_defaults_balanced_and_persists() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(PlaybackOptimizationMode.Balanced, first.optimizationMode.value)
+        first.setOptimizationMode(PlaybackOptimizationMode.PowerSaver)
+
+        assertEquals(
+            PlaybackOptimizationMode.PowerSaver,
+            PlaybackPreferences(settings).optimizationMode.value,
+        )
     }
 
     @Test

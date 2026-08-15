@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackMediaProbe
 import com.yfuse.core.playback.PlaybackSourceRequirements
 import com.yfuse.core.playback.PlaybackVideoCodec
 
@@ -49,6 +50,29 @@ internal fun PlayerMediaVersion.sourceRequirements(): PlaybackSourceRequirements
         bitDepth = sourceBitDepth,
         videoLevel = sourceVideoLevel,
     )
+
+/** Fast PlaybackInfo-backed probe; FFmpeg probing can enrich the same core model later. */
+internal fun PlayerMediaItem?.playbackMediaProbe(
+    usingServerTranscode: Boolean = false,
+): PlaybackMediaProbe {
+    val version = this?.activeVersion
+    return PlaybackMediaProbe(
+        container = version?.container,
+        discSource = version?.discSource == true,
+        source =
+            version?.sourceRequirements()
+                ?: PlaybackSourceRequirements(
+                    dolbyVision = false,
+                    needsDolbyDecoder = false,
+                    dynamicRange = null,
+                ),
+        hasServerTranscode =
+            this?.let { item ->
+                item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
+            } == true,
+        usingServerTranscode = usingServerTranscode,
+    )
+}
 
 private fun String?.toPlaybackVideoCodec(): PlaybackVideoCodec? {
     val normalized = this?.trim()?.lowercase().orEmpty()

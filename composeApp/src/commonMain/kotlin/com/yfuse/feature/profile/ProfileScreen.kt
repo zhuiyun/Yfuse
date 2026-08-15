@@ -106,6 +106,7 @@ import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineMedia
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.feature.player.PlayerLauncher
@@ -117,6 +118,7 @@ import com.yfuse.core.designsystem.flatGlass as glass
 private enum class Sheet {
     StartupTab,
     Background,
+    PlaybackMode,
     Engine,
     Decoder,
     DanmakuSource,
@@ -166,6 +168,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val backgroundDim by prefs.backgroundDim.collectAsState()
     var appIcon by remember { mutableStateOf(currentAppIconVariant()) }
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
+    val optimizationMode by component.playbackPreferences.optimizationMode.collectAsState()
     val smartCrossServerSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
     val wifiQualityCap by component.playbackPreferences.wifiQualityCap.collectAsState()
     val cellularQualityCap by component.playbackPreferences.cellularQualityCap.collectAsState()
@@ -247,6 +250,7 @@ fun ProfileScreen(component: ProfileComponent) {
                 ProfilePage.Playback ->
                     PlaybackSettingsScreen(
                         onBack = ::closePage,
+                        optimizationMode = optimizationMode,
                         engine = engine,
                         decoder = decoder,
                         autoNext = autoNext,
@@ -258,6 +262,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         resumePrompt = resumePrompt,
                         videoCacheSize = videoCacheSize,
                         skipSegments = if (skipTimesBySeries.isEmpty()) "${skipMode.label} · 跟随服务器 ›" else "${skipMode.label} ›",
+                        onOptimizationMode = { sheet = Sheet.PlaybackMode },
                         onEngine = { sheet = Sheet.Engine },
                         onDecoder = { sheet = Sheet.Decoder },
                         onAutoNext = prefs::setAutoNext,
@@ -465,7 +470,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 SettingsCard {
                                     SettingRow(
                                         "播放",
-                                        "${playbackSettingsSummary(engine, decoder)} ›",
+                                        "${playbackSettingsSummary(optimizationMode, decoder)} ›",
                                         embedded = true,
                                         onClick = { openPage(ProfilePage.Playback) },
                                         icon = AppIcons.Play,
@@ -600,6 +605,27 @@ fun ProfileScreen(component: ProfileComponent) {
                     descriptions = StartupTab.entries.map { it.description },
                     onSelect = { index ->
                         prefs.setStartupTab(StartupTab.entries[index])
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
+            Sheet.PlaybackMode ->
+                OptionSheet(
+                    title = "YCore 播放策略",
+                    subtitle = "自动策略会综合片源、设备能力、稳定性与功耗",
+                    options =
+                        PlaybackOptimizationMode.entries.map {
+                            it.playbackOptionCopy().label to (it == optimizationMode)
+                        },
+                    descriptions =
+                        PlaybackOptimizationMode.entries.map {
+                            it.playbackOptionCopy().description
+                        },
+                    onSelect = { index ->
+                        component.playbackPreferences.setOptimizationMode(
+                            PlaybackOptimizationMode.entries[index],
+                        )
                         sheet = null
                     },
                     onDismiss = { sheet = null },

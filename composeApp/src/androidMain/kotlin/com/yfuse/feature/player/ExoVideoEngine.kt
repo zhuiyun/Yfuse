@@ -34,6 +34,8 @@ import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackHdrFormat
+import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core.playback.playbackBufferProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -66,6 +68,7 @@ class ExoVideoEngine(
     startPositionMs: Long,
     private val scope: CoroutineScope,
     decoderMode: DecoderMode,
+    optimizationMode: PlaybackOptimizationMode,
     private val autoNext: Boolean,
     private val quality: PlaybackQuality,
     customUserAgent: String,
@@ -167,16 +170,19 @@ class ExoVideoEngine(
                         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
                 } ?: upstream
             val loadControl =
-                DefaultLoadControl
-                    .Builder()
-                    .setBufferDurationsMs(
-                        30_000,
-                        120_000,
-                        1_500,
-                        3_500,
-                    ).setPrioritizeTimeOverSizeThresholds(true)
-                    .setBackBuffer(15_000, true)
-                    .build()
+                playbackBufferProfile(optimizationMode).let { profile ->
+                    DefaultLoadControl
+                        .Builder()
+                        .setBufferDurationsMs(
+                            profile.minBufferMs,
+                            profile.maxBufferMs,
+                            profile.playbackStartMs,
+                            profile.rebufferStartMs,
+                        ).setTargetBufferBytes(profile.targetBufferBytes)
+                        .setPrioritizeTimeOverSizeThresholds(false)
+                        .setBackBuffer(profile.backBufferMs, profile.backBufferMs > 0)
+                        .build()
+                }
 
             ExoPlayer
                 .Builder(context, renderersFactory)

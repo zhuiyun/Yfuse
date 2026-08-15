@@ -405,6 +405,10 @@ internal fun SettingsPanel(
                         AdvancedPage.Media -> {
                             PopupBackLabel("媒体信息") { advancedPage = AdvancedPage.Root }
                             DiagnosticRow("内核", diagnostics.engine.ifBlank { "未知" })
+                            DiagnosticRow(
+                                "YCore 管线",
+                                diagnostics.plannedRenderPath.ifBlank { "等待规划" },
+                            )
                             DiagnosticRow("解码器", diagnostics.decoder)
                             DiagnosticRow("播放方式", diagnostics.playMethod)
                             DiagnosticRow("所选画质", diagnostics.requestedQuality)
@@ -440,6 +444,9 @@ internal fun SettingsPanel(
                             DiagnosticRow("丢帧", "${diagnostics.droppedFrames} 帧")
                             diagnostics.fallbackReason?.takeIf(String::isNotBlank)?.let { reason ->
                                 DiagnosticRow("降级原因", reason)
+                            }
+                            diagnostics.planningReason?.takeIf(String::isNotBlank)?.let { reason ->
+                                DiagnosticRow("规划原因", reason)
                             }
                             if (watch.connected || watch.roomCode != null) {
                                 GroupLabel("一起看")
