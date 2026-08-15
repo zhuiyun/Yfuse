@@ -59,12 +59,19 @@ internal fun exoMediaItem(
             .Builder()
             .setUri(playbackUrl)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
-    (item.drmConfiguration ?: item.activeVersion?.drmConfiguration)
-        ?.takeIf { playbackUrl == item.url }
+    playbackDrmConfiguration(item, playbackUrl)
         ?.let { builder.setDrmConfiguration(it.toMedia3Configuration()) }
     offlineSubtitleConfiguration(item)?.let { builder.setSubtitleConfigurations(listOf(it)) }
     return builder.build()
 }
+
+/** Original-stream keys must never be forwarded to an independently encrypted server transcode. */
+internal fun playbackDrmConfiguration(
+    item: PlayerMediaItem,
+    playbackUrl: String,
+): PlaybackDrmConfiguration? =
+    (item.drmConfiguration ?: item.activeVersion?.drmConfiguration)
+        ?.takeIf { playbackUrl == item.url }
 
 /** Converts secrets only at the final Media3 boundary; no diagnostic object receives them. */
 internal fun PlaybackDrmConfiguration.toMedia3Configuration(): MediaItem.DrmConfiguration {
