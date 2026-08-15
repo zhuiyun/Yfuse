@@ -18,11 +18,11 @@ import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.application
 import io.ktor.util.AttributeKey
-import java.util.concurrent.RejectedExecutionException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.util.concurrent.RejectedExecutionException
 
 @Serializable
 internal data class ServiceHealthResponse(

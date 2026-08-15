@@ -52,18 +52,19 @@ internal class MigrationRelayBackend private constructor(
         val codeHmac = keyProtector.codeHmac(relayHash, code)
         val wrapped = keyProtector.wrap(transferSecret, relayHash, payloadHash, expiresAt)
         return try {
-            val inserted = store.insert(
-                StoredMigrationRelay(
-                    relayHash = relayHash,
-                    codeHmac = codeHmac,
-                    payloadHash = payloadHash,
-                    wrappedSecretNonce = wrapped.nonce,
-                    wrappedSecret = wrapped.ciphertext,
-                    createdAtEpochMs = now,
-                    expiresAtEpochMs = expiresAt,
-                ),
-                now,
-            )
+            val inserted =
+                store.insert(
+                    StoredMigrationRelay(
+                        relayHash = relayHash,
+                        codeHmac = codeHmac,
+                        payloadHash = payloadHash,
+                        wrappedSecretNonce = wrapped.nonce,
+                        wrappedSecret = wrapped.ciphertext,
+                        createdAtEpochMs = now,
+                        expiresAtEpochMs = expiresAt,
+                    ),
+                    now,
+                )
             if (!inserted) invalidCreate()
             CreateMigrationRelayResponse(code, expiresAt)
         } finally {
@@ -89,9 +90,10 @@ internal class MigrationRelayBackend private constructor(
         val relayHash = sha256(relayId)
         val codeHmac = keyProtector.codeHmac(relayHash, request.code)
         return try {
-            val secret = store.redeem(relayHash, codeHmac, payloadHash, now) { record ->
-                keyProtector.unwrap(record)
-            } ?: invalidRedeem()
+            val secret =
+                store.redeem(relayHash, codeHmac, payloadHash, now) { record ->
+                    keyProtector.unwrap(record)
+                } ?: invalidRedeem()
             try {
                 RedeemMigrationRelayResponse(ENCODER.encodeToString(secret))
             } finally {
@@ -160,17 +162,19 @@ internal class MigrationRelayBackend private constructor(
         fun fromEnvironment(): MigrationRelayBackend {
             val encodedKey = System.getenv("MIGRATION_RELAY_MASTER_KEY")?.trim().orEmpty()
             require(encodedKey.isNotEmpty()) { "MIGRATION_RELAY_MASTER_KEY is required" }
-            val key = runCatching { DECODER.decode(encodedKey) }
-                .getOrElse { throw IllegalArgumentException("MIGRATION_RELAY_MASTER_KEY must be base64url", it) }
+            val key =
+                runCatching { DECODER.decode(encodedKey) }
+                    .getOrElse { throw IllegalArgumentException("MIGRATION_RELAY_MASTER_KEY must be base64url", it) }
             require(ENCODER.encodeToString(key) == encodedKey && key.size == KEY_BYTES) {
                 "MIGRATION_RELAY_MASTER_KEY must be a canonical 32-byte base64url value"
             }
             return try {
                 sqlite(
-                    file = File(
-                        System.getenv("MIGRATION_RELAY_DB_PATH")
-                            ?: "/var/lib/yfuse/migration-relay.db",
-                    ),
+                    file =
+                        File(
+                            System.getenv("MIGRATION_RELAY_DB_PATH")
+                                ?: "/var/lib/yfuse/migration-relay.db",
+                        ),
                     masterKey = key,
                 )
             } finally {
@@ -180,7 +184,11 @@ internal class MigrationRelayBackend private constructor(
 
         internal fun encode(bytes: ByteArray): String = ENCODER.encodeToString(bytes)
 
-        private fun decodeFixed(raw: String, expectedBytes: Int, field: String): ByteArray {
+        private fun decodeFixed(
+            raw: String,
+            expectedBytes: Int,
+            field: String,
+        ): ByteArray {
             if (raw.length > 128 || raw.any { it.isWhitespace() }) invalidInput()
             val decoded = runCatching { DECODER.decode(raw) }.getOrElse { invalidInput() }
             if (decoded.size != expectedBytes || ENCODER.encodeToString(decoded) != raw) {
@@ -194,17 +202,13 @@ internal class MigrationRelayBackend private constructor(
             if (code.length != 6 || code.any { it !in '0'..'9' }) invalidRedeem()
         }
 
-        private fun invalidInput(): Nothing =
-            throw MigrationRelayException("invalid_request", "迁移请求无效")
+        private fun invalidInput(): Nothing = throw MigrationRelayException("invalid_request", "迁移请求无效")
 
-        private fun invalidCreate(): Nothing =
-            throw MigrationRelayException("invalid_request", "迁移请求无效")
+        private fun invalidCreate(): Nothing = throw MigrationRelayException("invalid_request", "迁移请求无效")
 
-        private fun invalidRedeem(): Nothing =
-            throw MigrationRelayException("invalid_migration_code", "迁移码无效或已失效")
+        private fun invalidRedeem(): Nothing = throw MigrationRelayException("invalid_migration_code", "迁移码无效或已失效")
 
-        private fun sha256(value: ByteArray): ByteArray =
-            MessageDigest.getInstance("SHA-256").digest(value)
+        private fun sha256(value: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(value)
     }
 }
 
@@ -225,13 +229,17 @@ private data class WrappedSecret(
     val ciphertext: ByteArray,
 )
 
-private class MigrationRelayKeyProtector(masterKey: ByteArray) : AutoCloseable {
+private class MigrationRelayKeyProtector(
+    masterKey: ByteArray,
+) : AutoCloseable {
     private val wrappingKey = masterKey.copyOf()
     private val hmacKey = hmac(wrappingKey, "yfuse-migration-code-hmac-v1".toByteArray())
     private val random = SecureRandom()
 
-    fun codeHmac(relayHash: ByteArray, code: String): ByteArray =
-        hmac(hmacKey, relayHash + code.toByteArray(Charsets.US_ASCII))
+    fun codeHmac(
+        relayHash: ByteArray,
+        code: String,
+    ): ByteArray = hmac(hmacKey, relayHash + code.toByteArray(Charsets.US_ASCII))
 
     fun wrap(
         secret: ByteArray,
@@ -266,11 +274,17 @@ private class MigrationRelayKeyProtector(masterKey: ByteArray) : AutoCloseable {
         hmacKey.fill(0)
     }
 
-    private fun aad(relayHash: ByteArray, payloadHash: ByteArray, expiresAtEpochMs: Long): ByteArray =
-        relayHash + payloadHash + ByteBuffer.allocate(Long.SIZE_BYTES).putLong(expiresAtEpochMs).array()
+    private fun aad(
+        relayHash: ByteArray,
+        payloadHash: ByteArray,
+        expiresAtEpochMs: Long,
+    ): ByteArray = relayHash + payloadHash + ByteBuffer.allocate(Long.SIZE_BYTES).putLong(expiresAtEpochMs).array()
 
     companion object {
-        private fun hmac(key: ByteArray, value: ByteArray): ByteArray =
+        private fun hmac(
+            key: ByteArray,
+            value: ByteArray,
+        ): ByteArray =
             Mac.getInstance("HmacSHA256").run {
                 init(SecretKeySpec(key, "HmacSHA256"))
                 doFinal(value)
@@ -281,7 +295,11 @@ private class MigrationRelayKeyProtector(masterKey: ByteArray) : AutoCloseable {
 internal class MigrationRelayRateLimiter(
     private val maxTrackedKeys: Int = 10_000,
 ) {
-    private data class Window(var startedAtMs: Long, var count: Int)
+    private data class Window(
+        var startedAtMs: Long,
+        var count: Int,
+    )
+
     private val windows = LinkedHashMap<String, Window>()
 
     @Synchronized
@@ -310,7 +328,10 @@ internal class MigrationRelayRateLimiter(
 private interface MigrationRelayStore : AutoCloseable {
     fun healthCheck(): Boolean
 
-    fun insert(record: StoredMigrationRelay, nowEpochMs: Long): Boolean
+    fun insert(
+        record: StoredMigrationRelay,
+        nowEpochMs: Long,
+    ): Boolean
 
     fun redeem(
         relayHash: ByteArray,
@@ -359,43 +380,54 @@ private class SqliteMigrationRelayStore private constructor(
         }
     }
 
-    override fun healthCheck(): Boolean = synchronized(lock) {
-        connection.createStatement().use { statement ->
-            statement.executeQuery("SELECT 1").use { result ->
-                result.next() && result.getInt(1) == 1
+    override fun healthCheck(): Boolean =
+        synchronized(lock) {
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT 1").use { result ->
+                    result.next() && result.getInt(1) == 1
+                }
             }
         }
-    }
 
-    override fun insert(record: StoredMigrationRelay, nowEpochMs: Long): Boolean = synchronized(lock) {
-        cleanup(nowEpochMs)
-        val active = connection.prepareStatement(
-            "SELECT COUNT(*) FROM migration_relays WHERE consumed_at_ms IS NULL AND expires_at_ms >= ?",
-        ).use { statement ->
-            statement.setLong(1, nowEpochMs)
-            statement.executeQuery().use { result -> result.next(); result.getInt(1) }
+    override fun insert(
+        record: StoredMigrationRelay,
+        nowEpochMs: Long,
+    ): Boolean =
+        synchronized(lock) {
+            cleanup(nowEpochMs)
+            val active =
+                connection
+                    .prepareStatement(
+                        "SELECT COUNT(*) FROM migration_relays WHERE consumed_at_ms IS NULL AND expires_at_ms >= ?",
+                    ).use { statement ->
+                        statement.setLong(1, nowEpochMs)
+                        statement.executeQuery().use { result ->
+                            result.next()
+                            result.getInt(1)
+                        }
+                    }
+            if (active >= maxActiveRelays) {
+                throw MigrationRelayException("relay_capacity", "迁移服务繁忙，请稍后重试", rateLimited = true)
+            }
+            connection
+                .prepareStatement(
+                    """
+                    INSERT OR IGNORE INTO migration_relays (
+                        relay_hash, code_hmac, payload_hash, wrapped_secret_nonce, wrapped_secret,
+                        created_at_ms, expires_at_ms, attempts, consumed_at_ms
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setBytes(1, record.relayHash)
+                    statement.setBytes(2, record.codeHmac)
+                    statement.setBytes(3, record.payloadHash)
+                    statement.setBytes(4, record.wrappedSecretNonce)
+                    statement.setBytes(5, record.wrappedSecret)
+                    statement.setLong(6, record.createdAtEpochMs)
+                    statement.setLong(7, record.expiresAtEpochMs)
+                    statement.executeUpdate() == 1
+                }
         }
-        if (active >= maxActiveRelays) {
-            throw MigrationRelayException("relay_capacity", "迁移服务繁忙，请稍后重试", rateLimited = true)
-        }
-        connection.prepareStatement(
-            """
-            INSERT OR IGNORE INTO migration_relays (
-                relay_hash, code_hmac, payload_hash, wrapped_secret_nonce, wrapped_secret,
-                created_at_ms, expires_at_ms, attempts, consumed_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setBytes(1, record.relayHash)
-            statement.setBytes(2, record.codeHmac)
-            statement.setBytes(3, record.payloadHash)
-            statement.setBytes(4, record.wrappedSecretNonce)
-            statement.setBytes(5, record.wrappedSecret)
-            statement.setLong(6, record.createdAtEpochMs)
-            statement.setLong(7, record.expiresAtEpochMs)
-            statement.executeUpdate() == 1
-        }
-    }
 
     override fun redeem(
         relayHash: ByteArray,
@@ -403,83 +435,96 @@ private class SqliteMigrationRelayStore private constructor(
         payloadHash: ByteArray,
         nowEpochMs: Long,
         unwrap: (StoredMigrationRelay) -> ByteArray,
-    ): ByteArray? = synchronized(lock) {
-        connection.autoCommit = false
-        try {
-            val record = connection.prepareStatement(
-                """
-                SELECT relay_hash, code_hmac, payload_hash, wrapped_secret_nonce, wrapped_secret,
-                       created_at_ms, expires_at_ms, attempts, consumed_at_ms
-                FROM migration_relays WHERE relay_hash = ?
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setBytes(1, relayHash)
-                statement.executeQuery().use { result -> if (result.next()) result.toRecord() else null }
-            } ?: return@synchronized null.also { connection.commit() }
+    ): ByteArray? =
+        synchronized(lock) {
+            connection.autoCommit = false
+            try {
+                val record =
+                    connection
+                        .prepareStatement(
+                            """
+                            SELECT relay_hash, code_hmac, payload_hash, wrapped_secret_nonce, wrapped_secret,
+                                   created_at_ms, expires_at_ms, attempts, consumed_at_ms
+                            FROM migration_relays WHERE relay_hash = ?
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setBytes(1, relayHash)
+                            statement.executeQuery().use { result -> if (result.next()) result.toRecord() else null }
+                        } ?: return@synchronized null.also { connection.commit() }
 
-            val active = record.consumedAtEpochMs == null &&
-                nowEpochMs <= record.expiresAtEpochMs &&
-                record.attempts < MigrationRelayBackend.MAX_REDEEM_ATTEMPTS
-            val matches = active &&
-                MessageDigest.isEqual(record.codeHmac, codeHmac) &&
-                MessageDigest.isEqual(record.payloadHash, payloadHash)
-            if (!matches) {
-                if (active) {
-                    connection.prepareStatement(
-                        "UPDATE migration_relays SET attempts = attempts + 1 WHERE relay_hash = ? AND attempts < 5",
-                    ).use { statement ->
-                        statement.setBytes(1, relayHash)
-                        statement.executeUpdate()
+                val active =
+                    record.consumedAtEpochMs == null &&
+                        nowEpochMs <= record.expiresAtEpochMs &&
+                        record.attempts < MigrationRelayBackend.MAX_REDEEM_ATTEMPTS
+                val matches =
+                    active &&
+                        MessageDigest.isEqual(record.codeHmac, codeHmac) &&
+                        MessageDigest.isEqual(record.payloadHash, payloadHash)
+                if (!matches) {
+                    if (active) {
+                        connection
+                            .prepareStatement(
+                                "UPDATE migration_relays SET attempts = attempts + 1 WHERE relay_hash = ? AND attempts < 5",
+                            ).use { statement ->
+                                statement.setBytes(1, relayHash)
+                                statement.executeUpdate()
+                            }
                     }
+                    connection.commit()
+                    return@synchronized null
                 }
-                connection.commit()
-                return@synchronized null
-            }
 
-            val secret = unwrap(record)
-            val consumed = connection.prepareStatement(
-                """
-                UPDATE migration_relays SET consumed_at_ms = ?
-                WHERE relay_hash = ? AND consumed_at_ms IS NULL AND expires_at_ms >= ? AND attempts < 5
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setLong(1, nowEpochMs)
-                statement.setBytes(2, relayHash)
-                statement.setLong(3, nowEpochMs)
-                statement.executeUpdate() == 1
+                val secret = unwrap(record)
+                val consumed =
+                    connection
+                        .prepareStatement(
+                            """
+                            UPDATE migration_relays SET consumed_at_ms = ?
+                            WHERE relay_hash = ? AND consumed_at_ms IS NULL AND expires_at_ms >= ? AND attempts < 5
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setLong(1, nowEpochMs)
+                            statement.setBytes(2, relayHash)
+                            statement.setLong(3, nowEpochMs)
+                            statement.executeUpdate() == 1
+                        }
+                connection.commit()
+                if (consumed) secret else null.also { secret.fill(0) }
+            } catch (error: Exception) {
+                runCatching { connection.rollback() }
+                throw error
+            } finally {
+                connection.autoCommit = true
             }
-            connection.commit()
-            if (consumed) secret else null.also { secret.fill(0) }
-        } catch (error: Exception) {
-            runCatching { connection.rollback() }
-            throw error
-        } finally {
-            connection.autoCommit = true
         }
-    }
 
     private fun cleanup(nowEpochMs: Long) {
-        connection.prepareStatement(
-            "DELETE FROM migration_relays WHERE expires_at_ms < ? OR consumed_at_ms IS NOT NULL",
-        ).use { statement ->
-            statement.setLong(1, nowEpochMs)
-            statement.executeUpdate()
-        }
+        connection
+            .prepareStatement(
+                "DELETE FROM migration_relays WHERE expires_at_ms < ? OR consumed_at_ms IS NOT NULL",
+            ).use { statement ->
+                statement.setLong(1, nowEpochMs)
+                statement.executeUpdate()
+            }
     }
 
     override fun close() = synchronized(lock) { connection.close() }
 
     companion object {
-        fun open(file: File, maxActiveRelays: Int): SqliteMigrationRelayStore {
+        fun open(
+            file: File,
+            maxActiveRelays: Int,
+        ): SqliteMigrationRelayStore {
             val parent = requireNotNull(file.absoluteFile.parentFile) { "Migration relay DB needs a parent directory" }
             require((parent.isDirectory || parent.mkdirs()) && parent.canWrite()) {
                 "Migration relay DB parent directory is not writable: $parent"
             }
-            val store = SqliteMigrationRelayStore(
-                DriverManager.getConnection("jdbc:sqlite:${file.absolutePath}"),
-                fileBacked = true,
-                maxActiveRelays = maxActiveRelays,
-            )
+            val store =
+                SqliteMigrationRelayStore(
+                    DriverManager.getConnection("jdbc:sqlite:${file.absolutePath}"),
+                    fileBacked = true,
+                    maxActiveRelays = maxActiveRelays,
+                )
             runCatching {
                 Files.setPosixFilePermissions(
                     file.toPath(),

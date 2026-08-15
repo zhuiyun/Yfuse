@@ -19,12 +19,12 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.utils.io.readAvailable
-import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.ByteArrayOutputStream
 
 internal fun Route.accountRoutes(
     backend: AccountBackend,
@@ -169,15 +169,17 @@ private suspend fun ApplicationCall.handleAccountEndpoint(
     try {
         requireSecureAccountTransport()
         if (rateLimiter != null && rateLimitBucket != null) {
-            val clientIdentity = when (
-                val result = resolveAccountClientIdentity(
-                    remoteHost = request.origin.remoteHost,
-                    forwardedForValues = request.headers.getAll("X-Forwarded-For"),
-                )
-            ) {
-                is ClientIdentityResolution.Resolved -> result.value
-                ClientIdentityResolution.InvalidForwardedFor -> throw InvalidForwardedForException()
-            }
+            val clientIdentity =
+                when (
+                    val result =
+                        resolveAccountClientIdentity(
+                            remoteHost = request.origin.remoteHost,
+                            forwardedForValues = request.headers.getAll("X-Forwarded-For"),
+                        )
+                ) {
+                    is ClientIdentityResolution.Resolved -> result.value
+                    ClientIdentityResolution.InvalidForwardedFor -> throw InvalidForwardedForException()
+                }
             when (val decision = rateLimiter.check(clientIdentity, rateLimitBucket)) {
                 RateLimitDecision.Allowed -> Unit
                 is RateLimitDecision.Limited -> throw RateLimitedException(decision.retryAfterSeconds)
@@ -185,21 +187,22 @@ private suspend fun ApplicationCall.handleAccountEndpoint(
         }
         block()
     } catch (failure: AccountServiceException) {
-        val status = when (failure.problem) {
-            AccountProblem.InvalidRequest -> HttpStatusCode.BadRequest
-            AccountProblem.InvalidCredentials,
-            AccountProblem.Unauthorized,
-            -> HttpStatusCode.Unauthorized
-            AccountProblem.UsernameUnavailable,
-            AccountProblem.VersionConflict,
-            AccountProblem.NonceReused,
-            -> HttpStatusCode.Conflict
-            AccountProblem.RateLimited -> HttpStatusCode.TooManyRequests
-            AccountProblem.RegistrationClosed -> HttpStatusCode.ServiceUnavailable
-            AccountProblem.InvitationInvalid -> HttpStatusCode.Forbidden
-            AccountProblem.CurrentPasswordInvalid -> HttpStatusCode.Forbidden
-            AccountProblem.Forbidden -> HttpStatusCode.Forbidden
-        }
+        val status =
+            when (failure.problem) {
+                AccountProblem.InvalidRequest -> HttpStatusCode.BadRequest
+                AccountProblem.InvalidCredentials,
+                AccountProblem.Unauthorized,
+                -> HttpStatusCode.Unauthorized
+                AccountProblem.UsernameUnavailable,
+                AccountProblem.VersionConflict,
+                AccountProblem.NonceReused,
+                -> HttpStatusCode.Conflict
+                AccountProblem.RateLimited -> HttpStatusCode.TooManyRequests
+                AccountProblem.RegistrationClosed -> HttpStatusCode.ServiceUnavailable
+                AccountProblem.InvitationInvalid -> HttpStatusCode.Forbidden
+                AccountProblem.CurrentPasswordInvalid -> HttpStatusCode.Forbidden
+                AccountProblem.Forbidden -> HttpStatusCode.Forbidden
+            }
         if (status == HttpStatusCode.Unauthorized) {
             response.headers.append(HttpHeaders.WWWAuthenticate, "Bearer")
         }
@@ -267,12 +270,13 @@ private suspend inline fun <reified T> ApplicationCall.receiveLimitedJson(
         throw UnsupportedMediaTypeException()
     }
     request.headers[HttpHeaders.ContentLength]?.let { rawLength ->
-        val length = rawLength.toLongOrNull()
-            ?: throw AccountServiceException(
-                AccountProblem.InvalidRequest,
-                "content_length_invalid",
-                "Content-Length 无效",
-            )
+        val length =
+            rawLength.toLongOrNull()
+                ?: throw AccountServiceException(
+                    AccountProblem.InvalidRequest,
+                    "content_length_invalid",
+                    "Content-Length 无效",
+                )
         if (length > maxBytes) throw RequestTooLargeException()
         if (length < 0L) {
             throw AccountServiceException(
@@ -334,8 +338,9 @@ private suspend fun ApplicationCall.respondError(
 }
 
 private fun ApplicationCall.requireBearerToken(): String {
-    val authorization = request.headers[HttpHeaders.Authorization]
-        ?: throw unauthorizedException()
+    val authorization =
+        request.headers[HttpHeaders.Authorization]
+            ?: throw unauthorizedException()
     if (authorization.length > MAX_AUTHORIZATION_HEADER_BYTES) throw unauthorizedException()
     val prefix = "Bearer "
     if (!authorization.startsWith(prefix, ignoreCase = true)) throw unauthorizedException()
@@ -366,11 +371,12 @@ internal fun isSecureAccountTransport(
     return forwardedProto?.trim()?.equals("https", ignoreCase = true) == true
 }
 
-private fun unauthorizedException(): AccountServiceException = AccountServiceException(
-    problem = AccountProblem.Unauthorized,
-    safeCode = "unauthorized",
-    safeMessage = "登录状态无效或已过期",
-)
+private fun unauthorizedException(): AccountServiceException =
+    AccountServiceException(
+        problem = AccountProblem.Unauthorized,
+        safeCode = "unauthorized",
+        safeMessage = "登录状态无效或已过期",
+    )
 
 private class RequestTooLargeException : RuntimeException()
 
@@ -380,14 +386,17 @@ private class HttpsRequiredException : RuntimeException()
 
 private class InvalidForwardedForException : RuntimeException()
 
-private class RateLimitedException(val retryAfterSeconds: Long) : RuntimeException()
+private class RateLimitedException(
+    val retryAfterSeconds: Long,
+) : RuntimeException()
 
 private class ResponseTooLargeException : RuntimeException()
 
 private const val MAX_AUTHORIZATION_HEADER_BYTES = 256
 
-private val apiJson = Json {
-    ignoreUnknownKeys = false
-    encodeDefaults = false
-    explicitNulls = false
-}
+private val apiJson =
+    Json {
+        ignoreUnknownKeys = false
+        encodeDefaults = false
+        explicitNulls = false
+    }
