@@ -165,7 +165,10 @@ class EmbyRepositoryTest {
                         requestJson.decodeFromString<PlaybackInfoRequestDto>(
                             request.body.toByteArray().decodeToString(),
                         )
-                    val audio = posted.DeviceProfile.DirectPlayProfiles.single().AudioCodec
+                    val audio =
+                        posted.DeviceProfile.DirectPlayProfiles
+                            .single()
+                            .AudioCodec
                     assertFalse("truehd" in audio.split(','))
                     json("""{"MediaSources":[]}""")
                 }

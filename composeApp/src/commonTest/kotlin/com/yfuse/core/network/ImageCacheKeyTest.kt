@@ -5,7 +5,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ImageCacheKeyTest {
-
     @Test
     fun removes_api_key_without_changing_other_url_parts() {
         val requestUrl =

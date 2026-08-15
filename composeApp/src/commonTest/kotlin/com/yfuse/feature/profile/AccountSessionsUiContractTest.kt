@@ -22,7 +22,10 @@ class AccountSessionsUiContractTest {
 
     @Test
     fun account_page_has_one_sessions_entry_and_the_list_lives_on_a_child_page() {
-        val accountSource = projectFile("src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt").readText()
+        val accountSource =
+            projectFile(
+                "src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt",
+            ).readText()
         val sessionsSource =
             projectFile(
                 "src/commonMain/kotlin/com/yfuse/feature/profile/AccountSessionsScreen.kt",

@@ -8,9 +8,10 @@ import kotlin.test.assertTrue
 class PlayerContractArchitectureTest {
     @Test
     fun engine_contract_stays_platform_and_ui_agnostic() {
-        val source = projectFile(
-            "src/commonMain/kotlin/com/yfuse/feature/player/contract/VideoEngine.kt",
-        ).readText()
+        val source =
+            projectFile(
+                "src/commonMain/kotlin/com/yfuse/feature/player/contract/VideoEngine.kt",
+            ).readText()
 
         assertTrue("interface VideoEngine" in source)
         assertTrue("val state: StateFlow<PlaybackState>" in source)

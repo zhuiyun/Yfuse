@@ -13,7 +13,11 @@ class WatchRoomPlaylistTest {
     @Test
     fun authoritative_snapshot_drives_revision_and_entries() {
         val sent = mutableListOf<WatchWireMessage>()
-        val controller = WatchRoomPlaylistController { sent += it; true }
+        val controller =
+            WatchRoomPlaylistController {
+                sent += it
+                true
+            }
 
         controller.applySnapshot(
             WatchWireMessage(
@@ -26,7 +30,11 @@ class WatchRoomPlaylistTest {
 
         assertTrue(controller.state.value.supported)
         assertEquals(4L, controller.state.value.revision)
-        assertEquals(listOf("第一集"), controller.state.value.entries.map { it.title })
+        assertEquals(
+            listOf("第一集"),
+            controller.state.value.entries
+                .map { it.title },
+        )
 
         assertTrue(controller.add("tmdb:2", "第二集"))
         assertEquals(1, sent.size)
@@ -54,7 +62,11 @@ class WatchRoomPlaylistTest {
     @Test
     fun only_one_mutation_is_sent_before_server_ack() {
         val sent = mutableListOf<WatchWireMessage>()
-        val controller = WatchRoomPlaylistController { sent += it; true }
+        val controller =
+            WatchRoomPlaylistController {
+                sent += it
+                true
+            }
         controller.applySnapshot(
             WatchWireMessage(
                 type = "welcome",
@@ -102,7 +114,11 @@ class WatchRoomPlaylistTest {
     @Test
     fun invalid_destination_is_rejected_without_sending() {
         var sends = 0
-        val controller = WatchRoomPlaylistController { sends++; true }
+        val controller =
+            WatchRoomPlaylistController {
+                sends++
+                true
+            }
         controller.applySnapshot(
             WatchWireMessage(
                 type = "welcome",
