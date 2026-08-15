@@ -1,5 +1,7 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackDiscNavigationState
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.roundToInt
 
@@ -89,6 +91,8 @@ data class PlaybackState(
     val itemCount: Int = 1,
     val audioTracks: List<EngineTrack> = emptyList(),
     val subtitleTracks: List<EngineTrack> = emptyList(),
+    /** DVD/Blu-ray title, chapter and menu state; empty for ordinary files. */
+    val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
     val error: String? = null,
     /** True after the current item reaches its natural end. */
     val ended: Boolean = false,
@@ -160,6 +164,15 @@ interface VideoEngine {
 
     /** [EngineTrack.OFF] disables subtitles. */
     fun selectSubtitleTrack(id: String)
+
+    /** Selects a native optical-disc title. Returns false when the backend cannot navigate it. */
+    fun selectDiscTitle(index: Int): Boolean = false
+
+    /** Selects a chapter inside the active title. */
+    fun selectDiscChapter(index: Int): Boolean = false
+
+    /** Sends a DVD/Blu-ray menu command to the native navigation backend. */
+    fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
     /** True only when the backend really renders a second subtitle track. */
     val supportsSecondarySubtitleTrack: Boolean get() = false

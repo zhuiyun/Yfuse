@@ -16,6 +16,8 @@ data class PlaybackRuntimeEnvironment(
     val pressure: PlaybackResourcePressure,
     val batteryPercent: Int? = null,
     val charging: Boolean = false,
+    /** Device-wide instantaneous battery draw; null when unsupported or while charging. */
+    val batteryPowerMilliwatts: Int? = null,
 ) {
     val diagnosticLabel: String
         get() =
@@ -23,11 +25,20 @@ data class PlaybackRuntimeEnvironment(
                 append(pressure.label)
                 batteryPercent?.let { append(" · 电量 $it%") }
                 if (charging) append(" · 充电中")
+                batteryPowerMilliwatts?.let { power ->
+                    append(" · 约 ")
+                    append(power.asWattsLabel())
+                }
             }
 
     companion object {
         fun normal() = PlaybackRuntimeEnvironment(PlaybackResourcePressure.Normal)
     }
+}
+
+private fun Int.asWattsLabel(): String {
+    val tenths = (coerceAtLeast(0) + 50) / 100
+    return "${tenths / 10}.${tenths % 10}W"
 }
 
 interface PlaybackRuntimeEnvironmentProvider {

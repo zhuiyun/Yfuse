@@ -94,6 +94,10 @@ internal fun SettingsPanel(
     onSelectEngine: (Int) -> Unit,
     onSelectQuality: (Int) -> Unit,
     onTranscode: () -> Unit,
+    onResetAdaptiveLearning: () -> Unit,
+    onNextDiscTitle: () -> Unit,
+    onNextDiscChapter: () -> Unit,
+    onShowDiscMenu: () -> Unit,
     onDiscoverCast: () -> Unit,
     onCastTo: (String) -> Unit,
     onStopCast: () -> Unit,
@@ -347,6 +351,27 @@ internal fun SettingsPanel(
 
                         AdvancedPage.Playback -> {
                             PopupBackLabel("播放设置") { advancedPage = AdvancedPage.Root }
+                            val disc = state.discNavigation
+                            if (disc.available) {
+                                GroupLabel("${disc.kind.label}导航")
+                                if (disc.titleCount > 1) {
+                                    OptionRow(
+                                        "标题 ${disc.selectedTitleIndex + 1} / ${disc.titleCount}",
+                                        false,
+                                        onClick = onNextDiscTitle,
+                                    )
+                                }
+                                if (disc.chapterCount > 1) {
+                                    OptionRow(
+                                        "章节 ${disc.selectedChapterIndex + 1} / ${disc.chapterCount}",
+                                        false,
+                                        onClick = onNextDiscChapter,
+                                    )
+                                }
+                                if (disc.menuSupported) {
+                                    OptionRow("打开光盘菜单", disc.menuActive, onClick = onShowDiscMenu)
+                                }
+                            }
                             OptionRow("锁定控制", false, onClick = onLock)
                             OptionRow("手势说明", false, onClick = onOpenGestureHelp)
                             if (watch.available || watch.connected) {
@@ -470,6 +495,13 @@ internal fun SettingsPanel(
                             diagnostics.planningReason?.takeIf(String::isNotBlank)?.let { reason ->
                                 DiagnosticRow("规划原因", reason)
                             }
+                            PopupDivider()
+                            PopupMenuRow(
+                                icon = AppIcons.Refresh,
+                                title = "重置 YCore 学习数据",
+                                subtitle = "清除本机故障记忆与性能基线",
+                                onClick = onResetAdaptiveLearning,
+                            )
                         }
                     }
                 }

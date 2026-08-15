@@ -59,9 +59,26 @@ data class PlaybackHealthAssessment(
 data class PlaybackPowerAssessment(
     val profile: PlaybackPowerProfile,
     val reason: String,
+    val measuredMilliwatts: Int? = null,
 ) {
     val diagnosticLabel: String
-        get() = "${profile.label} · $reason"
+        get() =
+            buildString {
+                append(profile.label)
+                append(" · ")
+                append(reason)
+                measuredMilliwatts?.let { power ->
+                    val tenths = (power.coerceAtLeast(0) + 50) / 100
+                    append(" · 实测 ")
+                    append(tenths / 10)
+                    append('.')
+                    append(tenths % 10)
+                    append('W')
+                }
+            }
+
+    fun withMeasuredPower(milliwatts: Int?): PlaybackPowerAssessment =
+        copy(measuredMilliwatts = milliwatts?.takeIf { it > 0 })
 }
 
 fun assessPlaybackHealth(sample: PlaybackHealthSample): PlaybackHealthAssessment {

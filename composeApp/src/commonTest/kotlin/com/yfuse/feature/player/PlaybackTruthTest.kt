@@ -2,6 +2,8 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackDrmConfiguration
+import com.yfuse.core.playback.PlaybackDrmScheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -122,5 +124,27 @@ class PlaybackTruthTest {
         assertTrue(probe.hasServerTranscode)
         assertFalse(secret in probe.capabilitySignature)
         assertFalse("example" in probe.capabilitySignature)
+    }
+
+    @Test
+    fun secure_item_marks_the_probe_without_leaking_license_credentials() {
+        val secret = "https://license.example.test/widevine?token=secret"
+        val item =
+            PlayerMediaItem(
+                id = "secure",
+                url = "https://media.example.test/manifest.mpd",
+                transcodeUrl = "",
+                title = "Secure",
+                drmConfiguration =
+                    PlaybackDrmConfiguration(
+                        scheme = PlaybackDrmScheme.Widevine,
+                        licenseUri = secret,
+                    ),
+            )
+
+        val probe = item.playbackMediaProbe()
+
+        assertTrue(probe.drmProtected)
+        assertFalse(secret in probe.capabilitySignature)
     }
 }

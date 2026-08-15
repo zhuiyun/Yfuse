@@ -12,6 +12,7 @@ data class YCoreRuntimeObservation(
     val ended: Boolean,
     val bufferEvents: Int,
     val droppedFrames: Int,
+    val measuredPowerMilliwatts: Int? = null,
 )
 
 data class YCoreRuntimeAssessment(
@@ -46,7 +47,7 @@ class YCorePlaybackSession(
             initialBufferEvents = initialBufferEvents,
             initialDroppedFrames = initialDroppedFrames,
         )
-    private val power = playbackPowerAssessment(plan, probe)
+    private val estimatedPower = playbackPowerAssessment(plan, probe)
     private var reported = false
     private var penaltyRecorded = false
     private var capabilityConfirmed = false
@@ -62,7 +63,7 @@ class YCorePlaybackSession(
                         droppedFrames = 0,
                     ),
                 ),
-            power = power,
+            power = estimatedPower,
         )
 
     fun observe(observation: YCoreRuntimeObservation): YCoreRuntimeAssessment {
@@ -108,7 +109,7 @@ class YCorePlaybackSession(
 
         return YCoreRuntimeAssessment(
             health = health,
-            power = power,
+            power = estimatedPower.withMeasuredPower(observation.measuredPowerMilliwatts),
             reportHealth = reportHealth,
             enginePenaltyRecorded = recordPenalty,
             engineCapabilityConfirmed = confirmCapability,

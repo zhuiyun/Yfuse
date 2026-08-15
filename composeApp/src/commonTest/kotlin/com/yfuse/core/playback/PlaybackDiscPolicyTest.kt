@@ -7,6 +7,12 @@ import kotlin.test.assertTrue
 
 class PlaybackDiscPolicyTest {
     @Test
+    fun bdmv_entry_path_is_normalized_to_the_disc_root_case_insensitively() {
+        assertEquals("/media/Movie", bluRayDiscRoot("/media/Movie/bdmv/index.bdmv"))
+        assertEquals("/media/Movie", bluRayDiscRoot("/media/Movie/BDMV"))
+    }
+
+    @Test
     fun bdmv_is_detected_from_container_or_label() {
         assertEquals(PlaybackDiscKind.Bdmv, detectPlaybackDiscKind("bdmv"))
         assertEquals(PlaybackDiscKind.Bdmv, detectPlaybackDiscKind(null, "Movie/BDMV/index.bdmv"))

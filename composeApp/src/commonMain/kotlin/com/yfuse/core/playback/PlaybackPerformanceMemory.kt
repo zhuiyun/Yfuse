@@ -92,6 +92,18 @@ class PlaybackPerformanceMemory(
         return records.values.toList()
     }
 
+    /** Clears all benchmarks, or only one credential-free capability signature. */
+    @Synchronized
+    fun clear(signature: String? = null) {
+        if (signature == null) {
+            records.clear()
+        } else {
+            val normalizedSignature = signature.normalizedSignature() ?: return
+            records.keys.removeAll { (recordSignature, _) -> recordSignature == normalizedSignature }
+        }
+        persist()
+    }
+
     @Synchronized
     fun diagnosticLabel(signature: String): String {
         val normalizedSignature = signature.normalizedSignature() ?: return "尚无完整样本"

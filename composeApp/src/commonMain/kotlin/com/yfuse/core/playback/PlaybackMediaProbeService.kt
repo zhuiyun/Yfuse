@@ -6,6 +6,7 @@ enum class PlaybackProbeDepth(
 ) {
     ServerMetadata("服务端元数据"),
     PlatformExtractor("本机深度探测"),
+    NativeFfmpeg("FFmpeg 深度探测"),
 }
 
 enum class PlaybackProbeStatus(

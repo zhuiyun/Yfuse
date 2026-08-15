@@ -100,6 +100,19 @@ class PlaybackHealthTest {
         assertEquals(PlaybackPowerProfile.Intensive, intensive.profile)
     }
 
+    @Test
+    fun measured_battery_power_is_kept_separate_from_the_route_estimate() {
+        val measured =
+            playbackPowerAssessment(
+                plan = plan(PlaybackRenderPath.PlatformDirect, DecoderMode.Hardware),
+                probe = probe(),
+            ).withMeasuredPower(2_150)
+
+        assertEquals(PlaybackPowerProfile.Efficient, measured.profile)
+        assertEquals(2_150, measured.measuredMilliwatts)
+        assertTrue("实测 2.2W" in measured.diagnosticLabel)
+    }
+
     private fun plan(
         path: PlaybackRenderPath,
         decoderMode: DecoderMode,

@@ -7,6 +7,22 @@ import kotlin.test.assertTrue
 
 class PlaybackPerformanceMemoryTest {
     @Test
+    fun benchmarks_can_be_cleared_and_persisted() {
+        var persisted = emptyList<PlaybackPerformanceRecord>()
+        val memory =
+            PlaybackPerformanceMemory(
+                nowEpochMs = { 1_000L },
+                onChanged = { persisted = it },
+            )
+        memory.record("MKV|H264", PlayerEngine.Exo, healthyAssessment())
+
+        memory.clear()
+
+        assertTrue(memory.snapshot().isEmpty())
+        assertTrue(persisted.isEmpty())
+    }
+
+    @Test
     fun two_degraded_sessions_produce_an_engine_cost_without_media_identity() {
         var now = 1_000L
         val memory = PlaybackPerformanceMemory(nowEpochMs = { now })
@@ -56,6 +72,18 @@ class PlaybackPerformanceMemoryTest {
             rebufferEvents = 0,
             droppedFrames = 12,
             droppedFramesPerMinute = 12f,
+            evaluationReady = true,
+            enginePenaltyRecommended = false,
+        )
+
+    private fun healthyAssessment() =
+        PlaybackHealthAssessment(
+            grade = PlaybackHealthGrade.Healthy,
+            startupTimeMs = 1_000L,
+            observedPlaybackMs = 60_000L,
+            rebufferEvents = 0,
+            droppedFrames = 0,
+            droppedFramesPerMinute = 0f,
             evaluationReady = true,
             enginePenaltyRecommended = false,
         )

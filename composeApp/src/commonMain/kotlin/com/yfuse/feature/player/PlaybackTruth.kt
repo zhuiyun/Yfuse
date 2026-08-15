@@ -75,6 +75,7 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
             this?.let { item ->
                 item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
             } == true,
+        drmProtected = this?.drmConfiguration != null || version?.drmConfiguration != null,
         usingServerTranscode = usingServerTranscode,
         discKind =
             detectPlaybackDiscKind(

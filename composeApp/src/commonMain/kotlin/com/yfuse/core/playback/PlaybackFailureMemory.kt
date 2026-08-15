@@ -5,6 +5,7 @@ import com.yfuse.core.model.PlayerEngine
 /** Error domains drive recovery; only backend-local failures may blacklist a backend. */
 enum class PlaybackFailureKind {
     Authorization,
+    Drm,
     Network,
     Container,
     Decoder,
@@ -18,7 +19,7 @@ enum class PlaybackFailureKind {
 
     /** Transport and account failures apply to every local backend for the same server URL. */
     val allowsBackendFallback: Boolean
-        get() = this != Network && this != Authorization
+        get() = this != Network && this != Authorization && this != Drm
 }
 
 fun classifyPlaybackFailure(
@@ -30,6 +31,7 @@ fun classifyPlaybackFailure(
     if (text.isEmpty()) return PlaybackFailureKind.Unknown
     return when {
         AUTH_FAILURES.any(text::contains) -> PlaybackFailureKind.Authorization
+        DRM_FAILURES.any(text::contains) -> PlaybackFailureKind.Drm
         NETWORK_FAILURES.any(text::contains) || HTTP_5XX.containsMatchIn(text) ->
             PlaybackFailureKind.Network
         AUDIO_FAILURES.any(text::contains) -> PlaybackFailureKind.AudioSink
@@ -139,6 +141,16 @@ class PlaybackFailureMemory(
         return currentSnapshot()
     }
 
+    /** Clears all learned device quirks, or only the supplied credential-free capability key. */
+    fun clear(signature: String? = null) {
+        if (signature == null) {
+            failures.clear()
+        } else {
+            signature.normalizedSignature()?.let(failures::remove)
+        }
+        notifyChanged()
+    }
+
     internal fun failureCount(
         signature: String,
         engine: PlayerEngine,
@@ -205,6 +217,18 @@ private val NETWORK_FAILURES =
         "unable to resolve host",
         "broken pipe",
         "socket",
+    )
+
+private val DRM_FAILURES =
+    listOf(
+        "drm",
+        "license acquisition",
+        "license request",
+        "media drm",
+        "mediadrm",
+        "provisioning",
+        "keys expired",
+        "no license",
     )
 
 private val CONTAINER_FAILURES =

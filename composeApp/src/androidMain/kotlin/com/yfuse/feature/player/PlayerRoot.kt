@@ -50,9 +50,12 @@ import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
+import com.yfuse.core.playback.PlaybackAdaptiveNetworkController
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackFailureMemory
+import com.yfuse.core.playback.PlaybackNetworkSample
 import com.yfuse.core.playback.PlaybackPerformanceMemory
 import com.yfuse.core.playback.PlaybackProbeStatus
 import com.yfuse.core.playback.classifyPlaybackFailure
@@ -69,7 +72,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
 
-private const val AUTO_QUALITY_DOWNGRADE_BUFFER_STRIKES = 2
 private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 
 /**
@@ -464,6 +466,7 @@ internal fun PlayerRoot(
             plan = activePlan,
             failureMemory = failureMemory,
             performanceMemory = performanceMemory,
+            runtimeEnvironment = runtimeEnvironment,
             castAuthoritative = castAuthoritative,
             state = localState,
         )
@@ -1224,36 +1227,54 @@ internal fun PlayerRoot(
         engineGeneration++
     }
 
-    var lastAdaptiveBufferEvents by remember(engine) {
-        mutableIntStateOf(state.diagnostics.bufferEvents)
-    }
-    var adaptiveBufferStrikes by remember(state.currentIndex, currentItem?.serverId) {
-        mutableIntStateOf(0)
+    val adaptiveNetworkController = remember(engine, state.currentIndex, currentItem?.serverId) {
+        PlaybackAdaptiveNetworkController()
     }
     LaunchedEffect(
         engine,
         state.diagnostics.bufferEvents,
+        state.diagnostics.bufferedDurationMs,
+        state.diagnostics.networkBitsPerSecond,
+        state.diagnostics.bitrateBitsPerSecond,
+        state.buffering,
+        state.positionMs,
         state.currentIndex,
         autoQualityDowngrade,
         qualityLocked,
+        castAuthoritative,
+        activeProbe.localSource,
+        selectedQuality,
     ) {
-        val newEvents = state.diagnostics.bufferEvents - lastAdaptiveBufferEvents
-        if (newEvents <= 0) return@LaunchedEffect
-        lastAdaptiveBufferEvents = state.diagnostics.bufferEvents
-        adaptiveBufferStrikes += newEvents
-        if (!autoQualityDowngrade || qualityLocked || state.positionMs < 5_000L) {
+        if (!autoQualityDowngrade || qualityLocked || castAuthoritative || activeProbe.localSource) {
+            adaptiveNetworkController.reset(state.diagnostics.bufferEvents)
             return@LaunchedEffect
         }
-        if (adaptiveBufferStrikes < AUTO_QUALITY_DOWNGRADE_BUFFER_STRIKES) {
-            return@LaunchedEffect
-        }
+        val decision =
+            adaptiveNetworkController.observe(
+                PlaybackNetworkSample(
+                    nowEpochMs = System.currentTimeMillis(),
+                    playbackPositionMs = state.positionMs,
+                    bufferEvents = state.diagnostics.bufferEvents,
+                    bufferedDurationMs = state.diagnostics.bufferedDurationMs,
+                    networkBitsPerSecond = state.diagnostics.networkBitsPerSecond,
+                    mediaBitsPerSecond = state.diagnostics.bitrateBitsPerSecond,
+                    buffering = state.buffering,
+                ),
+            )
+        if (!decision.downgradeRecommended) return@LaunchedEffect
         val target = lowerPlaybackQuality(selectedQuality) ?: return@LaunchedEffect
-        adaptiveBufferStrikes = 0
         AppLog.info(
             category = "player.quality",
             event = "automatic_downgrade",
-            message = "Playback quality was lowered after buffering",
-            attributes = mapOf("from" to selectedQuality.name, "to" to target.name),
+            message = "YCore lowered playback quality after sustained network pressure",
+            attributes =
+                mapOf(
+                    "from" to selectedQuality.name,
+                    "to" to target.name,
+                    "reason" to decision.reason.orEmpty(),
+                    "throughputBitsPerSecond" to
+                        (decision.smoothedThroughputBitsPerSecond?.toString() ?: "unknown"),
+                ),
         )
         selectQuality(target)
     }
@@ -1840,6 +1861,28 @@ internal fun PlayerRoot(
                     if (!state.transcoding) {
                         engine.switchToTranscode("用户手动选择服务器转码")
                     }
+                },
+                onResetAdaptiveLearning = {
+                    failureMemory.clear()
+                    performanceMemory.clear()
+                    Toast
+                        .makeText(context, "YCore 学习数据已重置", Toast.LENGTH_SHORT)
+                        .show()
+                },
+                onNextDiscTitle = {
+                    val disc = state.discNavigation
+                    if (disc.titleCount > 1) {
+                        engine.selectDiscTitle((disc.selectedTitleIndex + 1) % disc.titleCount)
+                    }
+                },
+                onNextDiscChapter = {
+                    val disc = state.discNavigation
+                    if (disc.chapterCount > 1) {
+                        engine.selectDiscChapter((disc.selectedChapterIndex + 1) % disc.chapterCount)
+                    }
+                },
+                onShowDiscMenu = {
+                    engine.sendDiscMenuCommand(PlaybackDiscMenuCommand.ShowMenu)
                 },
                 castDevices = castState.devices.map { it.id to it.name },
                 castingDeviceId = castState.activeDeviceId,

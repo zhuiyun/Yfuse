@@ -11,6 +11,8 @@ import com.yfuse.core.util.androidAppContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.math.absoluteValue
+import kotlin.math.roundToInt
 
 internal actual fun createPlaybackRuntimeEnvironmentProvider(): PlaybackRuntimeEnvironmentProvider {
     val context = androidAppContext
@@ -27,7 +29,9 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
     private val context: Context,
 ) : PlaybackRuntimeEnvironmentProvider {
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    private val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
     private val revision = MutableStateFlow(0L)
+    private var smoothedBatteryPowerMilliwatts: Double? = null
     private var thermalStatus =
         if (Build.VERSION.SDK_INT >= 29) powerManager.currentThermalStatus else THERMAL_STATUS_NONE
     private val receiver =
@@ -46,6 +50,7 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
                 addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
                 addAction(Intent.ACTION_BATTERY_LOW)
                 addAction(Intent.ACTION_BATTERY_OKAY)
+                addAction(Intent.ACTION_BATTERY_CHANGED)
                 addAction(Intent.ACTION_POWER_CONNECTED)
                 addAction(Intent.ACTION_POWER_DISCONNECTED)
             }
@@ -77,6 +82,29 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
             }
         val plugged = battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
         val charging = plugged != 0
+        val voltageMillivolts =
+            battery
+                ?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
+                ?.takeIf { it > 0 }
+        val currentMicroamps =
+            batteryManager
+                .getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+                .takeUnless { it == Long.MIN_VALUE || it == 0L }
+        val rawBatteryPowerMilliwatts =
+            if (!charging && voltageMillivolts != null && currentMicroamps != null) {
+                (currentMicroamps.absoluteValue.toDouble() * voltageMillivolts / 1_000_000.0)
+                    .takeIf { it.isFinite() && it in 1.0..MAX_REASONABLE_DEVICE_POWER_MW }
+                    ?.roundToInt()
+            } else {
+                null
+            }
+        smoothedBatteryPowerMilliwatts =
+            rawBatteryPowerMilliwatts?.let { current ->
+                smoothedBatteryPowerMilliwatts?.let { previous ->
+                    previous * (1.0 - POWER_SAMPLE_WEIGHT) + current * POWER_SAMPLE_WEIGHT
+                } ?: current.toDouble()
+            }
+        val batteryPowerMilliwatts = smoothedBatteryPowerMilliwatts?.roundToInt()
         val pressure =
             when {
                 Build.VERSION.SDK_INT >= 29 && thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE ->
@@ -90,6 +118,7 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
             pressure = pressure,
             batteryPercent = percent,
             charging = charging,
+            batteryPowerMilliwatts = batteryPowerMilliwatts,
         )
     }
 
@@ -98,3 +127,5 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
 
 private const val THERMAL_STATUS_NONE = 0
 private const val LOW_BATTERY_PERCENT = 15
+private const val MAX_REASONABLE_DEVICE_POWER_MW = 100_000.0
+private const val POWER_SAMPLE_WEIGHT = 0.20

@@ -4,6 +4,8 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
+import com.yfuse.core.playback.PlaybackDrmConfiguration
+import com.yfuse.core.playback.PlaybackDrmScheme
 
 /** Keeps a failing address useful in diagnostics without exporting the user's server token. */
 internal fun sanitizePlaybackUrl(value: String): String {
@@ -57,8 +59,31 @@ internal fun exoMediaItem(
             .Builder()
             .setUri(playbackUrl)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
+    (item.drmConfiguration ?: item.activeVersion?.drmConfiguration)
+        ?.takeIf { playbackUrl == item.url }
+        ?.let { builder.setDrmConfiguration(it.toMedia3Configuration()) }
     offlineSubtitleConfiguration(item)?.let { builder.setSubtitleConfigurations(listOf(it)) }
     return builder.build()
+}
+
+/** Converts secrets only at the final Media3 boundary; no diagnostic object receives them. */
+internal fun PlaybackDrmConfiguration.toMedia3Configuration(): MediaItem.DrmConfiguration {
+    val uuid =
+        when (scheme) {
+            PlaybackDrmScheme.Widevine -> C.WIDEVINE_UUID
+            PlaybackDrmScheme.ClearKey -> C.CLEARKEY_UUID
+            PlaybackDrmScheme.PlayReady -> C.PLAYREADY_UUID
+        }
+    return MediaItem.DrmConfiguration
+        .Builder(uuid)
+        .apply {
+            licenseUri?.takeIf(String::isNotBlank)?.let(::setLicenseUri)
+            setLicenseRequestHeaders(requestHeaders)
+            setMultiSession(multiSession)
+            setForceDefaultLicenseUri(forceDefaultLicenseUri)
+            setPlayClearContentWithoutKey(playClearContentWithoutKey)
+            offlineKeySetId?.copyOf()?.let(::setKeySetId)
+        }.build()
 }
 
 internal fun offlineSubtitleConfiguration(item: PlayerMediaItem): MediaItem.SubtitleConfiguration? {

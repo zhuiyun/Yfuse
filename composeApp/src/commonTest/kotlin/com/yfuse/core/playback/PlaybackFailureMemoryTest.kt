@@ -10,6 +10,7 @@ class PlaybackFailureMemoryTest {
     @Test
     fun failure_classifier_separates_transport_from_backend_failures() {
         assertEquals(PlaybackFailureKind.Authorization, classifyPlaybackFailure("HTTP 401 Unauthorized"))
+        assertEquals(PlaybackFailureKind.Drm, classifyPlaybackFailure("MediaDrm license acquisition failed"))
         assertEquals(PlaybackFailureKind.Network, classifyPlaybackFailure("socket timeout"))
         assertEquals(PlaybackFailureKind.Container, classifyPlaybackFailure("unrecognized input format"))
         assertEquals(PlaybackFailureKind.Decoder, classifyPlaybackFailure("MediaCodec decoder failed"))
@@ -26,7 +27,24 @@ class PlaybackFailureMemoryTest {
         assertTrue(memory.excludedEngines("MKV|H264").isEmpty())
         assertFalse(PlaybackFailureKind.Network.allowsBackendFallback)
         assertFalse(PlaybackFailureKind.Authorization.allowsBackendFallback)
+        assertFalse(PlaybackFailureKind.Drm.allowsBackendFallback)
         assertTrue(PlaybackFailureKind.Decoder.allowsBackendFallback)
+    }
+
+    @Test
+    fun learned_failures_can_be_cleared_without_recreating_memory() {
+        val persisted = mutableListOf<List<PlaybackFailureRecord>>()
+        val memory =
+            PlaybackFailureMemory(
+                failureThreshold = 1,
+                onChanged = persisted::add,
+            )
+        memory.record("MKV|HEVC", PlayerEngine.Exo, PlaybackFailureKind.Decoder)
+
+        memory.clear()
+
+        assertTrue(memory.snapshot().isEmpty())
+        assertTrue(persisted.last().isEmpty())
     }
 
     @Test

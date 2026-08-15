@@ -93,6 +93,7 @@ internal fun rememberYCoreRuntimeAssessment(
     plan: PlaybackPlan,
     failureMemory: PlaybackFailureMemory,
     performanceMemory: PlaybackPerformanceMemory,
+    runtimeEnvironment: PlaybackRuntimeEnvironment,
     castAuthoritative: Boolean,
     state: PlaybackState,
 ): YCoreRuntimeAssessment {
@@ -123,6 +124,7 @@ internal fun rememberYCoreRuntimeAssessment(
         state.diagnostics.bufferEvents,
         state.diagnostics.droppedFrames,
         state.diagnostics.videoOutput,
+        runtimeEnvironment.batteryPowerMilliwatts,
     ) {
         if (castAuthoritative) return@LaunchedEffect
         val observed =
@@ -139,6 +141,7 @@ internal fun rememberYCoreRuntimeAssessment(
                     ended = state.ended,
                     bufferEvents = state.diagnostics.bufferEvents,
                     droppedFrames = state.diagnostics.droppedFrames,
+                    measuredPowerMilliwatts = runtimeEnvironment.batteryPowerMilliwatts,
                 ),
             )
         assessment = observed
@@ -187,6 +190,8 @@ private fun logHealth(
                 "rebufferEvents" to assessment.health.rebufferEvents.toString(),
                 "droppedFrames" to assessment.health.droppedFrames.toString(),
                 "powerProfile" to assessment.power.profile.name,
+                "measuredPowerMilliwatts" to
+                    (assessment.power.measuredMilliwatts?.toString() ?: "unavailable"),
             ),
     )
 }

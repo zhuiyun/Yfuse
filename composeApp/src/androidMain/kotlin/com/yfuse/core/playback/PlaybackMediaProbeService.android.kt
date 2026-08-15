@@ -30,6 +30,7 @@ internal actual fun createPlaybackMediaProbeService(): PlaybackMediaProbeService
 private class AndroidPlaybackMediaProbeService(
     private val context: Context,
 ) : PlaybackMediaProbeService {
+    private val nativeProbe = MpvPlaybackMediaProbe(context)
     // An ordinary map plus explicit eviction avoids a Kotlin 2.1 KMP actualization compiler bug
     // triggered by anonymous Java collection subclasses.
     private val cache =
@@ -47,7 +48,27 @@ private class AndroidPlaybackMediaProbeService(
 
         val result =
             withTimeoutOrNull(request.timeoutMs.coerceIn(MIN_PROBE_TIMEOUT_MS, MAX_PROBE_TIMEOUT_MS)) {
-                withContext(Dispatchers.IO) { inspect(request) }
+                withContext(Dispatchers.IO) {
+                    val platform = inspect(request)
+                    if (!platform.requiresNativeProbe()) {
+                        platform
+                    } else {
+                        val native =
+                            nativeProbe.probe(
+                                PlaybackProbeRequest(
+                                    uri = request.uri,
+                                    baseline = platform.probe,
+                                    customUserAgent = request.customUserAgent,
+                                    timeoutMs = request.timeoutMs,
+                                ),
+                            )
+                        when {
+                            native.status == PlaybackProbeStatus.Complete -> native
+                            platform.status == PlaybackProbeStatus.Complete -> platform
+                            else -> native
+                        }
+                    }
+                }
             } ?: PlaybackProbeResult(
                 status = PlaybackProbeStatus.TimedOut,
                 probe = request.baseline,
@@ -127,6 +148,13 @@ private class AndroidPlaybackMediaProbeService(
     }
 }
 
+private fun PlaybackProbeResult.requiresNativeProbe(): Boolean =
+    status != PlaybackProbeStatus.Complete ||
+        probe.requiresNativeDemuxer ||
+        probe.source.videoCodec == null ||
+        probe.source.width == null ||
+        probe.source.height == null
+
 private fun PlaybackSourceRequirements.enrichedWith(format: MediaFormat?): PlaybackSourceRequirements {
     if (format == null) return this
     val mime = format.mimeType()
@@ -174,35 +202,35 @@ private fun MediaFormat.numberOrNull(key: String): Number? =
 private fun MediaFormat.stringOrNull(key: String): String? =
     if (containsKey(key)) runCatching { getString(key) }.getOrNull() else null
 
-private fun String?.toPlaybackVideoCodec(): PlaybackVideoCodec? =
+internal fun String?.toPlaybackVideoCodec(): PlaybackVideoCodec? =
     when (this?.lowercase()) {
-        "video/avc" -> PlaybackVideoCodec.H264
-        "video/hevc" -> PlaybackVideoCodec.Hevc
-        "video/dolby-vision" -> PlaybackVideoCodec.DolbyVision
-        "video/x-vnd.on2.vp8" -> PlaybackVideoCodec.Vp8
-        "video/x-vnd.on2.vp9" -> PlaybackVideoCodec.Vp9
-        "video/av01" -> PlaybackVideoCodec.Av1
-        "video/mpeg2" -> PlaybackVideoCodec.Mpeg2
-        "video/mp4v-es" -> PlaybackVideoCodec.Mpeg4
-        "video/wvc1" -> PlaybackVideoCodec.Vc1
+        "video/avc", "h264" -> PlaybackVideoCodec.H264
+        "video/hevc", "hevc", "h265" -> PlaybackVideoCodec.Hevc
+        "video/dolby-vision", "dolbyvision", "dovi" -> PlaybackVideoCodec.DolbyVision
+        "video/x-vnd.on2.vp8", "vp8" -> PlaybackVideoCodec.Vp8
+        "video/x-vnd.on2.vp9", "vp9" -> PlaybackVideoCodec.Vp9
+        "video/av01", "av1" -> PlaybackVideoCodec.Av1
+        "video/mpeg2", "mpeg2video" -> PlaybackVideoCodec.Mpeg2
+        "video/mp4v-es", "mpeg4" -> PlaybackVideoCodec.Mpeg4
+        "video/wvc1", "vc1" -> PlaybackVideoCodec.Vc1
         else -> null
     }
 
-private fun String?.toPlaybackAudioCodec(): PlaybackAudioCodec? =
+internal fun String?.toPlaybackAudioCodec(): PlaybackAudioCodec? =
     when (this?.lowercase()) {
-        "audio/mp4a-latm" -> PlaybackAudioCodec.Aac
-        "audio/mpeg" -> PlaybackAudioCodec.Mp3
-        "audio/ac3" -> PlaybackAudioCodec.Ac3
-        "audio/eac3" -> PlaybackAudioCodec.Eac3
-        "audio/eac3-joc" -> PlaybackAudioCodec.Eac3Joc
-        "audio/true-hd" -> PlaybackAudioCodec.TrueHd
-        "audio/vnd.dts" -> PlaybackAudioCodec.Dts
-        "audio/vnd.dts.hd" -> PlaybackAudioCodec.DtsHd
-        "audio/ac4" -> PlaybackAudioCodec.Ac4
-        "audio/flac" -> PlaybackAudioCodec.Flac
-        "audio/opus" -> PlaybackAudioCodec.Opus
-        "audio/vorbis" -> PlaybackAudioCodec.Vorbis
-        "audio/raw" -> PlaybackAudioCodec.Pcm
+        "audio/mp4a-latm", "aac" -> PlaybackAudioCodec.Aac
+        "audio/mpeg", "mp3" -> PlaybackAudioCodec.Mp3
+        "audio/ac3", "ac3" -> PlaybackAudioCodec.Ac3
+        "audio/eac3", "eac3" -> PlaybackAudioCodec.Eac3
+        "audio/eac3-joc", "eac3_joc" -> PlaybackAudioCodec.Eac3Joc
+        "audio/true-hd", "truehd" -> PlaybackAudioCodec.TrueHd
+        "audio/vnd.dts", "dts" -> PlaybackAudioCodec.Dts
+        "audio/vnd.dts.hd", "dts-hd", "dtshd" -> PlaybackAudioCodec.DtsHd
+        "audio/ac4", "ac4" -> PlaybackAudioCodec.Ac4
+        "audio/flac", "flac" -> PlaybackAudioCodec.Flac
+        "audio/opus", "opus" -> PlaybackAudioCodec.Opus
+        "audio/vorbis", "vorbis" -> PlaybackAudioCodec.Vorbis
+        "audio/raw", "pcm", "pcm_s16le", "pcm_s24le" -> PlaybackAudioCodec.Pcm
         else -> null
     }
 
