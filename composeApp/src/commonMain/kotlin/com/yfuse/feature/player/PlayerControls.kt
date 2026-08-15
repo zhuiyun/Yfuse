@@ -742,6 +742,8 @@ internal fun PlayerControls(
                     openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
                 },
                 onOpenSpeed = { openQuickPopup(QuickPopup.Speed) },
+                skipSettingsAvailable = skip.seriesName != null,
+                onOpenSkipSettings = { openSettingsPanel(SettingsPanelKind.Skip) },
                 danmakuEnabled = danmaku.enabled,
                 onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
                 onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
@@ -811,6 +813,7 @@ internal fun PlayerControls(
                     modifier = functionPopupModifier,
                     kind = kind,
                     state = state,
+                    containerLabel = containerLabel,
                     engineOptions = engineOptions,
                     qualityOptions = qualityOptions,
                     transcodeLabel = transcodeLabel,

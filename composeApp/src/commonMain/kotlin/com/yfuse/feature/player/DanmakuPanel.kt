@@ -172,61 +172,90 @@ internal fun DanmakuTab(
     onOpenSearch: () -> Unit,
     onOpenSend: () -> Unit,
 ) {
+    var displaySettingsVisible by remember { mutableStateOf(false) }
     var advancedVisible by remember { mutableStateOf(false) }
 
-    GroupLabel("弹幕")
-    OptionRow(
-        if (state.enabled) "关闭弹幕" else "开启弹幕",
-        state.enabled,
-        onClick = actions.onToggle,
-    )
-    Text(
-        when {
-            !state.configured -> "请先在个人中心配置弹幕链接"
-            state.loading -> "正在加载弹幕…"
-            state.error != null -> state.error
-            state.count > 0 -> "弹幕条数：${state.count}"
-            else -> "没有匹配到弹幕"
-        },
-        style = AppTypography.caption.medium,
-        color = if (state.error != null) DarkPalette.error else Color.White.copy(alpha = 0.56f),
-        modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp),
-    )
-    // A failed load used to be a red line and nothing else: the only way to try again was
-    // to leave the episode and come back. Most of these failures are a timeout.
-    if (state.error != null && !state.loading) {
-        OptionRow("重试", selected = false, onClick = actions.onRetry)
-    }
-    // What the comments are actually from. A wrong match is the single most common thing
-    // to go wrong here and the only way to see it is to print it.
-    state.matchLabel?.let { label ->
+    if (!displaySettingsVisible) {
+        PopupToggleHeader(
+            label = "启用弹幕",
+            checked = state.enabled,
+            onToggle = actions.onToggle,
+        )
+        PopupDivider()
+        val status =
+            when {
+                !state.configured -> "请先在个人中心配置弹幕链接"
+                state.loading -> "正在加载弹幕…"
+                state.error != null -> state.error
+                state.count > 0 -> "已匹配 ${state.count} 条弹幕"
+                else -> "未找到匹配，请尝试手动搜索"
+            }
         Text(
-            label,
-            style = AppTypography.caption.medium,
-            color = Color.White.copy(alpha = 0.82f),
-            maxLines = 3,
+            status,
+            style = AppTypography.body.medium,
+            color = if (state.error != null) DarkPalette.error else Color.White.copy(alpha = 0.86f),
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+            modifier = Modifier.padding(start = 5.dp, end = 5.dp, top = 13.dp),
         )
-    }
-    if (state.searchable) {
-        OptionRow(
-            "搜索弹幕",
-            selected = false,
-            onClick = onOpenSearch,
-            // 取消匹配 only means something once a hand-picked one is in force; the
-            // server's own guess is not something there is a way to un-choose.
-            actionLabel = if (state.matchPinned) "取消匹配" else null,
-            onAction = actions.onClearMatch,
+        Text(
+            state.matchLabel ?: if (state.searchable) "点击搜索" else "当前来源不可搜索",
+            style = AppTypography.caption.medium,
+            color = Color.White.copy(alpha = 0.48f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 5.dp),
         )
+        if (state.error != null && !state.loading) {
+            OptionRow("重试", selected = false, onClick = actions.onRetry)
+        }
+        PopupDivider()
+        PopupMenuRow(
+            icon = AppIcons.Search,
+            title = "搜索弹幕",
+            subtitle = if (state.searchable) "按影片名称手动匹配" else "当前不可搜索",
+            onClick = { if (state.searchable) onOpenSearch() },
+        )
+        PopupDivider()
+        PopupMenuRow(
+            icon = AppIcons.Grid,
+            title = "显示设置",
+            subtitle = "区域、字号、速度与透明度",
+            onClick = { displaySettingsVisible = true },
+        )
+        return
     }
 
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .noRippleClickable { displaySettingsVisible = false }
+            .padding(horizontal = 3.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            AppIcons.ChevronLeft,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.82f),
+            modifier = Modifier.size(18.dp),
+        )
+        Text("显示设置", style = AppTypography.body.strong, color = Color.White.copy(alpha = 0.92f))
+    }
+    PopupDivider()
     if (state.canSend) {
-        OptionRow("发送弹幕", selected = false, onClick = onOpenSend)
+        PopupMenuRow(
+            icon = AppIcons.Chat,
+            title = "发送弹幕",
+            subtitle = "发送一条当前时间的弹幕",
+            onClick = onOpenSend,
+        )
+        PopupDivider()
     }
-    // The single most effective thing that can be done to fourteen thousand comments.
     OptionRow("合并重复弹幕", state.mergeDuplicates, onClick = actions.onToggleMerge)
-
+    if (state.matchPinned) {
+        OptionRow("取消手动匹配", selected = false, onClick = actions.onClearMatch)
+    }
     GroupLabel("显示风格")
     DanmakuDisplayPresets.forEach { preset ->
         OptionRow(
@@ -235,7 +264,6 @@ internal fun DanmakuTab(
             onClick = { preset.apply(actions) },
         )
     }
-
     OptionRow(
         label = if (advancedVisible) "收起高级设置" else "高级设置",
         selected = advancedVisible,

@@ -63,4 +63,21 @@ class GlassTest {
         assertTrue(strong.body.alpha > quiet.body.alpha)
         assertNotEquals(strong.body, quiet.body)
     }
+
+    @Test
+    fun transparent_controls_stay_transparent_in_frosted_mode() {
+        val tones = resolveFrostedMaterialTones(Color.Transparent, LightPalette)
+
+        assertEquals(0f, tones.top.alpha)
+        assertEquals(0f, tones.body.alpha)
+        assertEquals(0f, tones.bottom.alpha)
+    }
+
+    @Test
+    fun light_frosted_cards_do_not_become_opaque_white_plates() {
+        val tones = resolveFrostedMaterialTones(LightPalette.card2, LightPalette)
+
+        assertTrue(tones.body.alpha < 0.60f)
+        assertNotEquals(Color.White, tones.body)
+    }
 }

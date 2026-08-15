@@ -162,29 +162,43 @@ internal fun resolveFrostedMaterialTones(
     palette: Palette,
     density: Float = 1f,
 ): FrostedMaterialTones {
+    if (fill.alpha <= 0.001f) {
+        return FrostedMaterialTones(
+            top = Color.Transparent,
+            body = Color.Transparent,
+            bottom = Color.Transparent,
+        )
+    }
     val resolvedDensity = density.coerceIn(0.75f, 1.25f)
     val composited = fill.compositeOver(palette.background)
     val pale = composited.luminance() >= 0.48f
-    val mist = if (pale) Color(0xFFF6FAFF) else Color(0xFF182438)
-    val depth = if (pale) Color(0xFFDCE6F2) else Color(0xFF09111F)
-    val mistAmount = (if (pale) 0.24f else 0.20f) * resolvedDensity
-    val minimumAlpha =
-        ((if (pale) 0.66f else 0.58f) + (resolvedDensity - 1f) * 0.10f)
-            .coerceIn(0.54f, 0.76f)
+    val source = fill.copy(alpha = 1f)
+    val mist = if (pale) Color(0xFFDCE7F4) else Color(0xFF213149)
+    val depth = if (pale) Color(0xFFC8D6E6) else Color(0xFF09111F)
+    val mistAmount = (if (pale) 0.55f else 0.46f) * resolvedDensity
+    val bodyAlpha =
+        (fill.alpha * (0.68f + 0.32f * resolvedDensity))
+            .coerceIn(0.18f, if (pale) 0.78f else 0.82f)
     val body =
-        lerp(fill, mist, mistAmount).copy(
-            alpha = maxOf(fill.alpha, minimumAlpha).coerceAtMost(0.94f),
-        )
+        lerp(source, mist, mistAmount).copy(alpha = bodyAlpha)
     val top =
-        lerp(body, Color.White, (if (pale) 0.13f else 0.08f) * resolvedDensity).copy(
-            alpha = (body.alpha + 0.05f * resolvedDensity).coerceAtMost(0.96f),
+        lerp(body.copy(alpha = 1f), Color.White, (if (pale) 0.045f else 0.03f) * resolvedDensity).copy(
+            alpha = (body.alpha + 0.025f * resolvedDensity).coerceAtMost(0.84f),
         )
     val bottom =
-        lerp(body, depth, (if (pale) 0.08f else 0.10f) * resolvedDensity).copy(
-            alpha = (body.alpha + 0.015f * resolvedDensity).coerceAtMost(0.95f),
+        lerp(body.copy(alpha = 1f), depth, (if (pale) 0.045f else 0.06f) * resolvedDensity).copy(
+            alpha = (body.alpha + 0.01f * resolvedDensity).coerceAtMost(0.83f),
         )
     return FrostedMaterialTones(top = top, body = body, bottom = bottom)
 }
+
+private fun frostedMaterialBorder(
+    border: Color?,
+    palette: Palette,
+): Color? =
+    border?.copy(
+        alpha = minOf(border.alpha, if (palette.isDark) 0.16f else 0.38f),
+    )
 
 private fun frostedSurfaceBrush(
     fill: Color,
@@ -243,9 +257,12 @@ private fun Modifier.glassMaterial(
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
     val materialBorder = resolveGlassMaterialBorder(border, palette)
+    val frosted = frostedGlass()
     val resolvedBorder =
         if (accessibility.reduceTransparency) {
             reducedTransparencyBorder(materialBorder, palette)
+        } else if (frosted) {
+            frostedMaterialBorder(materialBorder, palette)
         } else {
             materialBorder
         }
@@ -256,7 +273,7 @@ private fun Modifier.glassMaterial(
                 Brush.linearGradient(listOf(opaque, opaque))
             }
 
-            frostedGlass() -> frostedSurfaceBrush(fill, palette, weight.frostDensity)
+            frosted -> frostedSurfaceBrush(fill, palette, weight.frostDensity)
             else -> liquidSurfaceBrush(fill, palette, weight)
         }
     return clip(shape)
@@ -358,13 +375,15 @@ fun Modifier.liquidGlass(
     // 毛玻璃 uses the same diffused mist and density ramp as every other surface. It never
     // inherits liquid glass's specular sweep or raised button body.
     if (frostedGlass()) {
+        if (fill.alpha <= 0.001f && materialBorder == null) return this.clip(shape)
         val frost = frostedSurfaceBrush(fill, palette, GlassSurfaceWeight.Strong.frostDensity)
+        val frostBorder = frostedMaterialBorder(materialBorder, palette)
         return this
             .clip(shape)
             .background(frost)
             .let { modifier ->
-                if (materialBorder != null) {
-                    modifier.border(Dimens.hairline, materialBorder, shape)
+                if (frostBorder != null) {
+                    modifier.border(Dimens.hairline, frostBorder, shape)
                 } else {
                     modifier
                 }

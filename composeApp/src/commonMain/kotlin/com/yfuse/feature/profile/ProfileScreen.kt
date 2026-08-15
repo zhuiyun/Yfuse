@@ -1276,57 +1276,105 @@ internal fun SettingSegmentRow(
     iconTint: Color = Color.Unspecified,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = MinTouchTarget).padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = MinTouchTarget)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        if (icon != null) SettingIconTile(icon, iconTint)
-        Text(
-            title,
-            style = AppTypography.body.medium,
-            color = palette.text,
-            maxLines = 2,
-            modifier = Modifier.weight(1f),
-        )
-        Row(
-            Modifier
-                .selectableGroup()
-                .clip(GlassShapes.chip)
-                .background(palette.card3)
-                .padding(2.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            options.forEachIndexed { index, label ->
-                val isSelected = index == selectedIndex
-                Box(
-                    Modifier
-                        .heightIn(min = 30.dp)
-                        .pressable(
-                            pressedScale = 0.97f,
-                            haptic = HapticSignal.Select,
-                            role = Role.RadioButton,
-                            focusShape = GlassShapes.chip,
-                            onClickLabel = label,
-                            onClick = { onSelect(index) },
-                        ).semantics { selected = isSelected }
-                        .liquidGlass(
-                            shape = GlassShapes.chip,
-                            fill = if (isSelected) palette.card2 else Color.Transparent,
-                            border = if (isSelected) accent.border else Color.Transparent,
-                            over = palette.background,
-                            sheen = if (isSelected) 0.66f else 0.28f,
-                        ).padding(horizontal = 12.dp, vertical = 6.dp),
-                    contentAlignment = Alignment.Center,
+        val stacked = options.size > 2 && windowWidthTier(maxWidth) == WindowWidthTier.Compact
+        if (stacked) {
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (icon != null) SettingIconTile(icon, iconTint)
                     Text(
-                        label,
-                        style = if (isSelected) AppTypography.caption.strong else AppTypography.caption.medium,
-                        color = if (isSelected) accent.accent else palette.sub2,
-                        maxLines = 1,
+                        title,
+                        style = AppTypography.body.medium,
+                        color = palette.text,
+                        maxLines = 2,
                     )
                 }
+                SettingSegmentControl(
+                    options = options,
+                    selectedIndex = selectedIndex,
+                    expanded = true,
+                    onSelect = onSelect,
+                )
+            }
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (icon != null) SettingIconTile(icon, iconTint)
+                Text(
+                    title,
+                    style = AppTypography.body.medium,
+                    color = palette.text,
+                    maxLines = 2,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingSegmentControl(
+                    options = options,
+                    selectedIndex = selectedIndex,
+                    expanded = false,
+                    onSelect = onSelect,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingSegmentControl(
+    options: List<String>,
+    selectedIndex: Int,
+    expanded: Boolean,
+    onSelect: (Int) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    Row(
+        Modifier
+            .then(if (expanded) Modifier.fillMaxWidth() else Modifier)
+            .selectableGroup()
+            .clip(GlassShapes.chip)
+            .background(palette.card3)
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        options.forEachIndexed { index, label ->
+            val isSelected = index == selectedIndex
+            Box(
+                Modifier
+                    .then(if (expanded) Modifier.weight(1f) else Modifier)
+                    .heightIn(min = 30.dp)
+                    .pressable(
+                        pressedScale = 0.97f,
+                        haptic = HapticSignal.Select,
+                        role = Role.RadioButton,
+                        focusShape = GlassShapes.chip,
+                        onClickLabel = label,
+                        onClick = { onSelect(index) },
+                    ).semantics { selected = isSelected }
+                    .liquidGlass(
+                        shape = GlassShapes.chip,
+                        fill = if (isSelected) palette.card2 else Color.Transparent,
+                        border = if (isSelected) accent.border else Color.Transparent,
+                        over = palette.background,
+                        sheen = if (isSelected) 0.66f else 0.28f,
+                    ).padding(horizontal = if (expanded) 6.dp else 12.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    style = if (isSelected) AppTypography.caption.strong else AppTypography.caption.medium,
+                    color = if (isSelected) accent.accent else palette.sub2,
+                    maxLines = 1,
+                )
             }
         }
     }

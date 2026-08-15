@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.SkipMode
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
@@ -42,6 +45,7 @@ internal enum class SettingsPanelKind {
     Tracks,
     Danmaku,
     Cast,
+    Skip,
     More,
 }
 
@@ -53,7 +57,7 @@ internal enum class TrackPanelMode {
 
 private enum class AdvancedPage {
     Root,
-    Skip,
+    Playback,
     Engine,
     Media,
 }
@@ -63,6 +67,7 @@ private enum class AdvancedPage {
 internal fun SettingsPanel(
     kind: SettingsPanelKind,
     state: PlaybackState,
+    containerLabel: String?,
     engineOptions: List<Pair<String, Boolean>>,
     qualityOptions: List<Pair<String, Boolean>>,
     transcodeLabel: String?,
@@ -241,11 +246,107 @@ internal fun SettingsPanel(
                     }
                 }
 
+                SettingsPanelKind.Skip -> {
+                    val enabled = skip.mode != SkipMode.Off
+                    val here = (state.positionMs / 1000).coerceAtLeast(0L)
+                    val leftFromHere =
+                        ((state.durationMs - state.positionMs) / 1000).coerceAtLeast(0L)
+                    PopupToggleHeader(
+                        label = "跳过片头/片尾",
+                        checked = enabled,
+                        onToggle = {
+                            skipActions.onSelectMode(
+                                if (enabled) SkipMode.Off else SkipMode.Button,
+                            )
+                        },
+                    )
+                    SegmentedRow(
+                        options = listOf("显示跳过按钮", "自动跳过"),
+                        selectedIndex = if (skip.mode == SkipMode.Auto) 1 else 0,
+                        onSelect = { index ->
+                            skipActions.onSelectMode(
+                                if (index == 0) SkipMode.Button else SkipMode.Auto,
+                            )
+                        },
+                    )
+                    PopupDivider()
+                    PopupMenuRow(
+                        icon = AppIcons.Bookmark,
+                        title = "标记片头",
+                        subtitle = "将当前时间标记为片头结束",
+                        detail =
+                            skip.introEndSeconds
+                                .takeIf { it > 0L }
+                                ?.let { formatTime(it * 1000L) },
+                        selected = skip.introEndSeconds > 0L,
+                        onClick = {
+                            skipActions.onSetTimes(
+                                0L,
+                                here,
+                                skip.creditsLeadSeconds,
+                            )
+                        },
+                    )
+                    PopupDivider()
+                    PopupMenuRow(
+                        icon = AppIcons.Bookmark,
+                        title = "标记片尾",
+                        subtitle = "将当前时间标记为片尾开始",
+                        detail =
+                            skip.creditsLeadSeconds
+                                .takeIf { it > 0L }
+                                ?.let { "距结束 ${it}秒" },
+                        selected = skip.creditsLeadSeconds > 0L,
+                        onClick = {
+                            skipActions.onSetTimes(
+                                skip.introStartSeconds,
+                                skip.introEndSeconds,
+                                leftFromHere,
+                            )
+                        },
+                    )
+                    if (skip.anySet) {
+                        PopupDivider()
+                        OptionRow(
+                            label = "清除片头片尾标记",
+                            selected = false,
+                            onClick = { skipActions.onSetTimes(0L, 0L, 0L) },
+                        )
+                    }
+                }
+
                 SettingsPanelKind.More -> {
                     val diagnostics = state.diagnostics
                     when (advancedPage) {
                         AdvancedPage.Root -> {
-                            GroupLabel("播放控制")
+                            PopupMenuRow(
+                                icon = AppIcons.Server,
+                                title = "播放内核",
+                                subtitle =
+                                    "当前：${
+                                        engineOptions.firstOrNull { it.second }?.first
+                                            ?: diagnostics.engine.ifBlank { "默认" }
+                                    }",
+                                onClick = { advancedPage = AdvancedPage.Engine },
+                            )
+                            PopupDivider()
+                            PopupMenuRow(
+                                icon = AppIcons.Info,
+                                title = "媒体信息",
+                                subtitle = diagnostics.playMethod.ifBlank { "实时播放诊断" },
+                                onClick = { advancedPage = AdvancedPage.Media },
+                            )
+                            PopupDivider()
+                            PopupMenuRow(
+                                icon = AppIcons.Grid,
+                                title = "播放设置",
+                                subtitle = "画质、定时与控制",
+                                onClick = { advancedPage = AdvancedPage.Playback },
+                            )
+                        }
+
+                        AdvancedPage.Playback -> {
+                            PopupBackLabel("播放设置") { advancedPage = AdvancedPage.Root }
                             OptionRow("锁定控制", false, onClick = onLock)
                             OptionRow("手势说明", false, onClick = onOpenGestureHelp)
                             if (watch.available || watch.connected) {
@@ -283,178 +384,77 @@ internal fun SettingsPanel(
                                     OptionRow(label, selected, onClick = { onSelectQuality(index) })
                                 }
                             }
-                            GroupLabel("高级播放")
-                            if (skip.seriesName != null) {
-                                OptionRow(
-                                    label = "片头片尾",
-                                    selected = false,
-                                    onClick = { advancedPage = AdvancedPage.Skip },
-                                    detailLabel =
-                                        if (skip.mode == SkipMode.Button) "显示跳过" else skip.mode.label,
-                                )
-                            }
-                            if (engineOptions.isNotEmpty() || transcodeLabel != null) {
-                                OptionRow(
-                                    label = "播放内核",
-                                    selected = false,
-                                    onClick = { advancedPage = AdvancedPage.Engine },
-                                    detailLabel =
-                                        engineOptions.firstOrNull { it.second }?.first
-                                            ?: diagnostics.engine.ifBlank { "默认" },
-                                )
-                            }
-                            OptionRow(
-                                label = "媒体信息",
-                                selected = false,
-                                onClick = { advancedPage = AdvancedPage.Media },
-                                detailLabel = diagnostics.playMethod.ifBlank { "实时诊断" },
-                            )
-                        }
-
-                        AdvancedPage.Skip -> {
-                            PopupBackLabel("片头片尾") { advancedPage = AdvancedPage.Root }
-                            val here = (state.positionMs / 1000).coerceAtLeast(0L)
-                            val leftFromHere =
-                                ((state.durationMs - state.positionMs) / 1000).coerceAtLeast(0L)
-                            GroupLabel("点按设为当前进度")
-                            OptionRow(
-                                label = skipBoundaryLabel("片头开始", skip.introStartSeconds),
-                                selected = skip.introStartSeconds > 0L,
-                                onClick = {
-                                    skipActions.onSetTimes(
-                                        here,
-                                        skip.introEndSeconds,
-                                        skip.creditsLeadSeconds,
-                                    )
-                                },
-                                actionLabel = "取消".takeIf { skip.introStartSeconds > 0L },
-                                onAction = {
-                                    skipActions.onSetTimes(
-                                        0L,
-                                        skip.introEndSeconds,
-                                        skip.creditsLeadSeconds,
-                                    )
-                                },
-                            )
-                            OptionRow(
-                                label = skipBoundaryLabel("片头结束", skip.introEndSeconds),
-                                selected = skip.introEndSeconds > 0L,
-                                onClick = {
-                                    skipActions.onSetTimes(
-                                        skip.introStartSeconds,
-                                        here,
-                                        skip.creditsLeadSeconds,
-                                    )
-                                },
-                                actionLabel = "取消".takeIf { skip.introEndSeconds > 0L },
-                                onAction = {
-                                    skipActions.onSetTimes(
-                                        skip.introStartSeconds,
-                                        0L,
-                                        skip.creditsLeadSeconds,
-                                    )
-                                },
-                            )
-                            OptionRow(
-                                label = skipCreditsLabel(skip.creditsLeadSeconds),
-                                selected = skip.creditsLeadSeconds > 0L,
-                                onClick = {
-                                    skipActions.onSetTimes(
-                                        skip.introStartSeconds,
-                                        skip.introEndSeconds,
-                                        leftFromHere,
-                                    )
-                                },
-                                actionLabel = "取消".takeIf { skip.creditsLeadSeconds > 0L },
-                                onAction = {
-                                    skipActions.onSetTimes(
-                                        skip.introStartSeconds,
-                                        skip.introEndSeconds,
-                                        0L,
-                                    )
-                                },
-                            )
-                            GroupLabel("到达片头片尾时")
-                            SegmentedRow(
-                                options =
-                                    SkipMode.entries.map { mode ->
-                                        if (mode == SkipMode.Button) "显示跳过" else mode.label
-                                    },
-                                selectedIndex = SkipMode.entries.indexOf(skip.mode),
-                                onSelect = { skipActions.onSelectMode(SkipMode.entries[it]) },
-                            )
-                            if (skip.anySet) {
-                                OptionRow(
-                                    "清除《${skip.seriesName}》的设置",
-                                    false,
-                                    onClick = { skipActions.onSetTimes(0L, 0L, 0L) },
-                                )
-                            }
                         }
 
                         AdvancedPage.Engine -> {
-                            PopupBackLabel("播放内核") { advancedPage = AdvancedPage.Root }
+                            PopupBackLabel("播放内核", "切换后重新加载") {
+                                advancedPage = AdvancedPage.Root
+                            }
                             engineOptions.forEachIndexed { index, (label, selected) ->
-                                OptionRow(label, selected, onClick = { onSelectEngine(index) })
+                                EngineChoiceRow(
+                                    label = label,
+                                    selected = selected,
+                                    onClick = { onSelectEngine(index) },
+                                )
+                                if (index != engineOptions.lastIndex || transcodeLabel != null) {
+                                    PopupDivider()
+                                }
                             }
                             if (transcodeLabel != null) {
-                                OptionRow(transcodeLabel, transcodeActive, onClick = onTranscode)
+                                PopupMenuRow(
+                                    icon = AppIcons.Play,
+                                    title = transcodeLabel,
+                                    subtitle = "服务器兼容播放模式",
+                                    selected = transcodeActive,
+                                    onClick = onTranscode,
+                                )
                             }
                         }
 
                         AdvancedPage.Media -> {
                             PopupBackLabel("媒体信息") { advancedPage = AdvancedPage.Root }
-                            DiagnosticRow("内核", diagnostics.engine.ifBlank { "未知" })
-                            DiagnosticRow("解码器", diagnostics.decoder)
-                            DiagnosticRow("播放方式", diagnostics.playMethod)
-                            DiagnosticRow("所选画质", diagnostics.requestedQuality)
-                            DiagnosticRow("设备链路", diagnostics.deviceOutputCapabilities)
+                            DiagnosticRow("容器", containerLabel ?: "未知")
                             DiagnosticRow(
-                                "画面",
-                                buildString {
-                                    append(
-                                        when {
-                                            diagnostics.videoWidth > 0 && state.videoHeight > 0 ->
-                                                "${diagnostics.videoWidth} × ${state.videoHeight}"
-                                            state.videoHeight > 0 -> "${state.videoHeight}P"
-                                            else -> "未知分辨率"
-                                        },
-                                    )
-                                    if (diagnostics.frameRate > 0f) {
-                                        append(" · ")
-                                        append(diagnostics.frameRate.asFrameRate())
-                                    }
+                                "分辨率",
+                                when {
+                                    diagnostics.videoWidth > 0 && state.videoHeight > 0 ->
+                                        "${diagnostics.videoWidth} × ${state.videoHeight}"
+                                    state.videoHeight > 0 -> "${state.videoHeight}P"
+                                    else -> "未知"
                                 },
                             )
-                            DiagnosticRow("视频编码", diagnostics.videoCodec)
-                            DiagnosticRow("动态范围", diagnostics.dynamicRange.ifBlank { "未知" })
-                            DiagnosticRow("视频输出", diagnostics.videoOutput)
-                            DiagnosticRow("音频", diagnostics.audioFormat.ifBlank { "未知" })
-                            DiagnosticRow("音频输出", diagnostics.audioOutput)
-                            DiagnosticRow("当前码率", diagnostics.bitrateBitsPerSecond.asBitrate())
-                            DiagnosticRow("网络速度", diagnostics.networkBitsPerSecond.asBitrate())
                             DiagnosticRow(
-                                "缓冲",
-                                "${diagnostics.bufferedDurationMs / 1000.0f}s · ${diagnostics.bufferEvents} 次",
+                                "视频",
+                                listOf(
+                                    diagnostics.videoCodec,
+                                    diagnostics.dynamicRange,
+                                ).filter(String::isNotBlank).joinToString(" · "),
                             )
-                            DiagnosticRow("丢帧", "${diagnostics.droppedFrames} 帧")
-                            diagnostics.fallbackReason?.takeIf(String::isNotBlank)?.let { reason ->
-                                DiagnosticRow("降级原因", reason)
-                            }
-                            if (watch.connected || watch.roomCode != null) {
-                                GroupLabel("一起看")
-                                DiagnosticRow(
-                                    "状态",
-                                    when {
-                                        watch.reconnecting -> "重连中"
-                                        watch.connected -> "已连接"
-                                        else -> "未连接"
-                                    },
-                                )
-                                DiagnosticRow("房间", watch.roomCode ?: "—")
-                                DiagnosticRow("身份", if (watch.isHost) "房主" else "参与者")
-                                DiagnosticRow("在线", "${watch.participantCount} 人")
-                            }
+                            DiagnosticRow("码率", diagnostics.bitrateBitsPerSecond.asBitrate())
+                            DiagnosticRow("帧率", diagnostics.frameRate.asFrameRate())
+                            DiagnosticRow(
+                                "音频",
+                                state.audioTracks.firstOrNull { it.selected }?.label
+                                    ?: diagnostics.audioFormat.ifBlank { "未知" },
+                            )
+                            DiagnosticRow(
+                                "字幕",
+                                state.subtitleTracks.firstOrNull { it.selected }?.label ?: "未加载",
+                            )
+                            DiagnosticRow(
+                                "播放内核",
+                                listOf(
+                                    diagnostics.engine,
+                                    diagnostics.decoder,
+                                ).filter(String::isNotBlank).joinToString(" · "),
+                            )
+                            PopupDivider()
+                            Text(
+                                "●  ${diagnostics.playMethod.ifBlank { "实时播放" }}",
+                                style = AppTypography.caption.medium,
+                                color = Color.White.copy(alpha = 0.58f),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                            )
                         }
                     }
                 }
@@ -496,17 +496,99 @@ internal fun SettingsPanel(
 @Composable
 private fun PopupBackLabel(
     title: String,
+    trailing: String? = null,
     onBack: () -> Unit,
 ) {
-    Text(
-        "‹  $title",
-        style = AppTypography.body.strong,
-        color = Color.White.copy(alpha = 0.90f),
-        modifier =
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "‹  $title",
+            style = AppTypography.body.strong,
+            color = Color.White.copy(alpha = 0.90f),
+            modifier = Modifier.noRippleClickable(onBack),
+        )
+        trailing?.let {
+            Text(
+                it,
+                style = AppTypography.caption.medium,
+                color = Color.White.copy(alpha = 0.48f),
+            )
+        }
+    }
+}
+
+private fun engineDescription(label: String): String =
+    when {
+        label.contains("EXO", ignoreCase = true) -> "系统解码 · HDR/Dolby Vision"
+        label.contains("MDK", ignoreCase = true) -> "画质优先 · 高兼容性"
+        label.contains("MPV", ignoreCase = true) -> "格式支持更完整"
+        else -> "兼容播放内核"
+    }
+
+@Composable
+private fun EngineChoiceRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val accent = rememberAccentColorsForSurface(dark = true)
+    val badge = label.substringBefore(' ').take(3).uppercase()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .noRippleClickable(onClick)
+            .padding(horizontal = 5.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
             Modifier
-                .noRippleClickable(onBack)
-                .padding(horizontal = 3.dp, vertical = 6.dp),
-    )
+                .size(38.dp)
+                .glass(
+                    shape = AppShapes.thumb,
+                    fill = if (selected) accent.container else Color.Transparent,
+                    border = if (selected) accent.border else Color.White.copy(alpha = 0.16f),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                badge,
+                style = AppTypography.caption.strong,
+                color = if (selected) accent.accent else Color.White.copy(alpha = 0.70f),
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Text(label, style = AppTypography.body.strong, color = Color.White.copy(alpha = 0.92f))
+            Text(
+                engineDescription(label),
+                style = AppTypography.caption.medium,
+                color = Color.White.copy(alpha = 0.52f),
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Box(
+            Modifier
+                .size(24.dp)
+                .glass(
+                    shape = AppShapes.pill,
+                    fill = if (selected) accent.container else Color.Transparent,
+                    border = if (selected) accent.border else Color.White.copy(alpha = 0.22f),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Icon(
+                    AppIcons.Check,
+                    contentDescription = null,
+                    tint = accent.accent,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
+    }
 }
 
 @Composable
