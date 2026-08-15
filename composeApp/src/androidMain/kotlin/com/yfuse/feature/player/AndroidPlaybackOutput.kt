@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Looper
 import android.view.Surface
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
