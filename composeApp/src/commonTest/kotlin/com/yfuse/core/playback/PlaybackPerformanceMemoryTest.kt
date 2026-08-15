@@ -64,4 +64,3 @@ class PlaybackPerformanceMemoryTest {
         const val SIGNATURE = "MKV|HEVC|2160|60|10|HDR10"
     }
 }
-
