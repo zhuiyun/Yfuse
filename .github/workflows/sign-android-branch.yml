@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - codex/merge-all-sign-20260815
+  pull_request:
+    branches:
+      - master
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/sign-android-request
   workflow_dispatch:
 
 permissions:
@@ -15,6 +21,10 @@ concurrency:
 
 jobs:
   sign:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.head_ref == 'codex/merge-all-sign-20260815' &&
+      github.event.pull_request.head.repo.full_name == github.repository)
     name: Compile, sign, and verify APK
     runs-on: ubuntu-24.04
     timeout-minutes: 45
