@@ -98,7 +98,7 @@ internal fun rememberYCoreRuntimeAssessment(
 ): YCoreRuntimeAssessment {
     val session =
         remember(engine, probe.capabilitySignature) {
-            YCorePlaybackSession(
+            createYCorePlaybackSession(
                 engine = engineKind,
                 probe = probe,
                 plan = plan,
@@ -147,6 +147,30 @@ internal fun rememberYCoreRuntimeAssessment(
     return assessment
 }
 
+/** Explicit Android return type avoids a false Unit inference in Compose's KMP lint model. */
+private fun createYCorePlaybackSession(
+    engine: PlayerEngine,
+    probe: PlaybackMediaProbe,
+    plan: PlaybackPlan,
+    failureMemory: PlaybackFailureMemory,
+    performanceMemory: PlaybackPerformanceMemory,
+    startedAtEpochMs: Long,
+    initialPositionMs: Long,
+    initialBufferEvents: Long,
+    initialDroppedFrames: Long,
+): YCorePlaybackSession =
+    YCorePlaybackSession(
+        engine = engine,
+        probe = probe,
+        plan = plan,
+        failureMemory = failureMemory,
+        performanceMemory = performanceMemory,
+        startedAtEpochMs = startedAtEpochMs,
+        initialPositionMs = initialPositionMs,
+        initialBufferEvents = initialBufferEvents,
+        initialDroppedFrames = initialDroppedFrames,
+    )
+
 private fun logHealth(
     engine: PlayerEngine,
     assessment: YCoreRuntimeAssessment,
@@ -166,4 +190,3 @@ private fun logHealth(
             ),
     )
 }
-

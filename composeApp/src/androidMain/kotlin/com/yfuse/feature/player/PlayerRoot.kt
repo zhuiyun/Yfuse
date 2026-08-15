@@ -155,19 +155,12 @@ internal fun PlayerRoot(
     val resolvedOptimization = resolvePlaybackOptimization(optimizationMode, runtimeEnvironment)
     val effectiveOptimizationMode = resolvedOptimization.mode
     val failureMemory =
-        remember<PlaybackFailureMemory>(playbackPreferences) {
-            PlaybackFailureMemory(
-                initialRecords = playbackPreferences.playbackFailureRecords(),
-                onChanged = playbackPreferences::storePlaybackFailureRecords,
-            )
+        remember(playbackPreferences) {
+            createPlaybackFailureMemory(playbackPreferences)
         }
     val performanceMemory =
-        remember<PlaybackPerformanceMemory>(playbackPreferences) {
-            PlaybackPerformanceMemory(
-                nowEpochMs = System::currentTimeMillis,
-                initialRecords = playbackPreferences.playbackPerformanceRecords(),
-                onChanged = playbackPreferences::storePlaybackPerformanceRecords,
-            )
+        remember(playbackPreferences) {
+            createPlaybackPerformanceMemory(playbackPreferences)
         }
     val initialPlaybackPlan =
         run {
@@ -1992,6 +1985,20 @@ internal fun PlayerRoot(
         }
     }
 }
+
+/** Explicit Android return types keep Compose lint from treating common constructors as Unit. */
+private fun createPlaybackFailureMemory(preferences: PlaybackPreferences): PlaybackFailureMemory =
+    PlaybackFailureMemory(
+        initialRecords = preferences.playbackFailureRecords(),
+        onChanged = preferences::storePlaybackFailureRecords,
+    )
+
+private fun createPlaybackPerformanceMemory(preferences: PlaybackPreferences): PlaybackPerformanceMemory =
+    PlaybackPerformanceMemory(
+        nowEpochMs = System::currentTimeMillis,
+        initialRecords = preferences.playbackPerformanceRecords(),
+        onChanged = preferences::storePlaybackPerformanceRecords,
+    )
 
 private fun PlaybackDeviceCapabilities.diagnosticLabel(): String {
     val display =
