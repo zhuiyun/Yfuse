@@ -100,7 +100,7 @@ internal class MpvPlaybackMediaProbe(
             return failedResult(request, startedAtMs, "FFmpeg 未发现可播放轨道")
         }
         val baseline = request.baseline
-        val tracks = (0 until trackCount).mapNotNull(::readTrack)
+        val tracks = (0 until trackCount).mapNotNull { index -> readTrack(index) }
         val video = tracks.firstOrNull { it.type == "video" }
         val audio = tracks.firstOrNull { it.type == "audio" }
         val videoCodec = video?.codec.toPlaybackVideoCodec()
