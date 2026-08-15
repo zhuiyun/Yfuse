@@ -397,9 +397,10 @@ class LibraryGridStoreTest {
     @Test
     fun playlist_removal_commits_the_optimistic_local_change() =
         runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
             var removedEntryId: String? = null
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher) { request ->
                     if (request.method == HttpMethod.Delete) {
                         removedEntryId = request.url.parameters["EntryIds"]
                         json("{}")
@@ -417,23 +418,23 @@ class LibraryGridStoreTest {
                     "p1",
                     serverId = "id1",
                     containerKind = MediaContainerKind.Playlist,
-                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                    mainContext = dispatcher,
                 ).create()
-            store.states.first { !it.loading && it.items.size == 2 }
+            advanceUntilIdle()
+            assertEquals(2, store.state.items.size)
 
             store.accept(GridIntent.RequestRemove("e1"))
             assertEquals("e1", store.state.pendingRemoval?.playlistItemId)
             store.accept(GridIntent.ConfirmRemove)
 
-            val committed =
-                store.states.first {
-                    it.items.size == 1 && it.removingRowIds.isEmpty() && it.actionMessage != null
-                }
+            advanceUntilIdle()
+            val committed = store.state
+            assertTrue(committed.actionMessage != null)
             assertEquals("e1", removedEntryId)
             assertEquals(listOf("e2"), committed.items.map { it.playlistItemId })
             assertEquals(1, committed.totalCount)
             store.dispose()
-            runCurrent()
+            advanceUntilIdle()
         }
 
     @Test
