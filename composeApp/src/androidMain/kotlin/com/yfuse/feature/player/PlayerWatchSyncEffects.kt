@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.annotation.SuppressLint
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +28,7 @@ private const val POST_BUFFER_SEEK_THRESHOLD_MS = 300L
  * This is deliberately an effect-only composable: room protocol state and high-frequency
  * engine state no longer add more state branches to the already large player root.
  */
+@SuppressLint("RememberReturnType")
 @Composable
 internal fun PlayerWatchSyncEffects(
     items: List<PlayerMediaItem>,
