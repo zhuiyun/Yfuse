@@ -1227,9 +1227,10 @@ internal fun PlayerRoot(
         engineGeneration++
     }
 
-    val adaptiveNetworkController = remember(engine, state.currentIndex, currentItem?.serverId) {
-        PlaybackAdaptiveNetworkController()
-    }
+    val adaptiveNetworkController: PlaybackAdaptiveNetworkController =
+        remember(engine, state.currentIndex, currentItem?.serverId) {
+            PlaybackAdaptiveNetworkController()
+        }
     LaunchedEffect(
         engine,
         state.diagnostics.bufferEvents,
