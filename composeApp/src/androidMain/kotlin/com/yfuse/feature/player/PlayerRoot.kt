@@ -52,7 +52,6 @@ import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
-import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackPerformanceMemory
 import com.yfuse.core.playback.PlaybackProbeStatus
