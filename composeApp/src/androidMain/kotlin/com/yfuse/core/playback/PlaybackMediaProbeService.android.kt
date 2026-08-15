@@ -30,12 +30,10 @@ internal actual fun createPlaybackMediaProbeService(): PlaybackMediaProbeService
 private class AndroidPlaybackMediaProbeService(
     private val context: Context,
 ) : PlaybackMediaProbeService {
+    // An ordinary map plus explicit eviction avoids a Kotlin 2.1 KMP actualization compiler bug
+    // triggered by anonymous Java collection subclasses.
     private val cache =
-        object : LinkedHashMap<String, PlaybackProbeResult>(MAX_PROBE_CACHE_ENTRIES, 0.75f, true) {
-            override fun removeEldestEntry(
-                eldest: MutableMap.MutableEntry<String, PlaybackProbeResult>?,
-            ): Boolean = size > MAX_PROBE_CACHE_ENTRIES
-        }
+        LinkedHashMap<String, PlaybackProbeResult>(MAX_PROBE_CACHE_ENTRIES, 0.75f, true)
 
     override suspend fun probe(request: PlaybackProbeRequest): PlaybackProbeResult {
         if (request.uri.isBlank() || request.baseline.usingServerTranscode) {
@@ -56,7 +54,12 @@ private class AndroidPlaybackMediaProbeService(
                 elapsedMs = request.timeoutMs,
                 detail = "本机深度探测超时，继续使用服务端元数据",
             )
-        synchronized(cache) { cache[cacheKey] = result }
+        synchronized(cache) {
+            cache[cacheKey] = result
+            while (cache.size > MAX_PROBE_CACHE_ENTRIES) {
+                cache.remove(cache.keys.first())
+            }
+        }
         return result
     }
 
