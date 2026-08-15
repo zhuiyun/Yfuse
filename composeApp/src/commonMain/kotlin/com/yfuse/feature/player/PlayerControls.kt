@@ -757,8 +757,8 @@ internal fun PlayerControls(
             CircleControl(
                 icon = AppIcons.Pause,
                 description = "已暂停，点击继续",
-                size = 42.dp,
-                iconSize = 17.dp,
+                size = 28.dp,
+                iconSize = 14.dp,
                 enabled = !watchLocked,
                 interactive = false,
                 onClick = {},

@@ -101,9 +101,57 @@ object AppIcons {
 
     val Pause =
         solidVector("pause") {
-            roundRect(7.3f, 5.2f, 3.6f, 13.6f, 1.4f)
-            roundRect(13.1f, 5.2f, 3.6f, 13.6f, 1.4f)
+            roundRect(7.6f, 6f, 3.2f, 12f, 1.3f)
+            roundRect(13.2f, 6f, 3.2f, 12f, 1.3f)
         }
+
+    /** Circular ten-second seek glyphs are deliberately not the double-triangle transport mark. */
+    val SeekBackward10 =
+        strokeVector("seek-backward-10", width = TRANSPORT_STROKE) {
+            moveTo(8.2f, 6.2f)
+            curveTo(5.4f, 7.5f, 3.9f, 10.6f, 4.6f, 13.8f)
+            curveTo(5.4f, 17.4f, 8.6f, 19.7f, 12.3f, 19.7f)
+            curveTo(16.5f, 19.7f, 19.8f, 16.3f, 19.8f, 12.1f)
+            curveTo(19.8f, 8.9f, 17.8f, 6.1f, 14.9f, 4.9f)
+        }.andPath(width = TRANSPORT_STROKE) {
+            moveTo(8.2f, 3.5f)
+            verticalLineTo(7.1f)
+            horizontalLineTo(4.6f)
+        }.andPath(width = TRANSPORT_DIGIT_STROKE) {
+            moveTo(9.2f, 10.2f)
+            lineTo(10.2f, 9.5f)
+            verticalLineTo(14.7f)
+            moveTo(15f, 9.5f)
+            curveTo(13.7f, 9.5f, 13.2f, 10.5f, 13.2f, 12.1f)
+            curveTo(13.2f, 13.7f, 13.7f, 14.7f, 15f, 14.7f)
+            curveTo(16.3f, 14.7f, 16.8f, 13.7f, 16.8f, 12.1f)
+            curveTo(16.8f, 10.5f, 16.3f, 9.5f, 15f, 9.5f)
+            close()
+        }.build()
+
+    /** Mirror of [SeekBackward10], retaining the same centred 10-second label. */
+    val SeekForward10 =
+        strokeVector("seek-forward-10", width = TRANSPORT_STROKE) {
+            moveTo(15.8f, 6.2f)
+            curveTo(18.6f, 7.5f, 20.1f, 10.6f, 19.4f, 13.8f)
+            curveTo(18.6f, 17.4f, 15.4f, 19.7f, 11.7f, 19.7f)
+            curveTo(7.5f, 19.7f, 4.2f, 16.3f, 4.2f, 12.1f)
+            curveTo(4.2f, 8.9f, 6.2f, 6.1f, 9.1f, 4.9f)
+        }.andPath(width = TRANSPORT_STROKE) {
+            moveTo(15.8f, 3.5f)
+            verticalLineTo(7.1f)
+            horizontalLineTo(19.4f)
+        }.andPath(width = TRANSPORT_DIGIT_STROKE) {
+            moveTo(9.2f, 10.2f)
+            lineTo(10.2f, 9.5f)
+            verticalLineTo(14.7f)
+            moveTo(15f, 9.5f)
+            curveTo(13.7f, 9.5f, 13.2f, 10.5f, 13.2f, 12.1f)
+            curveTo(13.2f, 13.7f, 13.7f, 14.7f, 15f, 14.7f)
+            curveTo(16.3f, 14.7f, 16.8f, 13.7f, 16.8f, 12.1f)
+            curveTo(16.8f, 10.5f, 16.3f, 9.5f, 15f, 9.5f)
+            close()
+        }.build()
 
     /** Two heads pointing back, inside the solid box rather than off the viewport edge. */
     val Rewind =
@@ -180,6 +228,23 @@ object AppIcons {
             horizontalLineTo(14f)
         }.build()
 
+    /** Episode drawer — a thumbnail and a list, rather than an ambiguous hamburger. */
+    val EpisodeList =
+        strokeVector("episode-list") {
+            roundRect(3.2f, 4.2f, 6.4f, 15.6f, 1.8f)
+            moveTo(12.6f, 6.7f)
+            horizontalLineTo(20.8f)
+            moveTo(12.6f, 12f)
+            horizontalLineTo(20.8f)
+            moveTo(12.6f, 17.3f)
+            horizontalLineTo(18f)
+        }.andSolidPath {
+            moveTo(5.6f, 9.3f)
+            lineTo(8.1f, 12f)
+            lineTo(5.6f, 14.7f)
+            close()
+        }.build()
+
     val Expand =
         strokeVector("expand") {
             moveTo(9.2f, 4.2f)
@@ -212,30 +277,34 @@ object AppIcons {
             verticalLineTo(19.8f)
         }.build()
 
+    /** Subtitle tracks — the familiar CC mark inside a screen. */
     val Subtitle =
         strokeVector("subtitle") {
-            roundRect(3.2f, 5.8f, 17.6f, 12.4f, 2.8f)
-        }.andPath {
-            moveTo(6.8f, 14.4f)
-            horizontalLineToRelative(3f)
-            moveTo(6.8f, 10.2f)
-            horizontalLineToRelative(6f)
-            moveTo(13.4f, 14.4f)
-            horizontalLineToRelative(3.8f)
+            roundRect(3.2f, 5.2f, 17.6f, 13.6f, 2.8f)
+        }.andPath(width = 1.65f) {
+            moveTo(10.1f, 10.1f)
+            curveTo(9.5f, 9.4f, 8.7f, 9.1f, 7.9f, 9.1f)
+            curveTo(6.3f, 9.1f, 5.5f, 10.2f, 5.5f, 12f)
+            curveTo(5.5f, 13.8f, 6.3f, 14.9f, 7.9f, 14.9f)
+            curveTo(8.7f, 14.9f, 9.5f, 14.6f, 10.1f, 13.9f)
+            moveTo(18.5f, 10.1f)
+            curveTo(17.9f, 9.4f, 17.1f, 9.1f, 16.3f, 9.1f)
+            curveTo(14.7f, 9.1f, 13.9f, 10.2f, 13.9f, 12f)
+            curveTo(13.9f, 13.8f, 14.7f, 14.9f, 16.3f, 14.9f)
+            curveTo(17.1f, 14.9f, 17.9f, 14.6f, 18.5f, 13.9f)
         }.build()
 
     val Danmaku =
         strokeVector("danmaku") {
-            roundRect(3.2f, 4.6f, 17.6f, 12.8f, 3.2f)
-            moveTo(8f, 17.4f)
-            lineTo(6.2f, 20.4f)
-            lineTo(11.8f, 17.4f)
+            roundRect(3.2f, 4.4f, 17.6f, 15.2f, 2.8f)
         }.andPath {
-            moveTo(7f, 9.6f)
-            horizontalLineTo(17f)
-            moveTo(7f, 13.4f)
-            horizontalLineTo(14f)
-        }.build()
+            moveTo(7.7f, 9.2f)
+            horizontalLineTo(17.9f)
+            moveTo(6.1f, 12.3f)
+            horizontalLineTo(15.6f)
+            moveTo(9.4f, 15.4f)
+            horizontalLineTo(18.1f)
+        }.andDots(5.4f to 9.2f, 18.3f to 12.3f, 6.9f to 15.4f).build()
 
     /** Room chat — the same bubble as 弹幕, saying nothing rather than carrying lines. */
     val Chat =
@@ -260,21 +329,59 @@ object AppIcons {
             arcToRelative(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 0f, 5.8f)
         }.build()
 
+    /** Audio track selection — paired notes, distinct from the device-volume speaker. */
+    val AudioTrack =
+        strokeVector("audio-track") {
+            moveTo(10.2f, 17.1f)
+            verticalLineTo(6.7f)
+            lineTo(19.2f, 4.4f)
+            verticalLineTo(14.8f)
+            moveTo(10.2f, 9.2f)
+            lineTo(19.2f, 6.9f)
+        }.andPath(width = 2.1f) {
+            circle(7.4f, 17.2f, 2.8f)
+            circle(16.4f, 14.9f, 2.8f)
+        }.build()
+
     val Cast =
         strokeVector("cast") {
-            moveTo(6.6f, 16.2f)
-            horizontalLineTo(4.8f)
-            arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.6f, -1.6f)
-            verticalLineTo(6.4f)
-            arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.6f, -1.6f)
-            horizontalLineTo(19.2f)
-            arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.6f, 1.6f)
-            verticalLineTo(14.6f)
-            arcToRelative(1.6f, 1.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.6f, 1.6f)
-            horizontalLineTo(17.4f)
-            moveTo(12f, 13.4f)
-            lineTo(16.4f, 19.8f)
-            horizontalLineTo(7.6f)
+            moveTo(4.2f, 11.1f)
+            verticalLineTo(6.8f)
+            arcToRelative(2.1f, 2.1f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2.1f, -2.1f)
+            horizontalLineTo(18.2f)
+            arcToRelative(2.1f, 2.1f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2.1f, 2.1f)
+            verticalLineTo(16.7f)
+            moveTo(4.2f, 15.1f)
+            curveTo(7.2f, 15.1f, 9.6f, 17.5f, 9.6f, 20.5f)
+            moveTo(4.2f, 11.2f)
+            curveTo(9.4f, 11.2f, 13.5f, 15.3f, 13.5f, 20.5f)
+        }.andDots(4.2f to 20.1f).build()
+
+    /** Playback source — two independent video tiles make server/source switching explicit. */
+    val PlaybackSource =
+        strokeVector("playback-source") {
+            roundRect(3.2f, 4.1f, 13.3f, 10.2f, 2.2f)
+            roundRect(7.5f, 9.7f, 13.3f, 10.2f, 2.2f)
+        }.andSolidPath {
+            moveTo(8f, 7.4f)
+            lineTo(12.3f, 9.8f)
+            lineTo(8f, 12.2f)
+            close()
+        }.build()
+
+    /** Intro/outro markers — start and end gates around the playback head. */
+    val SkipMarkers =
+        strokeVector("skip-markers") {
+            moveTo(5.1f, 4.4f)
+            verticalLineTo(19.6f)
+            horizontalLineTo(8f)
+            moveTo(18.9f, 4.4f)
+            verticalLineTo(19.6f)
+            horizontalLineTo(16f)
+        }.andSolidPath {
+            moveTo(9.3f, 8f)
+            lineTo(15.2f, 12f)
+            lineTo(9.3f, 16f)
             close()
         }.build()
 
@@ -512,6 +619,11 @@ private const val BOX = 18f
 
 /** One weight for the whole set. */
 private const val STROKE = 1.8f
+
+/** Slightly lighter transport rings keep the number legible at the player's 14dp icon size. */
+private const val TRANSPORT_STROKE = 1.65f
+
+private const val TRANSPORT_DIGIT_STROKE = 1.35f
 
 /** Fine rounded edge for the enlarged bottom-navigation glass glyphs. */
 private const val TAB_STROKE = 1.6f

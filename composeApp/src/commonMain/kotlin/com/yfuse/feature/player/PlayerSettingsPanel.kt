@@ -271,7 +271,7 @@ internal fun SettingsPanel(
                     )
                     PopupDivider()
                     PopupMenuRow(
-                        icon = AppIcons.Bookmark,
+                        icon = AppIcons.SkipMarkers,
                         title = "标记片头",
                         subtitle = "将当前时间标记为片头结束",
                         detail =
@@ -289,7 +289,7 @@ internal fun SettingsPanel(
                     )
                     PopupDivider()
                     PopupMenuRow(
-                        icon = AppIcons.Bookmark,
+                        icon = AppIcons.SkipMarkers,
                         title = "标记片尾",
                         subtitle = "将当前时间标记为片尾开始",
                         detail =
@@ -320,7 +320,7 @@ internal fun SettingsPanel(
                     when (advancedPage) {
                         AdvancedPage.Root -> {
                             PopupMenuRow(
-                                icon = AppIcons.Server,
+                                icon = AppIcons.PlaybackSource,
                                 title = "播放内核",
                                 subtitle =
                                     "当前：${
