@@ -98,8 +98,7 @@ internal fun PlayerPopupPanel(
             .heightIn(
                 min = if (compact) 250.dp else 280.dp,
                 max = if (compact) 310.dp else 390.dp,
-            )
-            .shadow(Shadows.playerSheet, AppShapes.sheet)
+            ).shadow(Shadows.playerSheet, AppShapes.sheet)
             .glass(
                 shape = AppShapes.sheet,
                 fill = PlayerTokens.drawerFillLandscape.copy(alpha = 0.94f),
