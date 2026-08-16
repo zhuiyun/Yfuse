@@ -22,6 +22,9 @@ internal data class PlayerSkipController(
     val actions: SkipSegmentActions,
 )
 
+/** Movies have no series id, so intro/outro controls and automatic skipping are episode-only. */
+internal fun skipSegmentsAvailableFor(seriesId: String?): Boolean = !seriesId.isNullOrBlank()
+
 /** Owns segment detection, the automatic countdown and the persisted per-series boundaries. */
 @Composable
 internal fun rememberPlayerSkipController(
@@ -33,15 +36,20 @@ internal fun rememberPlayerSkipController(
 ): PlayerSkipController {
     val timesBySeries by preferences.bySeries.collectAsState()
     val mode by preferences.skipMode.collectAsState()
-    val times = currentItem?.seriesId?.let(timesBySeries::get)
+    val skipSeriesId = currentItem?.seriesId?.takeIf(::skipSegmentsAvailableFor)
+    val times = skipSeriesId?.let(timesBySeries::get)
     // Credits are stored as a distance back from the end, so duration participates in the key.
     val activeSegment =
-        remember(currentItem, timesBySeries, playbackState.durationMs) {
-            preferences.applyTo(
-                seriesId = currentItem?.seriesId,
-                serverSegments = currentItem?.playbackSegments.orEmpty(),
-                durationMs = playbackState.durationMs,
-            )
+        remember(currentItem, skipSeriesId, timesBySeries, playbackState.durationMs) {
+            if (skipSeriesId == null) {
+                emptyList()
+            } else {
+                preferences.applyTo(
+                    seriesId = skipSeriesId,
+                    serverSegments = currentItem.playbackSegments,
+                    durationMs = playbackState.durationMs,
+                )
+            }
         }.firstOrNull { segment ->
             segment.contains(playbackState.positionMs, playbackState.durationMs)
         }
@@ -92,7 +100,7 @@ internal fun rememberPlayerSkipController(
                         ?.takeIf { mode != SkipMode.Off },
                 countdownSeconds = countdownSeconds,
                 seriesName =
-                    currentItem?.seriesId?.let {
+                    skipSeriesId?.let {
                         currentItem.seriesName?.ifBlank { null } ?: "本剧"
                     },
                 introStartSeconds = times?.introStartSeconds ?: 0L,
@@ -105,7 +113,7 @@ internal fun rememberPlayerSkipController(
                 onSkip = skipSegment,
                 onCancelAuto = { settled.value = occurrence },
                 onSetTimes = { introStart, introEnd, creditsLead ->
-                    val seriesId = currentItem?.seriesId
+                    val seriesId = currentItem?.seriesId?.takeIf(::skipSegmentsAvailableFor)
                     if (seriesId != null) {
                         preferences.set(
                             seriesId = seriesId,
