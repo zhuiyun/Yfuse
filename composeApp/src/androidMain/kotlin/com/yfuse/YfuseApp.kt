@@ -13,6 +13,7 @@ import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.core.data.DiagnosticPreferences
+import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.SafeLogcatOutputGate
@@ -25,11 +26,17 @@ import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.update.AppUpdateManager
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.header
+import io.ktor.http.HttpHeaders
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okio.Path.Companion.toOkioPath
+import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
 
@@ -116,19 +123,28 @@ class YfuseApp :
                 add(
                     KtorNetworkFetcherFactory(
                         httpClient = {
-                            io.ktor.client.HttpClient {
-                                // Many Emby deployments sit behind an Nginx reverse proxy that
-                                // gates `/Items/{id}/Images/...` by User-Agent; the default
-                                // `Ktor/x.x` UA gets a 403 and images silently fail to load
-                                // even though the URL and api_key are correct. Mirror the
-                                // app's stock Emby UA so the proxy lets the request through.
-                                install(io.ktor.client.plugins.HttpTimeout) {
+                            // Resolved here rather than captured at build time: Coil constructs
+                            // this client once per process, and the UA can change at any point
+                            // from 设置 afterwards.
+                            val userAgent = GlobalContext.get().get<UserAgentPreferences>()
+                            HttpClient {
+                                install(HttpTimeout) {
                                     requestTimeoutMillis = 15_000
                                     connectTimeoutMillis = 10_000
                                     socketTimeoutMillis = 15_000
                                 }
-                                install(io.ktor.client.plugins.UserAgent) {
-                                    agent = com.yfuse.core.network.DEFAULT_EMBY_USER_AGENT
+                                // Many Emby deployments sit behind an Nginx reverse proxy that
+                                // gates `/Items/{id}/Images/...` by User-Agent; the default
+                                // `Ktor/x.x` UA gets a 403 and images silently fail to load
+                                // even though the URL and api_key are correct.
+                                //
+                                // This has to be the *same* UA the API client sends. A user who
+                                // set a custom one did it to get past exactly such a proxy, and
+                                // images 403ing while every API call succeeds is the hardest
+                                // shape of that failure to diagnose. Read per request, the way
+                                // `createEmbyClient` does, so a change applies without a restart.
+                                defaultRequest {
+                                    header(HttpHeaders.UserAgent, userAgent.userAgent.value)
                                 }
                                 expectSuccess = false
                             }
