@@ -103,7 +103,6 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
-import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.playback.PlaybackEngineSelection
@@ -636,9 +635,10 @@ fun ProfileScreen(component: ProfileComponent) {
                 OptionSheet(
                     title = "播放内核",
                     subtitle = "智能自动可切换后端；锁定时只保留 DRM 安全覆盖",
-                    options = PlaybackEngineSelection.entries.map {
-                        it.playbackOptionCopy().label to (it == engineSelection)
-                    },
+                    options =
+                        PlaybackEngineSelection.entries.map {
+                            it.playbackOptionCopy().label to (it == engineSelection)
+                        },
                     descriptions = PlaybackEngineSelection.entries.map { it.playbackOptionCopy().description },
                     onSelect = { index ->
                         val selection = PlaybackEngineSelection.entries[index]
