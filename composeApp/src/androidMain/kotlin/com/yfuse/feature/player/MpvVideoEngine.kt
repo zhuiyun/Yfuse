@@ -13,6 +13,7 @@ import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.bluRayDiscRoot
+import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
@@ -1156,12 +1157,13 @@ class MpvVideoEngine(
         if (!url.startsWith("file://", ignoreCase = true)) return url
         val item = items.getOrNull(_state.value.currentIndex) ?: return url
         val version = item.activeVersion
-        val kind =
+        val declaredKind =
             detectPlaybackDiscKind(
                 container = version?.container,
                 labelHint = version?.label,
                 declaredDiscSource = version?.discSource == true,
             )
+        val kind = cachedLocalPlaybackDiscKind(url) ?: declaredKind
         val path = Uri.parse(url).path?.takeIf(String::isNotBlank) ?: return url
         return when (kind) {
             PlaybackDiscKind.Dvd -> {

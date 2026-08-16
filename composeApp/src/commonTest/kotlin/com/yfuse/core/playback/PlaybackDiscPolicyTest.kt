@@ -49,6 +49,22 @@ class PlaybackDiscPolicyTest {
         assertTrue(decision.requiresNativeEngine)
     }
 
+    @Test
+    fun iso_directory_descriptors_identify_dvd_and_bluray_images() {
+        assertEquals(
+            PlaybackDiscKind.Dvd,
+            detectPlaybackDiscImageKind("padding VIDEO_TS.IFO padding".encodeToByteArray()),
+        )
+        assertEquals(
+            PlaybackDiscKind.BluRay,
+            detectPlaybackDiscImageKind("padding BDMV/PLAYLIST/00001.MPLS".encodeToByteArray()),
+        )
+        assertEquals(
+            PlaybackDiscKind.Iso,
+            detectPlaybackDiscImageKind("ordinary iso without a movie layout".encodeToByteArray()),
+        )
+    }
+
     private fun probe(
         kind: PlaybackDiscKind,
         local: Boolean,

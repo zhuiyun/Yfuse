@@ -8,6 +8,9 @@ data class YCoreRuntimeObservation(
     val playbackRequested: Boolean,
     val buffering: Boolean,
     val videoReady: Boolean,
+    val videoExpected: Boolean = true,
+    val audioReady: Boolean = true,
+    val audioExpected: Boolean = false,
     val errorPresent: Boolean,
     val ended: Boolean,
     val bufferEvents: Int,
@@ -21,6 +24,7 @@ data class YCoreRuntimeAssessment(
     val reportHealth: Boolean = false,
     val enginePenaltyRecorded: Boolean = false,
     val engineCapabilityConfirmed: Boolean = false,
+    val runtimeFault: PlaybackRuntimeFault? = null,
 )
 
 /**
@@ -48,6 +52,11 @@ class YCorePlaybackSession(
             initialDroppedFrames = initialDroppedFrames,
         )
     private val estimatedPower = playbackPowerAssessment(plan, probe)
+    private val runtimeFaultDetector =
+        PlaybackRuntimeFaultDetector(
+            startedAtEpochMs = startedAtEpochMs,
+            initialPositionMs = initialPositionMs,
+        )
     private var reported = false
     private var penaltyRecorded = false
     private var capabilityConfirmed = false
@@ -67,6 +76,10 @@ class YCorePlaybackSession(
         )
 
     fun observe(observation: YCoreRuntimeObservation): YCoreRuntimeAssessment {
+        val runtimeFault = runtimeFaultDetector.observe(observation)
+        runtimeFault?.let { fault ->
+            failureMemory.record(probe.capabilitySignature, engine, fault.kind.failureKind)
+        }
         val health =
             healthSession.observe(
                 nowEpochMs = observation.nowEpochMs,
@@ -98,6 +111,7 @@ class YCorePlaybackSession(
 
         val confirmCapability =
             !capabilityConfirmed &&
+                runtimeFault == null &&
                 health.evaluationReady &&
                 !health.enginePenaltyRecommended &&
                 !observation.buffering &&
@@ -113,6 +127,7 @@ class YCorePlaybackSession(
             reportHealth = reportHealth,
             enginePenaltyRecorded = recordPenalty,
             engineCapabilityConfirmed = confirmCapability,
+            runtimeFault = runtimeFault,
         )
     }
 

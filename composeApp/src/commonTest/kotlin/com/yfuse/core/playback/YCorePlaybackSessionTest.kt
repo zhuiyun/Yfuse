@@ -41,6 +41,43 @@ class YCorePlaybackSessionTest {
         assertEquals(0, memory.failureCount(SIGNATURE, PlayerEngine.Exo))
     }
 
+    @Test
+    fun startup_without_a_first_frame_is_reported_once() {
+        val memory = PlaybackFailureMemory(failureThreshold = 1)
+        val session = session(memory)
+        val waiting =
+            observation(now = 15_000L, droppedFrames = 0).copy(
+                positionMs = 0L,
+                videoReady = false,
+                videoExpected = true,
+            )
+
+        val first = session.observe(waiting)
+        val second = session.observe(waiting.copy(nowEpochMs = 16_000L))
+
+        assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, first.runtimeFault?.kind)
+        assertEquals(null, second.runtimeFault)
+        assertEquals(1, memory.failureCount(SIGNATURE, PlayerEngine.Exo))
+    }
+
+    @Test
+    fun intentional_buffering_does_not_trigger_a_position_stall() {
+        val memory = PlaybackFailureMemory(failureThreshold = 1)
+        val session = session(memory)
+
+        session.observe(observation(now = 1_000L, droppedFrames = 0))
+        val result =
+            session.observe(
+                observation(now = 20_000L, droppedFrames = 0).copy(
+                    positionMs = 1_000L,
+                    buffering = true,
+                ),
+            )
+
+        assertEquals(null, result.runtimeFault)
+        assertEquals(0, memory.failureCount(SIGNATURE, PlayerEngine.Exo))
+    }
+
     private fun session(memory: PlaybackFailureMemory): YCorePlaybackSession =
         YCorePlaybackSession(
             engine = PlayerEngine.Exo,

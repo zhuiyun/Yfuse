@@ -3,6 +3,7 @@ package com.yfuse.core.data
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureRecord
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.PlaybackPerformanceRecord
@@ -77,6 +78,20 @@ class PlaybackPreferencesTest {
         assertEquals(
             PlaybackOptimizationMode.PowerSaver,
             PlaybackPreferences(settings).optimizationMode.value,
+        )
+    }
+
+    @Test
+    fun ycore_engine_selection_defaults_to_auto_and_persists_a_lock() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(PlaybackEngineSelection.Auto, first.engineSelection.value)
+        first.setEngineSelection(PlaybackEngineSelection.LockMpv)
+
+        assertEquals(
+            PlaybackEngineSelection.LockMpv,
+            PlaybackPreferences(settings).engineSelection.value,
         )
     }
 
