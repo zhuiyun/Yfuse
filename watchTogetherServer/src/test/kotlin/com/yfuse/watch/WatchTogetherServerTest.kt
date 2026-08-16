@@ -813,7 +813,7 @@ class WatchTogetherServerTest {
                     send(
                         """{"type":"hello","protocolVersion":5,"roomCode":"${roomCode.await()}","clientId":"new-host"}""",
                     )
-                    val welcome = (incoming.receive() as Frame.Text).readText().asJson()
+                    val welcome = incoming.receiveType("welcome", "resumeCapability", "hostCapability")
                     guestResumeCapability.complete(
                         welcome["resumeCapability"]!!.jsonPrimitive.content,
                     )
@@ -1768,3 +1768,16 @@ class WatchTogetherServerTest {
 }
 
 private fun String.asJson(): JsonObject = Json.parseToJsonElement(this).jsonObject
+
+/** WebSocket broadcasts may interleave with a direct reply; wait for the reply by protocol type. */
+private suspend fun kotlinx.coroutines.channels.ReceiveChannel<Frame>.receiveType(
+    type: String,
+    vararg forbiddenKeys: String,
+): JsonObject {
+    while (true) {
+        val frame = receive() as? Frame.Text ?: continue
+        val payload = frame.readText().asJson()
+        if (payload["type"]?.jsonPrimitive?.content == type) return payload
+        forbiddenKeys.forEach { key -> assertFalse(payload.containsKey(key)) }
+    }
+}
