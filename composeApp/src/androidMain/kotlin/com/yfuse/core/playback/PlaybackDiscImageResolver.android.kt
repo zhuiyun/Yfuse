@@ -21,8 +21,7 @@ private object LocalDiscImageKindCache {
 }
 
 /** Returns a cached classification without doing disk I/O on the playback thread. */
-internal fun cachedLocalPlaybackDiscKind(uri: String): PlaybackDiscKind? =
-    LocalDiscImageKindCache.get(uri)
+internal fun cachedLocalPlaybackDiscKind(uri: String): PlaybackDiscKind? = LocalDiscImageKindCache.get(uri)
 
 /** Performs bounded disk I/O. The caller must run this on an I/O dispatcher. */
 internal fun resolveLocalPlaybackDiscKind(
