@@ -741,7 +741,13 @@ private class AndroidCastManager(
                     activeProtocol == ActiveProtocol.Dlna &&
                     mutableState.value.activeDeviceId == target.public.id
                 ) {
-                    delay(DLNA_POLL_INTERVAL_MS)
+                    delay(
+                        if (mutableState.value.status == CastPlaybackStatus.Playing) {
+                            DLNA_ACTIVE_POLL_INTERVAL_MS
+                        } else {
+                            DLNA_IDLE_POLL_INTERVAL_MS
+                        },
+                    )
                     runCatching { readDlnaSnapshot(target) }
                         .onSuccess { snapshot ->
                             failures = 0
@@ -1096,7 +1102,8 @@ private fun String.xmlTag(name: String): String? =
 private const val CAST_PREFIX = "chromecast:"
 private const val CAST_COMMAND_TIMEOUT_MS = 10_000L
 private const val CAST_PROGRESS_INTERVAL_MS = 500L
-private const val DLNA_POLL_INTERVAL_MS = 1_000L
+private const val DLNA_ACTIVE_POLL_INTERVAL_MS = 1_000L
+private const val DLNA_IDLE_POLL_INTERVAL_MS = 5_000L
 private const val DLNA_MAX_POLL_FAILURES = 3
 private const val DLNA_CONFIRM_ATTEMPTS = 3
 private const val DLNA_CONFIRM_DELAY_MS = 300L

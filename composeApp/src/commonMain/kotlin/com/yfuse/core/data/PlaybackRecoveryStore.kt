@@ -107,7 +107,7 @@ class PlaybackRecoveryStore(
 ) {
     private companion object {
         const val KEY = "playback.recovery.v1"
-        const val WRITE_INTERVAL_MS = 5_000L
+        const val WRITE_INTERVAL_MS = 10_000L
     }
 
     private val json =
@@ -155,8 +155,8 @@ class PlaybackRecoveryStore(
                 engine = engine,
                 updatedAtEpochMs = now,
             )
-        _snapshot.value = value
         if (!force && !changedItem && now - lastWriteEpochMs < WRITE_INTERVAL_MS) return
+        _snapshot.value = value
         runCatching {
             settings.putString(KEY, json.encodeToString(PlaybackRecoverySnapshot.serializer(), value))
         }.onSuccess {

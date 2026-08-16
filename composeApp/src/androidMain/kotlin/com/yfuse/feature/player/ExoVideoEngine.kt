@@ -49,7 +49,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 
 private const val TAG = "YfusePlayer"
-private const val TICK_MS = 500L
+private val exoRuntimeCadence =
+    PlaybackRuntimeCadence(
+        activeIntervalMs = PLAYBACK_PROGRESS_STEP_MS,
+        idleIntervalMs = 2_000L,
+    )
 private const val TRANSIENT_RETRY_LIMIT = 2
 private const val MANIFEST_RETRY_LIMIT = 1
 
@@ -594,7 +598,13 @@ class ExoVideoEngine(
                         mainSpeed = player.playbackParameters.speed,
                         mainPlayWhenReady = player.playWhenReady,
                     )
-                    delay(TICK_MS)
+                    delay(
+                        exoRuntimeCadence.intervalMs(
+                            playing = player.isPlaying,
+                            buffering = player.isLoading,
+                            pendingWork = secondarySubtitles.needsReconciliation,
+                        ),
+                    )
                 }
             }
     }

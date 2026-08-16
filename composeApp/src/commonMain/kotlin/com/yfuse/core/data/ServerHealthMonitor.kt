@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -99,6 +100,7 @@ class ServerHealthMonitor(
 
     private val _health = MutableStateFlow<Map<String, ServerHealth>>(emptyMap())
     val health: StateFlow<Map<String, ServerHealth>> = _health.asStateFlow()
+    private val appForeground = MutableStateFlow(false)
     private var started = false
     private val lastAutoSwitchAtMs = mutableMapOf<String, Long>()
 
@@ -106,19 +108,28 @@ class ServerHealthMonitor(
         if (started) return
         started = true
         scope.launch {
-            registry.data.collectLatest { data ->
-                val ids = data.servers.mapTo(hashSetOf()) { it.id }
-                _health.value = _health.value.filterKeys { it in ids }
-                lastAutoSwitchAtMs.keys.retainAll(ids)
-                refreshAll(data.servers)
-            }
+            combine(registry.data, appForeground) { data, foreground -> data to foreground }
+                .collectLatest { (data, foreground) ->
+                    val ids = data.servers.mapTo(hashSetOf()) { it.id }
+                    _health.value = _health.value.filterKeys { it in ids }
+                    lastAutoSwitchAtMs.keys.retainAll(ids)
+                    if (foreground) refreshAll(data.servers)
+                }
         }
         scope.launch {
-            while (isActive) {
-                delay(60_000L)
-                refreshAll(registry.data.value.servers)
+            appForeground.collectLatest { foreground ->
+                if (!foreground) return@collectLatest
+                while (isActive) {
+                    delay(HEALTH_REFRESH_INTERVAL_MS)
+                    refreshAll(registry.data.value.servers)
+                }
             }
         }
+    }
+
+    /** Cancels in-flight probes and periodic network wakes while the library UI is not visible. */
+    fun setAppForeground(value: Boolean) {
+        appForeground.value = value
     }
 
     suspend fun refreshAll(servers: List<SavedServer> = registry.data.value.servers) =
@@ -287,6 +298,8 @@ class ServerHealthMonitor(
             }
     }
 }
+
+private const val HEALTH_REFRESH_INTERVAL_MS = 60_000L
 
 /** Shared thresholds for cards, route diagnostics, filtering and source ranking. */
 fun latencySeverity(
