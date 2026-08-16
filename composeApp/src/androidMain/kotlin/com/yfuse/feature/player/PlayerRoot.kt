@@ -491,9 +491,26 @@ internal fun PlayerRoot(
             state = localState,
         )
     LaunchedEffect(activeProbe.probeDepth, activeProbe.capabilitySignature) {
-        if (activeProbeResult.status != PlaybackProbeStatus.Complete || castAuthoritative) {
+        if (castAuthoritative) return@LaunchedEffect
+
+        // A remote disc image is never probed. `PlaybackMediaProbeService` returns Skipped for
+        // it on purpose — the answer is already settled, because libdvdnav and libbluray need a
+        // device path that an http URL cannot be, so only the server can parse a main feature
+        // out of it. The Complete gate below then withheld the transcode switch from the one
+        // source that can never play without it, and the engine was left holding an `.iso` URL
+        // no demuxer will open. It has to be decided before that gate, not behind it.
+        val remoteDiscNeedsServer =
+            activeProbe.discSource &&
+                !activeProbe.localSource &&
+                activePlan.requiresServerTranscode
+        if (remoteDiscNeedsServer && !localState.transcoding) {
+            engine.switchToTranscode(activePlan.reason)
             return@LaunchedEffect
         }
+
+        // Everything past this point reconciles against facts the probe discovered, so it does
+        // need the probe to have finished.
+        if (activeProbeResult.status != PlaybackProbeStatus.Complete) return@LaunchedEffect
         if (activePlan.requiresServerTranscode && !localState.transcoding) {
             engine.switchToTranscode(activePlan.reason)
             return@LaunchedEffect
