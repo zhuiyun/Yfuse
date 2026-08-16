@@ -169,6 +169,73 @@ class PlaybackPlannerTest {
     }
 
     @Test
+    fun locked_backend_disables_automatic_reranking_and_fallback() {
+        val plan =
+            planPlayback(
+                probe = probe(container = "avi"),
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Auto,
+                engineSelection = PlaybackEngineSelection.LockMdk,
+                excludedEngines = setOf(PlayerEngine.Mdk),
+                engineCosts = mapOf(PlayerEngine.Mdk to 100),
+            )
+
+        assertEquals(PlayerEngine.Mdk, plan.primaryEngine)
+        assertEquals(listOf(PlayerEngine.Mdk), plan.engineOrder)
+        assertTrue(plan.reason.orEmpty().contains("已锁定"))
+    }
+
+    @Test
+    fun protected_content_safely_overrides_a_native_backend_lock() {
+        val plan =
+            planPlayback(
+                probe = probe(container = "mp4").copy(drmProtected = true),
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Mpv,
+                preferredDecoderMode = DecoderMode.Software,
+                engineSelection = PlaybackEngineSelection.LockMpv,
+            )
+
+        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
+        assertEquals(listOf(PlayerEngine.Exo), plan.engineOrder)
+        assertEquals(DecoderMode.Hardware, plan.decoderMode)
+        assertTrue(plan.reason.orEmpty().contains("安全输出"))
+    }
+
+    @Test
+    fun unsupported_hardware_uses_local_software_when_server_cannot_transcode() {
+        val plan =
+            planPlayback(
+                probe = probe(container = "mkv", transcode = false),
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Hardware,
+                videoSupport = PlaybackVideoSupport.unsupported("分辨率超出硬解范围"),
+            )
+
+        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertEquals(DecoderMode.Software, plan.decoderMode)
+        assertFalse(plan.requiresServerTranscode)
+    }
+
+    @Test
+    fun unsupported_hardware_prefers_an_available_server_transcode() {
+        val plan =
+            planPlayback(
+                probe = probe(container = "mkv", transcode = true),
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Hardware,
+                videoSupport = PlaybackVideoSupport.unsupported("码率超出硬解范围"),
+            )
+
+        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
+        assertEquals(DecoderMode.Hardware, plan.decoderMode)
+        assertTrue(plan.requiresServerTranscode)
+    }
+
+    @Test
     fun unsupported_platform_audio_keeps_native_demux_ahead_of_performance_ranking() {
         val plan =
             planPlayback(

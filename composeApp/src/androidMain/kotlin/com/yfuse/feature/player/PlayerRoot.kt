@@ -54,6 +54,7 @@ import com.yfuse.core.playback.PlaybackAdaptiveNetworkController
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackNetworkSample
 import com.yfuse.core.playback.PlaybackPerformanceMemory
@@ -121,6 +122,10 @@ internal fun PlayerRoot(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val optimizationMode by playbackPreferences.optimizationMode.collectAsState()
+    val configuredEngineSelection by playbackPreferences.engineSelection.collectAsState()
+    var sessionEngineSelection by remember {
+        mutableStateOf(configuredEngineSelection)
+    }
 
     /**
      * Decide the initial HDR path before constructing a backend. Exo is selected for a verified
@@ -172,6 +177,7 @@ internal fun PlayerRoot(
                 preferredEngine = initialEngine,
                 preferredDecoderMode = decoderMode,
                 optimizationMode = effectiveOptimizationMode,
+                engineSelection = sessionEngineSelection,
                 engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                 videoSupport =
                     capabilityProvider?.videoSupport(probe.source.videoRequirements)
@@ -243,6 +249,7 @@ internal fun PlayerRoot(
             kind,
             effectiveDecoderMode,
             effectiveOptimizationMode,
+            sessionEngineSelection,
         ) {
             activeItems.map { item ->
                 val probe = item.playbackMediaProbe()
@@ -256,6 +263,7 @@ internal fun PlayerRoot(
                         preferredEngine = kind,
                         preferredDecoderMode = effectiveDecoderMode,
                         optimizationMode = effectiveOptimizationMode,
+                        engineSelection = sessionEngineSelection,
                         engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                         videoSupport = videoSupport,
                     )
@@ -368,6 +376,7 @@ internal fun PlayerRoot(
                     preferredEngine = kind,
                     preferredDecoderMode = effectiveDecoderMode,
                     optimizationMode = effectiveOptimizationMode,
+                    engineSelection = sessionEngineSelection,
                     engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                     videoSupport =
                         capabilityProvider?.videoSupport(probe.source.videoRequirements)
@@ -452,6 +461,7 @@ internal fun PlayerRoot(
             preferredEngine = kind,
             preferredDecoderMode = effectiveDecoderMode,
             optimizationMode = effectiveOptimizationMode,
+            engineSelection = sessionEngineSelection,
             excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
             engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
             videoSupport =
@@ -478,7 +488,19 @@ internal fun PlayerRoot(
             engine.switchToTranscode(activePlan.reason)
             return@LaunchedEffect
         }
-        if (activePlan.primaryEngine != kind || activePlan.decoderMode != effectiveDecoderMode) {
+        val baselineDiscKind =
+            localCastItem
+                .playbackMediaProbe(usingServerTranscode = localState.transcoding)
+                .discKind
+        val resolvedDiscRouteChanged =
+            kind == PlayerEngine.Mpv &&
+                baselineDiscKind == com.yfuse.core.playback.PlaybackDiscKind.Iso &&
+                activeProbe.discKind != baselineDiscKind
+        if (
+            activePlan.primaryEngine != kind ||
+            activePlan.decoderMode != effectiveDecoderMode ||
+            resolvedDiscRouteChanged
+        ) {
             resume = localState.currentIndex to engine.currentPositionMs()
             kind = activePlan.primaryEngine
             effectiveDecoderMode = activePlan.decoderMode
@@ -492,7 +514,9 @@ internal fun PlayerRoot(
                     deviceOutputCapabilities = deviceCapabilityLabel,
                     plannedRenderPath = activePlan.renderPath.name,
                     planningReason = activePlan.reason ?: resolvedOptimization.reason,
-                    playbackHealth = runtimeAssessment.health.diagnosticLabel,
+                    playbackHealth =
+                        runtimeAssessment.runtimeFault?.reason
+                            ?: runtimeAssessment.health.diagnosticLabel,
                     powerProfile = runtimeAssessment.power.diagnosticLabel,
                     resourcePressure = runtimeEnvironment.diagnosticLabel,
                     mediaProbe = activeProbeResult.diagnosticLabel,
@@ -1217,6 +1241,64 @@ internal fun PlayerRoot(
         kind = target
     }
 
+    fun selectEngineStrategy(selection: PlaybackEngineSelection) {
+        if (selection == sessionEngineSelection) return
+        sessionEngineSelection = selection
+        val selectionPlan =
+            planPlayback(
+                probe = activeProbe,
+                capabilities = deviceCapabilities,
+                preferredEngine = kind,
+                preferredDecoderMode = effectiveDecoderMode,
+                optimizationMode = effectiveOptimizationMode,
+                engineSelection = selection,
+                excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
+                engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
+                videoSupport =
+                    capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
+                        ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
+            )
+        val decoderChanged = selectionPlan.decoderMode != effectiveDecoderMode
+        effectiveDecoderMode = selectionPlan.decoderMode
+        if (selectionPlan.requiresServerTranscode && !state.transcoding) {
+            engine.switchToTranscode(selectionPlan.reason)
+        }
+        if (selectionPlan.primaryEngine != kind) {
+            switchEngine(selectionPlan.primaryEngine)
+        } else if (decoderChanged) {
+            capturePlaybackHandover()
+            resume = state.currentIndex to engine.currentPositionMs()
+            engineGeneration++
+        }
+    }
+
+    LaunchedEffect(runtimeAssessment.runtimeFault, kind, sessionEngineSelection) {
+        val fault = runtimeAssessment.runtimeFault ?: return@LaunchedEffect
+        if (sessionEngineSelection != PlaybackEngineSelection.Auto || castAuthoritative) {
+            return@LaunchedEffect
+        }
+        val tried = enginesTried + kind
+        enginesTried = tried
+        val nextEngine = activePlan.engineOrder.firstOrNull { it !in tried }
+        AppLog.info(
+            category = "player.health",
+            event = "runtime_fault_recovery",
+            message = "YCore detected a silent playback failure",
+            attributes =
+                mapOf(
+                    "engine" to kind.name,
+                    "fault" to fault.kind.name,
+                    "nextEngine" to (nextEngine?.name ?: "server"),
+                ),
+        )
+        if (nextEngine != null) {
+            enginesTried = tried + nextEngine
+            switchEngine(nextEngine)
+        } else if (activeProbe.hasServerTranscode && !state.transcoding) {
+            engine.switchToTranscode(fault.reason)
+        }
+    }
+
     fun selectQuality(target: PlaybackQuality) {
         if (target == selectedQuality) return
         capturePlaybackHandover()
@@ -1335,21 +1417,36 @@ internal fun PlayerRoot(
 
     LaunchedEffect(engine, kind, subtitleControls.offsetMs) {
         val applied = engine.setSubtitleOffsetMs(subtitleControls.offsetMs)
-        if (!applied && subtitleControls.offsetMs != 0L && kind != PlayerEngine.Mpv) {
+        if (
+            !applied &&
+            subtitleControls.offsetMs != 0L &&
+            kind != PlayerEngine.Mpv &&
+            sessionEngineSelection == PlaybackEngineSelection.Auto
+        ) {
             switchEngine(PlayerEngine.Mpv)
         }
     }
     LaunchedEffect(engine, kind, subtitleControls.scale) {
         if (kind != PlayerEngine.Exo) {
             val applied = engine.setSubtitleScale(subtitleControls.scale)
-            if (!applied && subtitleControls.scale != 1f && kind != PlayerEngine.Mpv) {
+            if (
+                !applied &&
+                subtitleControls.scale != 1f &&
+                kind != PlayerEngine.Mpv &&
+                sessionEngineSelection == PlaybackEngineSelection.Auto
+            ) {
                 switchEngine(PlayerEngine.Mpv)
             }
         }
     }
     LaunchedEffect(engine, kind, subtitleControls.brightness) {
         val applied = engine.setSubtitleBrightness(subtitleControls.brightness)
-        if (!applied && subtitleControls.brightness != 1f && kind != PlayerEngine.Mpv) {
+        if (
+            !applied &&
+            subtitleControls.brightness != 1f &&
+            kind != PlayerEngine.Mpv &&
+            sessionEngineSelection == PlaybackEngineSelection.Auto
+        ) {
             switchEngine(PlayerEngine.Mpv)
         }
     }
@@ -1392,6 +1489,7 @@ internal fun PlayerRoot(
                 preferredEngine = kind,
                 preferredDecoderMode = effectiveDecoderMode,
                 optimizationMode = effectiveOptimizationMode,
+                engineSelection = sessionEngineSelection,
                 excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
                 engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
                 videoSupport =
@@ -1693,7 +1791,11 @@ internal fun PlayerRoot(
                                 primarySubtitle = null,
                             )
                         }
-                    } else if (track?.requiresStyledRenderer == true && kind != PlayerEngine.Mpv) {
+                    } else if (
+                        track?.requiresStyledRenderer == true &&
+                        kind != PlayerEngine.Mpv &&
+                        sessionEngineSelection == PlaybackEngineSelection.Auto
+                    ) {
                         pendingSubtitleLanguage = track.language ?: track.label
                         switchEngine(PlayerEngine.Mpv)
                         handoverItemId = currentItem?.id
@@ -1844,8 +1946,16 @@ internal fun PlayerRoot(
                 volumeKeyPresses = volumeKeyPresses.collectAsState().value,
                 brightness = brightness,
                 onBrightness = { setBrightness(it) },
-                engineOptions = PlayerEngine.selectable.map { it.label to (it == kind) },
-                onSelectEngine = { index -> switchEngine(PlayerEngine.selectable[index]) },
+                engineOptions =
+                    PlaybackEngineSelection.entries.map { selection ->
+                        val label =
+                            selection.lockedEngine?.let { "锁定 ${it.label}" }
+                                ?: "YCore 智能自动"
+                        label to (selection == sessionEngineSelection)
+                    },
+                onSelectEngine = { index ->
+                    PlaybackEngineSelection.entries.getOrNull(index)?.let(::selectEngineStrategy)
+                },
                 qualityOptions =
                     PlaybackQuality.entries.map {
                         it.dataEstimateLabel() to (it == selectedQuality)

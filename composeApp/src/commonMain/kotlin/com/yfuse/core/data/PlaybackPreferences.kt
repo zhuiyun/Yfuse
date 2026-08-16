@@ -3,6 +3,7 @@ package com.yfuse.core.data
 import com.russhwolf.settings.Settings
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureRecord
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.PlaybackPerformanceRecord
@@ -155,6 +156,17 @@ class PlaybackPreferences(
     fun setOptimizationMode(mode: PlaybackOptimizationMode) {
         _optimizationMode.value = mode
         settings.putString(KEY_OPTIMIZATION_MODE, mode.name)
+    }
+
+    private val _engineSelection =
+        MutableStateFlow(
+            enumSetting(KEY_ENGINE_SELECTION, PlaybackEngineSelection.Auto),
+        )
+    val engineSelection: StateFlow<PlaybackEngineSelection> = _engineSelection.asStateFlow()
+
+    fun setEngineSelection(selection: PlaybackEngineSelection) {
+        _engineSelection.value = selection
+        settings.putString(KEY_ENGINE_SELECTION, selection.name)
     }
 
     internal fun playbackFailureRecords(): List<PlaybackFailureRecord> =
@@ -503,6 +515,7 @@ class PlaybackPreferences(
         const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
         const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
         const val KEY_OPTIMIZATION_MODE = "player.optimizationMode"
+        const val KEY_ENGINE_SELECTION = "player.ycore.engineSelection"
         const val KEY_PLAYBACK_FAILURES = "player.ycore.failures.v1"
         const val KEY_PLAYBACK_PERFORMANCE = "player.ycore.performance.v1"
         const val KEY_SMART_CROSS_SERVER_SOURCE = "player.smartCrossServerSource"

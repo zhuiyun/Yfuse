@@ -11,6 +11,33 @@ enum class PlaybackOptimizationMode {
     Compatibility,
 }
 
+/** Whether YCore may orchestrate backends or must keep one backend for the session. */
+enum class PlaybackEngineSelection {
+    Auto,
+    LockExo,
+    LockMpv,
+    LockMdk,
+    ;
+
+    val lockedEngine: PlayerEngine?
+        get() =
+            when (this) {
+                Auto -> null
+                LockExo -> PlayerEngine.Exo
+                LockMpv -> PlayerEngine.Mpv
+                LockMdk -> PlayerEngine.Mdk
+            }
+
+    companion object {
+        fun locked(engine: PlayerEngine): PlaybackEngineSelection =
+            when (engine) {
+                PlayerEngine.Exo -> LockExo
+                PlayerEngine.Mpv -> LockMpv
+                PlayerEngine.Mdk -> LockMdk
+            }
+    }
+}
+
 /** The expensive part of the selected pipeline, kept separate from the engine name. */
 enum class PlaybackRenderPath {
     PlatformDirect,
@@ -89,10 +116,12 @@ fun planPlayback(
     preferredEngine: PlayerEngine,
     preferredDecoderMode: DecoderMode,
     optimizationMode: PlaybackOptimizationMode = PlaybackOptimizationMode.Balanced,
+    engineSelection: PlaybackEngineSelection = PlaybackEngineSelection.Auto,
     excludedEngines: Set<PlayerEngine> = emptySet(),
     engineCosts: Map<PlayerEngine, Int> = emptyMap(),
     videoSupport: PlaybackVideoSupport = capabilities.videoSupport(probe.source.videoRequirements),
 ): PlaybackPlan {
+    val lockedEngine = engineSelection.lockedEngine
     val discDecision = planDiscPlayback(probe)
     val audioNeedsNative =
         probe.audioCodec != null && probe.audioCodec !in capabilities.directPlayableAudio
@@ -105,13 +134,28 @@ fun planPlayback(
             videoSupport = videoSupport,
         )
     val discNeedsServer = discDecision.requiresServerTranscode
+    val unsupportedVideoCanUseLocalSoftware =
+        engineSelection == PlaybackEngineSelection.Auto &&
+            videoSupport.isUnsupported &&
+            !probe.source.needsDolbyDecoder &&
+            !probe.hasServerTranscode &&
+            !probe.usingServerTranscode
+    val unsupportedVideoUsesServer =
+        engineSelection == PlaybackEngineSelection.Auto &&
+            videoSupport.isUnsupported &&
+            !probe.source.needsDolbyDecoder &&
+            probe.hasServerTranscode &&
+            preferredDecoderMode != DecoderMode.Software
     val powerSaverToneMapTranscode =
         optimizationMode == PlaybackOptimizationMode.PowerSaver &&
             hdrRoute.engine == PlayerEngine.Mpv &&
             hdrRoute.reason != null &&
             probe.hasServerTranscode
     val requiresServerTranscode =
-        hdrRoute.requiresServerTranscode || discNeedsServer || powerSaverToneMapTranscode
+        (!unsupportedVideoCanUseLocalSoftware && hdrRoute.requiresServerTranscode) ||
+            unsupportedVideoUsesServer ||
+            discNeedsServer ||
+            powerSaverToneMapTranscode
     val strictPlatformPath =
         !probe.usingServerTranscode &&
             (
@@ -126,6 +170,9 @@ fun planPlayback(
     val contentEngine =
         when {
             strictPlatformPath -> PlayerEngine.Exo
+            lockedEngine != null -> lockedEngine
+            unsupportedVideoCanUseLocalSoftware -> PlayerEngine.Mpv
+            unsupportedVideoUsesServer -> PlayerEngine.Exo
             discNeedsServer -> PlayerEngine.Exo
             powerSaverToneMapTranscode -> PlayerEngine.Exo
             hdrRoute.engine != preferredEngine -> hdrRoute.engine
@@ -143,6 +190,7 @@ fun planPlayback(
     val requestedOrder =
         when {
             strictPlatformPath -> listOf(PlayerEngine.Exo)
+            lockedEngine != null -> listOf(lockedEngine)
             optimizationMode == PlaybackOptimizationMode.PowerSaver ->
                 listOf(contentEngine, PlayerEngine.Exo, PlayerEngine.Mdk, PlayerEngine.Mpv)
             optimizationMode == PlaybackOptimizationMode.Quality ->
@@ -154,7 +202,8 @@ fun planPlayback(
         }.filter(PlayerEngine.selectable::contains).distinct()
 
     val performanceRankingEligible =
-        optimizationMode == PlaybackOptimizationMode.Balanced &&
+        engineSelection == PlaybackEngineSelection.Auto &&
+            optimizationMode == PlaybackOptimizationMode.Balanced &&
             !strictPlatformPath &&
             !discDecision.requiresNativeEngine &&
             !probe.requiresNativeDemuxer &&
@@ -174,7 +223,12 @@ fun planPlayback(
         } else {
             requestedOrder
         }
-    val availableOrder = rankedOrder.filterNot(excludedEngines::contains)
+    val availableOrder =
+        if (lockedEngine != null && !strictPlatformPath) {
+            rankedOrder
+        } else {
+            rankedOrder.filterNot(excludedEngines::contains)
+        }
     val primary = availableOrder.firstOrNull() ?: requestedOrder.first()
     val finalOrder = listOf(primary) + availableOrder.filterNot { it == primary }
     val renderPath =
@@ -187,6 +241,12 @@ fun planPlayback(
         }
     val reason =
         when {
+            strictPlatformPath && lockedEngine != null && lockedEngine != PlayerEngine.Exo ->
+                "受保护内容需要安全输出，已临时使用平台内核"
+            lockedEngine != null -> "已锁定 ${lockedEngine.label}，YCore 不自动切换内核"
+            unsupportedVideoCanUseLocalSoftware ->
+                "${videoSupport.detail}，服务器无可用转码，使用 FFmpeg 软件解码"
+            unsupportedVideoUsesServer -> "${videoSupport.detail}，使用服务器转码后平台硬解"
             discDecision.reason != null -> discDecision.reason
             powerSaverToneMapTranscode -> "当前显示设备不支持片源 HDR，省电模式使用服务器色调映射"
             hdrRoute.reason != null -> hdrRoute.reason
@@ -205,7 +265,9 @@ fun planPlayback(
         primaryEngine = primary,
         decoderMode =
             when {
+                strictPlatformPath -> DecoderMode.Hardware
                 requiresServerTranscode -> DecoderMode.Hardware
+                unsupportedVideoCanUseLocalSoftware -> DecoderMode.Software
                 primary == PlayerEngine.Exo && optimizationMode == PlaybackOptimizationMode.PowerSaver ->
                     DecoderMode.Hardware
                 else -> hdrRoute.decoderMode

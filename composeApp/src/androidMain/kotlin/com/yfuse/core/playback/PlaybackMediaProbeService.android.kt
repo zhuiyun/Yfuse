@@ -50,17 +50,35 @@ private class AndroidPlaybackMediaProbeService(
         val result =
             withTimeoutOrNull(request.timeoutMs.coerceIn(MIN_PROBE_TIMEOUT_MS, MAX_PROBE_TIMEOUT_MS)) {
                 withContext(Dispatchers.IO) {
-                    val platform = inspect(request)
+                    val resolvedDiscKind =
+                        resolveLocalPlaybackDiscKind(
+                            context = context,
+                            uri = request.uri,
+                            declaredKind = request.baseline.discKind,
+                        )
+                    val resolvedRequest =
+                        if (resolvedDiscKind == request.baseline.discKind) {
+                            request
+                        } else {
+                            request.copy(
+                                baseline =
+                                    request.baseline.copy(
+                                        discSource = true,
+                                        discKind = resolvedDiscKind,
+                                    ),
+                            )
+                        }
+                    val platform = inspect(resolvedRequest)
                     if (!platform.requiresNativeProbe()) {
                         platform
                     } else {
                         val native =
                             nativeProbe.probe(
                                 PlaybackProbeRequest(
-                                    uri = request.uri,
+                                    uri = resolvedRequest.uri,
                                     baseline = platform.probe,
-                                    customUserAgent = request.customUserAgent,
-                                    timeoutMs = request.timeoutMs,
+                                    customUserAgent = resolvedRequest.customUserAgent,
+                                    timeoutMs = resolvedRequest.timeoutMs,
                                 ),
                             )
                         when {

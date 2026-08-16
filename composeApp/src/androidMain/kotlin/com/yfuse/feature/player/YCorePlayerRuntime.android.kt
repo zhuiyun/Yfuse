@@ -22,6 +22,7 @@ import com.yfuse.core.playback.PlaybackRuntimeEnvironmentProvider
 import com.yfuse.core.playback.YCorePlaybackSession
 import com.yfuse.core.playback.YCoreRuntimeAssessment
 import com.yfuse.core.playback.YCoreRuntimeObservation
+import kotlinx.coroutines.delay
 import org.koin.core.context.GlobalContext
 
 /** Explicit return type avoids Compose KMP lint inferring the constructor call as Unit. */
@@ -117,6 +118,21 @@ internal fun rememberYCoreRuntimeAssessment(
             )
         }
     var assessment by remember(session) { mutableStateOf(session.initialAssessment) }
+    var observationTick by remember(engine) { mutableStateOf(0L) }
+    LaunchedEffect(engine, castAuthoritative, state.playing, state.buffering, state.ended) {
+        if (
+            castAuthoritative ||
+            !engine.playbackRequested ||
+            state.buffering ||
+            state.ended
+        ) {
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(RUNTIME_OBSERVATION_INTERVAL_MS)
+            observationTick++
+        }
+    }
     LaunchedEffect(
         engine,
         castAuthoritative,
@@ -130,6 +146,7 @@ internal fun rememberYCoreRuntimeAssessment(
         state.diagnostics.droppedFrames,
         state.diagnostics.videoOutput,
         runtimeEnvironment.batteryPowerMilliwatts,
+        observationTick,
     ) {
         if (castAuthoritative) return@LaunchedEffect
         val observed =
@@ -141,7 +158,12 @@ internal fun rememberYCoreRuntimeAssessment(
                     buffering = state.buffering,
                     videoReady =
                         state.videoHeight > 0 ||
-                            state.diagnostics.videoOutput != "等待首帧",
+                            !state.diagnostics.videoOutput.contains("等待"),
+                    videoExpected = probe.source.videoCodec != null,
+                    audioReady =
+                        state.audioTracks.any { it.selected } ||
+                            !state.diagnostics.audioOutput.startsWith("等待"),
+                    audioExpected = probe.audioCodec != null || state.audioTracks.isNotEmpty(),
                     errorPresent = state.error != null,
                     ended = state.ended,
                     bufferEvents = state.diagnostics.bufferEvents,
@@ -154,6 +176,8 @@ internal fun rememberYCoreRuntimeAssessment(
     }
     return assessment
 }
+
+private const val RUNTIME_OBSERVATION_INTERVAL_MS = 2_000L
 
 /** Explicit Android return type avoids a false Unit inference in Compose's KMP lint model. */
 private fun createYCorePlaybackSession(
