@@ -2,7 +2,6 @@ package com.yfuse.core.playback
 
 import android.content.Context
 import android.net.Uri
-import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 
 private object LocalDiscImageKindCache {
@@ -36,16 +35,21 @@ internal fun resolveLocalPlaybackDiscKind(
     val resolved =
         runCatching {
             context.contentResolver.openInputStream(Uri.parse(uri))?.use { input ->
-                val output = ByteArrayOutputStream(DISC_IMAGE_READ_BUFFER_BYTES)
+                // Scanned chunk by chunk rather than read whole: buffering the ceiling and
+                // then copying it out of the stream cost two 8 MiB allocations before the
+                // first byte was compared, and every image was read to the ceiling even
+                // when its layout was recognisable in the first few kilobytes. A DVD's
+                // ISO9660 descriptors sit around 32 KiB in, so most images settle at once.
+                val scanner = PlaybackDiscImageScanner()
                 val buffer = ByteArray(DISC_IMAGE_READ_BUFFER_BYTES)
                 var remaining = MAX_DISC_IMAGE_INSPECTION_BYTES
                 while (remaining > 0) {
                     val count = input.read(buffer, 0, minOf(buffer.size, remaining))
                     if (count <= 0) break
-                    output.write(buffer, 0, count)
                     remaining -= count
+                    if (scanner.accept(buffer, count)) break
                 }
-                detectPlaybackDiscImageKind(output.toByteArray())
+                scanner.kind
             }
         }.getOrNull() ?: declaredKind
     LocalDiscImageKindCache.put(uri, resolved)
