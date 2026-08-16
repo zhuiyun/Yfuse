@@ -117,6 +117,9 @@ internal class ExoSecondarySubtitleController(
     private var prepared = false
     private var enabled = false
 
+    val needsReconciliation: Boolean
+        get() = enabled && prepared
+
     private val httpFactory =
         DefaultHttpDataSource
             .Factory()

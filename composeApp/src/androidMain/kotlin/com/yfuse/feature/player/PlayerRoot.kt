@@ -50,6 +50,7 @@ import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
+import com.yfuse.core.playback.PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS
 import com.yfuse.core.playback.PlaybackAdaptiveNetworkController
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
@@ -1313,53 +1314,65 @@ internal fun PlayerRoot(
         remember(engine, state.currentIndex, currentItem?.serverId) {
             createPlaybackAdaptiveNetworkController()
         }
+    val latestAdaptiveState by rememberUpdatedState(state)
     LaunchedEffect(
         engine,
-        state.diagnostics.bufferEvents,
-        state.diagnostics.bufferedDurationMs,
-        state.diagnostics.networkBitsPerSecond,
-        state.diagnostics.bitrateBitsPerSecond,
-        state.buffering,
-        state.positionMs,
+        adaptiveNetworkController,
         state.currentIndex,
+        state.playing,
+        state.buffering,
+        state.ended,
         autoQualityDowngrade,
         qualityLocked,
         castAuthoritative,
         activeProbe.localSource,
         selectedQuality,
     ) {
-        if (!autoQualityDowngrade || qualityLocked || castAuthoritative || activeProbe.localSource) {
+        if (
+            !autoQualityDowngrade ||
+            qualityLocked ||
+            castAuthoritative ||
+            activeProbe.localSource ||
+            (!state.playing && !state.buffering) ||
+            state.ended
+        ) {
             adaptiveNetworkController.reset(state.diagnostics.bufferEvents)
             return@LaunchedEffect
         }
-        val decision =
-            adaptiveNetworkController.observe(
-                PlaybackNetworkSample(
-                    nowEpochMs = System.currentTimeMillis(),
-                    playbackPositionMs = state.positionMs,
-                    bufferEvents = state.diagnostics.bufferEvents,
-                    bufferedDurationMs = state.diagnostics.bufferedDurationMs,
-                    networkBitsPerSecond = state.diagnostics.networkBitsPerSecond,
-                    mediaBitsPerSecond = state.diagnostics.bitrateBitsPerSecond,
-                    buffering = state.buffering,
-                ),
-            )
-        if (!decision.downgradeRecommended) return@LaunchedEffect
-        val target = lowerPlaybackQuality(selectedQuality) ?: return@LaunchedEffect
-        AppLog.info(
-            category = "player.quality",
-            event = "automatic_downgrade",
-            message = "YCore lowered playback quality after sustained network pressure",
-            attributes =
-                mapOf(
-                    "from" to selectedQuality.name,
-                    "to" to target.name,
-                    "reason" to decision.reason.orEmpty(),
-                    "throughputBitsPerSecond" to
-                        (decision.smoothedThroughputBitsPerSecond?.toString() ?: "unknown"),
-                ),
-        )
-        selectQuality(target)
+        while (true) {
+            val current = latestAdaptiveState
+            val decision =
+                adaptiveNetworkController.observe(
+                    PlaybackNetworkSample(
+                        nowEpochMs = System.currentTimeMillis(),
+                        playbackPositionMs = current.positionMs,
+                        bufferEvents = current.diagnostics.bufferEvents,
+                        bufferedDurationMs = current.diagnostics.bufferedDurationMs,
+                        networkBitsPerSecond = current.diagnostics.networkBitsPerSecond,
+                        mediaBitsPerSecond = current.diagnostics.bitrateBitsPerSecond,
+                        buffering = current.buffering,
+                    ),
+                )
+            if (decision.downgradeRecommended) {
+                val target = lowerPlaybackQuality(selectedQuality) ?: return@LaunchedEffect
+                AppLog.info(
+                    category = "player.quality",
+                    event = "automatic_downgrade",
+                    message = "YCore lowered playback quality after sustained network pressure",
+                    attributes =
+                        mapOf(
+                            "from" to selectedQuality.name,
+                            "to" to target.name,
+                            "reason" to decision.reason.orEmpty(),
+                            "throughputBitsPerSecond" to
+                                (decision.smoothedThroughputBitsPerSecond?.toString() ?: "unknown"),
+                        ),
+                )
+                selectQuality(target)
+                return@LaunchedEffect
+            }
+            delay(PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS)
+        }
     }
 
     LaunchedEffect(engine, requestedPlaybackSpeed) {

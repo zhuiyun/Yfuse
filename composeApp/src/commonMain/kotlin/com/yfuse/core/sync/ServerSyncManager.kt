@@ -9,12 +9,14 @@ import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -174,6 +176,7 @@ class ServerSyncManager(
     val syncProgress = MutableStateFlow(settings.getBoolean(PROGRESS_KEY, true))
     val syncArtwork = MutableStateFlow(settings.getBoolean(ARTWORK_KEY, true))
     val syncFavorites = MutableStateFlow(settings.getBoolean(FAVORITES_KEY, true))
+    private val appForeground = MutableStateFlow(false)
     private var automaticJob: Job? = null
     private var automaticScope: CoroutineScope? = null
 
@@ -192,22 +195,32 @@ class ServerSyncManager(
         )
         automaticJob =
             scope.launch {
-                while (true) {
-                    if (autoSync.value &&
-                        registry.data.value.servers
-                            .isNotEmpty()
-                    ) {
-                        syncAll()
+                appForeground
+                    .collectLatest { foreground ->
+                        if (!foreground) return@collectLatest
+                        while (true) {
+                            if (
+                                autoSync.value &&
+                                registry.data.value.servers
+                                    .isNotEmpty()
+                            ) {
+                                syncAll()
+                            }
+                            delay(PERIOD_MS)
+                        }
                     }
-                    delay(PERIOD_MS)
-                }
             }
+    }
+
+    /** Suspends automatic network and persistence work while the library UI is backgrounded. */
+    fun setAppForeground(value: Boolean) {
+        appForeground.value = value
     }
 
     fun setAutoSync(value: Boolean) {
         autoSync.value = value
         settings.putBoolean(AUTO_KEY, value)
-        if (value) automaticScope?.launch { syncAll() }
+        if (value && appForeground.value) automaticScope?.launch { syncAll() }
     }
 
     fun setMetadata(value: Boolean) {
@@ -407,7 +420,14 @@ class ServerSyncManager(
             return
         }
         setStatus(server) { it.copy(syncing = true, error = null) }
-        repo.userLibrarySnapshot(server).fold(
+        val snapshotResult =
+            try {
+                repo.userLibrarySnapshot(server)
+            } catch (cancelled: CancellationException) {
+                setStatus(server) { it.copy(syncing = false) }
+                throw cancelled
+            }
+        snapshotResult.fold(
             onSuccess = { remote ->
                 clearRetryState(server.id)
                 val conflicts = detectConflicts(server.id, remote)

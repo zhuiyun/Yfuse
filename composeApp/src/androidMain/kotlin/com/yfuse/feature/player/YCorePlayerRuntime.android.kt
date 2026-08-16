@@ -6,6 +6,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
@@ -118,64 +119,68 @@ internal fun rememberYCoreRuntimeAssessment(
             )
         }
     var assessment by remember(session) { mutableStateOf(session.initialAssessment) }
-    var observationTick by remember(engine) { mutableStateOf(0L) }
-    LaunchedEffect(engine, castAuthoritative, state.playing, state.buffering, state.ended) {
-        if (
-            castAuthoritative ||
-            !engine.playbackRequested ||
-            state.buffering ||
-            state.ended
-        ) {
-            return@LaunchedEffect
-        }
-        while (true) {
-            delay(RUNTIME_OBSERVATION_INTERVAL_MS)
-            observationTick++
-        }
-    }
+    val latestState by rememberUpdatedState(state)
+    val latestProbe by rememberUpdatedState(probe)
+    val latestRuntimeEnvironment by rememberUpdatedState(runtimeEnvironment)
     LaunchedEffect(
+        session,
         engine,
+        engineKind,
         castAuthoritative,
-        probe.capabilitySignature,
-        state.positionMs,
+        state.playing,
         state.buffering,
-        state.videoHeight,
-        state.error,
         state.ended,
-        state.diagnostics.bufferEvents,
-        state.diagnostics.droppedFrames,
-        state.diagnostics.videoOutput,
-        runtimeEnvironment.batteryPowerMilliwatts,
-        observationTick,
+        state.error != null,
     ) {
         if (castAuthoritative) return@LaunchedEffect
-        val observed =
-            session.observe(
-                YCoreRuntimeObservation(
-                    nowEpochMs = System.currentTimeMillis(),
-                    positionMs = state.positionMs,
-                    playbackRequested = engine.playbackRequested,
-                    buffering = state.buffering,
-                    videoReady =
-                        state.videoHeight > 0 ||
-                            !state.diagnostics.videoOutput.contains("等待"),
-                    videoExpected = probe.source.videoCodec != null,
-                    audioReady =
-                        state.audioTracks.any { it.selected } ||
-                            !state.diagnostics.audioOutput.startsWith("等待"),
-                    audioExpected = probe.audioCodec != null || state.audioTracks.isNotEmpty(),
-                    errorPresent = state.error != null,
-                    ended = state.ended,
-                    bufferEvents = state.diagnostics.bufferEvents,
-                    droppedFrames = state.diagnostics.droppedFrames,
-                    measuredPowerMilliwatts = runtimeEnvironment.batteryPowerMilliwatts,
-                ),
-            )
-        assessment = observed
-        if (observed.reportHealth) logHealth(engineKind, observed)
+        while (true) {
+            val current = latestState
+            val observed =
+                session.observe(
+                    current.runtimeObservation(
+                        engine = engine,
+                        probe = latestProbe,
+                        runtimeEnvironment = latestRuntimeEnvironment,
+                    ),
+                )
+            assessment = observed
+            if (observed.reportHealth) logHealth(engineKind, observed)
+            if (
+                !engine.playbackRequested ||
+                current.buffering ||
+                current.ended ||
+                current.error != null
+            ) {
+                return@LaunchedEffect
+            }
+            delay(RUNTIME_OBSERVATION_INTERVAL_MS)
+        }
     }
     return assessment
 }
+
+private fun PlaybackState.runtimeObservation(
+    engine: VideoEngine,
+    probe: PlaybackMediaProbe,
+    runtimeEnvironment: PlaybackRuntimeEnvironment,
+): YCoreRuntimeObservation =
+    YCoreRuntimeObservation(
+        nowEpochMs = System.currentTimeMillis(),
+        positionMs = positionMs,
+        playbackRequested = engine.playbackRequested,
+        buffering = buffering,
+        videoReady = videoHeight > 0 || !diagnostics.videoOutput.contains("等待"),
+        videoExpected = probe.source.videoCodec != null,
+        audioReady =
+            audioTracks.any { it.selected } ||
+                !diagnostics.audioOutput.startsWith("等待"),
+        audioExpected = probe.audioCodec != null || audioTracks.isNotEmpty(),
+        errorPresent = error != null,
+        ended = ended,
+        bufferEvents = diagnostics.bufferEvents,
+        droppedFrames = diagnostics.droppedFrames,
+        measuredPowerMilliwatts = runtimeEnvironment.batteryPowerMilliwatts,
+    )
 
 private const val RUNTIME_OBSERVATION_INTERVAL_MS = 2_000L
 

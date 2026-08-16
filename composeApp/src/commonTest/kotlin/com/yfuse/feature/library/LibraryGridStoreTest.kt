@@ -244,9 +244,10 @@ class LibraryGridStoreTest {
     @Test
     fun genres_fill_the_filter_row_and_a_selection_narrows_the_query() =
         runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
             val genres = mutableListOf<String?>()
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher) { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[{"Id":"g1","Name":"科幻"},{"Id":"g2","Name":"悬疑"}]}""")
                     } else {
@@ -260,16 +261,23 @@ class LibraryGridStoreTest {
                     repo,
                     registry(),
                     "lib1",
-                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                    mainContext = dispatcher,
                 ).create()
-            store.states.first { it.genres.isNotEmpty() && !it.loading && it.items.isNotEmpty() }
+            advanceUntilIdle()
+            assertTrue(
+                store.state.genres.isNotEmpty() &&
+                    !store.state.loading &&
+                    store.state.items.isNotEmpty(),
+            )
 
             store.accept(GridIntent.SetGenre("科幻"))
 
-            store.states.first { it.genre == "科幻" && !it.loading }
+            advanceUntilIdle()
+            assertEquals("科幻", store.state.genre)
+            assertFalse(store.state.loading)
             assertEquals(listOf(null, "科幻"), genres)
             store.dispose()
-            runCurrent()
+            advanceUntilIdle()
         }
 
     @Test

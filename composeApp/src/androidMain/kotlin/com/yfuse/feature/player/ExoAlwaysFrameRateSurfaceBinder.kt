@@ -79,7 +79,13 @@ internal class ExoAlwaysFrameRateSurfaceBinder(
                         return
                     }
                 }
-                handler.postDelayed(this, FRAME_RATE_POLL_MS)
+                val nextPollMs =
+                    if (targetPlayer == null || surface == null || frameRate <= 0f) {
+                        FRAME_RATE_SEARCH_POLL_MS
+                    } else {
+                        FRAME_RATE_STABLE_POLL_MS
+                    }
+                handler.postDelayed(this, nextPollMs)
             }
         }
 
@@ -182,5 +188,6 @@ private fun View.findExoPlayerView(): PlayerView? {
 }
 
 private const val FIRST_BIND_DELAY_MS = 100L
-private const val FRAME_RATE_POLL_MS = 500L
+private const val FRAME_RATE_SEARCH_POLL_MS = 500L
+private const val FRAME_RATE_STABLE_POLL_MS = 2_000L
 private const val MAX_PLAYER_VIEW_SEARCH_TICKS = 60

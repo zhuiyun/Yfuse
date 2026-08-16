@@ -18,6 +18,7 @@ import com.yfuse.app.launchWindowDarkMode
 import com.yfuse.app.splashBackground
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
+import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
@@ -33,6 +34,8 @@ import org.koin.core.context.GlobalContext
 
 class MainActivity : ComponentActivity() {
     private lateinit var updateManager: AppUpdateManager
+    private lateinit var serverHealthMonitor: ServerHealthMonitor
+    private lateinit var serverSyncManager: ServerSyncManager
     private var rootComponent: RootComponent? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +47,8 @@ class MainActivity : ComponentActivity() {
         // and eases towards the app theme. Repainting the window to the app theme here used to
         // produce a system -> app -> system -> app flash when those themes differed.
         val koin = GlobalContext.get()
+        serverHealthMonitor = koin.get()
+        serverSyncManager = koin.get()
         val themePreferences = koin.get<ThemePreferences>()
         val systemDark = resources.isNightMode()
         val appDark = themePreferences.mode.value.resolveDark(systemDark)
@@ -138,6 +143,12 @@ class MainActivity : ComponentActivity() {
         if (::updateManager.isInitialized) updateManager.resumeInstall()
     }
 
+    override fun onStart() {
+        super.onStart()
+        serverHealthMonitor.setAppForeground(true)
+        serverSyncManager.setAppForeground(true)
+    }
+
     /**
      * Launcher-icon switches are applied here rather than where they are chosen.
      *
@@ -147,6 +158,8 @@ class MainActivity : ComponentActivity() {
      * costs nothing; see [com.yfuse.feature.profile.applyPendingAppIconVariant].
      */
     override fun onStop() {
+        serverHealthMonitor.setAppForeground(false)
+        serverSyncManager.setAppForeground(false)
         super.onStop()
         applyPendingAppIconVariant()
     }

@@ -30,9 +30,6 @@ import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "YfusePlayer"
 
-/** mpv pushes `time-pos` per frame; only forward moves of at least this much. */
-private const val POSITION_STEP_MS = 200L
-
 /** A native load that cannot reach FILE_LOADED should not strand the fallback chain forever. */
 internal const val MPV_FILE_LOAD_TIMEOUT_MS = 8_000L
 
@@ -130,7 +127,7 @@ class MpvVideoEngine(
     @Volatile
     private var pendingSeekMs = startPositionMs.coerceAtLeast(0L)
 
-    private var lastPositionMs = -POSITION_STEP_MS
+    private var lastPositionMs = -PLAYBACK_PROGRESS_STEP_MS
     private var wasBuffering = true
 
     private val logObserver =
@@ -225,7 +222,7 @@ class MpvVideoEngine(
                 when (property) {
                     "time-pos" -> {
                         val ms = (value * 1000).toLong().coerceAtLeast(0L)
-                        if (kotlin.math.abs(ms - lastPositionMs) < POSITION_STEP_MS) return
+                        if (kotlin.math.abs(ms - lastPositionMs) < PLAYBACK_PROGRESS_STEP_MS) return
                         lastPositionMs = ms
                         _state.update {
                             it.copy(
@@ -707,7 +704,7 @@ class MpvVideoEngine(
         if (index !in items.indices) return
         playRequested = true
         pendingSeekMs = 0L
-        lastPositionMs = -POSITION_STEP_MS
+        lastPositionMs = -PLAYBACK_PROGRESS_STEP_MS
         val transcoding = index in transcodedIndices
         val nextItem = items.getOrNull(index)
         _state.update {
