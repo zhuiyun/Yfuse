@@ -1,5 +1,7 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackDiscNavigationState
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.roundToInt
 
@@ -38,6 +40,21 @@ data class PlaybackDiagnostics(
     val audioOutput: String = "等待音频输出",
     /** Current display/audio-route capability snapshot, kept separate from active output. */
     val deviceOutputCapabilities: String = "未探测",
+    /** YCore route selected before backend construction: direct/native/GPU/server. */
+    val plannedRenderPath: String = "",
+    /** Human-readable explanation when content or device facts override the preferred backend. */
+    val planningReason: String? = null,
+    /** Runtime first-frame, rebuffer and dropped-frame assessment for the active engine binding. */
+    val playbackHealth: String = "采集中",
+    /** Local device-cost estimate; server energy use is deliberately outside this label. */
+    val powerProfile: String = "待规划",
+    /** Battery saver and thermal pressure that may temporarily override the requested mode. */
+    val resourcePressure: String = "正常",
+    /** Fast metadata or bounded platform extractor used for the active route. */
+    val mediaProbe: String = "服务端元数据",
+    /** Privacy-safe rolling benchmark for this capability signature and device. */
+    val performanceBaseline: String = "尚无完整样本",
+    val startupTimeMs: Long = 0L,
     /** Why playback is not using the original direct-play path. */
     val fallbackReason: String? = null,
     val bitrateBitsPerSecond: Long = 0L,
@@ -74,6 +91,8 @@ data class PlaybackState(
     val itemCount: Int = 1,
     val audioTracks: List<EngineTrack> = emptyList(),
     val subtitleTracks: List<EngineTrack> = emptyList(),
+    /** DVD/Blu-ray title, chapter and menu state; empty for ordinary files. */
+    val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
     val error: String? = null,
     /** True after the current item reaches its natural end. */
     val ended: Boolean = false,
@@ -145,6 +164,15 @@ interface VideoEngine {
 
     /** [EngineTrack.OFF] disables subtitles. */
     fun selectSubtitleTrack(id: String)
+
+    /** Selects a native optical-disc title. Returns false when the backend cannot navigate it. */
+    fun selectDiscTitle(index: Int): Boolean = false
+
+    /** Selects a chapter inside the active title. */
+    fun selectDiscChapter(index: Int): Boolean = false
+
+    /** Sends a DVD/Blu-ray menu command to the native navigation backend. */
+    fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
     /** True only when the backend really renders a second subtitle track. */
     val supportsSecondarySubtitleTrack: Boolean get() = false

@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import android.view.Surface
 import com.yfuse.core.data.PlaybackPreferences
@@ -8,6 +9,12 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackDiscKind
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackDiscNavigationState
+import com.yfuse.core.playback.bluRayDiscRoot
+import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
+import com.yfuse.core.playback.detectPlaybackDiscKind
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -22,9 +29,6 @@ import org.koin.core.context.GlobalContext
 import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "YfusePlayer"
-
-/** mpv pushes `time-pos` per frame; only forward moves of at least this much. */
-private const val POSITION_STEP_MS = 200L
 
 /** A native load that cannot reach FILE_LOADED should not strand the fallback chain forever. */
 internal const val MPV_FILE_LOAD_TIMEOUT_MS = 8_000L
@@ -87,6 +91,8 @@ class MpvVideoEngine(
                 currentIndex = startIndex,
                 itemCount = items.size.coerceAtLeast(1),
                 transcoding = startIndex in transcodedIndices,
+                discNavigation =
+                    items.getOrNull(startIndex).initialDiscNavigation(startIndex in transcodedIndices),
                 videoHeight =
                     items
                         .getOrNull(startIndex)
@@ -121,7 +127,7 @@ class MpvVideoEngine(
     @Volatile
     private var pendingSeekMs = startPositionMs.coerceAtLeast(0L)
 
-    private var lastPositionMs = -POSITION_STEP_MS
+    private var lastPositionMs = -PLAYBACK_PROGRESS_STEP_MS
     private var wasBuffering = true
 
     private val logObserver =
@@ -169,6 +175,8 @@ class MpvVideoEngine(
             ) {
                 when (property) {
                     "track-list/count" -> readTracks()
+                    "editions", "current-edition", "chapters", "chapter" ->
+                        readDiscNavigation()
                     "video-params/h" -> _state.update { it.copy(videoHeight = value.toInt()) }
                     "video-params/w" ->
                         _state.update {
@@ -214,7 +222,7 @@ class MpvVideoEngine(
                 when (property) {
                     "time-pos" -> {
                         val ms = (value * 1000).toLong().coerceAtLeast(0L)
-                        if (kotlin.math.abs(ms - lastPositionMs) < POSITION_STEP_MS) return
+                        if (kotlin.math.abs(ms - lastPositionMs) < PLAYBACK_PROGRESS_STEP_MS) return
                         lastPositionMs = ms
                         _state.update {
                             it.copy(
@@ -377,6 +385,7 @@ class MpvVideoEngine(
                             )
                         }
                         readTracks()
+                        readDiscNavigation()
                         readVideoSize()
                         readVideoOutput()
                         logAudioOutput()
@@ -511,6 +520,10 @@ class MpvVideoEngine(
             instance.observeProperty("paused-for-cache", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             instance.observeProperty("eof-reached", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             instance.observeProperty("track-list/count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+            instance.observeProperty("editions", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+            instance.observeProperty("current-edition", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+            instance.observeProperty("chapters", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+            instance.observeProperty("chapter", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("video-params/h", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("video-params/w", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("video-params/gamma", MPVLib.MpvFormat.MPV_FORMAT_STRING)
@@ -631,6 +644,20 @@ class MpvVideoEngine(
 
     override fun selectSubtitleTrack(id: String) = selectTrack("sid", id)
 
+    override fun selectDiscTitle(index: Int): Boolean {
+        val count = _state.value.discNavigation.titleCount
+        if (index !in 0 until count) return false
+        return withMpvResult { it.setPropertyInt("edition", index) }
+    }
+
+    override fun selectDiscChapter(index: Int): Boolean {
+        val count = _state.value.discNavigation.chapterCount
+        if (index !in 0 until count) return false
+        return withMpvResult { it.setPropertyInt("chapter", index) }
+    }
+
+    override fun sendDiscMenuCommand(_command: PlaybackDiscMenuCommand): Boolean = false
+
     override val supportsSecondarySubtitleTrack: Boolean = true
 
     override fun selectSecondarySubtitleTrack(id: String): Boolean =
@@ -677,7 +704,7 @@ class MpvVideoEngine(
         if (index !in items.indices) return
         playRequested = true
         pendingSeekMs = 0L
-        lastPositionMs = -POSITION_STEP_MS
+        lastPositionMs = -PLAYBACK_PROGRESS_STEP_MS
         val transcoding = index in transcodedIndices
         val nextItem = items.getOrNull(index)
         _state.update {
@@ -695,6 +722,7 @@ class MpvVideoEngine(
                 automaticFallbackBlocked = false,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
+                discNavigation = nextItem.initialDiscNavigation(transcoding),
                 diagnostics =
                     initialPlaybackDiagnostics(
                         engine = "libmpv",
@@ -813,6 +841,7 @@ class MpvVideoEngine(
                 bufferedPositionMs = it.positionMs,
                 ended = false,
                 transcoding = true,
+                discNavigation = PlaybackDiscNavigationState(),
                 fallbacksExhausted = false,
                 automaticFallbackBlocked = false,
                 diagnostics =
@@ -950,6 +979,45 @@ class MpvVideoEngine(
         }
     }
 
+    private fun readDiscNavigation() {
+        val instance = mpv ?: return
+        runCatching {
+            val previous = _state.value.discNavigation
+            if (previous.kind == PlaybackDiscKind.None) return
+            val titleCount = instance.getPropertyInt("editions")?.coerceAtLeast(0) ?: 0
+            val chapterCount = instance.getPropertyInt("chapters")?.coerceAtLeast(0) ?: 0
+            val selectedTitle =
+                instance
+                    .getPropertyInt("current-edition")
+                    ?.coerceIn(0, (titleCount - 1).coerceAtLeast(0))
+                    ?: 0
+            val selectedChapter =
+                instance
+                    .getPropertyInt("chapter")
+                    ?.coerceIn(0, (chapterCount - 1).coerceAtLeast(0))
+                    ?: 0
+            _state.update {
+                it.copy(
+                    discNavigation =
+                        previous.copy(
+                            titleCount = titleCount,
+                            selectedTitleIndex = selectedTitle,
+                            chapterCount = chapterCount,
+                            selectedChapterIndex = selectedChapter,
+                            menuSupported = false,
+                            menuActive = false,
+                        ),
+                )
+            }
+        }.onFailure {
+            AppLog.info(
+                category = "player.mpv",
+                event = "disc_navigation_unavailable",
+                message = "The bundled mpv build does not expose optical-disc navigation",
+            )
+        }
+    }
+
     private fun readVideoSize() {
         withMpv { instance ->
             instance.getPropertyInt("video-params/h")?.let { height ->
@@ -1070,13 +1138,43 @@ class MpvVideoEngine(
     /** Issues `loadfile replace` and reserves the END_FILE that closes its predecessor. */
     private fun replaceFile(url: String): Boolean {
         val replacing = endFileTracker.beforeLoad()
-        val loaded = withMpvResult { it.command(arrayOf("loadfile", url)) }
+        val loaded =
+            withMpvResult { instance ->
+                instance.command(arrayOf("loadfile", instance.prepareDiscUrl(url)))
+            }
         if (!loaded) {
             endFileTracker.rollbackLoad(replacing)
         } else {
             armFileLoadWatchdog()
         }
         return loaded
+    }
+
+    private fun MPVLib.prepareDiscUrl(url: String): String {
+        if (!url.startsWith("file://", ignoreCase = true)) return url
+        val item = items.getOrNull(_state.value.currentIndex) ?: return url
+        val version = item.activeVersion
+        val declaredKind =
+            detectPlaybackDiscKind(
+                container = version?.container,
+                labelHint = version?.label,
+                declaredDiscSource = version?.discSource == true,
+            )
+        val kind = cachedLocalPlaybackDiscKind(url) ?: declaredKind
+        val path = Uri.parse(url).path?.takeIf(String::isNotBlank) ?: return url
+        return when (kind) {
+            PlaybackDiscKind.Dvd -> {
+                setPropertyString("dvd-device", path)
+                "dvd://"
+            }
+            PlaybackDiscKind.BluRay,
+            PlaybackDiscKind.Bdmv,
+            -> {
+                setPropertyString("bluray-device", bluRayDiscRoot(path))
+                "bd://"
+            }
+            else -> url
+        }
     }
 
     private fun armFileLoadWatchdog() {
@@ -1175,4 +1273,17 @@ class MpvVideoEngine(
                 },
             )
     }
+}
+
+private fun PlayerMediaItem?.initialDiscNavigation(transcoding: Boolean): PlaybackDiscNavigationState {
+    if (this == null || transcoding) return PlaybackDiscNavigationState()
+    val version = activeVersion
+    return PlaybackDiscNavigationState(
+        kind =
+            detectPlaybackDiscKind(
+                container = version?.container,
+                labelHint = version?.label,
+                declaredDiscSource = version?.discSource == true,
+            ),
+    )
 }

@@ -50,10 +50,19 @@ import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
+import com.yfuse.core.playback.PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS
+import com.yfuse.core.playback.PlaybackAdaptiveNetworkController
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
-import com.yfuse.core.playback.PlaybackSourceRequirements
-import com.yfuse.core.playback.playbackHdrRoute
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackEngineSelection
+import com.yfuse.core.playback.PlaybackFailureMemory
+import com.yfuse.core.playback.PlaybackNetworkSample
+import com.yfuse.core.playback.PlaybackPerformanceMemory
+import com.yfuse.core.playback.PlaybackProbeStatus
+import com.yfuse.core.playback.classifyPlaybackFailure
+import com.yfuse.core.playback.planPlayback
+import com.yfuse.core.playback.resolvePlaybackOptimization
 import com.yfuse.core.sync.WatchTogetherClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -65,7 +74,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
 
-private const val AUTO_QUALITY_DOWNGRADE_BUFFER_STRIKES = 2
 private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 
 /**
@@ -114,6 +122,11 @@ internal fun PlayerRoot(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val optimizationMode by playbackPreferences.optimizationMode.collectAsState()
+    val configuredEngineSelection by playbackPreferences.engineSelection.collectAsState()
+    var sessionEngineSelection by remember {
+        mutableStateOf(configuredEngineSelection)
+    }
 
     /**
      * Decide the initial HDR path before constructing a backend. Exo is selected for a verified
@@ -145,26 +158,37 @@ internal fun PlayerRoot(
                 .getOrNull()
                 ?: PlaybackDeviceCapabilities.conservative()
         }
-    val initialHdrRoute =
+    val runtimeEnvironment = rememberPlaybackRuntimeEnvironment()
+    val resolvedOptimization = resolvePlaybackOptimization(optimizationMode, runtimeEnvironment)
+    val effectiveOptimizationMode = resolvedOptimization.mode
+    val failureMemory =
+        remember(playbackPreferences) {
+            createPlaybackFailureMemory(playbackPreferences)
+        }
+    val performanceMemory =
+        remember(playbackPreferences) {
+            createPlaybackPerformanceMemory(playbackPreferences)
+        }
+    val initialPlaybackPlan =
         run {
-            val version = items.getOrNull(startIndex)?.activeVersion
-            val source =
-                version?.sourceRequirements()
-                    ?: PlaybackSourceRequirements(false, false, null)
-            playbackHdrRoute(
-                source = source,
+            val probe = items.getOrNull(startIndex).playbackMediaProbe()
+            planPlayback(
+                probe = probe,
                 capabilities = deviceCapabilities,
                 preferredEngine = initialEngine,
                 preferredDecoderMode = decoderMode,
+                optimizationMode = effectiveOptimizationMode,
+                engineSelection = sessionEngineSelection,
+                engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                 videoSupport =
-                    capabilityProvider?.videoSupport(source.videoRequirements)
-                        ?: deviceCapabilities.videoSupport(source.videoRequirements),
+                    capabilityProvider?.videoSupport(probe.source.videoRequirements)
+                        ?: deviceCapabilities.videoSupport(probe.source.videoRequirements),
             )
         }
     var kind by remember {
-        mutableStateOf(initialHdrRoute.engine)
+        mutableStateOf(initialPlaybackPlan.primaryEngine)
     }
-    var effectiveDecoderMode by remember { mutableStateOf(initialHdrRoute.decoderMode) }
+    var effectiveDecoderMode by remember { mutableStateOf(initialPlaybackPlan.decoderMode) }
     // Where a newly built engine should start: index + position, updated on
     // every handover so the switch is seamless.
     var resume by remember { mutableStateOf(startIndex to startPositionMs) }
@@ -225,25 +249,30 @@ internal fun PlayerRoot(
             capabilityRevision,
             kind,
             effectiveDecoderMode,
+            effectiveOptimizationMode,
+            sessionEngineSelection,
         ) {
             activeItems.map { item ->
-                val source = item.activeVersion?.sourceRequirements() ?: return@map item
+                val probe = item.playbackMediaProbe()
                 val videoSupport =
-                    capabilityProvider?.videoSupport(source.videoRequirements)
-                        ?: deviceCapabilities.videoSupport(source.videoRequirements)
-                val route =
-                    playbackHdrRoute(
-                        source = source,
+                    capabilityProvider?.videoSupport(probe.source.videoRequirements)
+                        ?: deviceCapabilities.videoSupport(probe.source.videoRequirements)
+                val plan =
+                    planPlayback(
+                        probe = probe,
                         capabilities = deviceCapabilities,
                         preferredEngine = kind,
                         preferredDecoderMode = effectiveDecoderMode,
+                        optimizationMode = effectiveOptimizationMode,
+                        engineSelection = sessionEngineSelection,
+                        engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                         videoSupport = videoSupport,
                     )
                 val incompatibleQueuedDolbyEngine =
-                    source.needsDolbyDecoder && route.engine != kind
-                if (route.requiresServerTranscode || incompatibleQueuedDolbyEngine) {
+                    probe.source.needsDolbyDecoder && plan.primaryEngine != kind
+                if (plan.requiresServerTranscode || incompatibleQueuedDolbyEngine) {
                     item.withForcedServerTranscode(
-                        route.reason
+                        plan.reason
                             ?: "队列当前内核无法无损切换 Dolby Vision，已预先选择服务器转码",
                     )
                 } else {
@@ -286,6 +315,7 @@ internal fun PlayerRoot(
                 startIndex = resume.first,
                 startPositionMs = resume.second,
                 decoderMode = effectiveDecoderMode,
+                optimizationMode = effectiveOptimizationMode,
                 autoNext = autoNext,
                 quality = selectedQuality,
                 customUserAgent = customUserAgent,
@@ -327,25 +357,35 @@ internal fun PlayerRoot(
 
     val localState by engine.state.collectAsState()
     var appliedCapabilityRevision by remember { mutableStateOf(capabilityRevision) }
-    LaunchedEffect(capabilityRevision) {
-        if (capabilityRevision == appliedCapabilityRevision) return@LaunchedEffect
+    var appliedOptimizationMode by remember { mutableStateOf(effectiveOptimizationMode) }
+    LaunchedEffect(capabilityRevision, effectiveOptimizationMode) {
+        if (
+            capabilityRevision == appliedCapabilityRevision &&
+            effectiveOptimizationMode == appliedOptimizationMode
+        ) {
+            return@LaunchedEffect
+        }
         appliedCapabilityRevision = capabilityRevision
+        appliedOptimizationMode = effectiveOptimizationMode
         val index = localState.currentIndex.coerceIn(0, (activeItems.size - 1).coerceAtLeast(0))
-        val source = activeItems.getOrNull(index)?.activeVersion?.sourceRequirements()
-        val route =
-            source?.let { requirements ->
-                playbackHdrRoute(
-                    source = requirements,
+        val plan =
+            activeItems.getOrNull(index)?.let { item ->
+                val probe = item.playbackMediaProbe(usingServerTranscode = localState.transcoding)
+                planPlayback(
+                    probe = probe,
                     capabilities = deviceCapabilities,
                     preferredEngine = kind,
                     preferredDecoderMode = effectiveDecoderMode,
+                    optimizationMode = effectiveOptimizationMode,
+                    engineSelection = sessionEngineSelection,
+                    engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                     videoSupport =
-                        capabilityProvider?.videoSupport(requirements.videoRequirements)
-                            ?: deviceCapabilities.videoSupport(requirements.videoRequirements),
+                        capabilityProvider?.videoSupport(probe.source.videoRequirements)
+                            ?: deviceCapabilities.videoSupport(probe.source.videoRequirements),
                 )
             }
-        val targetEngine = route?.engine ?: kind
-        val targetDecoder = route?.decoderMode ?: effectiveDecoderMode
+        val targetEngine = plan?.primaryEngine ?: kind
+        val targetDecoder = plan?.decoderMode ?: effectiveDecoderMode
         val targetTranscoding =
             preflightItems
                 .getOrNull(index)
@@ -375,7 +415,7 @@ internal fun PlayerRoot(
                 buildMap {
                     put("revision", capabilityRevision.toString())
                     put("itemIndex", index.toString())
-                    route?.reason?.let { put("reason", it) }
+                    plan?.reason?.let { put("reason", it) }
                 },
         )
     }
@@ -408,11 +448,82 @@ internal fun PlayerRoot(
         }
     val deviceCapabilityLabel =
         remember(deviceCapabilities) { deviceCapabilities.diagnosticLabel() }
+    val activeProbeResult =
+        rememberDeepPlaybackProbe(
+            item = localCastItem,
+            transcoding = localState.transcoding,
+            customUserAgent = customUserAgent,
+        )
+    val activeProbe = activeProbeResult.probe
+    val activePlan =
+        planPlayback(
+            probe = activeProbe,
+            capabilities = deviceCapabilities,
+            preferredEngine = kind,
+            preferredDecoderMode = effectiveDecoderMode,
+            optimizationMode = effectiveOptimizationMode,
+            engineSelection = sessionEngineSelection,
+            excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
+            engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
+            videoSupport =
+                capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
+                    ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
+        )
+    val runtimeAssessment =
+        rememberYCoreRuntimeAssessment(
+            engine = engine,
+            engineKind = kind,
+            probe = activeProbe,
+            plan = activePlan,
+            failureMemory = failureMemory,
+            performanceMemory = performanceMemory,
+            runtimeEnvironment = runtimeEnvironment,
+            castAuthoritative = castAuthoritative,
+            state = localState,
+        )
+    LaunchedEffect(activeProbe.probeDepth, activeProbe.capabilitySignature) {
+        if (activeProbeResult.status != PlaybackProbeStatus.Complete || castAuthoritative) {
+            return@LaunchedEffect
+        }
+        if (activePlan.requiresServerTranscode && !localState.transcoding) {
+            engine.switchToTranscode(activePlan.reason)
+            return@LaunchedEffect
+        }
+        val baselineDiscKind =
+            localCastItem
+                .playbackMediaProbe(usingServerTranscode = localState.transcoding)
+                .discKind
+        val resolvedDiscRouteChanged =
+            kind == PlayerEngine.Mpv &&
+                baselineDiscKind == com.yfuse.core.playback.PlaybackDiscKind.Iso &&
+                activeProbe.discKind != baselineDiscKind
+        if (
+            activePlan.primaryEngine != kind ||
+            activePlan.decoderMode != effectiveDecoderMode ||
+            resolvedDiscRouteChanged
+        ) {
+            resume = localState.currentIndex to engine.currentPositionMs()
+            kind = activePlan.primaryEngine
+            effectiveDecoderMode = activePlan.decoderMode
+            engineGeneration++
+        }
+    }
     val state =
         baseState.copy(
             diagnostics =
                 baseState.diagnostics.copy(
                     deviceOutputCapabilities = deviceCapabilityLabel,
+                    plannedRenderPath = activePlan.renderPath.name,
+                    planningReason = activePlan.reason ?: resolvedOptimization.reason,
+                    playbackHealth =
+                        runtimeAssessment.runtimeFault?.reason
+                            ?: runtimeAssessment.health.diagnosticLabel,
+                    powerProfile = runtimeAssessment.power.diagnosticLabel,
+                    resourcePressure = runtimeEnvironment.diagnosticLabel,
+                    mediaProbe = activeProbeResult.diagnosticLabel,
+                    performanceBaseline =
+                        performanceMemory.diagnosticLabel(activeProbe.capabilitySignature),
+                    startupTimeMs = runtimeAssessment.health.startupTimeMs ?: 0L,
                 ),
         )
 
@@ -1131,6 +1242,64 @@ internal fun PlayerRoot(
         kind = target
     }
 
+    fun selectEngineStrategy(selection: PlaybackEngineSelection) {
+        if (selection == sessionEngineSelection) return
+        sessionEngineSelection = selection
+        val selectionPlan =
+            planPlayback(
+                probe = activeProbe,
+                capabilities = deviceCapabilities,
+                preferredEngine = kind,
+                preferredDecoderMode = effectiveDecoderMode,
+                optimizationMode = effectiveOptimizationMode,
+                engineSelection = selection,
+                excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
+                engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
+                videoSupport =
+                    capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
+                        ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
+            )
+        val decoderChanged = selectionPlan.decoderMode != effectiveDecoderMode
+        effectiveDecoderMode = selectionPlan.decoderMode
+        if (selectionPlan.requiresServerTranscode && !state.transcoding) {
+            engine.switchToTranscode(selectionPlan.reason)
+        }
+        if (selectionPlan.primaryEngine != kind) {
+            switchEngine(selectionPlan.primaryEngine)
+        } else if (decoderChanged) {
+            capturePlaybackHandover()
+            resume = state.currentIndex to engine.currentPositionMs()
+            engineGeneration++
+        }
+    }
+
+    LaunchedEffect(runtimeAssessment.runtimeFault, kind, sessionEngineSelection) {
+        val fault = runtimeAssessment.runtimeFault ?: return@LaunchedEffect
+        if (sessionEngineSelection != PlaybackEngineSelection.Auto || castAuthoritative) {
+            return@LaunchedEffect
+        }
+        val tried = enginesTried + kind
+        enginesTried = tried
+        val nextEngine = activePlan.engineOrder.firstOrNull { it !in tried }
+        AppLog.info(
+            category = "player.health",
+            event = "runtime_fault_recovery",
+            message = "YCore detected a silent playback failure",
+            attributes =
+                mapOf(
+                    "engine" to kind.name,
+                    "fault" to fault.kind.name,
+                    "nextEngine" to (nextEngine?.name ?: "server"),
+                ),
+        )
+        if (nextEngine != null) {
+            enginesTried = tried + nextEngine
+            switchEngine(nextEngine)
+        } else if (activeProbe.hasServerTranscode && !state.transcoding) {
+            engine.switchToTranscode(fault.reason)
+        }
+    }
+
     fun selectQuality(target: PlaybackQuality) {
         if (target == selectedQuality) return
         capturePlaybackHandover()
@@ -1141,38 +1310,69 @@ internal fun PlayerRoot(
         engineGeneration++
     }
 
-    var lastAdaptiveBufferEvents by remember(engine) {
-        mutableIntStateOf(state.diagnostics.bufferEvents)
-    }
-    var adaptiveBufferStrikes by remember(state.currentIndex, currentItem?.serverId) {
-        mutableIntStateOf(0)
-    }
+    val adaptiveNetworkController: PlaybackAdaptiveNetworkController =
+        remember(engine, state.currentIndex, currentItem?.serverId) {
+            createPlaybackAdaptiveNetworkController()
+        }
+    val latestAdaptiveState by rememberUpdatedState(state)
     LaunchedEffect(
         engine,
-        state.diagnostics.bufferEvents,
+        adaptiveNetworkController,
         state.currentIndex,
+        state.playing,
+        state.buffering,
+        state.ended,
         autoQualityDowngrade,
         qualityLocked,
+        castAuthoritative,
+        activeProbe.localSource,
+        selectedQuality,
     ) {
-        val newEvents = state.diagnostics.bufferEvents - lastAdaptiveBufferEvents
-        if (newEvents <= 0) return@LaunchedEffect
-        lastAdaptiveBufferEvents = state.diagnostics.bufferEvents
-        adaptiveBufferStrikes += newEvents
-        if (!autoQualityDowngrade || qualityLocked || state.positionMs < 5_000L) {
+        if (
+            !autoQualityDowngrade ||
+            qualityLocked ||
+            castAuthoritative ||
+            activeProbe.localSource ||
+            (!state.playing && !state.buffering) ||
+            state.ended
+        ) {
+            adaptiveNetworkController.reset(state.diagnostics.bufferEvents)
             return@LaunchedEffect
         }
-        if (adaptiveBufferStrikes < AUTO_QUALITY_DOWNGRADE_BUFFER_STRIKES) {
-            return@LaunchedEffect
+        while (true) {
+            val current = latestAdaptiveState
+            val decision =
+                adaptiveNetworkController.observe(
+                    PlaybackNetworkSample(
+                        nowEpochMs = System.currentTimeMillis(),
+                        playbackPositionMs = current.positionMs,
+                        bufferEvents = current.diagnostics.bufferEvents,
+                        bufferedDurationMs = current.diagnostics.bufferedDurationMs,
+                        networkBitsPerSecond = current.diagnostics.networkBitsPerSecond,
+                        mediaBitsPerSecond = current.diagnostics.bitrateBitsPerSecond,
+                        buffering = current.buffering,
+                    ),
+                )
+            if (decision.downgradeRecommended) {
+                val target = lowerPlaybackQuality(selectedQuality) ?: return@LaunchedEffect
+                AppLog.info(
+                    category = "player.quality",
+                    event = "automatic_downgrade",
+                    message = "YCore lowered playback quality after sustained network pressure",
+                    attributes =
+                        mapOf(
+                            "from" to selectedQuality.name,
+                            "to" to target.name,
+                            "reason" to decision.reason.orEmpty(),
+                            "throughputBitsPerSecond" to
+                                (decision.smoothedThroughputBitsPerSecond?.toString() ?: "unknown"),
+                        ),
+                )
+                selectQuality(target)
+                return@LaunchedEffect
+            }
+            delay(PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS)
         }
-        val target = lowerPlaybackQuality(selectedQuality) ?: return@LaunchedEffect
-        adaptiveBufferStrikes = 0
-        AppLog.info(
-            category = "player.quality",
-            event = "automatic_downgrade",
-            message = "Playback quality was lowered after buffering",
-            attributes = mapOf("from" to selectedQuality.name, "to" to target.name),
-        )
-        selectQuality(target)
     }
 
     LaunchedEffect(engine, requestedPlaybackSpeed) {
@@ -1230,21 +1430,36 @@ internal fun PlayerRoot(
 
     LaunchedEffect(engine, kind, subtitleControls.offsetMs) {
         val applied = engine.setSubtitleOffsetMs(subtitleControls.offsetMs)
-        if (!applied && subtitleControls.offsetMs != 0L && kind != PlayerEngine.Mpv) {
+        if (
+            !applied &&
+            subtitleControls.offsetMs != 0L &&
+            kind != PlayerEngine.Mpv &&
+            sessionEngineSelection == PlaybackEngineSelection.Auto
+        ) {
             switchEngine(PlayerEngine.Mpv)
         }
     }
     LaunchedEffect(engine, kind, subtitleControls.scale) {
         if (kind != PlayerEngine.Exo) {
             val applied = engine.setSubtitleScale(subtitleControls.scale)
-            if (!applied && subtitleControls.scale != 1f && kind != PlayerEngine.Mpv) {
+            if (
+                !applied &&
+                subtitleControls.scale != 1f &&
+                kind != PlayerEngine.Mpv &&
+                sessionEngineSelection == PlaybackEngineSelection.Auto
+            ) {
                 switchEngine(PlayerEngine.Mpv)
             }
         }
     }
     LaunchedEffect(engine, kind, subtitleControls.brightness) {
         val applied = engine.setSubtitleBrightness(subtitleControls.brightness)
-        if (!applied && subtitleControls.brightness != 1f && kind != PlayerEngine.Mpv) {
+        if (
+            !applied &&
+            subtitleControls.brightness != 1f &&
+            kind != PlayerEngine.Mpv &&
+            sessionEngineSelection == PlaybackEngineSelection.Auto
+        ) {
             switchEngine(PlayerEngine.Mpv)
         }
     }
@@ -1267,13 +1482,37 @@ internal fun PlayerRoot(
         kind,
         currentItem?.serverId,
         currentItem?.versionId,
+        state.error,
     ) {
         if (!state.fallbacksExhausted || state.automaticFallbackBlocked) {
             return@LaunchedEffect
         }
+        val failureKind =
+            classifyPlaybackFailure(
+                message = state.error,
+                automaticFallbackBlocked = state.automaticFallbackBlocked,
+            )
+        failureMemory.record(activeProbe.capabilitySignature, kind, failureKind)
         val triedEngines = enginesTried + kind
         enginesTried = triedEngines
-        val nextEngine = PlayerEngine.selectable.firstOrNull { it !in triedEngines }
+        val recoveryPlan =
+            planPlayback(
+                probe = activeProbe,
+                capabilities = deviceCapabilities,
+                preferredEngine = kind,
+                preferredDecoderMode = effectiveDecoderMode,
+                optimizationMode = effectiveOptimizationMode,
+                engineSelection = sessionEngineSelection,
+                excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
+                engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
+                videoSupport =
+                    capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
+                        ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
+            )
+        val backendFallbackEligible = failureKind.allowsBackendFallback
+        val nextEngine =
+            recoveryPlan.engineOrder
+                .firstOrNull { backendFallbackEligible && it !in triedEngines }
         if (nextEngine != null) {
             AppLog.info(
                 category = "player",
@@ -1284,6 +1523,8 @@ internal fun PlayerRoot(
                         "from" to kind.name,
                         "to" to nextEngine.name,
                         "itemIndex" to state.currentIndex.toString(),
+                        "failureKind" to failureKind.name,
+                        "plannedPath" to recoveryPlan.renderPath.name,
                     ),
             )
             enginesTried = triedEngines + nextEngine
@@ -1291,7 +1532,10 @@ internal fun PlayerRoot(
             return@LaunchedEffect
         }
 
-        val nextVersion = currentItem?.nextFallbackVersionId(versionsTried)
+        val nextVersion =
+            currentItem
+                ?.nextFallbackVersionId(versionsTried)
+                ?.takeIf { backendFallbackEligible }
         if (nextVersion != null) {
             AppLog.info(
                 category = "player",
@@ -1560,7 +1804,11 @@ internal fun PlayerRoot(
                                 primarySubtitle = null,
                             )
                         }
-                    } else if (track?.requiresStyledRenderer == true && kind != PlayerEngine.Mpv) {
+                    } else if (
+                        track?.requiresStyledRenderer == true &&
+                        kind != PlayerEngine.Mpv &&
+                        sessionEngineSelection == PlaybackEngineSelection.Auto
+                    ) {
                         pendingSubtitleLanguage = track.language ?: track.label
                         switchEngine(PlayerEngine.Mpv)
                         handoverItemId = currentItem?.id
@@ -1711,8 +1959,16 @@ internal fun PlayerRoot(
                 volumeKeyPresses = volumeKeyPresses.collectAsState().value,
                 brightness = brightness,
                 onBrightness = { setBrightness(it) },
-                engineOptions = PlayerEngine.selectable.map { it.label to (it == kind) },
-                onSelectEngine = { index -> switchEngine(PlayerEngine.selectable[index]) },
+                engineOptions =
+                    PlaybackEngineSelection.entries.map { selection ->
+                        val label =
+                            selection.lockedEngine?.let { "锁定 ${it.label}" }
+                                ?: "YCore 智能自动"
+                        label to (selection == sessionEngineSelection)
+                    },
+                onSelectEngine = { index ->
+                    PlaybackEngineSelection.entries.getOrNull(index)?.let(::selectEngineStrategy)
+                },
                 qualityOptions =
                     PlaybackQuality.entries.map {
                         it.dataEstimateLabel() to (it == selectedQuality)
@@ -1729,6 +1985,28 @@ internal fun PlayerRoot(
                     if (!state.transcoding) {
                         engine.switchToTranscode("用户手动选择服务器转码")
                     }
+                },
+                onResetAdaptiveLearning = {
+                    failureMemory.clear()
+                    performanceMemory.clear()
+                    Toast
+                        .makeText(context, "YCore 学习数据已重置", Toast.LENGTH_SHORT)
+                        .show()
+                },
+                onNextDiscTitle = {
+                    val disc = state.discNavigation
+                    if (disc.titleCount > 1) {
+                        engine.selectDiscTitle((disc.selectedTitleIndex + 1) % disc.titleCount)
+                    }
+                },
+                onNextDiscChapter = {
+                    val disc = state.discNavigation
+                    if (disc.chapterCount > 1) {
+                        engine.selectDiscChapter((disc.selectedChapterIndex + 1) % disc.chapterCount)
+                    }
+                },
+                onShowDiscMenu = {
+                    engine.sendDiscMenuCommand(PlaybackDiscMenuCommand.ShowMenu)
                 },
                 castDevices = castState.devices.map { it.id to it.name },
                 castingDeviceId = castState.activeDeviceId,
@@ -1873,6 +2151,20 @@ internal fun PlayerRoot(
         }
     }
 }
+
+/** Explicit Android return types keep Compose lint from treating common constructors as Unit. */
+private fun createPlaybackFailureMemory(preferences: PlaybackPreferences): PlaybackFailureMemory =
+    PlaybackFailureMemory(
+        initialRecords = preferences.playbackFailureRecords(),
+        onChanged = preferences::storePlaybackFailureRecords,
+    )
+
+private fun createPlaybackPerformanceMemory(preferences: PlaybackPreferences): PlaybackPerformanceMemory =
+    PlaybackPerformanceMemory(
+        nowEpochMs = System::currentTimeMillis,
+        initialRecords = preferences.playbackPerformanceRecords(),
+        onChanged = preferences::storePlaybackPerformanceRecords,
+    )
 
 private fun PlaybackDeviceCapabilities.diagnosticLabel(): String {
     val display =

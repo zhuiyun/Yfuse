@@ -13,6 +13,8 @@ import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackEngineSelection
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import org.koin.core.context.GlobalContext
 
 internal data class PlaybackOptionCopy(
@@ -43,6 +45,31 @@ internal fun PlayerEngine.playbackOptionCopy(): PlaybackOptionCopy =
             )
     }
 
+internal fun PlaybackEngineSelection.playbackOptionCopy(): PlaybackOptionCopy =
+    when (this) {
+        PlaybackEngineSelection.Auto ->
+            PlaybackOptionCopy(
+                label = "YCore 智能自动",
+                summary = "智能自动",
+                description = "按片源、设备能力、稳定性和功耗动态选择并安全切换内核",
+            )
+        PlaybackEngineSelection.LockExo ->
+            PlayerEngine.Exo.playbackOptionCopy().copy(
+                label = "锁定 ExoPlayer",
+                description = "固定使用 Media3；仅受保护内容安全规则可覆盖选择",
+            )
+        PlaybackEngineSelection.LockMpv ->
+            PlayerEngine.Mpv.playbackOptionCopy().copy(
+                label = "锁定 MPV",
+                description = "固定使用 libmpv；仅受保护内容安全规则可覆盖选择",
+            )
+        PlaybackEngineSelection.LockMdk ->
+            PlayerEngine.Mdk.playbackOptionCopy().copy(
+                label = "锁定 MDK",
+                description = "固定使用 MDK；仅受保护内容安全规则可覆盖选择",
+            )
+    }
+
 internal fun DecoderMode.playbackOptionCopy(): PlaybackOptionCopy =
     when (this) {
         DecoderMode.Hardware ->
@@ -65,15 +92,44 @@ internal fun DecoderMode.playbackOptionCopy(): PlaybackOptionCopy =
             )
     }
 
+internal fun PlaybackOptimizationMode.playbackOptionCopy(): PlaybackOptionCopy =
+    when (this) {
+        PlaybackOptimizationMode.Balanced ->
+            PlaybackOptionCopy(
+                label = "自动均衡",
+                summary = "自动均衡",
+                description = "根据片源、设备能力和失败记录自动选择稳定省电的管线",
+            )
+        PlaybackOptimizationMode.PowerSaver ->
+            PlaybackOptionCopy(
+                label = "省电优先",
+                summary = "省电优先",
+                description = "优先平台硬解和直出，不支持时优先请求服务器转码",
+            )
+        PlaybackOptimizationMode.Quality ->
+            PlaybackOptionCopy(
+                label = "画质优先",
+                summary = "画质优先",
+                description = "优先保留 HDR，并允许原生 GPU 色调映射和高级渲染",
+            )
+        PlaybackOptimizationMode.Compatibility ->
+            PlaybackOptionCopy(
+                label = "兼容优先",
+                summary = "兼容优先",
+                description = "优先原生解封装和 FFmpeg 兼容管线，耗电可能增加",
+            )
+    }
+
 internal fun playbackSettingsSummary(
-    engine: PlayerEngine,
+    optimizationMode: PlaybackOptimizationMode,
     decoder: DecoderMode,
-): String = "${engine.playbackOptionCopy().summary} · ${decoder.playbackOptionCopy().summary}"
+): String = "${optimizationMode.playbackOptionCopy().summary} · ${decoder.playbackOptionCopy().summary}"
 
 @Composable
 internal fun PlaybackSettingsScreen(
     onBack: () -> Unit,
-    engine: PlayerEngine,
+    optimizationMode: PlaybackOptimizationMode,
+    engineSelection: PlaybackEngineSelection,
     decoder: DecoderMode,
     autoNext: Boolean,
     smartCrossServerSource: Boolean,
@@ -84,6 +140,7 @@ internal fun PlaybackSettingsScreen(
     resumePrompt: Boolean,
     videoCacheSize: VideoCacheSize,
     skipSegments: String,
+    onOptimizationMode: () -> Unit,
     onEngine: () -> Unit,
     onDecoder: () -> Unit,
     onAutoNext: (Boolean) -> Unit,
@@ -156,7 +213,7 @@ internal fun PlaybackSettingsScreen(
         item {
             Section(title = "显示与音频输出") {
                 SettingsCard {
-                    if (engine == PlayerEngine.Mdk) {
+                    if (engineSelection == PlaybackEngineSelection.LockMdk) {
                         SettingRow("刷新率匹配", "MDK 暂不支持", false, {})
                     } else {
                         SettingSegmentRow(
@@ -169,7 +226,7 @@ internal fun PlaybackSettingsScreen(
                         )
                     }
                     SettingsDivider()
-                    if (engine == PlayerEngine.Mdk) {
+                    if (engineSelection == PlaybackEngineSelection.LockMdk) {
                         SettingRow("音频直通", "MDK 暂不支持", false, {})
                     } else {
                         SettingSegmentRow(
@@ -190,8 +247,15 @@ internal fun PlaybackSettingsScreen(
             Section(title = "高级播放内核") {
                 SettingsCard {
                     SettingRow(
+                        "YCore 播放策略",
+                        "${optimizationMode.playbackOptionCopy().label} ›",
+                        true,
+                        onOptimizationMode,
+                    )
+                    SettingsDivider()
+                    SettingRow(
                         "播放内核",
-                        "${engine.playbackOptionCopy().label} ›",
+                        "${engineSelection.playbackOptionCopy().label} ›",
                         true,
                         onEngine,
                     )

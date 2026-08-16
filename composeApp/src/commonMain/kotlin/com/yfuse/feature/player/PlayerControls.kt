@@ -150,6 +150,10 @@ internal fun PlayerControls(
     transcodeLabel: String? = null,
     transcodeActive: Boolean = false,
     onTranscode: () -> Unit = {},
+    onResetAdaptiveLearning: () -> Unit = {},
+    onNextDiscTitle: () -> Unit = {},
+    onNextDiscChapter: () -> Unit = {},
+    onShowDiscMenu: () -> Unit = {},
     castDevices: List<Pair<String, String>> = emptyList(),
     castingDeviceId: String? = null,
     castDiscovering: Boolean = false,
@@ -873,6 +877,13 @@ internal fun PlayerControls(
                         onTranscode()
                         settingsPanelKind = null
                     },
+                    onResetAdaptiveLearning = {
+                        onResetAdaptiveLearning()
+                        settingsPanelKind = null
+                    },
+                    onNextDiscTitle = onNextDiscTitle,
+                    onNextDiscChapter = onNextDiscChapter,
+                    onShowDiscMenu = onShowDiscMenu,
                     onDiscoverCast = onDiscoverCast,
                     onCastTo = onCastTo,
                     onStopCast = onStopCast,

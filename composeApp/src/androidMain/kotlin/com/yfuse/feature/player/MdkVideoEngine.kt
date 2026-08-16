@@ -20,7 +20,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val MDK_TAG = "YfuseMdk"
-private const val MDK_POLL_MS = 250L
+private val mdkRuntimeCadence =
+    PlaybackRuntimeCadence(
+        activeIntervalMs = 250L,
+        idleIntervalMs = 2_000L,
+    )
 
 /** Polls to let a freshly-loaded fallback settle before its status is trusted again. */
 private const val FALLBACK_SETTLE_POLLS = 12
@@ -106,7 +110,17 @@ class MdkVideoEngine(
         scope.launch(Dispatchers.Default) {
             while (isActive && !released) {
                 poll()
-                delay(MDK_POLL_MS)
+                val current = _state.value
+                delay(
+                    mdkRuntimeCadence.intervalMs(
+                        playing = current.playing,
+                        buffering = current.buffering,
+                        pendingWork =
+                            pendingSeekMs >= 0L ||
+                                fallbackJob?.isActive == true ||
+                                (playRequested && !current.ended),
+                    ),
+                )
             }
         }
 

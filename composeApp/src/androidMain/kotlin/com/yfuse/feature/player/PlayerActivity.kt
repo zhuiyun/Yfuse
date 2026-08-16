@@ -83,7 +83,8 @@ class PlayerActivity : ComponentActivity() {
         internal const val ACTION_PLAY_PAUSE = "com.yfuse.player.PLAY_PAUSE"
         internal const val ACTION_NEXT = "com.yfuse.player.NEXT"
         private const val ACTION_OPEN = "com.yfuse.player.OPEN"
-        private const val EPISODE_REFRESH_INTERVAL_MS = 120_000L
+        private const val PLAYING_EPISODE_REFRESH_INTERVAL_MS = 120_000L
+        private const val PAUSED_EPISODE_REFRESH_INTERVAL_MS = 5 * 60_000L
 
         fun intent(
             context: Context,
@@ -536,7 +537,13 @@ class PlayerActivity : ComponentActivity() {
         episodePollingJob =
             lifecycleScope.launch {
                 while (isActive) {
-                    delay(EPISODE_REFRESH_INTERVAL_MS)
+                    delay(
+                        if (activeState.playing) {
+                            PLAYING_EPISODE_REFRESH_INTERVAL_MS
+                        } else {
+                            PAUSED_EPISODE_REFRESH_INTERVAL_MS
+                        },
+                    )
                     refreshEpisodes()
                 }
             }
