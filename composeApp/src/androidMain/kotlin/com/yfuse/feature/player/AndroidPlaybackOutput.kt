@@ -226,3 +226,22 @@ internal fun exoAudioEncodingLabel(encoding: Int): String =
         -> "AAC"
         else -> if (Util.isEncodingLinearPcm(encoding)) "PCM" else "编码 $encoding"
     }
+
+/**
+ * Encodings that carry Dolby object audio when passed through untouched.
+ *
+ * AC-4 can also carry objects, but the label rule these replaced only ever recognised JOC and
+ * TrueHD, so the badge's meaning is left exactly where it was rather than widened silently.
+ */
+internal val DOLBY_OBJECT_ENCODINGS = setOf(C.ENCODING_E_AC3_JOC, C.ENCODING_DOLBY_TRUEHD)
+
+/**
+ * The same set as [DOLBY_OBJECT_ENCODINGS] for a backend that names its codec instead of
+ * handing over an Android encoding constant. These are codec identifiers from the backend,
+ * not text written for a person to read.
+ */
+internal fun isDolbyObjectAudioCodec(identifier: String?): Boolean {
+    val normalized = identifier?.trim()?.lowercase().orEmpty()
+    if (normalized.isEmpty()) return false
+    return "truehd" in normalized || "atmos" in normalized
+}

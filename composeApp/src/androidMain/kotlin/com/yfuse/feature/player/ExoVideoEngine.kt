@@ -255,6 +255,13 @@ class ExoVideoEngine(
                             } else {
                                 PlaybackOutputReadiness.Waiting
                             },
+                        // The same three facts the label was spelling out: a frame is on
+                        // screen, its range is Dolby Vision, and the display chain declared
+                        // that format.
+                        dolbyVisionOutput =
+                            renderedFirstFrame &&
+                                hdrFormat == PlaybackHdrFormat.DolbyVision &&
+                                displayReady,
                     ),
             )
         }
@@ -349,6 +356,11 @@ class ExoVideoEngine(
                                             "源码输出 · ${exoAudioEncodingLabel(audioTrackConfig.encoding)}",
                                     ),
                                 audioReadiness = PlaybackOutputReadiness.Rendering,
+                                // Active is the only status that proves a bitstream left the
+                                // device; the encoding says whether it carried Dolby objects.
+                                dolbyAtmosOutput =
+                                    status is PlaybackOutputStatus.Active &&
+                                        audioTrackConfig.encoding in DOLBY_OBJECT_ENCODINGS,
                             ),
                     )
                 }
@@ -364,6 +376,9 @@ class ExoVideoEngine(
                             it.diagnostics.copy(
                                 audioOutput = "音频输出已释放",
                                 audioReadiness = PlaybackOutputReadiness.Released,
+                                // The label rule cleared this implicitly, because the released
+                                // sentence no longer said 源码输出. A flag has to be told.
+                                dolbyAtmosOutput = false,
                             ),
                     )
                 }

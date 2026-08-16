@@ -96,17 +96,20 @@ private fun String?.toPlaybackVideoCodec(): PlaybackVideoCodec? {
     }
 }
 
-internal fun PlaybackDiagnostics.hasActiveDolbyVisionOutput(): Boolean =
-    videoOutput.contains("Dolby Vision", ignoreCase = true) &&
-        videoOutput.contains("首帧已输出") &&
-        !videoOutput.contains("未声明支持")
+/**
+ * The two badges the player shows over someone's film, and both are claims about their
+ * hardware — so both are answered by the backend that did the rendering.
+ *
+ * They used to be recovered by substring-matching the diagnostic labels: 首帧已输出 and
+ * 未声明支持 for the picture, 源码输出 plus Atmos or TrueHD for the sound. That made the
+ * badges a property of how a sentence was worded, and reordering a label or translating the
+ * app would have quietly turned them on or off. The engines already hold the facts — the
+ * rendered range, the display's declared formats, the encoding handed to the audio track —
+ * so they report them instead.
+ */
+internal fun PlaybackDiagnostics.hasActiveDolbyVisionOutput(): Boolean = dolbyVisionOutput
 
-internal fun PlaybackDiagnostics.hasActiveDolbyAtmosOutput(): Boolean =
-    audioOutput.contains("源码输出") &&
-        (
-            audioOutput.contains("Atmos", ignoreCase = true) ||
-                audioOutput.contains("TrueHD", ignoreCase = true)
-        )
+internal fun PlaybackDiagnostics.hasActiveDolbyAtmosOutput(): Boolean = dolbyAtmosOutput
 
 internal fun PlayerMediaItem.sourceDynamicRange(transcoding: Boolean): String =
     activeVersion

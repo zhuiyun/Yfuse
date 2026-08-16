@@ -98,6 +98,46 @@ class PlaybackOutputReadinessContractTest {
         )
     }
 
+    @Test
+    fun the_dolby_badges_are_not_recovered_from_label_text() {
+        val truth = source("commonMain", "feature/player/PlaybackTruth.kt")
+
+        assertFalse(
+            Regex("""(videoOutput|audioOutput)\s*\.contains""").containsMatchIn(truth),
+            "A badge asserts something about the viewer's hardware; it must not be reachable " +
+                "by rewording a diagnostic label",
+        )
+        assertTrue("dolbyVisionOutput" in truth && "dolbyAtmosOutput" in truth)
+    }
+
+    @Test
+    fun the_backend_that_rendered_the_frame_reports_the_dolby_vision_badge() {
+        val exo = source("androidMain", "feature/player/ExoVideoEngine.kt")
+
+        assertTrue(
+            "dolbyVisionOutput =" in exo &&
+                "hdrFormat == PlaybackHdrFormat.DolbyVision" in exo &&
+                "displayReady" in exo,
+            "The badge needs a rendered frame, the Dolby Vision range, and a display that " +
+                "declared the format — the same three facts the label used to spell out",
+        )
+    }
+
+    @Test
+    fun atmos_requires_a_proven_bitstream_on_both_backends() {
+        val exo = source("androidMain", "feature/player/ExoVideoEngine.kt")
+        val mpv = source("androidMain", "feature/player/MpvVideoEngine.kt")
+
+        assertTrue(
+            "dolbyAtmosOutput =" in exo && "PlaybackOutputStatus.Active" in exo,
+            "Exo must require Active — configured or requested passthrough is not proof",
+        )
+        assertTrue(
+            "dolbyAtmosOutput =" in mpv && "PlaybackOutputStatus.Active" in mpv,
+            "mpv must require Active too",
+        )
+    }
+
     private fun source(
         sourceSet: String,
         path: String,

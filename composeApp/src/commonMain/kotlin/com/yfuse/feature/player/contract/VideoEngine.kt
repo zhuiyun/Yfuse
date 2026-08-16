@@ -70,6 +70,14 @@ data class PlaybackDiagnostics(
     val videoReadiness: PlaybackOutputReadiness = PlaybackOutputReadiness.Waiting,
     /** [audioOutput]'s machine-readable half. Policy reads this; the label is for the panel. */
     val audioReadiness: PlaybackOutputReadiness = PlaybackOutputReadiness.Waiting,
+    /**
+     * Dolby Vision is on screen: a frame has been rendered, in that range, on a display chain
+     * that declared support. Reported by the backend that rendered it — a badge is a claim
+     * made to the viewer, so it is worth as much as the evidence behind it.
+     */
+    val dolbyVisionOutput: Boolean = false,
+    /** A Dolby object-audio bitstream is leaving the device, rather than being decoded to PCM. */
+    val dolbyAtmosOutput: Boolean = false,
     /** Current display/audio-route capability snapshot, kept separate from active output. */
     val deviceOutputCapabilities: String = "未探测",
     /** YCore route selected before backend construction: direct/native/GPU/server. */

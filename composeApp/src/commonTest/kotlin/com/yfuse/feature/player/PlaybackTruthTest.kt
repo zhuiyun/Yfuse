@@ -80,16 +80,34 @@ class PlaybackTruthTest {
     fun dolby_badges_require_runtime_output_evidence_not_source_metadata() {
         assertTrue(
             PlaybackDiagnostics(
-                videoOutput = "Dolby Vision · 硬件解码 · HDR 首帧已输出",
-                audioOutput = "源码输出 · Dolby Atmos / E-AC-3 JOC",
+                dolbyVisionOutput = true,
+                dolbyAtmosOutput = true,
             ).let { it.hasActiveDolbyVisionOutput() && it.hasActiveDolbyAtmosOutput() },
         )
         assertFalse(
             PlaybackDiagnostics(
-                videoOutput = "Dolby Vision · 等待首帧",
-                audioOutput = "PCM 解码输出",
+                dolbyVisionOutput = false,
+                dolbyAtmosOutput = false,
             ).let { it.hasActiveDolbyVisionOutput() || it.hasActiveDolbyAtmosOutput() },
         )
+    }
+
+    /**
+     * A badge is a claim made to the viewer about their hardware, so it must not be reachable
+     * by wording. These were recovered by substring-matching the diagnostic labels — 首帧已输出,
+     * 未声明支持, 源码输出, Atmos, TrueHD — which made the badges a property of how a sentence
+     * was phrased. Reordering a label, or translating the app, would have turned them on or off.
+     */
+    @Test
+    fun a_dolby_badge_cannot_be_produced_by_the_wording_of_a_label() {
+        val labelsThatUsedToPass =
+            PlaybackDiagnostics(
+                videoOutput = "Dolby Vision · 硬件解码 · HDR 首帧已输出",
+                audioOutput = "源码输出 · Dolby Atmos / E-AC-3 JOC",
+            )
+
+        assertFalse(labelsThatUsedToPass.hasActiveDolbyVisionOutput())
+        assertFalse(labelsThatUsedToPass.hasActiveDolbyAtmosOutput())
     }
 
     @Test

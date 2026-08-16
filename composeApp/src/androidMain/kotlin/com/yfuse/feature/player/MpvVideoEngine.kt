@@ -1095,6 +1095,12 @@ class MpvVideoEngine(
                                     activeLabel = "源码输出 · ${decoder ?: outputFormat ?: "未知编码"}",
                                 ),
                             audioReadiness = PlaybackOutputReadiness.Rendering,
+                            // mpv names the codec rather than exposing an encoding constant,
+                            // so the identifier is matched — a backend codec name, not a
+                            // sentence written for the diagnostics panel.
+                            dolbyAtmosOutput =
+                                passthroughStatus is PlaybackOutputStatus.Active &&
+                                    isDolbyObjectAudioCodec(decoder ?: outputFormat),
                         ),
                 )
             }
