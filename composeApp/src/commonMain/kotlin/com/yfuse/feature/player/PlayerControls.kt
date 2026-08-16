@@ -46,7 +46,7 @@ import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 /** Controls fade out after this long without interaction, while playing. */
-private const val AUTO_HIDE_MS = 4_000L
+private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
 
@@ -65,6 +65,12 @@ private enum class QuickPopup {
     Source,
     Speed,
 }
+
+internal fun shouldShowManualSkipPill(
+    segmentLabel: String?,
+    countdownSeconds: Int?,
+    controlsVisible: Boolean,
+): Boolean = controlsVisible && countdownSeconds == null && segmentLabel != null
 
 /**
  * 长按快进/快退 — how fast the playhead runs while a press is held down.
@@ -789,9 +795,13 @@ internal fun PlayerControls(
                             .padding(end = 22.dp, bottom = 24.dp),
                 )
 
-            skip.countdownSeconds == null && skip.segmentLabel != null ->
+            shouldShowManualSkipPill(
+                segmentLabel = skip.segmentLabel,
+                countdownSeconds = skip.countdownSeconds,
+                controlsVisible = visible,
+            ) ->
                 SkipPill(
-                    label = skip.segmentLabel,
+                    label = checkNotNull(skip.segmentLabel),
                     onClick = {
                         poke()
                         skipActions.onSkip()
