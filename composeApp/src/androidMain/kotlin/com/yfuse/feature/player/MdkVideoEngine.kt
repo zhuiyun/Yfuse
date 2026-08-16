@@ -35,6 +35,8 @@ class MdkVideoEngine(
     items: List<PlayerMediaItem>,
     startIndex: Int,
     startPositionMs: Long,
+    startPlaybackRequested: Boolean,
+    private val startSpeed: Float,
     private val decoderMode: DecoderMode,
     private val autoNext: Boolean,
     private val quality: PlaybackQuality,
@@ -59,6 +61,7 @@ class MdkVideoEngine(
             PlaybackState(
                 currentIndex = startIndex,
                 itemCount = items.size.coerceAtLeast(1),
+                speed = startSpeed,
                 transcoding = startIndex in transcodedIndices,
                 videoHeight =
                     items
@@ -86,7 +89,7 @@ class MdkVideoEngine(
     private var released = false
 
     @Volatile
-    private var playRequested = true
+    private var playRequested = startPlaybackRequested
 
     override val playbackRequested: Boolean
         get() = playRequested && !_state.value.ended
@@ -329,6 +332,7 @@ class MdkVideoEngine(
                     instance.setProperty("avio.user_agent", value)
                 }
                 instance.setFill(fill)
+                instance.setPlaybackRate(startSpeed)
                 instance.setProperty("subtitle.scale", subtitleScale.toString())
                 instance.setProperty("subtitle.color", subtitleBrightnessRgba(subtitleBrightness))
                 player = instance
@@ -351,10 +355,11 @@ class MdkVideoEngine(
     private fun loadCurrent(instance: MDKPlayer) {
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return
-        playRequested = true
         runCatching {
             instance.setMedia(playbackUrl(item, index))
-            instance.setState(MDKPlayer.STATE_PLAYING)
+            instance.setState(
+                if (playRequested) MDKPlayer.STATE_PLAYING else MDKPlayer.STATE_PAUSED,
+            )
         }.onFailure {
             safeLogcat(Log.ERROR, MDK_TAG, "MDK load failed", it)
             AppLog.error(

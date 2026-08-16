@@ -53,6 +53,8 @@ class MpvVideoEngine(
     items: List<PlayerMediaItem>,
     startIndex: Int,
     private val startPositionMs: Long,
+    startPlaybackRequested: Boolean,
+    private val startSpeed: Float,
     private val decoderMode: DecoderMode,
     private val autoNext: Boolean,
     private val quality: PlaybackQuality,
@@ -90,6 +92,7 @@ class MpvVideoEngine(
             PlaybackState(
                 currentIndex = startIndex,
                 itemCount = items.size.coerceAtLeast(1),
+                speed = startSpeed,
                 transcoding = startIndex in transcodedIndices,
                 discNavigation =
                     items.getOrNull(startIndex).initialDiscNavigation(startIndex in transcodedIndices),
@@ -116,7 +119,7 @@ class MpvVideoEngine(
     private var released = false
 
     @Volatile
-    private var playRequested = true
+    private var playRequested = startPlaybackRequested
 
     override val playbackRequested: Boolean
         get() = playRequested && !_state.value.ended
@@ -509,6 +512,9 @@ class MpvVideoEngine(
             instance.optionalOption("tone-mapping", "bt.2390")
             instance.optionalOption("hdr-compute-peak", "yes")
             instance.init()
+
+            instance.setPropertyDouble("speed", startSpeed.toDouble())
+            instance.setPropertyBoolean("pause", !playRequested)
 
             mpv = instance
             instance.addObserver(observer)

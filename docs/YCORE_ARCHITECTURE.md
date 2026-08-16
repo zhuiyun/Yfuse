@@ -66,12 +66,21 @@ lock is never allowed to weaken the media security contract.
 - Completed sessions update a 30-day rolling startup/rebuffer/drop baseline.
 - At least two samples are required before performance history can reorder equivalent engines.
 - Network adaptation combines rebuffer counts, EWMA throughput and forward-buffer pressure before
-  lowering a server quality cap; zero/unknown bandwidth and local files never trigger it.
+  lowering a server quality cap; sustained 1.75x throughput headroom and a 25-second forward buffer
+  recover one quality step at a time. A three-minute upgrade cooldown prevents oscillation, and an
+  automatic change never overwrites the user's persisted quality ceiling. Zero/unknown bandwidth
+  and local files never trigger adaptation.
+- Backend, version, server and queue rebuilds carry one engine-neutral handover snapshot. Position,
+  play/pause intent and speed are constructor inputs for the next backend; audio and subtitle tracks
+  are restored by stable metadata because backend-local track ids cannot be reused.
 - System power saver, low battery and severe thermal pressure can temporarily select the power
   saver plan. Compatibility mode survives low battery; severe thermal pressure always wins.
 - When Android exposes battery current, the diagnostic panel adds device-wide measured watts to
   the route-based power estimate; charging and unsupported meters remain explicitly unknown.
 - Users can clear local failure and performance learning from the media diagnostic page.
+
+Device/corpus acceptance criteria and the external Dolby/BD-J boundaries are tracked in
+[`YCORE_VALIDATION_MATRIX.md`](YCORE_VALIDATION_MATRIX.md).
 
 ## Privacy and resource limits
 

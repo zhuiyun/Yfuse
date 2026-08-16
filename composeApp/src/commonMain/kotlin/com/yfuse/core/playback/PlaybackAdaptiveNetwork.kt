@@ -12,6 +12,7 @@ data class PlaybackNetworkSample(
 
 data class PlaybackNetworkDecision(
     val downgradeRecommended: Boolean,
+    val upgradeRecommended: Boolean = false,
     val reason: String? = null,
     val smoothedThroughputBitsPerSecond: Long? = null,
 )
@@ -26,11 +27,14 @@ data class PlaybackNetworkDecision(
 class PlaybackAdaptiveNetworkController(
     private val rebufferThreshold: Int = DEFAULT_REBUFFER_THRESHOLD,
     private val pressureSampleThreshold: Int = DEFAULT_PRESSURE_SAMPLE_THRESHOLD,
+    private val recoverySampleThreshold: Int = DEFAULT_RECOVERY_SAMPLE_THRESHOLD,
     private val recommendationCooldownMs: Long = DEFAULT_RECOMMENDATION_COOLDOWN_MS,
+    private val upgradeRecommendationCooldownMs: Long = DEFAULT_UPGRADE_COOLDOWN_MS,
 ) {
     private var lastBufferEvents: Int? = null
     private var rebufferStrikes = 0
     private var pressureSamples = 0
+    private var recoverySamples = 0
     private var smoothedThroughput: Double? = null
     private var lastPressureSampleAtMs: Long? = null
     private var lastRecommendationAtMs = Long.MIN_VALUE
@@ -38,42 +42,57 @@ class PlaybackAdaptiveNetworkController(
     init {
         require(rebufferThreshold > 0)
         require(pressureSampleThreshold > 0)
+        require(recoverySampleThreshold > 0)
         require(recommendationCooldownMs >= 0L)
+        require(upgradeRecommendationCooldownMs >= recommendationCooldownMs)
     }
 
     fun observe(sample: PlaybackNetworkSample): PlaybackNetworkDecision {
         updateThroughput(sample.networkBitsPerSecond)
-        updateRebuffers(sample.bufferEvents)
+        val newRebuffers = updateRebuffers(sample.bufferEvents)
         updatePressure(sample)
+        updateRecovery(sample, newRebuffers)
 
         val throughput = smoothedThroughput?.toLong()?.takeIf { it > 0L }
         if (sample.playbackPositionMs < MIN_ADAPTIVE_POSITION_MS) {
             return PlaybackNetworkDecision(false, smoothedThroughputBitsPerSecond = throughput)
         }
-        val cooledDown =
+        val downgradeCooledDown =
             lastRecommendationAtMs == Long.MIN_VALUE ||
                 sample.nowEpochMs - lastRecommendationAtMs >= recommendationCooldownMs
-        if (!cooledDown) {
-            return PlaybackNetworkDecision(false, smoothedThroughputBitsPerSecond = throughput)
-        }
-        val reason =
+        val downgradeReason =
             when {
+                !downgradeCooledDown -> null
                 rebufferStrikes >= rebufferThreshold -> "连续缓冲，自动降低服务器码率"
                 pressureSamples >= pressureSampleThreshold ->
                     "可用带宽持续低于片源码率，自动降低画质"
                 else -> null
             }
-        if (reason == null) {
-            return PlaybackNetworkDecision(false, smoothedThroughputBitsPerSecond = throughput)
+        if (downgradeReason != null) {
+            lastRecommendationAtMs = sample.nowEpochMs
+            rebufferStrikes = 0
+            pressureSamples = 0
+            recoverySamples = 0
+            return PlaybackNetworkDecision(
+                downgradeRecommended = true,
+                reason = downgradeReason,
+                smoothedThroughputBitsPerSecond = throughput,
+            )
         }
-        lastRecommendationAtMs = sample.nowEpochMs
-        rebufferStrikes = 0
-        pressureSamples = 0
-        return PlaybackNetworkDecision(
-            downgradeRecommended = true,
-            reason = reason,
-            smoothedThroughputBitsPerSecond = throughput,
-        )
+        val upgradeCooledDown =
+            lastRecommendationAtMs == Long.MIN_VALUE ||
+                sample.nowEpochMs - lastRecommendationAtMs >= upgradeRecommendationCooldownMs
+        if (upgradeCooledDown && recoverySamples >= recoverySampleThreshold) {
+            lastRecommendationAtMs = sample.nowEpochMs
+            recoverySamples = 0
+            return PlaybackNetworkDecision(
+                downgradeRecommended = false,
+                upgradeRecommended = true,
+                reason = "带宽和缓冲持续充足，逐级恢复播放画质",
+                smoothedThroughputBitsPerSecond = throughput,
+            )
+        }
+        return PlaybackNetworkDecision(false, smoothedThroughputBitsPerSecond = throughput)
     }
 
     /** Drops accumulated pressure while preserving the current monotonic event baseline. */
@@ -81,6 +100,7 @@ class PlaybackAdaptiveNetworkController(
         lastBufferEvents = currentBufferEvents.coerceAtLeast(0)
         rebufferStrikes = 0
         pressureSamples = 0
+        recoverySamples = 0
         smoothedThroughput = null
         lastPressureSampleAtMs = null
     }
@@ -94,13 +114,13 @@ class PlaybackAdaptiveNetworkController(
             } ?: sample
     }
 
-    private fun updateRebuffers(totalEvents: Int) {
+    private fun updateRebuffers(totalEvents: Int): Int {
         val safeTotal = totalEvents.coerceAtLeast(0)
         val previous = lastBufferEvents
         lastBufferEvents = safeTotal
-        if (previous != null) {
-            rebufferStrikes += (safeTotal - previous).coerceAtLeast(0)
-        }
+        val newEvents = previous?.let { (safeTotal - it).coerceAtLeast(0) } ?: 0
+        rebufferStrikes += newEvents
+        return newEvents
     }
 
     private fun updatePressure(sample: PlaybackNetworkSample) {
@@ -129,14 +149,38 @@ class PlaybackAdaptiveNetworkController(
                 0
             }
     }
+
+    private fun updateRecovery(
+        sample: PlaybackNetworkSample,
+        newRebuffers: Int,
+    ) {
+        val throughput = smoothedThroughput
+        if (
+            newRebuffers > 0 ||
+            sample.buffering ||
+            throughput == null ||
+            sample.mediaBitsPerSecond <= 0L
+        ) {
+            recoverySamples = 0
+            return
+        }
+        val ampleThroughput =
+            throughput >= sample.mediaBitsPerSecond * RECOVERY_THROUGHPUT_HEADROOM
+        val deepBuffer = sample.bufferedDurationMs >= RECOVERY_FORWARD_BUFFER_MS
+        recoverySamples = if (ampleThroughput && deepBuffer) recoverySamples + 1 else 0
+    }
 }
 
 private const val DEFAULT_REBUFFER_THRESHOLD = 2
 private const val DEFAULT_PRESSURE_SAMPLE_THRESHOLD = 3
+private const val DEFAULT_RECOVERY_SAMPLE_THRESHOLD = 15
 private const val DEFAULT_RECOMMENDATION_COOLDOWN_MS = 60_000L
+private const val DEFAULT_UPGRADE_COOLDOWN_MS = 180_000L
 private const val MIN_ADAPTIVE_POSITION_MS = 5_000L
 private const val LOW_FORWARD_BUFFER_MS = 8_000L
+private const val RECOVERY_FORWARD_BUFFER_MS = 25_000L
 internal const val PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS = 2_000L
 private const val MIN_PRESSURE_SAMPLE_INTERVAL_MS = PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS
 private const val REQUIRED_THROUGHPUT_HEADROOM = 1.20
+private const val RECOVERY_THROUGHPUT_HEADROOM = 1.75
 private const val THROUGHPUT_SAMPLE_WEIGHT = 0.25
