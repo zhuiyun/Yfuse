@@ -60,12 +60,15 @@ private class AndroidPlaybackMediaProbeService(
                         if (resolvedDiscKind == request.baseline.discKind) {
                             request
                         } else {
-                            request.copy(
+                            PlaybackProbeRequest(
+                                uri = request.uri,
                                 baseline =
                                     request.baseline.copy(
                                         discSource = true,
                                         discKind = resolvedDiscKind,
                                     ),
+                                customUserAgent = request.customUserAgent,
+                                timeoutMs = request.timeoutMs,
                             )
                         }
                     val platform = inspect(resolvedRequest)
