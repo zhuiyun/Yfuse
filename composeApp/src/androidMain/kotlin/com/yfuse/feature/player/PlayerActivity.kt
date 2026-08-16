@@ -243,14 +243,33 @@ class PlayerActivity : ComponentActivity() {
             else -> super.onKeyUp(keyCode, event)
         }
 
+    /**
+     * Holds the screen awake while the film is running, and lets it time out once it is not.
+     *
+     * A film is watched rather than touched, so the window flag has to cover playback that
+     * never sees an input event. Buffering counts as running: `playing` goes false through
+     * startup and every seek, and blanking the screen because the stream stalled would be
+     * the opposite of what is wanted.
+     *
+     * A pause is different. Nobody is looking at a still frame on purpose for long, and the
+     * usual reason for pausing is that the viewer has gone to do something else — so the
+     * screen should be allowed to time out normally, exactly as it would anywhere else in
+     * the system. Resuming re-arms it here.
+     */
+    private fun applyScreenOnPolicy() {
+        val awake = activeState.playing || activeState.buffering
+        if (awake) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         lockOrientationOnCompactScreens(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
         super.onCreate(savedInstanceState)
 
-        // The player is watched, not touched — nothing here should let the screen time out
-        // mid-film. The per-view keepScreenOn each engine sets only covers its own surface;
-        // this covers the window, including while buffering or paused on a still frame.
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        applyScreenOnPolicy()
 
         // Without this the hardware keys adjust whichever stream the system last considered
         // active — the ring volume, most often — so a user turning the volume up on a film
@@ -444,6 +463,7 @@ class PlayerActivity : ComponentActivity() {
                     },
                     onPlaybackState = { state, item ->
                         activeState = state
+                        applyScreenOnPolicy()
                         if (state.ended && item?.serverId != null) {
                             val completedKey = "${item.serverId}#${item.id}"
                             if (completedOfflineKey != completedKey) {

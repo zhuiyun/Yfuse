@@ -58,7 +58,7 @@ fun MpvSurface(
     AndroidView(
         factory = { ctx ->
             SurfaceView(ctx).apply {
-                keepScreenOn = true
+                // The window owns this; see PlayerActivity.applyScreenOnPolicy.
                 holder.addCallback(
                     object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) {

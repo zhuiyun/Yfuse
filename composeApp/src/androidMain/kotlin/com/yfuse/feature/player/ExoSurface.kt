@@ -23,7 +23,9 @@ internal fun ExoSurface(
         factory = { context ->
             PlayerView(context).apply {
                 useController = false
-                keepScreenOn = true
+                // Deliberately not keepScreenOn: a view that holds the screen awake on its
+                // own outranks the window, and PlayerActivity's policy needs to be able to
+                // let it time out while paused. See PlayerActivity.applyScreenOnPolicy.
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             }
         },

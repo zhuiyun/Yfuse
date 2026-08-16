@@ -16,6 +16,35 @@ import com.yfuse.core.model.Person
  * screens ended up with half their posters blank while 播放记录 loaded fine.
  */
 object EmbyImages {
+    /**
+     * Emby re-encodes every image it serves, so the encoding is ours to ask for.
+     *
+     * WebP at a given quality runs roughly a quarter to a third smaller than the JPEG the
+     * server returns by default, and Android has decoded it natively since long before this
+     * app's minSdk 26. A home screen is almost entirely artwork, so this is the largest
+     * single lever on what a self-hosted server has to push up a domestic uplink.
+     *
+     * `format` has been part of the Emby image API for a long time, and a server that does
+     * not recognise it answers in its default encoding rather than failing — so the worst
+     * case is losing the saving, not losing the picture. Should a deployment ever prove
+     * otherwise, setting this to null is the entire rollback.
+     */
+    private const val FORMAT: String? = "webp"
+
+    /**
+     * Posters are drawn at a few hundred pixels; 90 was buying detail no one can resolve at
+     * that size. Backdrops fill the screen and keep a higher budget, because banding in a
+     * large flat gradient is visible in a way poster grain is not.
+     *
+     * These are worth a pass on a real device: they are the one part of this file that is a
+     * perceptual judgement rather than a mechanical one.
+     */
+    private const val POSTER_QUALITY = 85
+
+    private const val BACKDROP_QUALITY = 85
+
+    private val formatQuery = FORMAT?.let { "&format=$it" }.orEmpty()
+
     fun primary(
         baseUrl: String,
         itemId: String,
@@ -25,7 +54,9 @@ object EmbyImages {
     ): String? {
         if (baseUrl.isBlank() || itemId.isBlank()) return null
         val tagQuery = tag?.let { "tag=$it&" }.orEmpty()
-        return "${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Primary?${tagQuery}maxHeight=$maxHeight&quality=90"
+        return "${normalizeBaseUrl(
+            baseUrl,
+        )}/Items/$itemId/Images/Primary?${tagQuery}maxHeight=$maxHeight&quality=$POSTER_QUALITY$formatQuery"
             .withToken(accessToken)
     }
 
@@ -62,7 +93,7 @@ object EmbyImages {
         val tagQuery = tag?.let { "tag=$it&" }.orEmpty()
         return "${normalizeBaseUrl(
             baseUrl,
-        )}/Items/$itemId/Images/Backdrop/$index?${tagQuery}maxWidth=$maxWidth&quality=85"
+        )}/Items/$itemId/Images/Backdrop/$index?${tagQuery}maxWidth=$maxWidth&quality=$BACKDROP_QUALITY$formatQuery"
             .withToken(accessToken)
     }
 

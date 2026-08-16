@@ -14,7 +14,7 @@ fun MdkSurface(
     AndroidView(
         factory = { context ->
             SurfaceView(context).apply {
-                keepScreenOn = true
+                // The window owns this; see PlayerActivity.applyScreenOnPolicy.
                 engine.attach(this)
             }
         },

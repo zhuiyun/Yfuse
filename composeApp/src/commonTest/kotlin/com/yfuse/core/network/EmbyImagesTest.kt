@@ -68,7 +68,7 @@ class EmbyImagesTest {
         val url = EmbyImages.primary("http://emby", "item1", "tag", accessToken = "")
 
         assertEquals(
-            "http://emby/Items/item1/Images/Primary?tag=tag&maxHeight=450&quality=90",
+            "http://emby/Items/item1/Images/Primary?tag=tag&maxHeight=450&quality=85&format=webp",
             url,
         )
     }
@@ -78,7 +78,7 @@ class EmbyImagesTest {
         val url = EmbyImages.backdropAt("HTTP://emby/", "item1", 3, "btag", accessToken = "t")
 
         assertEquals(
-            "http://emby/Items/item1/Images/Backdrop/3?tag=btag&maxWidth=1280&quality=85&api_key=t",
+            "http://emby/Items/item1/Images/Backdrop/3?tag=btag&maxWidth=1280&quality=85&format=webp&api_key=t",
             url,
         )
     }
@@ -93,7 +93,43 @@ class EmbyImagesTest {
     fun a_missing_tag_still_produces_a_url() {
         val url = EmbyImages.primary("http://emby", "item1", tag = null, accessToken = "t")
 
-        assertEquals("http://emby/Items/item1/Images/Primary?maxHeight=450&quality=90&api_key=t", url)
+        assertEquals("http://emby/Items/item1/Images/Primary?maxHeight=450&quality=85&format=webp&api_key=t", url)
+    }
+
+    /**
+     * Every artwork request asks for WebP, which is roughly a quarter to a third smaller
+     * than the JPEG Emby serves by default and is the largest single saving available on a
+     * screen made mostly of posters.
+     */
+    @Test
+    fun every_builder_asks_for_the_compact_encoding() {
+        val urls =
+            listOfNotNull(
+                EmbyImages.primary("http://emby", "item1", "tag", accessToken = "t"),
+                EmbyImages.backdropOf("http://emby", "item1", "tag", accessToken = "t"),
+                EmbyImages.backdropAt("http://emby", "item1", 2, "tag", accessToken = "t"),
+                EmbyImages.poster("http://emby", item, accessToken = "t"),
+                EmbyImages.backdrop("http://emby", item, accessToken = "t"),
+                EmbyImages.poster("http://emby", detail, accessToken = "t"),
+                EmbyImages.backdrop("http://emby", detail, accessToken = "t"),
+                EmbyImages.avatar("http://emby", Person("p1", "名字", null, "tag"), accessToken = "t"),
+            )
+
+        assertEquals(8, urls.size)
+        urls.forEach { assertTrue("format=webp" in it, it) }
+    }
+
+    /**
+     * The encoding has to reach the cache key, or a change of format would be served the
+     * previous format's bytes out of Coil's disk cache under the same identity.
+     */
+    @Test
+    fun the_encoding_is_part_of_the_cached_identity() {
+        val url = EmbyImages.primary("http://emby", "item1", "tag", accessToken = "t")
+
+        val key = imageCacheKeyForUrl(checkNotNull(url))
+        assertTrue("format=webp" in key, key)
+        assertTrue("api_key" !in key, key)
     }
 
     @Test

@@ -23,6 +23,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -134,6 +136,21 @@ private fun TmdbItemDto.toItem(fallbackType: String): TmdbItem =
 class TmdbRepository(
     private val client: HttpClient,
 ) {
+    /**
+     * Caps how much of the calendar's fan-out is in flight at once.
+     *
+     * One refresh asks for up to [CALENDAR_MAX_SHOWS] schedules and a season for each, and
+     * they were all launched at once. Nothing went wrong because OkHttp's dispatcher caps
+     * itself at five requests per host — but that is an engine default standing in for a
+     * decision this code never made, and it stops holding the moment the engine or its
+     * configuration changes. TMDB answers a burst past its limit with 429, and a rate-limited
+     * calendar fails by going quietly blank rather than by reporting anything.
+     *
+     * The nearby note that the extra request per show "is affordable" is about the total,
+     * which is still true; this is about how many of them happen at the same instant.
+     */
+    private val calendarRequests = Semaphore(CALENDAR_REQUEST_CONCURRENCY)
+
     suspend fun home(language: String = "zh-CN"): Result<TmdbHome> =
         try {
             coroutineScope {
@@ -600,54 +617,56 @@ class TmdbRepository(
                     shows
                         .map { show ->
                             async {
-                                val dto = schedule(show.id, language) ?: return@async emptyList()
-                                val origin =
-                                    if (show.id in domesticIds) {
-                                        ShowOrigin.Domestic
-                                    } else {
-                                        ShowOrigin.Foreign
+                                calendarRequests.withPermit {
+                                    val dto = schedule(show.id, language) ?: return@withPermit emptyList()
+                                    val origin =
+                                        if (show.id in domesticIds) {
+                                            ShowOrigin.Domestic
+                                        } else {
+                                            ShowOrigin.Foreign
+                                        }
+                                    val showTitle = dto.name ?: show.title
+                                    val poster = dto.posterPath ?: show.posterPath
+                                    // The season the show is currently in. Its whole episode list is
+                                    // what a 日更 drama needs — last and next alone would leave every
+                                    // day between them blank on a show that posts one a day. The extra
+                                    // request per show is affordable because the schedule is fetched
+                                    // once a day and cached, not on every open.
+                                    val currentSeason = (dto.nextEpisode ?: dto.lastEpisode)?.seasonNumber
+                                    val seasonEpisodes =
+                                        currentSeason
+                                            ?.let { season(show.id, it, language) }
+                                            ?.episodes
+                                            .orEmpty()
+
+                                    fun stubsOf(source: List<TmdbEpisodeStubDto>) =
+                                        source
+                                            .mapNotNull { stub ->
+                                                stub.toAiringEpisode(
+                                                    showTmdbId = dto.id,
+                                                    showTitle = showTitle,
+                                                    posterPath = poster,
+                                                    origin = origin,
+                                                    // A season payload omits the season number on its episodes;
+                                                    // it is the season that was asked for.
+                                                    fallbackSeason = currentSeason,
+                                                )
+                                            }.filter { it.airDate in fromDate..toDate }
+
+                                    // Fall back on what the *season* yielded, not on whether the season
+                                    // list was empty.
+                                    //
+                                    // This is where 国产剧 were disappearing. A Chinese web drama's TMDB
+                                    // season is routinely listed with every episode named and none of
+                                    // them dated — the only dates on the record are the show-level
+                                    // `next_episode_to_air` / `last_episode_to_air`. The season list was
+                                    // therefore non-empty, `ifEmpty` never fired, every undated stub was
+                                    // dropped for having no air date, and the show contributed nothing
+                                    // at all. Asking whether anything usable came back covers both that
+                                    // case and the empty one it was written for.
+                                    stubsOf(seasonEpisodes).ifEmpty {
+                                        stubsOf(listOfNotNull(dto.lastEpisode, dto.nextEpisode))
                                     }
-                                val showTitle = dto.name ?: show.title
-                                val poster = dto.posterPath ?: show.posterPath
-                                // The season the show is currently in. Its whole episode list is
-                                // what a 日更 drama needs — last and next alone would leave every
-                                // day between them blank on a show that posts one a day. The extra
-                                // request per show is affordable because the schedule is fetched
-                                // once a day and cached, not on every open.
-                                val currentSeason = (dto.nextEpisode ?: dto.lastEpisode)?.seasonNumber
-                                val seasonEpisodes =
-                                    currentSeason
-                                        ?.let { season(show.id, it, language) }
-                                        ?.episodes
-                                        .orEmpty()
-
-                                fun stubsOf(source: List<TmdbEpisodeStubDto>) =
-                                    source
-                                        .mapNotNull { stub ->
-                                            stub.toAiringEpisode(
-                                                showTmdbId = dto.id,
-                                                showTitle = showTitle,
-                                                posterPath = poster,
-                                                origin = origin,
-                                                // A season payload omits the season number on its episodes;
-                                                // it is the season that was asked for.
-                                                fallbackSeason = currentSeason,
-                                            )
-                                        }.filter { it.airDate in fromDate..toDate }
-
-                                // Fall back on what the *season* yielded, not on whether the season
-                                // list was empty.
-                                //
-                                // This is where 国产剧 were disappearing. A Chinese web drama's TMDB
-                                // season is routinely listed with every episode named and none of
-                                // them dated — the only dates on the record are the show-level
-                                // `next_episode_to_air` / `last_episode_to_air`. The season list was
-                                // therefore non-empty, `ifEmpty` never fired, every undated stub was
-                                // dropped for having no air date, and the show contributed nothing
-                                // at all. Asking whether anything usable came back covers both that
-                                // case and the empty one it was written for.
-                                stubsOf(seasonEpisodes).ifEmpty {
-                                    stubsOf(listOfNotNull(dto.lastEpisode, dto.nextEpisode))
                                 }
                             }
                         }.awaitAll()
@@ -887,6 +906,12 @@ class TmdbRepository(
         const val FEATURED_POOL = 21
 
         const val CALENDAR_MAX_SHOWS = 24
+
+        /**
+         * Comfortably inside TMDB's published allowance while still refreshing the calendar
+         * in a couple of rounds rather than one at a time.
+         */
+        const val CALENDAR_REQUEST_CONCURRENCY = 6
 
         /**
          * Fewer than the shows, because a film is one row and a 日更 drama is fourteen.
