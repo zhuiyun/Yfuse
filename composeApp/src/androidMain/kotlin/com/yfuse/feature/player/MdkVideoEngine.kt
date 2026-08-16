@@ -77,6 +77,11 @@ class MdkVideoEngine(
                     ).copy(
                         videoOutput = "MDK 未提供可验证的视频输出状态",
                         audioOutput = "MDK 未提供可验证的音频输出状态",
+                        // Said plainly rather than left to a label that happens to lack a
+                        // keyword: MDK cannot verify its own output, so YCore must not
+                        // conclude anything about missing output from this backend.
+                        videoReadiness = PlaybackOutputReadiness.Unknown,
+                        audioReadiness = PlaybackOutputReadiness.Unknown,
                     ),
             ),
         )
@@ -275,6 +280,11 @@ class MdkVideoEngine(
                     ).copy(
                         videoOutput = "MDK 未提供可验证的视频输出状态",
                         audioOutput = "MDK 未提供可验证的音频输出状态",
+                        // Said plainly rather than left to a label that happens to lack a
+                        // keyword: MDK cannot verify its own output, so YCore must not
+                        // conclude anything about missing output from this backend.
+                        videoReadiness = PlaybackOutputReadiness.Unknown,
+                        audioReadiness = PlaybackOutputReadiness.Unknown,
                     ),
             )
         }
@@ -600,6 +610,11 @@ class MdkVideoEngine(
                         audioFormat = "",
                         videoOutput = "MDK 未提供可验证的视频输出状态",
                         audioOutput = "MDK 未提供可验证的音频输出状态",
+                        // Said plainly rather than left to a label that happens to lack a
+                        // keyword: MDK cannot verify its own output, so YCore must not
+                        // conclude anything about missing output from this backend.
+                        videoReadiness = PlaybackOutputReadiness.Unknown,
+                        audioReadiness = PlaybackOutputReadiness.Unknown,
                         fallbackReason =
                             reason ?: if (progressive) {
                                 "HLS 转码不可用，已改用 MP4 转码"

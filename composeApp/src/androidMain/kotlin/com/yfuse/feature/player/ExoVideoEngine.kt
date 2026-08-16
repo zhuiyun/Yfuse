@@ -245,7 +245,18 @@ class ExoVideoEngine(
                 else -> "$range · $decoderKind · 当前显示链路未声明支持"
             }
         _state.update { state ->
-            state.copy(diagnostics = state.diagnostics.copy(videoOutput = label))
+            state.copy(
+                diagnostics =
+                    state.diagnostics.copy(
+                        videoOutput = label,
+                        videoReadiness =
+                            if (renderedFirstFrame) {
+                                PlaybackOutputReadiness.Rendering
+                            } else {
+                                PlaybackOutputReadiness.Waiting
+                            },
+                    ),
+            )
         }
     }
 
@@ -337,6 +348,7 @@ class ExoVideoEngine(
                                         activeLabel =
                                             "源码输出 · ${exoAudioEncodingLabel(audioTrackConfig.encoding)}",
                                     ),
+                                audioReadiness = PlaybackOutputReadiness.Rendering,
                             ),
                     )
                 }
@@ -347,7 +359,13 @@ class ExoVideoEngine(
                 audioTrackConfig: AudioSink.AudioTrackConfig,
             ) {
                 _state.update {
-                    it.copy(diagnostics = it.diagnostics.copy(audioOutput = "音频输出已释放"))
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                audioOutput = "音频输出已释放",
+                                audioReadiness = PlaybackOutputReadiness.Released,
+                            ),
+                    )
                 }
             }
 
@@ -877,6 +895,8 @@ class ExoVideoEngine(
                         audioFormat = "",
                         videoOutput = "等待转码视频首帧",
                         audioOutput = "等待转码音频输出",
+                        videoReadiness = PlaybackOutputReadiness.Waiting,
+                        audioReadiness = PlaybackOutputReadiness.Waiting,
                         fallbackReason = reason ?: "直放失败，已切换服务器转码",
                         bufferedDurationMs = 0L,
                     ),
@@ -948,6 +968,8 @@ class ExoVideoEngine(
                         audioFormat = "",
                         videoOutput = "等待转码视频首帧",
                         audioOutput = "等待转码音频输出",
+                        videoReadiness = PlaybackOutputReadiness.Waiting,
+                        audioReadiness = PlaybackOutputReadiness.Waiting,
                         fallbackReason = "HLS 转码不可用，已改用 MP4 转码",
                     ),
             )

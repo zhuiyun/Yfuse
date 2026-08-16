@@ -24,6 +24,34 @@ data class EngineTrack(
     }
 }
 
+/**
+ * Whether a backend is actually putting frames or samples out, as the backend itself knows it.
+ *
+ * YCore's silent-failure detection used to read this off the [PlaybackDiagnostics.videoOutput]
+ * and [PlaybackDiagnostics.audioOutput] labels by substring, which made a decision that hands
+ * playback to another backend depend on the exact wording of a string written for a human.
+ * Backends that genuinely cannot answer report [Unknown] rather than being read as ready
+ * because their sentence happens not to contain a particular word.
+ */
+enum class PlaybackOutputReadiness {
+    /** The backend cannot report this, so no missing-output conclusion may be drawn from it. */
+    Unknown,
+
+    /** Expected, but nothing has come out yet. */
+    Waiting,
+
+    /** Verified output. */
+    Rendering,
+
+    /** The sink was torn down; not an error, but not output either. */
+    Released,
+
+    ;
+
+    /** False for [Unknown], the only value that carries no evidence either way. */
+    val verifiable: Boolean get() = this != Unknown
+}
+
 data class PlaybackDiagnostics(
     val engine: String = "",
     val decoder: String = "等待视频轨道",
@@ -38,6 +66,10 @@ data class PlaybackDiagnostics(
     val videoOutput: String = "等待首帧",
     /** The AudioTrack/mpv output format, distinguishing encoded passthrough from decoded PCM. */
     val audioOutput: String = "等待音频输出",
+    /** [videoOutput]'s machine-readable half. Policy reads this; the label is for the panel. */
+    val videoReadiness: PlaybackOutputReadiness = PlaybackOutputReadiness.Waiting,
+    /** [audioOutput]'s machine-readable half. Policy reads this; the label is for the panel. */
+    val audioReadiness: PlaybackOutputReadiness = PlaybackOutputReadiness.Waiting,
     /** Current display/audio-route capability snapshot, kept separate from active output. */
     val deviceOutputCapabilities: String = "未探测",
     /** YCore route selected before backend construction: direct/native/GPU/server. */

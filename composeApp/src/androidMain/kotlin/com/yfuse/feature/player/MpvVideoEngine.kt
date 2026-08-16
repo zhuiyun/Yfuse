@@ -857,6 +857,8 @@ class MpvVideoEngine(
                         audioFormat = "",
                         videoOutput = "等待转码视频输出",
                         audioOutput = "等待转码音频输出",
+                        videoReadiness = PlaybackOutputReadiness.Waiting,
+                        audioReadiness = PlaybackOutputReadiness.Waiting,
                         fallbackReason =
                             reason ?: when (next) {
                                 Step.Transcode -> "直放失败，已切换服务器转码"
@@ -1054,7 +1056,13 @@ class MpvVideoEngine(
                     else -> "mpv 渲染已建立，输出范围未知"
                 }
             _state.update { state ->
-                state.copy(diagnostics = state.diagnostics.copy(videoOutput = label))
+                state.copy(
+                    diagnostics =
+                        state.diagnostics.copy(
+                            videoOutput = label,
+                            videoReadiness = PlaybackOutputReadiness.Rendering,
+                        ),
+                )
             }
         }.onFailure { error ->
             AppLog.warning(
@@ -1086,6 +1094,7 @@ class MpvVideoEngine(
                                     status = passthroughStatus,
                                     activeLabel = "源码输出 · ${decoder ?: outputFormat ?: "未知编码"}",
                                 ),
+                            audioReadiness = PlaybackOutputReadiness.Rendering,
                         ),
                 )
             }

@@ -169,12 +169,21 @@ private fun PlaybackState.runtimeObservation(
         positionMs = positionMs,
         playbackRequested = engine.playbackRequested,
         buffering = buffering,
-        videoReady = videoHeight > 0 || !diagnostics.videoOutput.contains("等待"),
-        videoExpected = probe.source.videoCodec != null,
+        // Read from the backend's own report rather than from the wording of its diagnostic
+        // label. Deciding this by substring meant MDK — whose label says, accurately, that it
+        // cannot verify its output — was read as *ready* because that sentence happens not to
+        // contain 等待, which silently disabled every missing-output fault on that backend. It
+        // also meant "音频输出已释放" counted as ready, and that the two sides disagreed on
+        // `contains` versus `startsWith`. A backend that cannot answer now says Unknown, and
+        // Unknown withholds the judgement instead of accidentally passing it.
+        videoReady = videoHeight > 0 || diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering,
+        videoExpected = probe.source.videoCodec != null && diagnostics.videoReadiness.verifiable,
         audioReady =
             audioTracks.any { it.selected } ||
-                !diagnostics.audioOutput.startsWith("等待"),
-        audioExpected = probe.audioCodec != null || audioTracks.isNotEmpty(),
+                diagnostics.audioReadiness == PlaybackOutputReadiness.Rendering,
+        audioExpected =
+            (probe.audioCodec != null || audioTracks.isNotEmpty()) &&
+                diagnostics.audioReadiness.verifiable,
         errorPresent = error != null,
         ended = ended,
         bufferEvents = diagnostics.bufferEvents,
