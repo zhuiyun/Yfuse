@@ -80,7 +80,7 @@ CI 的 action 全部按 SHA 钉住。下面的建议是在这个水准之上的�
 
 ## 三、优化建议
 
-### P0-1 · 供应链扫描门禁实际上永远不会失败
+### P0-1 · 供应链扫描门禁实际上永远不会失败 —— ✅ 已修复
 
 `scripts/supply_chain_check.py:73-77`
 
@@ -119,12 +119,29 @@ def fetch_details(ids: set[str]) -> dict[str, dict]:
     return details
 ```
 
-建议同时补一个自测：构造一条已知 CRITICAL 的依赖坐标，断言脚本返回 1。
-否则这类"门禁静默失效"的问题只会在下一次真实漏洞时才暴露。
+**已实施的修复**（`scripts/supply_chain_check.py`）：
+
+- `query_osv()` 改为只收集漏洞 ID，新增 `fetch_details()` 对去重后的 ID 逐个调用
+  `GET /v1/vulns/{id}` 取完整记录。
+- `severity()` 同时解析 GHSA 的 `database_specific.severity`（`MODERATE` 归一到 `MEDIUM`）
+  和标准 `severity[]` 里的 CVSS 3.x 向量，取两者中最严重的一个。
+  新增的 `cvss_v3_score()` 按 CVSS 3.1 规范附录 A 实现基础分计算（含 scope-changed 公式
+  与浮点安全的 roundup），无第三方依赖。
+- **改为 fail-closed**：无法解析出严重度的记录返回 `UNRESOLVED` 并计入阻断集合，
+  而不再是无害的 `UNKNOWN`。安全门禁宁可吵，不可静默放行。
+- 跳过 `withdrawn`（上游已撤回）的记录，它们不是有效发现。
+- SBOM 中每个包的注释从 `yes/no` 升级为实际严重度等级。
+
+新增 `scripts/test_supply_chain_check.py`（10 个用例，全部通过），其中
+`test_an_advisory_without_severity_blocks_rather_than_passes` 直接构造 `querybatch`
+返回的那种精简记录，钉住了这次的回归。CVSS 计算用 Log4Shell(10.0)、9.8、7.5、5.5、4.0、0.0
+六个向量交叉验证。`quality-gates-v2.yml` 的 supply-chain job 在扫描前先跑这套测试。
+
+以桩替换网络做的端到端验证：CRITICAL → 退出码 1（修复前是 0）、LOW → 0、withdrawn → 0。
 
 ---
 
-### P0-2 · 发布说明可能带着上一版的内容进入新 tag
+### P0-2 · 发布说明可能带着上一版的内容进入新 tag —— ✅ 已修复
 
 `.github/workflows/release.yml`
 
@@ -143,17 +160,18 @@ gh release create "$tag" ... --notes-file "$notes" ...
 当前仓库正处在这个风险窗口里：master 上有 3 个已合并但未发布的提交
 （YCore 内核、切换恢复、CI 加固），而 `release-notes.txt` 仍然只描述 0.2.72 的跳过提示改动。
 
-修复：在 "Read release version" 之后加一道断言。
+**已实施的修复**（`.github/workflows/release.yml`）：
 
-```bash
-- name: Verify release notes match the published version
-  env:
-    VERSION_NAME: ${{ steps.version.outputs.version_name }}
-  run: |
-    set -euo pipefail
-    head -n 1 release-notes.txt | tr -d '\r' | grep -Fxq "$VERSION_NAME" \
-      || { echo "::error::release-notes.txt 首行不是 $VERSION_NAME，拒绝发布"; exit 1; }
-```
+在 "Read release version" 之后加入 "Verify release notes belong to this version"，
+比对 `release-notes.txt` 首行与 `VERSION_NAME`，不一致或文件为空即失败。
+
+同时移除了原来"文件为空就生成占位说明"的回退——它会把一次本该失败的发布
+悄悄变成一次内容空洞的发布。构建标识（versionCode 与 commit）改为**追加**在
+真实说明之后写入 `build/release-notes-<version>.txt`，保留了原回退里的溯源信息，
+但绝不再用生成文本顶替本该由人写的说明；同时不再改写工作区里被提交的文件。
+
+对当前仓库状态实测：`0.2.72` 通过，`0.2.73` 被拒（说明文件仍停留在 0.2.72）
+——正是本节描述的风险窗口。
 
 ---
 
@@ -366,8 +384,8 @@ NDK 版本号 `29.0.14206865` 这类字符串一旦升级就要改三处，漏�
 
 | 优先级 | 事项 | 理由 |
 | --- | --- | --- |
-| 立即 | P0-1 供应链门禁失效 | 安全门禁静默通过，比没有门禁更危险 |
-| 立即 | P0-2 发布说明校验 | release 不可变，一旦发错无法修正 |
+| ✅ 已修复 | P0-1 供应链门禁失效 | 安全门禁静默通过，比没有门禁更危险 |
+| ✅ 已修复 | P0-2 发布说明校验 | release 不可变，一旦发错无法修正 |
 | 本迭代 | P1-2 图片 UA | 用户可见的功能性 bug，排查成本高 |
 | 本迭代 | P1-1 HTTP 栈合并 | 直接改善首屏加载与资源占用 |
 | 本迭代 | P1-3 冷启动 | 用户可感知的启动耗时 |

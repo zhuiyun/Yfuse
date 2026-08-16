@@ -107,6 +107,10 @@ jobs:
         uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6
         with:
           python-version: "3.13"
+      - name: Verify the scanner resolves severity
+        # The gate is only as good as its severity parsing, and a regression there fails
+        # open. Pin it before trusting the scan below.
+        run: python3 -m unittest discover --start-directory scripts --pattern 'test_*.py' --verbose
       - name: Scan locked Maven dependencies with OSV
         run: python3 scripts/supply_chain_check.py --root . --sbom build/sbom/yfuse.spdx.json
       - name: Upload SPDX SBOM

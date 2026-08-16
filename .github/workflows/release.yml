@@ -55,6 +55,24 @@ jobs:
           [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+      - name: Verify release notes belong to this version
+        # A release is immutable once created, so notes left over from the previous
+        # version cannot be corrected afterwards — only the version number can be burned.
+        # release-notes.txt states its own version on the first line.
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -s release-notes.txt ]]; then
+            echo "::error::release-notes.txt is missing or empty; write the notes for $VERSION_NAME before publishing"
+            exit 1
+          fi
+          notes_version="$(head -n 1 release-notes.txt | tr -d '\r' | xargs)"
+          if [[ "$notes_version" != "$VERSION_NAME" ]]; then
+            echo "::error::release-notes.txt documents '$notes_version' but this release is $VERSION_NAME; update the notes and re-publish"
+            exit 1
+          fi
       - name: Normalize artifact name and create checksum
         env:
           VERSION_NAME: ${{ steps.version.outputs.version_name }}
@@ -72,6 +90,9 @@ jobs:
           set -euo pipefail
           tag="v${VERSION_NAME}"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "::error::Release $tag already exists; refusing to mutate an existing release"; exit 1; fi
-          notes="release-notes.txt"
-          if [[ ! -s "$notes" ]]; then printf 'Yfuse %s (versionCode %s)\n\nPublished commit: %s\n' "$VERSION_NAME" "$VERSION_CODE" "$HEAD_SHA" > "$notes"; fi
+          # Notes are verified above to be non-empty and to name this exact version. Appending
+          # the build identity keeps the previous fallback's provenance line without ever
+          # substituting generated text for notes somebody was supposed to write.
+          notes="build/release-notes-${VERSION_NAME}.txt"
+          { cat release-notes.txt; printf '\nversionCode %s · commit %s\n' "$VERSION_CODE" "$HEAD_SHA"; } > "$notes"
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --title "Yfuse $VERSION_NAME" --notes-file "$notes" "build/Yfuse-${VERSION_NAME}.apk" "build/Yfuse-${VERSION_NAME}.apk.sha256" "build/sbom/yfuse.spdx.json"
