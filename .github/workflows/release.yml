@@ -1,0 +1,77 @@
+name: Create GitHub release
+
+on:
+  workflow_run:
+    workflows:
+      - Publish Android update
+    types:
+      - completed
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag, checksum, SBOM, and publish release
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out published commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6
+        with:
+          python-version: "3.13"
+      - name: Re-run supply-chain verification for release
+        run: python3 scripts/supply_chain_check.py --root . --sbom build/sbom/yfuse.spdx.json
+      - name: Download signed production artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/publish-artifacts
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir build/publish-artifacts
+          apk="$(find build/publish-artifacts -type f -name '*.apk' -print -quit)"
+          if [[ -z "$apk" ]]; then echo "::error::The successful production publish did not expose an APK artifact"; exit 1; fi
+          cp "$apk" build/Yfuse-published.apk
+      - name: Read release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_code="$(sed -n 's/^VERSION_CODE=//p' version.properties | tail -n 1 | tr -d '\r')"
+          version_name="$(sed -n 's/^VERSION_NAME=//p' version.properties | tail -n 1 | tr -d '\r')"
+          [[ "$version_code" =~ ^[1-9][0-9]*$ ]]
+          [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+      - name: Normalize artifact name and create checksum
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          mv build/Yfuse-published.apk "build/Yfuse-${VERSION_NAME}.apk"
+          sha256sum "build/Yfuse-${VERSION_NAME}.apk" > "build/Yfuse-${VERSION_NAME}.apk.sha256"
+      - name: Publish immutable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION_NAME}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "::error::Release $tag already exists; refusing to mutate an existing release"; exit 1; fi
+          notes="release-notes.txt"
+          if [[ ! -s "$notes" ]]; then printf 'Yfuse %s (versionCode %s)\n\nPublished commit: %s\n' "$VERSION_NAME" "$VERSION_CODE" "$HEAD_SHA" > "$notes"; fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --title "Yfuse $VERSION_NAME" --notes-file "$notes" "build/Yfuse-${VERSION_NAME}.apk" "build/Yfuse-${VERSION_NAME}.apk.sha256" "build/sbom/yfuse.spdx.json"
