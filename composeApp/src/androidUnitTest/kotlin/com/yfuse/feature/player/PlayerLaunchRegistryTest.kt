@@ -289,7 +289,7 @@ class PlayerLaunchRegistryTest {
                 .substringAfter("private fun clearStalePlaybackArtifacts()")
                 .substringBefore("private fun closePlayerAndReturn")
         assertTrue("clearStalePlaybackArtifacts()" in expiredBlock)
-        assertTrue("stopService(Intent(this, PlaybackKeepAliveService::class.java))" in staleCleanupBlock)
+        assertTrue("PlaybackKeepAliveService.requestStop(this)" in staleCleanupBlock)
         assertTrue("cancel(NOTIFICATION_ID)" in staleCleanupBlock)
     }
 

@@ -27,7 +27,7 @@ class AudioTrackMatchingTest {
     }
 
     @Test
-    fun unsupportedAudioRequestsTranscodeEvenWhenVideoIsSupported() {
+    fun unsupportedAudioIsDetectedEvenWhenVideoIsSupported() {
         assertEquals(
             UnsupportedMediaTrack.Audio,
             unsupportedMediaTrack(
@@ -43,6 +43,42 @@ class AudioTrackMatchingTest {
                 videoSupported = true,
                 hasAudio = true,
                 audioSupported = true,
+            ),
+        )
+    }
+
+    @Test
+    fun unsupportedAudioPrefersNativeEngineInsteadOfServerTranscode() {
+        assertEquals(
+            UnsupportedTrackRecovery.SwitchEngine,
+            unsupportedTrackRecovery(
+                track = UnsupportedMediaTrack.Audio,
+                alreadyTranscoding = false,
+            ),
+        )
+        assertEquals(
+            UnsupportedTrackRecovery.SwitchEngine,
+            unsupportedTrackRecovery(
+                track = UnsupportedMediaTrack.Audio,
+                alreadyTranscoding = true,
+            ),
+        )
+    }
+
+    @Test
+    fun unsupportedDirectVideoStillUsesServerTranscode() {
+        assertEquals(
+            UnsupportedTrackRecovery.ServerTranscode,
+            unsupportedTrackRecovery(
+                track = UnsupportedMediaTrack.Video,
+                alreadyTranscoding = false,
+            ),
+        )
+        assertEquals(
+            UnsupportedTrackRecovery.SwitchEngine,
+            unsupportedTrackRecovery(
+                track = UnsupportedMediaTrack.Video,
+                alreadyTranscoding = true,
             ),
         )
     }

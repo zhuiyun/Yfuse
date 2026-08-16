@@ -27,16 +27,28 @@ class PlayerPopupRoutingContractTest {
     }
 
     @Test
-    fun skip_is_not_nested_in_more_and_time_uses_odometer_transition() {
+    fun skip_is_not_nested_in_more_and_time_uses_digit_roll_transition() {
         val chrome = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerChrome.kt").readText()
         val panel = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt").readText()
 
         assertTrue("RollingTimeText(shownPosition)" in chrome)
-        assertTrue("player-time-marquee" in chrome)
+        assertTrue("player-time-digit-roll" in chrome)
         assertTrue("SettingsPanelKind.Skip ->" in panel)
         assertFalse("AdvancedPage.Skip" in panel)
         assertTrue("将当前时间标记为片头结束" in panel)
         assertTrue("将当前时间标记为片尾开始" in panel)
+    }
+
+    @Test
+    fun function_popups_keep_the_picture_visible() {
+        val panel = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerPanel.kt").readText()
+
+        assertTrue("PlayerPopupWidth = 320.dp" in panel)
+        assertTrue("PlayerPopupCompactMinHeight = 124.dp" in panel)
+        assertTrue("PlayerPopupMaxHeight = 308.dp" in panel)
+        assertTrue("copy(alpha = 0.86f)" in panel)
+        assertFalse("PlayerPopupWidth = 378.dp" in panel)
+        assertFalse("max = if (compact) 310.dp else 390.dp" in panel)
     }
 
     private fun projectFile(moduleRelativePath: String): File =

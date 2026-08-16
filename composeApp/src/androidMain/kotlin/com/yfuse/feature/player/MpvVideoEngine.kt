@@ -17,6 +17,7 @@ import com.yfuse.core.playback.detectPlaybackDiscKind
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,11 +25,22 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
+import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "YfusePlayer"
 
 /** mpv pushes `time-pos` per frame; only forward moves of at least this much. */
 private const val POSITION_STEP_MS = 200L
+
+/** A native load that cannot reach FILE_LOADED should not strand the fallback chain forever. */
+internal const val MPV_FILE_LOAD_TIMEOUT_MS = 8_000L
+
+internal fun shouldFailMpvFileLoad(
+    attempt: Long,
+    activeAttempt: Long,
+    released: Boolean,
+    buffering: Boolean,
+): Boolean = attempt == activeAttempt && !released && buffering
 
 /**
  * libmpv behind the engine-agnostic [VideoEngine] contract.
@@ -68,6 +80,8 @@ class MpvVideoEngine(
     private val progressiveIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private var fallbackJob: Job? = null
+    private var fileLoadWatchdogJob: Job? = null
+    private val fileLoadAttempt = AtomicLong(0L)
     private val endFileTracker = MpvEndFileTracker()
 
     @Volatile
@@ -351,6 +365,7 @@ class MpvVideoEngine(
                         }
 
                     MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
+                        cancelFileLoadWatchdog()
                         val seekMs = pendingSeekMs
                         pendingSeekMs = -1L
                         if (seekMs > 0L) {
@@ -751,6 +766,7 @@ class MpvVideoEngine(
         released = true
         fallbackJob?.cancel()
         fallbackJob = null
+        cancelFileLoadWatchdog()
         val instance = mpv ?: return
         mpv = null
         runCatching {
@@ -1130,6 +1146,8 @@ class MpvVideoEngine(
             }
         if (!loaded) {
             endFileTracker.rollbackLoad(replacing)
+        } else {
+            armFileLoadWatchdog()
         }
         return loaded
     }
@@ -1160,6 +1178,44 @@ class MpvVideoEngine(
         }
     }
 
+    private fun armFileLoadWatchdog() {
+        val attempt = fileLoadAttempt.incrementAndGet()
+        fileLoadWatchdogJob?.cancel()
+        fileLoadWatchdogJob =
+            scope.launch {
+                delay(MPV_FILE_LOAD_TIMEOUT_MS)
+                val snapshot = _state.value
+                if (
+                    !shouldFailMpvFileLoad(
+                        attempt = attempt,
+                        activeAttempt = fileLoadAttempt.get(),
+                        released = released,
+                        buffering = snapshot.buffering,
+                    )
+                ) {
+                    return@launch
+                }
+                AppLog.error(
+                    category = "player.mpv",
+                    event = "file_load_timeout",
+                    message = "mpv did not finish opening media before the startup deadline",
+                    attributes =
+                        mapOf(
+                            "itemIndex" to snapshot.currentIndex.toString(),
+                            "timeoutMs" to MPV_FILE_LOAD_TIMEOUT_MS.toString(),
+                            "transcoding" to snapshot.transcoding.toString(),
+                        ),
+                )
+                markTerminalFailure("mpv 打开媒体超时，正在尝试其他播放器")
+            }
+    }
+
+    private fun cancelFileLoadWatchdog() {
+        fileLoadAttempt.incrementAndGet()
+        fileLoadWatchdogJob?.cancel()
+        fileLoadWatchdogJob = null
+    }
+
     private fun loadFileOrFail(url: String): Boolean {
         if (replaceFile(url)) return true
         markTerminalFailure("mpv 无法加载媒体，正在尝试其他播放器")
@@ -1174,6 +1230,7 @@ class MpvVideoEngine(
     }
 
     private fun markTerminalFailure(failure: NativePlaybackFailure) {
+        cancelFileLoadWatchdog()
         _state.update {
             it.copy(
                 playing = false,
