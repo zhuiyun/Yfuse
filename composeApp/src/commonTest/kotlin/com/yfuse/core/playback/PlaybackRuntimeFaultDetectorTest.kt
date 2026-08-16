@@ -1,0 +1,217 @@
+package com.yfuse.core.playback
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+
+/**
+ * The detector is the only thing that decides to move playback to another backend, so every
+ * threshold here is a decision a viewer feels: report too early and one dropped frame swaps
+ * their player mid-scene, too late and they sit in front of a black picture.
+ */
+class PlaybackRuntimeFaultDetectorTest {
+    @Test
+    fun healthy_playback_reports_nothing() {
+        val detector = detector()
+
+        assertNull(detector.observe(observation(now = 2_000L, positionMs = 2_000L, videoReady = true)))
+        assertNull(detector.observe(observation(now = 30_000L, positionMs = 30_000L, videoReady = true)))
+    }
+
+    @Test
+    fun a_missing_first_frame_is_reported_after_the_startup_budget() {
+        val detector = detector()
+
+        assertNull(detector.observe(observation(now = 14_000L, positionMs = 0L)))
+        val fault = detector.observe(observation(now = 15_000L, positionMs = 0L))
+
+        assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, assertNotNull(fault).kind)
+        assertEquals(PlaybackFailureKind.Decoder, fault.kind.failureKind)
+    }
+
+    @Test
+    fun a_first_frame_that_arrives_cancels_the_startup_clock() {
+        val detector = detector()
+
+        detector.observe(observation(now = 14_000L, positionMs = 0L))
+
+        assertNull(
+            detector.observe(observation(now = 20_000L, positionMs = 500L, videoReady = true)),
+            "video arrived, so the startup budget no longer applies",
+        )
+    }
+
+    @Test
+    fun progress_without_verifiable_video_is_reported_after_the_grace_window() {
+        val detector = detector()
+
+        assertNull(detector.observe(observation(now = 4_000L, positionMs = 4_000L)))
+        assertNull(
+            detector.observe(observation(now = 7_000L, positionMs = 7_000L)),
+            "three seconds of missing output is inside the grace window",
+        )
+        val fault = detector.observe(observation(now = 8_000L, positionMs = 8_000L))
+
+        assertEquals(PlaybackRuntimeFaultKind.VideoOutputMissing, assertNotNull(fault).kind)
+        assertEquals(PlaybackFailureKind.Renderer, fault.kind.failureKind)
+    }
+
+    /**
+     * The regression this component was written without.
+     *
+     * The grace clocks used to start inside the branch that reports and were cleared only by a
+     * pause, buffer, error or end. A condition that recovered therefore kept its original
+     * timestamp, so the *next* dropout was measured from the first one — already past the grace
+     * window — and reported on the very first observation. One brief glitch, then any momentary
+     * dropout, and the viewer's engine was swapped underneath them.
+     */
+    @Test
+    fun the_grace_window_restarts_after_output_recovers() {
+        val detector = detector()
+
+        detector.observe(observation(now = 4_000L, positionMs = 4_000L))
+        assertNull(
+            detector.observe(observation(now = 6_000L, positionMs = 6_000L, videoReady = true)),
+            "output recovered",
+        )
+        assertNull(
+            detector.observe(observation(now = 24_000L, positionMs = 24_000L, videoReady = true)),
+        )
+
+        assertNull(
+            detector.observe(observation(now = 26_000L, positionMs = 26_000L)),
+            "a fresh dropout starts a fresh grace window instead of reporting immediately",
+        )
+        assertNull(detector.observe(observation(now = 29_000L, positionMs = 29_000L)))
+        assertEquals(
+            PlaybackRuntimeFaultKind.VideoOutputMissing,
+            assertNotNull(detector.observe(observation(now = 30_500L, positionMs = 30_500L))).kind,
+            "and still reports once that fresh window elapses",
+        )
+    }
+
+    @Test
+    fun progress_without_verifiable_audio_is_reported() {
+        val detector = detector()
+
+        detector.observe(audioObservation(now = 4_000L, positionMs = 4_000L))
+        val fault = detector.observe(audioObservation(now = 9_000L, positionMs = 9_000L))
+
+        assertEquals(PlaybackRuntimeFaultKind.AudioOutputMissing, assertNotNull(fault).kind)
+        assertEquals(PlaybackFailureKind.AudioSink, fault.kind.failureKind)
+    }
+
+    @Test
+    fun a_stalled_position_is_reported_only_once_the_stall_budget_passes() {
+        val detector = detector()
+
+        detector.observe(observation(now = 1_000L, positionMs = 1_000L, videoReady = true))
+        assertNull(detector.observe(observation(now = 12_000L, positionMs = 1_000L, videoReady = true)))
+        val fault = detector.observe(observation(now = 13_500L, positionMs = 1_000L, videoReady = true))
+
+        assertEquals(PlaybackRuntimeFaultKind.PositionStalled, assertNotNull(fault).kind)
+    }
+
+    @Test
+    fun a_backward_seek_restarts_the_stall_clock() {
+        val detector = detector()
+
+        detector.observe(observation(now = 1_000L, positionMs = 60_000L, videoReady = true))
+        detector.observe(observation(now = 2_000L, positionMs = 10_000L, videoReady = true))
+
+        assertNull(
+            detector.observe(observation(now = 13_000L, positionMs = 10_000L, videoReady = true)),
+            "the stall budget runs from the seek, not from the position before it",
+        )
+    }
+
+    @Test
+    fun buffering_and_pause_suppress_reporting_and_clear_the_clocks() {
+        val detector = detector()
+
+        detector.observe(observation(now = 4_000L, positionMs = 4_000L))
+        assertNull(detector.observe(observation(now = 6_000L, positionMs = 6_000L, buffering = true)))
+        assertNull(
+            detector.observe(observation(now = 7_000L, positionMs = 7_000L)),
+            "the grace window restarts after a buffer, so this is not yet a fault",
+        )
+    }
+
+    @Test
+    fun a_paused_or_ended_session_never_reports() {
+        val paused = detector()
+        val ended = detector()
+
+        assertNull(paused.observe(observation(now = 60_000L, positionMs = 0L, playbackRequested = false)))
+        assertNull(ended.observe(observation(now = 60_000L, positionMs = 0L, ended = true)))
+    }
+
+    @Test
+    fun an_existing_error_is_left_to_the_backend() {
+        val detector = detector()
+
+        assertNull(
+            detector.observe(observation(now = 60_000L, positionMs = 0L, errorPresent = true)),
+            "the backend reported for itself; this detector only covers silent failures",
+        )
+    }
+
+    @Test
+    fun only_the_first_fault_of_a_binding_is_reported() {
+        val detector = detector()
+
+        detector.observe(observation(now = 14_000L, positionMs = 0L))
+        assertNotNull(detector.observe(observation(now = 16_000L, positionMs = 0L)))
+
+        assertNull(
+            detector.observe(observation(now = 40_000L, positionMs = 0L)),
+            "a handover follows the first report; a second would race it",
+        )
+    }
+
+    @Test
+    fun content_without_video_is_never_judged_on_missing_video() {
+        val detector = detector()
+
+        assertNull(
+            detector.observe(
+                observation(now = 30_000L, positionMs = 30_000L, videoExpected = false),
+            ),
+        )
+    }
+
+    private fun detector(
+        startedAtEpochMs: Long = 0L,
+        initialPositionMs: Long = 0L,
+    ) = PlaybackRuntimeFaultDetector(startedAtEpochMs, initialPositionMs)
+
+    private fun observation(
+        now: Long,
+        positionMs: Long,
+        playbackRequested: Boolean = true,
+        buffering: Boolean = false,
+        videoReady: Boolean = false,
+        videoExpected: Boolean = true,
+        errorPresent: Boolean = false,
+        ended: Boolean = false,
+    ) = YCoreRuntimeObservation(
+        nowEpochMs = now,
+        positionMs = positionMs,
+        playbackRequested = playbackRequested,
+        buffering = buffering,
+        videoReady = videoReady,
+        videoExpected = videoExpected,
+        errorPresent = errorPresent,
+        ended = ended,
+        bufferEvents = 0,
+        droppedFrames = 0,
+    )
+
+    /** Video is fine; only the audio sink is silent. */
+    private fun audioObservation(
+        now: Long,
+        positionMs: Long,
+    ) = observation(now = now, positionMs = positionMs, videoReady = true)
+        .copy(audioExpected = true, audioReady = false)
+}
