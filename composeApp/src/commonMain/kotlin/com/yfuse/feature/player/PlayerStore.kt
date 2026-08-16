@@ -22,6 +22,7 @@ import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
+import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
@@ -55,6 +56,8 @@ data class PlayerMediaVersion(
     val container: String? = null,
     /** True for ISO/DVD/Blu-ray sources that cannot use an ordinary original-file URL. */
     val discSource: Boolean = false,
+    /** Optional secure playback parameters; secrets are never copied into diagnostics. */
+    val drmConfiguration: PlaybackDrmConfiguration? = null,
     /**
      * What the file carries, decided by [com.yfuse.core.model.MediaVersion] rather than
      * re-derived here — Emby hides Dolby Vision in four different fields and one place
@@ -274,6 +277,8 @@ data class PlayerMediaItem(
     /** See [PlayerMediaVersion.playSessionId]; this is the active version's. */
     val playSessionId: String = "",
     val playMethod: PlaybackMethod = PlaybackMethod.DirectPlay,
+    /** Secure configuration for [url], updated atomically when a media version changes. */
+    val drmConfiguration: PlaybackDrmConfiguration? = null,
     /** Local preflight reason when the device forces the prepared server stream before rendering. */
     val forcedTranscodeReason: String? = null,
     val trickplay: TrickplayStoryboard? = null,
@@ -319,6 +324,7 @@ data class PlayerMediaItem(
             // and reporting one session's id against another's stream ends the wrong job.
             playSessionId = version.playSessionId,
             playMethod = version.playMethod,
+            drmConfiguration = version.drmConfiguration,
             forcedTranscodeReason =
                 when {
                     version.discSource && version.playMethod == PlaybackMethod.Transcode ->
@@ -440,7 +446,9 @@ internal fun List<PlayerMediaItem>.hasSamePlaybackSourcesAs(other: List<PlayerMe
             current.transcodeUrl.playbackSourceKey() ==
             refreshed.transcodeUrl.playbackSourceKey() &&
             current.fallbackTranscodeUrl.playbackSourceKey() ==
-            refreshed.fallbackTranscodeUrl.playbackSourceKey()
+            refreshed.fallbackTranscodeUrl.playbackSourceKey() &&
+            (current.drmConfiguration ?: current.activeVersion?.drmConfiguration) ==
+            (refreshed.drmConfiguration ?: refreshed.activeVersion?.drmConfiguration)
     }
 }
 

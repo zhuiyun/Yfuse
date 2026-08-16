@@ -34,6 +34,18 @@ class PlayerProgressDesignTest {
         assertTrue("previewX" in chrome)
     }
 
+    @Test
+    fun changing_time_digits_roll_up_independently() {
+        val chrome = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerChrome.kt").readText()
+
+        assertTrue("time.forEach { character" in chrome)
+        assertTrue("RollingTimeGlyph(character)" in chrome)
+        assertTrue("targetState = character" in chrome)
+        assertTrue("slideInVertically(tween(Motion.STANDARD" in chrome)
+        assertTrue("slideOutVertically(tween(Motion.STANDARD" in chrome)
+        assertTrue("label = \"player-time-digit-roll\"" in chrome)
+    }
+
     private fun projectFile(moduleRelativePath: String): File =
         sequenceOf(
             File(moduleRelativePath),

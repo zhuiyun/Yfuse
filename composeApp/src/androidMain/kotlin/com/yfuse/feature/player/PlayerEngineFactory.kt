@@ -6,6 +6,7 @@ import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import kotlinx.coroutines.CoroutineScope
 
 /** Android engine construction boundary; callers depend only on [VideoEngine]. */
@@ -17,6 +18,7 @@ internal fun createVideoEngine(
     startIndex: Int,
     startPositionMs: Long,
     decoderMode: DecoderMode,
+    optimizationMode: PlaybackOptimizationMode,
     autoNext: Boolean,
     quality: PlaybackQuality,
     customUserAgent: String,
@@ -60,6 +62,7 @@ internal fun createVideoEngine(
                 startPositionMs = startPositionMs,
                 scope = scope,
                 decoderMode = decoderMode,
+                optimizationMode = optimizationMode,
                 autoNext = autoNext,
                 quality = quality,
                 customUserAgent = customUserAgent,

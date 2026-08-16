@@ -27,12 +27,12 @@ class PlayerPopupRoutingContractTest {
     }
 
     @Test
-    fun skip_is_not_nested_in_more_and_time_uses_odometer_transition() {
+    fun skip_is_not_nested_in_more_and_time_uses_digit_roll_transition() {
         val chrome = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerChrome.kt").readText()
         val panel = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt").readText()
 
         assertTrue("RollingTimeText(shownPosition)" in chrome)
-        assertTrue("player-time-marquee" in chrome)
+        assertTrue("player-time-digit-roll" in chrome)
         assertTrue("SettingsPanelKind.Skip ->" in panel)
         assertFalse("AdvancedPage.Skip" in panel)
         assertTrue("将当前时间标记为片头结束" in panel)

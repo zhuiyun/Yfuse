@@ -29,6 +29,39 @@ class PlayerContractArchitectureTest {
     }
 
     @Test
+    fun playback_planning_stays_common_and_player_root_uses_its_ranked_fallbacks() {
+        val planner =
+            projectFile("src/commonMain/kotlin/com/yfuse/core/playback/PlaybackPlanner.kt").readText()
+        val health =
+            projectFile("src/commonMain/kotlin/com/yfuse/core/playback/PlaybackHealth.kt").readText()
+        val session =
+            projectFile("src/commonMain/kotlin/com/yfuse/core/playback/YCorePlaybackSession.kt").readText()
+        val mediaProbe =
+            projectFile(
+                "src/commonMain/kotlin/com/yfuse/core/playback/PlaybackMediaProbeService.kt",
+            ).readText()
+        val root =
+            projectFile("src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt").readText()
+
+        assertTrue("fun planPlayback(" in planner)
+        assertFalse("import android." in planner)
+        assertFalse("import androidx.compose." in planner)
+        assertFalse("import io.ktor." in planner)
+        assertTrue("class PlaybackHealthSession" in health)
+        assertFalse("import android." in health)
+        assertFalse("import androidx.compose." in health)
+        assertTrue("class YCorePlaybackSession" in session)
+        assertFalse("import android." in session)
+        assertFalse("import androidx.compose." in session)
+        assertTrue("fun interface PlaybackMediaProbeService" in mediaProbe)
+        assertFalse("import android." in mediaProbe)
+        assertFalse("PlaybackHealthSession(" in root)
+        assertTrue("recoveryPlan.engineOrder" in root)
+        assertTrue(".firstOrNull { backendFallbackEligible && it !in triedEngines }" in root)
+        assertFalse("PlayerEngine.selectable.firstOrNull { it !in triedEngines }" in root)
+    }
+
+    @Test
     fun activity_system_integration_stays_separate_from_player_composition() {
         val activity =
             projectFile("src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt").readText()
