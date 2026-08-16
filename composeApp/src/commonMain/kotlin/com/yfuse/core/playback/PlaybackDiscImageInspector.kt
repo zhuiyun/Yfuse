@@ -6,13 +6,12 @@ package com.yfuse.core.playback
  * ISO9660/UDF directory descriptors contain these ASCII names. Callers intentionally provide a
  * bounded prefix so a multi-gigabyte image never needs to be copied or fully scanned.
  */
-fun detectPlaybackDiscImageKind(sample: ByteArray): PlaybackDiscKind {
-    return when {
+fun detectPlaybackDiscImageKind(sample: ByteArray): PlaybackDiscKind =
+    when {
         BLU_RAY_IMAGE_MARKERS.any(sample::containsAsciiIgnoreCase) -> PlaybackDiscKind.BluRay
         DVD_IMAGE_MARKERS.any(sample::containsAsciiIgnoreCase) -> PlaybackDiscKind.Dvd
         else -> PlaybackDiscKind.Iso
     }
-}
 
 private fun ByteArray.containsAsciiIgnoreCase(marker: String): Boolean {
     val target = marker.encodeToByteArray()
