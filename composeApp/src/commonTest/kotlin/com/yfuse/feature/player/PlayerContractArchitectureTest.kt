@@ -29,6 +29,23 @@ class PlayerContractArchitectureTest {
     }
 
     @Test
+    fun backend_rebuilds_use_the_engine_neutral_handover_contract() {
+        val handover =
+            projectFile(
+                "src/commonMain/kotlin/com/yfuse/feature/player/contract/PlaybackHandover.kt",
+            ).readText()
+        val factory =
+            projectFile("src/androidMain/kotlin/com/yfuse/feature/player/PlayerEngineFactory.kt")
+                .readText()
+
+        assertTrue("data class PlaybackHandoverSnapshot" in handover)
+        assertFalse("import android." in handover)
+        assertFalse("import androidx.compose." in handover)
+        assertTrue(factory.split("startPlaybackRequested = startPlaybackRequested").size - 1 == 3)
+        assertTrue(factory.split("startSpeed = startSpeed").size - 1 == 3)
+    }
+
+    @Test
     fun playback_planning_stays_common_and_player_root_uses_its_ranked_fallbacks() {
         val planner =
             projectFile("src/commonMain/kotlin/com/yfuse/core/playback/PlaybackPlanner.kt").readText()

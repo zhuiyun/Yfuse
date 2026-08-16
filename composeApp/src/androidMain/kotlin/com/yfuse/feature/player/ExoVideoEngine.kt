@@ -70,6 +70,8 @@ class ExoVideoEngine(
     items: List<PlayerMediaItem>,
     startIndex: Int,
     startPositionMs: Long,
+    startPlaybackRequested: Boolean,
+    startSpeed: Float,
     private val scope: CoroutineScope,
     decoderMode: DecoderMode,
     optimizationMode: PlaybackOptimizationMode,
@@ -102,6 +104,7 @@ class ExoVideoEngine(
             PlaybackState(
                 currentIndex = startIndex,
                 itemCount = items.size.coerceAtLeast(1),
+                speed = startSpeed,
                 transcoding = startTranscoding,
                 videoHeight = this.items.getOrNull(startIndex)?.sourceVideoHeight(startTranscoding) ?: 0,
                 diagnostics =
@@ -574,7 +577,8 @@ class ExoVideoEngine(
         )
         player.pauseAtEndOfMediaItems = !autoNext
         _state.update { it.copy(transcoding = startIndex in transcodedIndices) }
-        player.playWhenReady = true
+        player.setPlaybackSpeed(startSpeed)
+        player.playWhenReady = startPlaybackRequested
         player.prepare()
 
         ticker =

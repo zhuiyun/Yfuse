@@ -62,6 +62,69 @@ class PlaybackAdaptiveNetworkTest {
         }
     }
 
+    @Test
+    fun sustained_headroom_and_deep_buffer_request_one_quality_recovery_step() {
+        val controller =
+            PlaybackAdaptiveNetworkController(
+                recoverySampleThreshold = 3,
+                upgradeRecommendationCooldownMs = 60_000L,
+            )
+
+        repeat(2) { index ->
+            val decision =
+                controller.observe(
+                    sample(
+                        nowEpochMs = 120_000L + index * 2_000L,
+                        networkBitsPerSecond = 20_000_000L,
+                        mediaBitsPerSecond = 8_000_000L,
+                        bufferedDurationMs = 30_000L,
+                    ),
+                )
+            assertFalse(decision.upgradeRecommended)
+        }
+        assertTrue(
+            controller
+                .observe(
+                    sample(
+                        nowEpochMs = 124_000L,
+                        networkBitsPerSecond = 20_000_000L,
+                        mediaBitsPerSecond = 8_000_000L,
+                        bufferedDurationMs = 30_000L,
+                    ),
+                ).upgradeRecommended,
+        )
+    }
+
+    @Test
+    fun recovery_cooldown_prevents_immediate_quality_oscillation() {
+        val controller =
+            PlaybackAdaptiveNetworkController(
+                rebufferThreshold = 1,
+                recoverySampleThreshold = 1,
+                recommendationCooldownMs = 0L,
+                upgradeRecommendationCooldownMs = 60_000L,
+            )
+
+        controller.observe(sample(nowEpochMs = 120_000L, bufferEvents = 0))
+        assertTrue(
+            controller
+                .observe(sample(nowEpochMs = 122_000L, bufferEvents = 1))
+                .downgradeRecommended,
+        )
+        assertFalse(
+            controller
+                .observe(
+                    sample(
+                        nowEpochMs = 124_000L,
+                        bufferEvents = 1,
+                        networkBitsPerSecond = 20_000_000L,
+                        mediaBitsPerSecond = 8_000_000L,
+                        bufferedDurationMs = 30_000L,
+                    ),
+                ).upgradeRecommended,
+        )
+    }
+
     private fun sample(
         nowEpochMs: Long = 120_000L,
         bufferEvents: Int = 0,

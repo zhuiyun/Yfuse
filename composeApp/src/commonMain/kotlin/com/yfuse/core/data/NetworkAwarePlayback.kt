@@ -47,6 +47,24 @@ fun lowerPlaybackQuality(quality: PlaybackQuality): PlaybackQuality? =
         PlaybackQuality.Sd -> null
     }
 
+/** One recovery step toward the user's session ceiling after sustained healthy playback. */
+fun raisePlaybackQuality(
+    quality: PlaybackQuality,
+    ceiling: PlaybackQuality,
+): PlaybackQuality? {
+    if (quality == ceiling || !quality.requiresServerTranscode) return null
+    val next =
+        when (quality) {
+            PlaybackQuality.Sd -> PlaybackQuality.Hd
+            PlaybackQuality.Hd -> PlaybackQuality.FullHd
+            PlaybackQuality.FullHd -> PlaybackQuality.UltraHd
+            PlaybackQuality.UltraHd -> ceiling.takeUnless(PlaybackQuality::requiresServerTranscode)
+            PlaybackQuality.Auto, PlaybackQuality.Original -> null
+        } ?: return null
+    if (!ceiling.requiresServerTranscode) return next
+    return next.takeIf { qualityRank(it) <= qualityRank(ceiling) }
+}
+
 /** Estimated transfer size at the selected bitrate; null means the original bitrate is unknown. */
 fun estimateStreamingBytes(
     quality: PlaybackQuality,

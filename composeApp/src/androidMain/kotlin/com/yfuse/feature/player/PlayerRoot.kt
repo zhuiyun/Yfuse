@@ -43,6 +43,7 @@ import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.dataEstimateLabel
 import com.yfuse.core.data.lowerPlaybackQuality
+import com.yfuse.core.data.raisePlaybackQuality
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackMethod
@@ -189,11 +190,20 @@ internal fun PlayerRoot(
         mutableStateOf(initialPlaybackPlan.primaryEngine)
     }
     var effectiveDecoderMode by remember { mutableStateOf(initialPlaybackPlan.decoderMode) }
-    // Where a newly built engine should start: index + position, updated on
-    // every handover so the switch is seamless.
-    var resume by remember { mutableStateOf(startIndex to startPositionMs) }
+    // Everything a newly built backend needs to resume without changing user intent.
+    var resume by remember {
+        mutableStateOf(
+            PlaybackHandoverSnapshot(
+                itemIndex = startIndex,
+                positionMs = startPositionMs,
+                playbackRequested = true,
+                speed = 1f,
+            ),
+        )
+    }
     var engineGeneration by remember { mutableIntStateOf(0) }
     var selectedQuality by remember(initialQuality) { mutableStateOf(initialQuality) }
+    var adaptiveQualityCeiling by remember(initialQuality) { mutableStateOf(initialQuality) }
     var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
     var handoverItemId by remember { mutableStateOf<String?>(null) }
     var audioRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
@@ -297,23 +307,16 @@ internal fun PlayerRoot(
                     item.versions.any { it.playSessionId == sessionId }
             }?.let(::cachedPlaybackSink)
 
-    // A refreshed queue is applied as one deliberate engine handover. Keeping activeItems out
-    // of the remember key prevents a transient recomposition from rebuilding at a stale point.
-    LaunchedEffect(queueRevision) {
-        if (queueRevision <= 0L) return@LaunchedEffect
-        serverChoices = emptyMap()
-        resume = refreshedResume
-        engineGeneration++
-    }
-
     val engine: VideoEngine =
         remember(kind, engineGeneration, effectiveDecoderMode) {
             createVideoEngine(
                 kind = kind,
                 context = context,
                 items = preflightItems,
-                startIndex = resume.first,
-                startPositionMs = resume.second,
+                startIndex = resume.itemIndex,
+                startPositionMs = resume.positionMs,
+                startPlaybackRequested = resume.playbackRequested,
+                startSpeed = resume.speed,
                 decoderMode = effectiveDecoderMode,
                 optimizationMode = effectiveOptimizationMode,
                 autoNext = autoNext,
@@ -403,7 +406,13 @@ internal fun PlayerRoot(
             )
             return@LaunchedEffect
         }
-        resume = index to engine.currentPositionMs()
+        resume =
+            playbackHandoverSnapshot(
+                state = localState.copy(currentIndex = index),
+                currentPositionMs = engine.currentPositionMs(),
+                playbackRequested = engine.playbackRequested,
+                requestedSpeed = requestedPlaybackSpeed,
+            )
         kind = targetEngine
         effectiveDecoderMode = targetDecoder
         engineGeneration++
@@ -502,7 +511,13 @@ internal fun PlayerRoot(
             activePlan.decoderMode != effectiveDecoderMode ||
             resolvedDiscRouteChanged
         ) {
-            resume = localState.currentIndex to engine.currentPositionMs()
+            resume =
+                playbackHandoverSnapshot(
+                    state = localState,
+                    currentPositionMs = engine.currentPositionMs(),
+                    playbackRequested = engine.playbackRequested,
+                    requestedSpeed = requestedPlaybackSpeed,
+                )
             kind = activePlan.primaryEngine
             effectiveDecoderMode = activePlan.decoderMode
             engineGeneration++
@@ -912,6 +927,13 @@ internal fun PlayerRoot(
 
     fun capturePlaybackHandover() {
         val snapshot = latestState
+        resume =
+            playbackHandoverSnapshot(
+                state = snapshot,
+                currentPositionMs = engine.currentPositionMs(),
+                playbackRequested = engine.playbackRequested,
+                requestedSpeed = requestedPlaybackSpeed,
+            )
         val itemId = latestActiveItems.getOrNull(snapshot.currentIndex)?.id ?: return
         val sameItem = handoverItemId == itemId
         handoverItemId = itemId
@@ -928,6 +950,18 @@ internal fun PlayerRoot(
             subtitleRestore = null
             restoreSubtitlesOff = false
         }
+    }
+    // A refreshed queue is one deliberate handover. It must not turn a user pause into autoplay.
+    LaunchedEffect(queueRevision) {
+        if (queueRevision <= 0L) return@LaunchedEffect
+        capturePlaybackHandover()
+        serverChoices = emptyMap()
+        resume =
+            resume.copy(
+                itemIndex = refreshedResume.first,
+                positionMs = refreshedResume.second,
+            )
+        engineGeneration++
     }
     // One actor owns the entire reporting lifetime. Rebinding it serializes a version switch as
     // stop-old → start-new, while a tail append only extends its queue and leaves the current
@@ -1118,7 +1152,11 @@ internal fun PlayerRoot(
                     // engine remains attached, so a rejected/timeout cleanup is non-destructive.
                     capturePlaybackHandover()
                     engine.pause()
-                    resume = itemIndex to engine.currentPositionMs()
+                    resume =
+                        resume.copy(
+                            itemIndex = itemIndex,
+                            positionMs = engine.currentPositionMs(),
+                        )
                     versionsTried =
                         updatedVersionAttempts(
                             tried = versionsTried,
@@ -1198,7 +1236,11 @@ internal fun PlayerRoot(
 
                     capturePlaybackHandover()
                     engine.pause()
-                    resume = itemIndex to engine.currentPositionMs()
+                    resume =
+                        resume.copy(
+                            itemIndex = itemIndex,
+                            positionMs = engine.currentPositionMs(),
+                        )
                     versionChoices = versionChoices - item.id - freshCandidate.id
                     serverChoices = serverChoices + (itemIndex to freshCandidate)
                     serversTried = serversTried + serverId
@@ -1238,7 +1280,7 @@ internal fun PlayerRoot(
                     "positionMs" to positionMs.toString(),
                 ),
         )
-        resume = state.currentIndex to positionMs
+        resume = resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
         kind = target
     }
 
@@ -1268,7 +1310,11 @@ internal fun PlayerRoot(
             switchEngine(selectionPlan.primaryEngine)
         } else if (decoderChanged) {
             capturePlaybackHandover()
-            resume = state.currentIndex to engine.currentPositionMs()
+            resume =
+                resume.copy(
+                    itemIndex = state.currentIndex,
+                    positionMs = engine.currentPositionMs(),
+                )
             engineGeneration++
         }
     }
@@ -1300,18 +1346,30 @@ internal fun PlayerRoot(
         }
     }
 
-    fun selectQuality(target: PlaybackQuality) {
+    fun applyQuality(
+        target: PlaybackQuality,
+        persistSelection: Boolean,
+    ) {
+        if (persistSelection) {
+            adaptiveQualityCeiling = target
+            onQualityChanged(target, currentItem?.serverId)
+        }
         if (target == selectedQuality) return
         capturePlaybackHandover()
         engine.pause()
-        resume = state.currentIndex to engine.currentPositionMs()
+        resume =
+            resume.copy(
+                itemIndex = state.currentIndex,
+                positionMs = engine.currentPositionMs(),
+            )
         selectedQuality = target
-        onQualityChanged(target, currentItem?.serverId)
         engineGeneration++
     }
 
+    fun selectQuality(target: PlaybackQuality) = applyQuality(target, persistSelection = true)
+
     val adaptiveNetworkController: PlaybackAdaptiveNetworkController =
-        remember(engine, state.currentIndex, currentItem?.serverId) {
+        remember(state.currentIndex, currentItem?.serverId) {
             createPlaybackAdaptiveNetworkController()
         }
     val latestAdaptiveState by rememberUpdatedState(state)
@@ -1327,6 +1385,7 @@ internal fun PlayerRoot(
         castAuthoritative,
         activeProbe.localSource,
         selectedQuality,
+        adaptiveQualityCeiling,
     ) {
         if (
             !autoQualityDowngrade ||
@@ -1354,7 +1413,11 @@ internal fun PlayerRoot(
                     ),
                 )
             if (decision.downgradeRecommended) {
-                val target = lowerPlaybackQuality(selectedQuality) ?: return@LaunchedEffect
+                val target = lowerPlaybackQuality(selectedQuality)
+                if (target == null) {
+                    delay(PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS)
+                    continue
+                }
                 AppLog.info(
                     category = "player.quality",
                     event = "automatic_downgrade",
@@ -1368,7 +1431,30 @@ internal fun PlayerRoot(
                                 (decision.smoothedThroughputBitsPerSecond?.toString() ?: "unknown"),
                         ),
                 )
-                selectQuality(target)
+                applyQuality(target, persistSelection = false)
+                return@LaunchedEffect
+            }
+            if (decision.upgradeRecommended) {
+                val target = raisePlaybackQuality(selectedQuality, adaptiveQualityCeiling)
+                if (target == null) {
+                    delay(PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS)
+                    continue
+                }
+                AppLog.info(
+                    category = "player.quality",
+                    event = "automatic_upgrade",
+                    message = "YCore restored playback quality after sustained network recovery",
+                    attributes =
+                        mapOf(
+                            "from" to selectedQuality.name,
+                            "to" to target.name,
+                            "ceiling" to adaptiveQualityCeiling.name,
+                            "reason" to decision.reason.orEmpty(),
+                            "throughputBitsPerSecond" to
+                                (decision.smoothedThroughputBitsPerSecond?.toString() ?: "unknown"),
+                        ),
+                )
+                applyQuality(target, persistSelection = false)
                 return@LaunchedEffect
             }
             delay(PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS)
@@ -1565,7 +1651,7 @@ internal fun PlayerRoot(
         serversTried = serversTried + targetServerId
         versionChoices = versionChoices - (currentItem?.id ?: "")
         serverChoices = serverChoices + (state.currentIndex to nextServer)
-        resume = state.currentIndex to positionMs
+        resume = resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
         engineGeneration++
         AppLog.warning(
             category = "player",

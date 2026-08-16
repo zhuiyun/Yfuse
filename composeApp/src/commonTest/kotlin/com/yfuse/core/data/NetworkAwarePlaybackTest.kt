@@ -48,6 +48,27 @@ class NetworkAwarePlaybackTest {
     }
 
     @Test
+    fun recovery_chain_never_exceeds_the_session_ceiling() {
+        assertEquals(
+            PlaybackQuality.Hd,
+            raisePlaybackQuality(PlaybackQuality.Sd, PlaybackQuality.FullHd),
+        )
+        assertEquals(
+            PlaybackQuality.FullHd,
+            raisePlaybackQuality(PlaybackQuality.Hd, PlaybackQuality.FullHd),
+        )
+        assertNull(raisePlaybackQuality(PlaybackQuality.FullHd, PlaybackQuality.FullHd))
+        assertEquals(
+            PlaybackQuality.UltraHd,
+            raisePlaybackQuality(PlaybackQuality.FullHd, PlaybackQuality.Original),
+        )
+        assertEquals(
+            PlaybackQuality.Original,
+            raisePlaybackQuality(PlaybackQuality.UltraHd, PlaybackQuality.Original),
+        )
+    }
+
+    @Test
     fun estimatesUseTheSelectedBitrate() {
         assertEquals(3_600_000_000L, estimateStreamingBytes(PlaybackQuality.FullHd, 3_600_000L))
         assertNull(estimateStreamingBytes(PlaybackQuality.Original, 3_600_000L))
