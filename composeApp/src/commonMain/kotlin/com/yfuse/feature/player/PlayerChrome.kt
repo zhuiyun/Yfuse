@@ -287,8 +287,11 @@ internal fun TopBar(
                 onClick = onEnterPictureInPicture,
             )
             CircleControl(
-                icon = if (filled) AppIcons.Collapse else AppIcons.Expand,
-                description = "切换画面比例",
+                // The glyph shows the state you are in, not the one a tap would move to:
+                // a control that draws its own opposite is unreadable the moment you stop
+                // and look at it, which is exactly when you reach for this one.
+                icon = if (filled) AppIcons.AspectFill else AppIcons.AspectFit,
+                description = if (filled) "画面比例：填充" else "画面比例：适应",
                 size = 28.dp,
                 iconSize = 12.dp,
                 onClick = onToggleFill,
@@ -681,23 +684,14 @@ internal fun BottomBar(
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (hasMultipleSources) {
-                    CircleControl(
-                        AppIcons.PlaybackSource,
-                        "播放服务器",
-                        26.dp,
-                        12.dp,
-                        onClick = onOpenSources,
-                    )
-                }
-                CircleControl(
-                    AppIcons.Danmaku,
-                    "弹幕",
-                    26.dp,
-                    12.dp,
-                    filled = danmakuEnabled,
-                    onClick = onOpenDanmaku,
-                )
+                // Ordered by how often a viewer reaches for each one, most-used first, so
+                // the two adjustments made mid-scene sit at the start of the strip instead
+                // of behind the ones set once and left alone.
+                //
+                // The two conditional keys are late on purpose as well: 播放服务器 appears
+                // only for a multi-source item and 片头片尾 only inside a series, and a key
+                // that comes and goes near the front shifts every key behind it between one
+                // episode and the next. 更多 stays last, where an overflow belongs.
                 CircleControl(
                     AppIcons.Subtitle,
                     "字幕",
@@ -712,10 +706,34 @@ internal fun BottomBar(
                     12.dp,
                     onClick = onOpenAudio,
                 )
+                CircleControl(
+                    AppIcons.Danmaku,
+                    "弹幕",
+                    26.dp,
+                    12.dp,
+                    filled = danmakuEnabled,
+                    onClick = onOpenDanmaku,
+                )
                 SpeedControl(
                     speed = state.speed,
                     onClick = onOpenSpeed,
                 )
+                CircleControl(
+                    AppIcons.Cast,
+                    "投屏",
+                    26.dp,
+                    12.dp,
+                    onClick = onOpenCast,
+                )
+                if (hasMultipleSources) {
+                    CircleControl(
+                        AppIcons.PlaybackSource,
+                        "播放服务器",
+                        26.dp,
+                        12.dp,
+                        onClick = onOpenSources,
+                    )
+                }
                 if (skipSettingsAvailable) {
                     CircleControl(
                         AppIcons.SkipMarkers,
@@ -725,13 +743,6 @@ internal fun BottomBar(
                         onClick = onOpenSkipSettings,
                     )
                 }
-                CircleControl(
-                    AppIcons.Cast,
-                    "投屏",
-                    26.dp,
-                    12.dp,
-                    onClick = onOpenCast,
-                )
                 CircleControl(
                     AppIcons.More,
                     "更多",
@@ -1364,6 +1375,17 @@ internal fun CircleControl(
 private val TransportKeySize = 28.dp
 
 private val TransportIconSize = 14.dp
+
+/**
+ * The paused key over the middle of the frame — the one control drawn away from an edge.
+ *
+ * 52dp is [LockedOverlay]'s circle, the player's only other centred disc, so the two states
+ * that take over the picture do it at the same size. It is deliberately not larger: a disc
+ * in the middle is picture you cannot see, and it lands on a face more often than not.
+ */
+internal val CenterKeySize = 52.dp
+
+internal val CenterKeyIconSize = 22.dp
 
 private const val SEEK_STEP_MS = 10_000L
 

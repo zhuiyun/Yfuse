@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -762,21 +760,6 @@ internal fun PlayerControls(
             )
         }
 
-        // A stable paused-state marker stays in the middle even after chrome auto-hides.
-        // The icon names the state; tapping it resumes, and a centre double-tap does the same.
-        if (!state.playing && !state.buffering && state.error == null && !locked) {
-            CircleControl(
-                icon = AppIcons.Pause,
-                description = "已暂停，点击继续",
-                size = 28.dp,
-                iconSize = 14.dp,
-                enabled = !watchLocked,
-                interactive = false,
-                onClick = {},
-                modifier = Modifier.align(Alignment.Center),
-            )
-        }
-
         // An armed countdown replaces the manual pill rather than sitting beside it — both
         // would be about the same segment, and the countdown already skips on its own.
         // While the controls are up it is drawn under the progress bar by [BottomBar]; this
@@ -1126,42 +1109,45 @@ internal fun PlayerControls(
          * the controls round again. This outlives the control overlay for that reason.
          *
          * Not while buffering: `playing` is false throughout startup and every seek, and a
-         * resume button over a frame that is already coming back is a lie. Not for a guest
-         * whose room is driven by its host either — the tap would only be refused.
+         * resume button over a frame that is already coming back is a lie. Not once the item
+         * has ended either — 下一集 owns that moment, and "paused" would be the wrong word
+         * for it.
+         *
+         * A guest whose room is driven by its host still needs to be told the film is paused,
+         * so the key is drawn for them too — dimmed and inert, since the tap would only be
+         * refused. That is the whole difference between the two states, which is why it is
+         * one control and not two: the pair that used to cover this drew a 28dp 暂停 badge
+         * underneath a translucent 64dp 播放 disc, so both were on screen at once and the
+         * smaller one showed through the larger.
          */
-        val showResume =
+        val showPausedKey =
             !state.playing &&
                 !state.buffering &&
                 !state.ended &&
-                state.error == null &&
-                !watchLocked
-        if (showResume) {
-            Box(
-                Modifier
-                    .align(Alignment.Center)
-                    .size(64.dp)
-                    .glass(
-                        shape = CircleShape,
-                        fill = Color.Black.copy(alpha = 0.46f),
-                        border = Color.White.copy(alpha = 0.28f),
-                    ).noRippleClickable {
-                        onPlayPause()
-                        poke()
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    AppIcons.Play,
-                    contentDescription = "继续播放",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
+                state.error == null
+        if (showPausedKey) {
+            CircleControl(
+                // 播放, never 暂停. This is an affordance, not a readout — it says what the
+                // tap does, the way every transport key in the app does.
+                icon = AppIcons.Play,
+                description = if (watchLocked) "已暂停，等待房主继续" else "继续播放",
+                size = CenterKeySize,
+                iconSize = CenterKeyIconSize,
+                enabled = !watchLocked,
+                // The one control that has to be found at a glance in a dark room, so it
+                // takes the filled treatment the transport keys leave to it.
+                filled = true,
+                onClick = {
+                    onPlayPause()
+                    poke()
+                },
+                modifier = Modifier.align(Alignment.Center),
+            )
         }
 
         // Suppressed while the resume button occupies the same spot: the double tap that
         // pauses would otherwise stack "暂停" directly on top of it.
-        gestureHud?.takeIf { !showResume }?.let { value ->
+        gestureHud?.takeIf { !showPausedKey }?.let { value ->
             Text(
                 value,
                 style = AppTypography.section.strong,

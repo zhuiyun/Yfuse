@@ -245,6 +245,11 @@ object AppIcons {
             close()
         }.build()
 
+    /**
+     * Enter fullscreen — and nothing else. It carried 切换画面比例 until [AspectFit] took
+     * that over; the four brackets are too well known as the fullscreen mark to spend on a
+     * second meaning.
+     */
     val Expand =
         strokeVector("expand") {
             moveTo(9.2f, 4.2f)
@@ -275,6 +280,30 @@ object AppIcons {
             moveTo(19.8f, 14.8f)
             horizontalLineTo(14.8f)
             verticalLineTo(19.8f)
+        }.build()
+
+    /**
+     * 画面比例 · 适应 — the whole frame fits the screen, leaving bars above and below.
+     *
+     * This action used to borrow [Expand] / [Collapse]. Those four corner brackets are the
+     * universal enter/exit-fullscreen mark, so at the player's 12dp they answer a question
+     * nobody asked — 全屏 — while the control actually cycles the picture's fit. The pair
+     * below says it with the thing itself: where the picture sits inside the screen, and
+     * whether there are bars.
+     */
+    val AspectFit =
+        strokeVector("aspect-fit") {
+            roundRect(3.2f, 5.2f, 17.6f, 13.6f, 2.6f)
+        }.andSolidPath {
+            roundRect(6.3f, 9.4f, 11.4f, 5.2f, 1.1f)
+        }.build()
+
+    /** 画面比例 · 填充 — the picture reaches both edges; nothing is left over to letterbox. */
+    val AspectFill =
+        strokeVector("aspect-fill") {
+            roundRect(3.2f, 5.2f, 17.6f, 13.6f, 2.6f)
+        }.andSolidPath {
+            roundRect(6.3f, 6.5f, 11.4f, 11f, 1.1f)
         }.build()
 
     /** Subtitle tracks — the familiar CC mark inside a screen. */
