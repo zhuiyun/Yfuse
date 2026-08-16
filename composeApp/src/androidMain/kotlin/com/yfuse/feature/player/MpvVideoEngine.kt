@@ -1257,6 +1257,7 @@ class MpvVideoEngine(
                 buffering = false,
                 ended = false,
                 error = failure.message,
+                errorKind = failure.kind,
                 fallbacksExhausted = true,
                 automaticFallbackBlocked = failure.blocksAutomaticFallback,
             )

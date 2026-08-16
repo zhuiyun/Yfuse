@@ -1,9 +1,19 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.playback.PlaybackFailureKind
+
 /** A terminal signal emitted by a native playback backend. */
 internal data class NativePlaybackFailure(
     val message: String,
     val blocksAutomaticFallback: Boolean,
+    /**
+     * The category, decided here where the native library's own English text is still in hand.
+     *
+     * [message] is the Chinese sentence shown to the viewer. Downstream used to re-derive the
+     * category by matching that sentence against English keywords, which never matched — so a
+     * classification this function had already made correctly was thrown away and guessed at.
+     */
+    val kind: PlaybackFailureKind,
 )
 
 /**
@@ -20,14 +30,17 @@ internal fun nativePlaybackLogFailure(details: String?): NativePlaybackFailure? 
         normalized.isUnauthorizedFailure() -> NativePlaybackFailure(
             message = "服务器登录已失效（401），请重新登录该服务器",
             blocksAutomaticFallback = true,
+            kind = PlaybackFailureKind.Authorization,
         )
         normalized.isForbiddenFailure() -> NativePlaybackFailure(
             message = "当前账号没有播放权限，或服务器入口拒绝了访问（403）",
             blocksAutomaticFallback = true,
+            kind = PlaybackFailureKind.Authorization,
         )
         TERMINAL_RENDER_FAILURES.any(normalized::contains) -> NativePlaybackFailure(
             message = "播放器渲染器初始化失败，正在尝试其他播放器",
             blocksAutomaticFallback = false,
+            kind = PlaybackFailureKind.Renderer,
         )
         else -> null
     }
@@ -37,9 +50,11 @@ internal fun nativePlaybackLogFailure(details: String?): NativePlaybackFailure? 
 internal fun terminalNativePlaybackFailure(
     fallbackMessage: String,
     details: String? = null,
+    kind: PlaybackFailureKind = PlaybackFailureKind.Unknown,
 ): NativePlaybackFailure = nativePlaybackLogFailure(details) ?: NativePlaybackFailure(
     message = fallbackMessage,
     blocksAutomaticFallback = false,
+    kind = kind,
 )
 
 private fun String.isUnauthorizedFailure(): Boolean =

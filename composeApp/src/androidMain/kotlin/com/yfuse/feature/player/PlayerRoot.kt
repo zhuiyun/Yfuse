@@ -1590,11 +1590,16 @@ internal fun PlayerRoot(
         if (!state.fallbacksExhausted || state.automaticFallbackBlocked) {
             return@LaunchedEffect
         }
+        // The backend's own classification wins. Reading it back out of the message only ever
+        // worked when the sentence happened to carry an English keyword, and a misread here is
+        // not cosmetic: an Unknown network failure passes `allowsBackendFallback` and writes an
+        // engine-scoped record that blacklists a healthy decoder for a week.
         val failureKind =
-            classifyPlaybackFailure(
-                message = state.error,
-                automaticFallbackBlocked = state.automaticFallbackBlocked,
-            )
+            state.errorKind?.takeIf { !state.automaticFallbackBlocked }
+                ?: classifyPlaybackFailure(
+                    message = state.error,
+                    automaticFallbackBlocked = state.automaticFallbackBlocked,
+                )
         failureMemory.record(activeProbe.capabilitySignature, kind, failureKind)
         val triedEngines = enginesTried + kind
         enginesTried = triedEngines

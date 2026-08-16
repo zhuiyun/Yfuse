@@ -7,6 +7,7 @@ import android.os.Looper
 import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -15,6 +16,7 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.text.TextOutput
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.playback.PlaybackFailureKind
 import org.koin.core.context.GlobalContext
 import java.util.ArrayList
 
@@ -245,3 +247,59 @@ internal fun isDolbyObjectAudioCodec(identifier: String?): Boolean {
     if (normalized.isEmpty()) return false
     return "truehd" in normalized || "atmos" in normalized
 }
+
+/**
+ * Media3's own classification of a failure, translated into YCore's.
+ *
+ * This is the fact the string matcher was trying to reconstruct from a sentence. Exo has always
+ * had it — [PlaybackException.errorCode] is set by the renderer that failed — and the engine was
+ * already switching on it to decide what to do next before discarding it.
+ */
+internal fun PlaybackException.playbackFailureKind(): PlaybackFailureKind =
+    when (errorCode) {
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+        PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
+        PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED,
+        PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE,
+        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+        PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+        -> PlaybackFailureKind.Network
+
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+        -> PlaybackFailureKind.Authorization
+
+        PlaybackException.ERROR_CODE_DRM_UNSPECIFIED,
+        PlaybackException.ERROR_CODE_DRM_SCHEME_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_DRM_PROVISIONING_FAILED,
+        PlaybackException.ERROR_CODE_DRM_CONTENT_ERROR,
+        PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED,
+        PlaybackException.ERROR_CODE_DRM_DISALLOWED_OPERATION,
+        PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR,
+        PlaybackException.ERROR_CODE_DRM_DEVICE_REVOKED,
+        PlaybackException.ERROR_CODE_DRM_LICENSE_EXPIRED,
+        -> PlaybackFailureKind.Drm
+
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED,
+        -> PlaybackFailureKind.Container
+
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        -> PlaybackFailureKind.Decoder
+
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED,
+        -> PlaybackFailureKind.AudioSink
+
+        PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED,
+        PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED,
+        -> PlaybackFailureKind.Renderer
+
+        else -> PlaybackFailureKind.Unknown
+    }

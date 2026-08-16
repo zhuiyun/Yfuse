@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
+import com.yfuse.core.playback.PlaybackFailureKind
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.roundToInt
 
@@ -134,6 +135,21 @@ data class PlaybackState(
     /** DVD/Blu-ray title, chapter and menu state; empty for ordinary files. */
     val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
     val error: String? = null,
+    /**
+     * What kind of failure [error] describes, as the backend knew it.
+     *
+     * [error] is a sentence for the viewer. YCore's learning store needs the category, and it
+     * used to recover one by substring-matching that sentence against a list of lowercase
+     * English keywords — while the engines write Chinese. Five of the seven messages the
+     * engines actually emit came back Unknown, including 网络连接多次失败, and because
+     * `allowsBackendFallback` excludes only Network, Authorization and Drm, an Unknown network
+     * failure both switched backend and recorded an engine-scoped penalty that blacklisted a
+     * healthy decoder for a week — the opposite of what the architecture document promises.
+     *
+     * Null means the backend genuinely could not categorise it, and only then is the message
+     * fallen back on.
+     */
+    val errorKind: PlaybackFailureKind? = null,
     /** True after the current item reaches its natural end. */
     val ended: Boolean = false,
     /**

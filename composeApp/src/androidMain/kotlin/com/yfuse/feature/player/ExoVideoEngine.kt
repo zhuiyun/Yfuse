@@ -33,6 +33,7 @@ import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
+import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.playbackBufferProfile
@@ -544,7 +545,7 @@ class ExoVideoEngine(
                             !scheduleRetry(index, MANIFEST_RETRY_LIMIT, "malformed_manifest") &&
                             !switchToProgressiveTranscode()
                         ) {
-                            failPlayback("服务器返回了无效的转码清单")
+                            failPlayback("服务器返回了无效的转码清单", kind = PlaybackFailureKind.Container)
                         }
 
                     PlaybackException.ERROR_CODE_DECODING_FAILED,
@@ -552,7 +553,10 @@ class ExoVideoEngine(
                     PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
                     ->
                         if (!switchToTranscode()) {
-                            failPlayback("当前视频无法解码，且服务器未提供可用转码流")
+                            failPlayback(
+                                "当前视频无法解码，且服务器未提供可用转码流",
+                                kind = PlaybackFailureKind.Decoder,
+                            )
                         }
 
                     PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
@@ -564,9 +568,13 @@ class ExoVideoEngine(
                                 httpCause?.responseBody?.toString(Charsets.UTF_8),
                             )
                         if (blocksAutomaticPlaybackFallback(httpCause?.responseCode)) {
-                            failPlayback(message, blockAutomaticFallback = true)
+                            failPlayback(
+                                message,
+                                blockAutomaticFallback = true,
+                                kind = PlaybackFailureKind.Authorization,
+                            )
                         } else if (!advanceFallback()) {
-                            failPlayback(message)
+                            failPlayback(message, kind = PlaybackFailureKind.Network)
                         }
                     }
 
@@ -578,10 +586,17 @@ class ExoVideoEngine(
                             !scheduleRetry(index, TRANSIENT_RETRY_LIMIT, "transient_network") &&
                             !advanceFallback()
                         ) {
-                            failPlayback("网络连接多次失败，已尝试所有播放方式")
+                            failPlayback(
+                                "网络连接多次失败，已尝试所有播放方式",
+                                kind = PlaybackFailureKind.Network,
+                            )
                         }
 
-                    else -> failPlayback("播放失败：${error.errorCodeName}")
+                    else ->
+                        failPlayback(
+                            "播放失败：${error.errorCodeName}",
+                            kind = error.playbackFailureKind(),
+                        )
                 }
             }
         }
@@ -783,7 +798,10 @@ class ExoVideoEngine(
                     ),
             )
             player.pause()
-            failPlayback("当前音轨不受 ExoPlayer 支持，正在尝试其他播放器")
+            failPlayback(
+                "当前音轨不受 ExoPlayer 支持，正在尝试其他播放器",
+                kind = PlaybackFailureKind.AudioSink,
+            )
             return
         }
 
@@ -881,11 +899,15 @@ class ExoVideoEngine(
                     } else {
                         "当前音轨不受 ExoPlayer 支持，正在尝试其他播放器"
                     },
+                    kind = PlaybackFailureKind.AudioSink,
                 )
             }
             UnsupportedTrackRecovery.ServerTranscode ->
                 if (!switchToTranscode()) {
-                    failPlayback("当前视频无法解码，正在尝试其他播放器")
+                    failPlayback(
+                        "当前视频无法解码，正在尝试其他播放器",
+                        kind = PlaybackFailureKind.Decoder,
+                    )
                 }
         }
     }
@@ -1012,7 +1034,12 @@ class ExoVideoEngine(
                         message = "The active HLS encoder could not be stopped safely",
                         attributes = mapOf("itemIndex" to index.toString()),
                     )
-                    failPlayback("无法清理旧的服务器转码，正在尝试其他播放器")
+                    failPlayback(
+                        "无法清理旧的服务器转码，正在尝试其他播放器",
+                        // The server would not release its old encode. No decoder on this
+                        // device was involved, so nothing here may be held against one.
+                        kind = PlaybackFailureKind.Network,
+                    )
                     return@launch
                 }
                 progressiveTranscodeIndices += index
@@ -1080,10 +1107,12 @@ class ExoVideoEngine(
     private fun failPlayback(
         message: String,
         blockAutomaticFallback: Boolean = false,
+        kind: PlaybackFailureKind? = null,
     ) {
         _state.update {
             it.copy(
                 error = message,
+                errorKind = kind,
                 buffering = false,
                 fallbacksExhausted = true,
                 automaticFallbackBlocked = blockAutomaticFallback,
