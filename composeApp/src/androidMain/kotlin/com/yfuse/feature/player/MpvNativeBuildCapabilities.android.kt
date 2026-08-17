@@ -12,6 +12,8 @@ internal data class MpvNativeBuildCapabilities(
     val bdj: Boolean = false,
     /** True only when the AAR contains the Yfuse `yfusebd://` + Java block-source bridge. */
     val remoteRawBluRay: Boolean = false,
+    /** `bd_open_files()` bridge for extracted BDMV directories / persisted SAF trees. */
+    val bdmvVfs: Boolean = false,
     /** Native HDMV event/overlay menu runtime; title/chapter-only access does not set this. */
     val hdmvMenu: Boolean = false,
     val libmpvAndroidRevision: String? = null,
@@ -24,6 +26,8 @@ internal data class MpvNativeBuildCapabilities(
         get() =
             when {
                 libbluray && bdj -> "libbluray + BD-J"
+                libbluray && hdmvMenu && remoteRawBluRay && bdmvVfs ->
+                    "libbluray · HDMV · ISO/BDMV 原盘"
                 libbluray && hdmvMenu && remoteRawBluRay -> "libbluray · HDMV · 远程原盘"
                 libbluray && remoteRawBluRay -> "libbluray · 远程原盘（BD-J 未启用）"
                 libbluray -> "libbluray（BD-J 未启用）"
@@ -45,6 +49,7 @@ internal fun detectMpvNativeBuildCapabilities(
             libbluray = marker.booleanField("LIBBLURAY"),
             bdj = marker.booleanField("BDJ"),
             remoteRawBluRay = marker.booleanField("REMOTE_RAW_BLURAY"),
+            bdmvVfs = marker.booleanField("BDMV_VFS"),
             hdmvMenu = marker.booleanField("HDMV_MENU"),
             libmpvAndroidRevision = marker.stringField("LIBMPV_ANDROID_REVISION"),
             libblurayRevision = marker.stringField("LIBBLURAY_REVISION"),
