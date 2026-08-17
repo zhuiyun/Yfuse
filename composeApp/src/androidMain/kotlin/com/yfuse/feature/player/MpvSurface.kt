@@ -59,9 +59,12 @@ fun MpvSurface(
         }
     }
 
-    // playbackState changes keep this composable fresh; the actual menu state comes from whichever
-    // navigation provider currently owns the binding, not necessarily from the video engine itself.
-    DiscNavigationPlatformInputEffect(menuActive = ActiveDiscNavigation.menuActive)
+    // A future libbluray provider can change menu state asynchronously through native overlay/event
+    // callbacks. The process-local revision turns that push signal into a Compose invalidation.
+    val discRevision by ActiveDiscNavigation.revision.collectAsState()
+    val interactiveMenuActive =
+        if (discRevision >= 0L) ActiveDiscNavigation.menuActive else false
+    DiscNavigationPlatformInputEffect(menuActive = interactiveMenuActive)
 
     DisposableEffect(Unit) {
         onDispose {
