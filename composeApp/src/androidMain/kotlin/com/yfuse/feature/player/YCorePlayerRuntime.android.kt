@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -18,12 +19,14 @@ import com.yfuse.core.playback.PlaybackPerformanceMemory
 import com.yfuse.core.playback.PlaybackPlan
 import com.yfuse.core.playback.PlaybackProbeRequest
 import com.yfuse.core.playback.PlaybackProbeResult
+import com.yfuse.core.playback.PlaybackQoeReporter
 import com.yfuse.core.playback.PlaybackRuntimeEnvironment
 import com.yfuse.core.playback.PlaybackRuntimeEnvironmentProvider
 import com.yfuse.core.playback.YCorePlaybackSession
 import com.yfuse.core.playback.YCoreRuntimeAssessment
 import com.yfuse.core.playback.YCoreRuntimeObservation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 
 /** Explicit return type avoids Compose KMP lint inferring the constructor call as Unit. */
@@ -103,7 +106,13 @@ internal fun rememberYCoreRuntimeAssessment(
     runtimeEnvironment: PlaybackRuntimeEnvironment,
     castAuthoritative: Boolean,
     state: PlaybackState,
+    networkRecoveryAttempts: Int = 0,
+    networkRecoverySuccesses: Int = 0,
 ): YCoreRuntimeAssessment {
+    val qoeReporter =
+        remember {
+            runCatching { GlobalContext.get().get<PlaybackQoeReporter>() }.getOrNull()
+        }
     val session =
         remember(engine, probe.capabilitySignature) {
             createYCorePlaybackSession(
@@ -122,6 +131,8 @@ internal fun rememberYCoreRuntimeAssessment(
     val latestState by rememberUpdatedState(state)
     val latestProbe by rememberUpdatedState(probe)
     val latestRuntimeEnvironment by rememberUpdatedState(runtimeEnvironment)
+    val latestNetworkRecoveryAttempts by rememberUpdatedState(networkRecoveryAttempts)
+    val latestNetworkRecoverySuccesses by rememberUpdatedState(networkRecoverySuccesses)
     LaunchedEffect(
         session,
         engine,
@@ -144,7 +155,32 @@ internal fun rememberYCoreRuntimeAssessment(
                     ),
                 )
             assessment = observed
-            if (observed.reportHealth) logHealth(engineKind, observed)
+            if (observed.reportHealth) {
+                logHealth(engineKind, observed)
+                qoeReporter?.let { reporter ->
+                    val report =
+                        anonymousPlaybackQoeReport(
+                            appVersion = reporter.appVersion,
+                            platformApiLevel = Build.VERSION.SDK_INT,
+                            socManufacturer =
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    Build.SOC_MANUFACTURER
+                                } else {
+                                    null
+                                },
+                            hardware = Build.HARDWARE,
+                            engine = engineKind,
+                            probe = latestProbe,
+                            state = current,
+                            assessment = observed,
+                            networkRecoveryAttempts = latestNetworkRecoveryAttempts,
+                            networkRecoverySuccesses = latestNetworkRecoverySuccesses,
+                        )
+                    // The bounded outbox is written before I/O, so telemetry cannot delay the
+                    // runtime observer and cancellation still leaves the report retryable.
+                    launch { reporter.submit(report) }
+                }
+            }
             if (
                 !engine.playbackRequested ||
                 current.buffering ||
@@ -174,16 +210,17 @@ private fun PlaybackState.runtimeObservation(
         // cannot verify its output — was read as *ready* because that sentence happens not to
         // contain 等待, which silently disabled every missing-output fault on that backend. It
         // also meant "音频输出已释放" counted as ready, and that the two sides disagreed on
-        // `contains` versus `startsWith`. A backend that cannot answer now says Unknown, and
-        // Unknown withholds the judgement instead of accidentally passing it.
+        // `contains` versus `startsWith`. Media presence and output verifiability are separate:
+        // Unknown withholds a missing-output judgement, while the shared position-stall clock
+        // still detects a backend that goes completely silent.
         videoReady = videoHeight > 0 || diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering,
-        videoExpected = probe.source.videoCodec != null && diagnostics.videoReadiness.verifiable,
+        videoExpected = probe.source.videoCodec != null,
+        videoOutputVerifiable = diagnostics.videoReadiness.verifiable,
         audioReady =
             audioTracks.any { it.selected } ||
                 diagnostics.audioReadiness == PlaybackOutputReadiness.Rendering,
-        audioExpected =
-            (probe.audioCodec != null || audioTracks.isNotEmpty()) &&
-                diagnostics.audioReadiness.verifiable,
+        audioExpected = probe.audioCodec != null || audioTracks.isNotEmpty(),
+        audioOutputVerifiable = diagnostics.audioReadiness.verifiable,
         errorPresent = error != null,
         ended = ended,
         bufferEvents = diagnostics.bufferEvents,

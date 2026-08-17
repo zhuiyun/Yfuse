@@ -280,6 +280,24 @@ class MpvVideoEngine(
                                     ),
                             )
                         }
+                    "avsync" ->
+                        if (value.isFinite()) {
+                            _state.update {
+                                it.copy(
+                                    diagnostics =
+                                        it.diagnostics.copy(
+                                            avSyncOffsetMs =
+                                                (value * 1_000.0)
+                                                    .toLong()
+                                                    .coerceIn(
+                                                        -MAX_MPV_REPORTED_AV_SYNC_OFFSET_MS,
+                                                        MAX_MPV_REPORTED_AV_SYNC_OFFSET_MS,
+                                                    ),
+                                            avSyncMeasurement = "mpv 音视频时钟",
+                                        ),
+                                )
+                            }
+                        }
                 }
             }
 
@@ -540,6 +558,7 @@ class MpvVideoEngine(
             instance.observeProperty("video-bitrate", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("cache-speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("demuxer-cache-duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
+            instance.observeProperty("avsync", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("decoder-frame-drop-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("aid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
@@ -1296,6 +1315,8 @@ class MpvVideoEngine(
             )
     }
 }
+
+private const val MAX_MPV_REPORTED_AV_SYNC_OFFSET_MS = 5_000L
 
 private fun PlayerMediaItem?.initialDiscNavigation(transcoding: Boolean): PlaybackDiscNavigationState {
     if (this == null || transcoding) return PlaybackDiscNavigationState()

@@ -181,6 +181,54 @@ class PlaybackRuntimeFaultDetectorTest {
         )
     }
 
+    @Test
+    fun stalled_audio_only_playback_is_reported() {
+        val detector = detector()
+
+        detector.observe(
+            observation(
+                now = 1_000L,
+                positionMs = 1_000L,
+                videoExpected = false,
+                audioExpected = true,
+            ),
+        )
+        val fault =
+            detector.observe(
+                observation(
+                    now = 13_500L,
+                    positionMs = 1_000L,
+                    videoExpected = false,
+                    audioExpected = true,
+                ),
+            )
+
+        assertEquals(PlaybackRuntimeFaultKind.PositionStalled, assertNotNull(fault).kind)
+    }
+
+    @Test
+    fun unverifiable_backend_still_reports_a_stalled_position() {
+        val detector = detector()
+
+        detector.observe(
+            observation(
+                now = 1_000L,
+                positionMs = 1_000L,
+                videoOutputVerifiable = false,
+            ),
+        )
+        val fault =
+            detector.observe(
+                observation(
+                    now = 13_500L,
+                    positionMs = 1_000L,
+                    videoOutputVerifiable = false,
+                ),
+            )
+
+        assertEquals(PlaybackRuntimeFaultKind.PositionStalled, assertNotNull(fault).kind)
+    }
+
     private fun detector(
         startedAtEpochMs: Long = 0L,
         initialPositionMs: Long = 0L,
@@ -193,6 +241,8 @@ class PlaybackRuntimeFaultDetectorTest {
         buffering: Boolean = false,
         videoReady: Boolean = false,
         videoExpected: Boolean = true,
+        videoOutputVerifiable: Boolean = true,
+        audioExpected: Boolean = false,
         errorPresent: Boolean = false,
         ended: Boolean = false,
     ) = YCoreRuntimeObservation(
@@ -202,6 +252,8 @@ class PlaybackRuntimeFaultDetectorTest {
         buffering = buffering,
         videoReady = videoReady,
         videoExpected = videoExpected,
+        videoOutputVerifiable = videoOutputVerifiable,
+        audioExpected = audioExpected,
         errorPresent = errorPresent,
         ended = ended,
         bufferEvents = 0,

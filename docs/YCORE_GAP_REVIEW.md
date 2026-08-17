@@ -3,6 +3,10 @@
 审查日期：2026-08-16 · 基线：`master` @ `ba9a244` + 本分支改动
 配套文档：[`YCORE_ARCHITECTURE.md`](YCORE_ARCHITECTURE.md) · [`YCORE_VALIDATION_MATRIX.md`](YCORE_VALIDATION_MATRIX.md)
 
+> **2026-08-17 状态：** 这是实施前审查记录。结构化输出就绪、静默故障检测、断网恢复、
+> A/V 同步观测、客户端 ABR/DASH、离线 Widevine 生命周期和匿名 QoE 聚合现已落地；
+> 当前准确状态以 `YCORE_ARCHITECTURE.md` 和 `YCORE_VALIDATION_MATRIX.md` 为准。
+
 > 环境限制同前：本沙箱代理封禁 `dl.google.com`，Gradle 无法解析 AGP，**任何 Kotlin 代码都编译/运行不了**。
 > 下面两个缺陷都用 Python 忠实复刻原逻辑做了验证，验证脚本的行为等价于源码，但不是真机结果。
 

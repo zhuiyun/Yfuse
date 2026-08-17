@@ -174,6 +174,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val cellularQualityCap by component.playbackPreferences.cellularQualityCap.collectAsState()
     val autoQualityDowngrade by component.playbackPreferences.autoQualityDowngrade.collectAsState()
     val qualityLocked by component.playbackPreferences.qualityLocked.collectAsState()
+    val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
     val resumePrompt by component.playbackPreferences.resumePrompt.collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
@@ -259,6 +260,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         cellularQualityCap = cellularQualityCap,
                         autoQualityDowngrade = autoQualityDowngrade,
                         qualityLocked = qualityLocked,
+                        anonymousQoeSharing = anonymousQoeSharing,
                         resumePrompt = resumePrompt,
                         videoCacheSize = videoCacheSize,
                         skipSegments = if (skipTimesBySeries.isEmpty()) "${skipMode.label} · 跟随服务器 ›" else "${skipMode.label} ›",
@@ -271,6 +273,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         onCellularQuality = { sheet = Sheet.CellularQuality },
                         onAutoQualityDowngrade = component.playbackPreferences::setAutoQualityDowngrade,
                         onQualityLocked = component.playbackPreferences::setQualityLocked,
+                        onAnonymousQoeSharing = component.playbackPreferences::setAnonymousQoeSharing,
                         onResumePrompt = component.playbackPreferences::setResumePrompt,
                         onVideoCache = { sheet = Sheet.VideoCache },
                         onSkipSegments = { sheet = Sheet.SkipSegments },

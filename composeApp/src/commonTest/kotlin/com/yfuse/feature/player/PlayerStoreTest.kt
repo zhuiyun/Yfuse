@@ -4,6 +4,8 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.yfuse.core.data.PlaybackFailoverPlan
 import com.yfuse.core.data.PlaybackFailoverRequest
+import com.yfuse.core.model.MediaVersion
+import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
@@ -298,6 +300,107 @@ class PlayerStoreTest {
             assertEquals("source-e2", sibling.versionId)
             store.dispose()
         }
+
+    @Test
+    fun playback_info_cannot_erase_iso_metadata_or_route_it_to_direct_stream() =
+        runTest {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val repo =
+                testRepo { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                            json(
+                                """
+                                {
+                                  "MediaSources":[{
+                                    "Id":"disc-source",
+                                    "SupportsDirectPlay":false,
+                                    "SupportsDirectStream":true,
+                                    "SupportsTranscoding":true,
+                                    "DirectStreamUrl":"/Videos/movie/stream?static=true"
+                                  }],
+                                  "PlaySessionId":"session-disc"
+                                }
+                                """.trimIndent(),
+                            )
+                        else ->
+                            json(
+                                """
+                                {
+                                  "Id":"movie",
+                                  "Name":"原盘电影",
+                                  "Type":"Movie",
+                                  "MediaSources":[{
+                                    "Id":"disc-source",
+                                    "Container":"iso",
+                                    "VideoType":"Iso",
+                                    "Path":"/media/movie.iso",
+                                    "Size":193273528320
+                                  }]
+                                }
+                                """.trimIndent(),
+                            )
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "movie",
+                    startPositionTicks = 0L,
+                ).create()
+
+            val item =
+                store.states
+                    .first { !it.loading }
+                    .items
+                    .single()
+
+            assertTrue(item.activeVersion?.discSource == true)
+            assertEquals(PlaybackMethod.Transcode, item.playMethod)
+            assertTrue("/Videos/movie/master.m3u8" in item.url, item.url)
+            assertFalse("static=true" in item.url, item.url)
+            assertFalse(item.canPreloadSource)
+            store.dispose()
+        }
+
+    @Test
+    fun a_declared_iso_ignores_a_raw_looking_negotiated_direct_stream_url() {
+        val version =
+            MediaVersion(
+                id = "disc-source",
+                name = "ISO",
+                container = "iso",
+                sizeBytes = 193_273_528_320L,
+                bitrateBps = null,
+                videoCodec = null,
+                videoHeight = null,
+                videoRange = null,
+                videoType = "Iso",
+                supportsDirectPlay = false,
+                supportsDirectStream = true,
+                supportsTranscoding = true,
+                directStreamUrl = "/Videos/movie/stream?static=true",
+            )
+
+        val selected =
+            listOf(version)
+                .toPlayerMediaVersions(
+                    baseUrl = "http://host:8096",
+                    itemId = "movie",
+                    token = "tok",
+                    negotiatedPlaySessionId = "session-disc",
+                ).single()
+
+        assertTrue(selected.discSource)
+        assertEquals(PlaybackMethod.Transcode, selected.playMethod)
+        assertTrue("/Videos/movie/master.m3u8" in selected.url, selected.url)
+        assertFalse("static=true" in selected.url, selected.url)
+    }
 
     @Test
     fun display_metadata_does_not_change_playback_sources() {

@@ -43,6 +43,22 @@ output and allowed fallback. Media URLs, tokens, account ids and server ids must
 Startup, rebuffer, dropped-frame, thermal and device-wide power results must include P50/P95 and the
 exact device/build. Route-based estimates in diagnostics are labels, not proof of energy savings.
 
+## Evidence evaluation
+
+`evaluatePlaybackReleaseGates(PlaybackReleaseValidationInput)` is the shared evaluator for the numeric
+gates above. It reports `Pass`, `Fail` or `NotMeasured` for every gate and calculates nearest-rank
+P50/P95/max distributions for startup, automatic recovery time, A/V sync, dropped frames, eligible
+rebuffer samples, handover position error, power regression and thermal headroom.
+
+Missing samples are deliberately `NotMeasured`, never a pass. A report can be release-ready only when
+all numeric gates have evidence and pass. Device/corpus lane coverage is still checked by the release
+workflow: one passing device does not satisfy this matrix. Store only redacted numeric observations;
+exact device/build labels belong in the validation artifact, never in anonymous QoE reports. QoE may
+carry only the protocol's fixed SoC-vendor enum so codec regressions can be grouped without a model id.
+
+The repository unit tests validate evaluator math and boundary behavior. They are not physical-device,
+Widevine-license-server, power, thermal or 8/24-hour soak evidence.
+
 ## External capability boundaries
 
 - Dolby Vision/Atmos claims require licensed components, advertised hardware support and device

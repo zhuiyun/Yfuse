@@ -494,7 +494,7 @@ fun main() {
     )
     val migrationRelayBackend = MigrationRelayBackend.fromEnvironment()
     embeddedServer(CIO, host = host, port = port) {
-        watchTogetherModule(
+        productionWatchTogetherModule(
             accountBackend = accountBackend,
             migrationRelayBackend = migrationRelayBackend,
             requireWatchAuthentication = true,

@@ -137,6 +137,7 @@ internal fun PlaybackSettingsScreen(
     cellularQualityCap: PlaybackQuality,
     autoQualityDowngrade: Boolean,
     qualityLocked: Boolean,
+    anonymousQoeSharing: Boolean,
     resumePrompt: Boolean,
     videoCacheSize: VideoCacheSize,
     skipSegments: String,
@@ -149,6 +150,7 @@ internal fun PlaybackSettingsScreen(
     onCellularQuality: () -> Unit,
     onAutoQualityDowngrade: (Boolean) -> Unit,
     onQualityLocked: (Boolean) -> Unit,
+    onAnonymousQoeSharing: (Boolean) -> Unit,
     onResumePrompt: (Boolean) -> Unit,
     onVideoCache: () -> Unit,
     onSkipSegments: () -> Unit,
@@ -265,6 +267,18 @@ internal fun PlaybackSettingsScreen(
                         "${decoder.playbackOptionCopy().label} ›",
                         true,
                         onDecoder,
+                    )
+                }
+            }
+        }
+        item {
+            Section(title = "隐私") {
+                SettingsCard {
+                    SwitchRow(
+                        "匿名播放质量分享",
+                        anonymousQoeSharing,
+                        true,
+                        onChange = onAnonymousQoeSharing,
                     )
                 }
             }

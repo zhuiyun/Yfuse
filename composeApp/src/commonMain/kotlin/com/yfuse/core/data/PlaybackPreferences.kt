@@ -386,6 +386,16 @@ class PlaybackPreferences(
         settings.putBoolean(KEY_QUALITY_LOCKED, locked)
     }
 
+    private val _anonymousQoeSharing =
+        MutableStateFlow(settings.getBoolean(KEY_ANONYMOUS_QOE_SHARING, false))
+    val anonymousQoeSharing: StateFlow<Boolean> = _anonymousQoeSharing.asStateFlow()
+
+    fun setAnonymousQoeSharing(enabled: Boolean) {
+        _anonymousQoeSharing.value = enabled
+        settings.putBoolean(KEY_ANONYMOUS_QOE_SHARING, enabled)
+        if (!enabled) settings.remove(PLAYBACK_QOE_OUTBOX_KEY)
+    }
+
     fun rememberedQuality(serverId: String): PlaybackQuality? {
         val id = serverId.trim().takeIf { it.isNotEmpty() } ?: return null
         return settings
@@ -523,6 +533,7 @@ class PlaybackPreferences(
         const val KEY_CELLULAR_QUALITY_CAP = "player.networkQuality.cellular"
         const val KEY_AUTO_QUALITY_DOWNGRADE = "player.networkQuality.autoDowngrade"
         const val KEY_QUALITY_LOCKED = "player.networkQuality.locked"
+        const val KEY_ANONYMOUS_QOE_SHARING = "player.ycore.qoeSharing"
         const val KEY_SERVER_QUALITY_PREFIX = "player.networkQuality.server."
         const val KEY_RESUME_PROMPT = "player.resumePrompt"
         const val KEY_SERIES_PLAYBACK = "player.seriesPlayback.v1"
@@ -531,6 +542,8 @@ class PlaybackPreferences(
         val SERIES_ASPECT_MODES = setOf("Fit", "Fill", "Stretch")
     }
 }
+
+internal const val PLAYBACK_QOE_OUTBOX_KEY = "player.ycore.qoe.outbox.v1"
 
 internal const val MAX_SERIES_PLAYBACK_PREFERENCES = 32
 internal const val MAX_PLAYBACK_FAILURE_RECORDS = 96

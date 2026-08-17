@@ -42,9 +42,12 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.offline.createOfflineMediaManager
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackMediaProbeService
+import com.yfuse.core.playback.PlaybackOfflineLicenseManager
+import com.yfuse.core.playback.PlaybackQoeReporter
 import com.yfuse.core.playback.PlaybackRuntimeEnvironmentProvider
 import com.yfuse.core.playback.createPlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.createPlaybackMediaProbeService
+import com.yfuse.core.playback.createPlaybackOfflineLicenseManager
 import com.yfuse.core.playback.createPlaybackRuntimeEnvironmentProvider
 import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.VaultCrypto
@@ -91,6 +94,15 @@ fun appModule(
     single<PlaybackDeviceCapabilitiesProvider> { createPlaybackDeviceCapabilitiesProvider() }
     single<PlaybackMediaProbeService> { createPlaybackMediaProbeService() }
     single<PlaybackRuntimeEnvironmentProvider> { createPlaybackRuntimeEnvironmentProvider() }
+    single<PlaybackOfflineLicenseManager> { createPlaybackOfflineLicenseManager(get()) }
+    single {
+        PlaybackQoeReporter(
+            settings = get(),
+            preferences = get(),
+            client = createAccountClient(),
+            appVersion = appVersion,
+        )
+    }
     single { WatchTogetherPreferences(get()) }
     single { DanmakuPreferences(get()) }
     single { SkipSegmentPreferences(get()) }

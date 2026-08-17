@@ -177,7 +177,11 @@ class DetailComponent(
                         .onEach playbackState@{ playback ->
                             if (playback.loading) return@playbackState
                             val selected = playback.items.getOrNull(playback.startIndex)
-                            if (playback.error == null && selected != null) {
+                            if (
+                                playback.error == null &&
+                                selected != null &&
+                                selected.canPreloadSource
+                            ) {
                                 sourcePreloader?.preload(selected.url)
                             }
                             // Ready/failed is terminal for PlayerStore. Keeping the Store itself is

@@ -150,6 +150,7 @@ internal class PlaybackProgressReporter(
         val remaining = state.remainingMs
         if (remaining <= 0L || remaining > NEXT_SOURCE_PRELOAD_WINDOW_MS) return
         val next = items.getOrNull(state.currentIndex + 1) ?: return
+        if (!next.canPreloadSource) return
         if (!preloadedSources.add(next.url)) return
         preloader.preload(next.url)
     }

@@ -159,6 +159,11 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                 )
             }
         val requiresDiscStream = version.requiresDiscNavigation
+        val safeDiscDirectStream =
+            requiresDiscStream &&
+                version.supportsDirectStream == true &&
+                directStream != null &&
+                version.directStreamUrl.isLinearMediaStreamUrl()
         val hlsTranscode =
             when {
                 negotiatedTranscode != null -> negotiatedTranscode
@@ -170,12 +175,10 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             }
         val method =
             when {
-                // A server-provided direct-stream URL has already selected/remuxed the disc
-                // title and is safe. The original ISO URL has not, even when an older server
-                // incorrectly marks it as direct playable.
-                requiresDiscStream &&
-                    version.supportsDirectStream == true &&
-                    directStream != null -> PlaybackMethod.DirectStream
+                // A concrete .m2ts/.ts/etc address means the server already selected and
+                // remuxed a title. A generic or static DirectStreamUrl can still be the raw
+                // ISO bytes, which no Android backend can consume as a linear stream.
+                safeDiscDirectStream -> PlaybackMethod.DirectStream
                 requiresDiscStream && hlsTranscode.isNotBlank() -> PlaybackMethod.Transcode
                 version.supportsDirectPlay != false -> PlaybackMethod.DirectPlay
                 version.supportsDirectStream == true && directStream != null -> PlaybackMethod.DirectStream
@@ -223,6 +226,42 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                         ?: version.audioTracks.firstOrNull()
                 )?.label,
             audioTrackCount = version.audioTracks.size,
+        )
+    }
+
+private fun String?.isLinearMediaStreamUrl(): Boolean {
+    val path = this?.substringBefore('?')?.substringBefore('#')?.lowercase() ?: return false
+    return LINEAR_MEDIA_STREAM_EXTENSIONS.any(path::endsWith)
+}
+
+private val LINEAR_MEDIA_STREAM_EXTENSIONS =
+    setOf(".m2ts", ".mts", ".ts", ".mkv", ".mp4", ".m4v", ".mov", ".webm")
+
+/**
+ * PlaybackInfo is authoritative for URLs and capabilities, but some servers omit the fields
+ * that identify ISO/DVD/Blu-ray sources from its MediaSources. Preserve those facts from the
+ * item-detail response so a negotiated source cannot silently turn back into a plain file.
+ */
+internal fun List<MediaVersion>.preservingSourceMetadataFrom(detailVersions: List<MediaVersion>): List<MediaVersion> =
+    mapIndexed { index, negotiated ->
+        val detail =
+            detailVersions.firstOrNull { it.id == negotiated.id }
+                ?: detailVersions.getOrNull(index)?.takeIf {
+                    size == detailVersions.size || (size == 1 && detailVersions.size == 1)
+                }
+                ?: return@mapIndexed negotiated
+        negotiated.copy(
+            container = negotiated.container ?: detail.container,
+            sizeBytes = negotiated.sizeBytes ?: detail.sizeBytes,
+            bitrateBps = negotiated.bitrateBps ?: detail.bitrateBps,
+            videoCodec = negotiated.videoCodec ?: detail.videoCodec,
+            videoHeight = negotiated.videoHeight ?: detail.videoHeight,
+            videoRange = negotiated.videoRange ?: detail.videoRange,
+            path = negotiated.path ?: detail.path,
+            videoType = negotiated.videoType ?: detail.videoType,
+            video = negotiated.video ?: detail.video,
+            audioTracks = negotiated.audioTracks.ifEmpty { detail.audioTracks },
+            subtitleTracks = negotiated.subtitleTracks.ifEmpty { detail.subtitleTracks },
         )
     }
 
@@ -304,6 +343,10 @@ data class PlayerMediaItem(
      */
     val activeVersion: PlayerMediaVersion?
         get() = versions.firstOrNull { it.id == versionId } ?: versions.firstOrNull()
+
+    /** Preloading must never start server ffmpeg or read the prefix of a raw disc image. */
+    val canPreloadSource: Boolean
+        get() = playMethod != PlaybackMethod.Transcode && activeVersion?.discSource != true
 
     /** The same entry playing a different file, or unchanged when there is no such file. */
     fun withVersion(id: String?): PlayerMediaItem {
@@ -649,7 +692,7 @@ class PlayerStoreFactory(
                 ): PlayerMediaItem {
                     val effectiveVersions =
                         if (id == effectiveItemId && negotiatedVersions.isNotEmpty()) {
-                            negotiatedVersions
+                            negotiatedVersions.preservingSourceMetadataFrom(versions)
                         } else {
                             versions
                         }
@@ -666,6 +709,28 @@ class PlayerStoreFactory(
                     val chosen =
                         playerVersions.firstOrNull { it.id == effectiveMediaSourceId }
                             ?: playerVersions.firstOrNull()
+                    if (id == effectiveItemId && chosen != null) {
+                        val selectedMetadata =
+                            effectiveVersions.firstOrNull { it.id == chosen.id }
+                                ?: effectiveVersions.firstOrNull()
+                        AppLog.info(
+                            category = "feature.player",
+                            event = "playback_route_selected",
+                            message = "Playback source route selected",
+                            attributes =
+                                mapOf(
+                                    "discSource" to chosen.discSource.toString(),
+                                    "container" to (chosen.container ?: "unknown"),
+                                    "method" to chosen.playMethod.name,
+                                    "hasNegotiatedDirectStream" to
+                                        (selectedMetadata?.directStreamUrl != null).toString(),
+                                    "hasNegotiatedTranscode" to
+                                        (selectedMetadata?.transcodingUrl != null).toString(),
+                                    "sourceSizeBytes" to
+                                        (selectedMetadata?.sizeBytes?.toString() ?: "unknown"),
+                                ),
+                        )
+                    }
                     // Entries whose sources were never fetched still need addresses; they get
                     // the unqualified ones, which is the file the server would have picked.
                     val unqualified =
@@ -804,6 +869,18 @@ class PlayerStoreFactory(
                                     mapOf(
                                         "serverId" to server.id,
                                         "sourceCount" to negotiatedVersions.size.toString(),
+                                        "discSource" to
+                                            negotiatedVersions
+                                                .any(MediaVersion::requiresDiscNavigation)
+                                                .toString(),
+                                        "hasDirectStream" to
+                                            negotiatedVersions
+                                                .any { it.directStreamUrl != null }
+                                                .toString(),
+                                        "hasTranscode" to
+                                            negotiatedVersions
+                                                .any { it.transcodingUrl != null }
+                                                .toString(),
                                     ),
                             )
                         }.onFailure { error ->

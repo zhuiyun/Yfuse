@@ -15,7 +15,7 @@ coroutines = "1.11.0"
 koin = "4.0.0"
 settings = "1.2.0"
 coil = "3.0.4"
-media3 = "1.5.1"
+media3 = "1.9.0"
 palette = "1.0.0"
 turbine = "1.2.0"
 zxing = "3.3.3"
@@ -70,6 +70,7 @@ androidx-work-runtime = { module = "androidx.work:work-runtime", version.ref = "
 media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
 media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3" }
 media3-hls = { module = "androidx.media3:media3-exoplayer-hls", version.ref = "media3" }
+media3-dash = { module = "androidx.media3:media3-exoplayer-dash", version.ref = "media3" }
 androidx-palette = { module = "androidx.palette:palette-ktx", version.ref = "palette" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 google-cast-framework = { module = "com.google.android.gms:play-services-cast-framework", version.ref = "google-cast" }

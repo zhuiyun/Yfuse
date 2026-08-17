@@ -51,13 +51,18 @@ class PlaybackRuntimeFaultDetector(
 
         val renderedProgressMs = (observation.positionMs - initialPositionMs).coerceAtLeast(0L)
         val awaitingFirstFrame =
-            observation.videoExpected && !observation.videoReady && renderedProgressMs == 0L
+            observation.videoExpected &&
+                observation.videoOutputVerifiable &&
+                !observation.videoReady &&
+                renderedProgressMs == 0L
         val videoMissing =
             observation.videoExpected &&
+                observation.videoOutputVerifiable &&
                 !observation.videoReady &&
                 renderedProgressMs >= MISSING_OUTPUT_PROGRESS_MS
         val audioMissing =
             observation.audioExpected &&
+                observation.audioOutputVerifiable &&
                 !observation.audioReady &&
                 renderedProgressMs >= MISSING_OUTPUT_PROGRESS_MS
 
@@ -88,7 +93,9 @@ class PlaybackRuntimeFaultDetector(
                         PlaybackRuntimeFaultKind.AudioOutputMissing,
                         "播放进度前进但没有可验证的音频输出",
                     )
-                observation.videoReady && now - lastProgressAtEpochMs >= POSITION_STALL_TIMEOUT_MS ->
+                !awaitingFirstFrame &&
+                    (observation.videoExpected || observation.audioExpected) &&
+                    now - lastProgressAtEpochMs >= POSITION_STALL_TIMEOUT_MS ->
                     PlaybackRuntimeFault(
                         PlaybackRuntimeFaultKind.PositionStalled,
                         "非缓冲状态下播放进度持续停滞",

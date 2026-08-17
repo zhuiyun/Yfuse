@@ -444,6 +444,13 @@ internal fun SettingsPanel(
                                 diagnostics.plannedRenderPath.ifBlank { "等待规划" },
                             )
                             DiagnosticRow("运行健康", diagnostics.playbackHealth)
+                            DiagnosticRow(
+                                "A/V 同步",
+                                diagnostics.avSyncOffsetMs?.let { offset ->
+                                    val signed = if (offset > 0L) "+$offset" else offset.toString()
+                                    "$signed ms · ${diagnostics.avSyncMeasurement}"
+                                } ?: diagnostics.avSyncMeasurement,
+                            )
                             DiagnosticRow("功耗估计", diagnostics.powerProfile)
                             DiagnosticRow("资源压力", diagnostics.resourcePressure)
                             DiagnosticRow("媒体探测", diagnostics.mediaProbe)

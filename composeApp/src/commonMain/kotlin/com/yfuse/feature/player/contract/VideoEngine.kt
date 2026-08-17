@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackFailureKind
@@ -101,6 +102,12 @@ data class PlaybackDiagnostics(
     val bitrateBitsPerSecond: Long = 0L,
     val frameRate: Float = 0f,
     val droppedFrames: Int = 0,
+    /** Video presentation timestamp minus the active playback clock; null when unavailable. */
+    val avSyncOffsetMs: Long? = null,
+    /** Backend clock pair used for [avSyncOffsetMs], or an explicit unavailability reason. */
+    val avSyncMeasurement: String = "当前内核不可测",
+    val networkRecoveryAttempts: Int = 0,
+    val networkRecoverySuccesses: Int = 0,
     val bufferedDurationMs: Long = 0L,
     val bufferEvents: Int = 0,
     val networkBitsPerSecond: Long = 0L,
@@ -216,6 +223,9 @@ interface VideoEngine {
 
     fun setSpeed(speed: Float)
 
+    /** Applies an in-manifest video ceiling without reloading. False requests a caller rebuild. */
+    fun setQualityCeiling(quality: PlaybackQuality): Boolean = false
+
     fun selectAudioTrack(id: String)
 
     /** [EngineTrack.OFF] disables subtitles. */
@@ -256,6 +266,12 @@ interface VideoEngine {
 
     /** Clears a recoverable playback error and retries the current entry. */
     fun retry()
+
+    /** Re-establishes the source at a position captured before connectivity was lost. */
+    fun retryFrom(positionMs: Long) {
+        seekTo(positionMs.coerceAtLeast(0L))
+        retry()
+    }
 
     /**
      * Reloads the current entry from the server's transcoded stream, returning false when

@@ -105,6 +105,54 @@ class PlaybackPreloadTest {
         assertTrue(preloader.urls.isEmpty())
     }
 
+    @Test
+    fun a_transcoded_disc_is_never_preloaded() =
+        runTest {
+            val preloader = RecordingPreloader()
+            val discVersion =
+                PlayerMediaVersion(
+                    id = "disc",
+                    label = "ISO",
+                    detail = "ISO",
+                    url = "hls-disc",
+                    transcodeUrl = "hls-disc",
+                    fallbackTranscodeUrl = "mp4-disc",
+                    discSource = true,
+                    playMethod = com.yfuse.core.model.PlaybackMethod.Transcode,
+                )
+            val reporter =
+                PlaybackProgressReporter(
+                    items =
+                        listOf(
+                            PlayerMediaItem("e1", "direct-1", "hls-1", "第一集"),
+                            PlayerMediaItem(
+                                id = "disc-item",
+                                url = discVersion.url,
+                                transcodeUrl = discVersion.transcodeUrl,
+                                title = "原盘",
+                                fallbackTranscodeUrl = discVersion.fallbackTranscodeUrl,
+                                versions = listOf(discVersion),
+                                versionId = discVersion.id,
+                                playMethod = com.yfuse.core.model.PlaybackMethod.Transcode,
+                            ),
+                        ),
+                    sink = NoopSink,
+                    scope = backgroundScope,
+                    sourcePreloader = preloader,
+                )
+
+            reporter.update(
+                PlaybackState(
+                    playing = true,
+                    currentIndex = 0,
+                    positionMs = 20_000L,
+                    durationMs = 100_000L,
+                ),
+            )
+
+            assertTrue(preloader.urls.isEmpty())
+        }
+
     private class RecordingPreloader : PlaybackSourcePreloader {
         val urls = mutableListOf<String>()
 

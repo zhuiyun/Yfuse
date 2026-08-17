@@ -50,6 +50,8 @@ import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyStream
+import com.yfuse.core.network.currentPlaybackNetworkClass
+import com.yfuse.core.network.playbackNetworkClasses
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.playback.PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS
 import com.yfuse.core.playback.PlaybackAdaptiveNetworkController
@@ -58,6 +60,7 @@ import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureMemory
+import com.yfuse.core.playback.PlaybackNetworkRecoveryController
 import com.yfuse.core.playback.PlaybackNetworkSample
 import com.yfuse.core.playback.PlaybackPerformanceMemory
 import com.yfuse.core.playback.PlaybackProbeStatus
@@ -123,6 +126,9 @@ internal fun PlayerRoot(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val playbackNetworkFlow = remember { playbackNetworkClasses() }
+    val playbackNetworkClass by
+        playbackNetworkFlow.collectAsState(initial = currentPlaybackNetworkClass())
     val optimizationMode by playbackPreferences.optimizationMode.collectAsState()
     val configuredEngineSelection by playbackPreferences.engineSelection.collectAsState()
     var sessionEngineSelection by remember {
@@ -443,6 +449,22 @@ internal fun PlayerRoot(
             completedCastHandoffRevision != castState.sessionRevision
     val castAuthoritative = castState.hasActiveSession || pendingUnexpectedHandoff
     val localCastItem = activeItems.getOrNull(localState.currentIndex)
+    var networkRecoveryAttempts by
+        remember(localCastItem?.serverId, localCastItem?.id, localCastItem?.versionId) {
+            mutableIntStateOf(0)
+        }
+    var networkRecoverySuccesses by
+        remember(localCastItem?.serverId, localCastItem?.id, localCastItem?.versionId) {
+            mutableIntStateOf(0)
+        }
+    var networkRecoveryPending by
+        remember(localCastItem?.serverId, localCastItem?.id, localCastItem?.versionId) {
+            mutableStateOf(false)
+        }
+    var networkRecoveryResumePositionMs by
+        remember(localCastItem?.serverId, localCastItem?.id, localCastItem?.versionId) {
+            mutableStateOf<Long?>(null)
+        }
     val castPlayMethod =
         if (localCastItem?.transcodeUrl?.isNotBlank() == true) {
             PlaybackMethod.Transcode.label
@@ -455,6 +477,74 @@ internal fun PlayerRoot(
         } else {
             localState
         }
+    val networkRecoveryController =
+        remember(localCastItem?.serverId, localCastItem?.id, localCastItem?.versionId) {
+            mutableStateOf(PlaybackNetworkRecoveryController())
+        }.value
+    LaunchedEffect(
+        networkRecoveryController,
+        playbackNetworkClass,
+        engine,
+        engine.playbackRequested,
+        localState.positionMs,
+        localState.error,
+        localState.ended,
+        castAuthoritative,
+    ) {
+        if (castAuthoritative) return@LaunchedEffect
+        val decision =
+            networkRecoveryController.observe(
+                networkClass = playbackNetworkClass,
+                playbackRequested = engine.playbackRequested,
+                positionMs = engine.currentPositionMs(),
+                ended = localState.ended,
+            )
+        if (!decision.retry) return@LaunchedEffect
+        AppLog.info(
+            category = "player.network",
+            event = "connectivity_restored",
+            message = "YCore resumed the active backend after connectivity returned",
+            attributes =
+                mapOf(
+                    "engine" to kind.name,
+                    "positionMs" to decision.resumePositionMs.toString(),
+                    "network" to playbackNetworkClass.name,
+                ),
+        )
+        networkRecoveryAttempts++
+        networkRecoveryPending = true
+        networkRecoveryResumePositionMs = decision.resumePositionMs
+        engine.retryFrom(decision.resumePositionMs)
+    }
+    LaunchedEffect(
+        networkRecoveryPending,
+        networkRecoveryResumePositionMs,
+        localState.playing,
+        localState.buffering,
+        localState.positionMs,
+        localState.error,
+        localState.ended,
+    ) {
+        if (networkRecoveryPending && localState.error != null) {
+            networkRecoveryPending = false
+            networkRecoveryResumePositionMs = null
+        } else if (
+            networkRecoveryPending &&
+            !localState.buffering &&
+            localState.error == null &&
+            (
+                localState.ended ||
+                    (
+                        localState.playing &&
+                            localState.positionMs > (networkRecoveryResumePositionMs ?: Long.MAX_VALUE)
+                    )
+            )
+        ) {
+            networkRecoverySuccesses++
+            networkRecoveryPending = false
+            networkRecoveryResumePositionMs = null
+        }
+    }
     val deviceCapabilityLabel =
         remember(deviceCapabilities) { deviceCapabilities.diagnosticLabel() }
     val activeProbeResult =
@@ -489,6 +579,8 @@ internal fun PlayerRoot(
             runtimeEnvironment = runtimeEnvironment,
             castAuthoritative = castAuthoritative,
             state = localState,
+            networkRecoveryAttempts = networkRecoveryAttempts,
+            networkRecoverySuccesses = networkRecoverySuccesses,
         )
     LaunchedEffect(activeProbe.probeDepth, activeProbe.capabilitySignature) {
         if (castAuthoritative) return@LaunchedEffect
@@ -556,6 +648,8 @@ internal fun PlayerRoot(
                     performanceBaseline =
                         performanceMemory.diagnosticLabel(activeProbe.capabilitySignature),
                     startupTimeMs = runtimeAssessment.health.startupTimeMs ?: 0L,
+                    networkRecoveryAttempts = networkRecoveryAttempts,
+                    networkRecoverySuccesses = networkRecoverySuccesses,
                 ),
         )
 
@@ -1372,6 +1466,21 @@ internal fun PlayerRoot(
             onQualityChanged(target, currentItem?.serverId)
         }
         if (target == selectedQuality) return
+        if (engine.setQualityCeiling(target)) {
+            AppLog.info(
+                category = "player.quality",
+                event = "adaptive_track_ceiling_changed",
+                message = "YCore changed the client-side adaptive track ceiling",
+                attributes =
+                    mapOf(
+                        "engine" to kind.name,
+                        "from" to selectedQuality.name,
+                        "to" to target.name,
+                    ),
+            )
+            selectedQuality = target
+            return
+        }
         capturePlaybackHandover()
         engine.pause()
         resume =

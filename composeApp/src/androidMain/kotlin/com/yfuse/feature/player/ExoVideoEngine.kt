@@ -25,6 +25,8 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
@@ -36,6 +38,7 @@ import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core.playback.isAdaptivePlaybackManifest
 import com.yfuse.core.playback.playbackBufferProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -130,6 +133,8 @@ class ExoVideoEngine(
     private var fallbackJob: Job? = null
     private var released = false
     private val cacheHandle = VideoCachePool.acquire(context.applicationContext, videoCacheBytes)
+    private val trackSelector = DefaultTrackSelector(context)
+    private var qualityCeiling = quality
 
     val player: ExoPlayer =
         run {
@@ -195,6 +200,7 @@ class ExoVideoEngine(
             ExoPlayer
                 .Builder(context, renderersFactory)
                 .setLoadControl(loadControl)
+                .setTrackSelector(trackSelector)
                 .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
                 .setVideoChangeFrameRateStrategy(exoVideoChangeFrameRateStrategy(frameRateMatchMode))
                 .setAudioAttributes(
@@ -218,6 +224,30 @@ class ExoVideoEngine(
     private var currentVideoDecoder = decoderMode.label
     private var currentVideoFormat: Format? = null
     private var renderedFirstFrame = false
+    private var lastAvSyncSampleAtNs = 0L
+    private val videoFrameMetadataListener =
+        VideoFrameMetadataListener { presentationTimeUs, releaseTimeNs, _, _ ->
+            val nowNs = System.nanoTime()
+            if (nowNs - lastAvSyncSampleAtNs < AV_SYNC_SAMPLE_INTERVAL_NS) {
+                return@VideoFrameMetadataListener
+            }
+            lastAvSyncSampleAtNs = nowNs
+            val releaseDelayMs =
+                ((releaseTimeNs - nowNs) / 1_000_000L).coerceIn(-MAX_RELEASE_DELAY_MS, MAX_RELEASE_DELAY_MS)
+            val mediaClockAtReleaseMs = player.currentPosition + releaseDelayMs
+            val offsetMs =
+                (presentationTimeUs / 1_000L - mediaClockAtReleaseMs)
+                    .coerceIn(-MAX_REPORTED_AV_SYNC_OFFSET_MS, MAX_REPORTED_AV_SYNC_OFFSET_MS)
+            _state.update {
+                it.copy(
+                    diagnostics =
+                        it.diagnostics.copy(
+                            avSyncOffsetMs = offsetMs,
+                            avSyncMeasurement = "Media3 呈现/播放时钟",
+                        ),
+                )
+            }
+        }
 
     private fun updateVideoOutput() {
         val format = currentVideoFormat
@@ -458,6 +488,19 @@ class ExoVideoEngine(
                 val index = player.currentMediaItemIndex
                 val item = items.getOrNull(index)
                 val transcoding = index in transcodedIndices
+                if (
+                    !transcoding &&
+                    mediaItem
+                        ?.localConfiguration
+                        ?.uri
+                        ?.toString()
+                        .orEmpty()
+                        .isAdaptivePlaybackManifest()
+                ) {
+                    applyTrackSelectionCeiling(qualityCeiling)
+                } else {
+                    applyTrackSelectionCeiling(PlaybackQuality.Original)
+                }
                 _state.update {
                     it.copy(
                         currentIndex = index,
@@ -475,7 +518,7 @@ class ExoVideoEngine(
                                 engine = "Media3 / ExoPlayer",
                                 decoder = it.diagnostics.decoder,
                                 item = item,
-                                quality = quality,
+                                quality = qualityCeiling,
                                 transcoding = transcoding,
                             ),
                     )
@@ -616,6 +659,14 @@ class ExoVideoEngine(
         )
         player.addListener(listener)
         player.addAnalyticsListener(analyticsListener)
+        player.setVideoFrameMetadataListener(videoFrameMetadataListener)
+        val initialItem = items.getOrNull(startIndex)
+        if (
+            startIndex !in transcodedIndices &&
+            initialItem?.url?.isAdaptivePlaybackManifest() == true
+        ) {
+            applyTrackSelectionCeiling(quality)
+        }
         player.setMediaItems(
             items.mapIndexed { index, item ->
                 mediaItem(item, if (index in transcodedIndices) item.transcodeUrl else item.url)
@@ -683,6 +734,38 @@ class ExoVideoEngine(
 
     override fun setSpeed(speed: Float) {
         player.setPlaybackSpeed(speed)
+    }
+
+    override fun setQualityCeiling(quality: PlaybackQuality): Boolean {
+        val uri =
+            player.currentMediaItem
+                ?.localConfiguration
+                ?.uri
+                ?.toString()
+                .orEmpty()
+        if (_state.value.transcoding || !uri.isAdaptivePlaybackManifest()) return false
+        qualityCeiling = quality
+        applyTrackSelectionCeiling(quality)
+        _state.update {
+            it.copy(diagnostics = it.diagnostics.copy(requestedQuality = quality.label))
+        }
+        return true
+    }
+
+    private fun applyTrackSelectionCeiling(quality: PlaybackQuality) {
+        val builder = trackSelector.buildUponParameters()
+        val maxWidth = quality.maxWidth
+        val maxBitrate = quality.videoBitrate
+        if (maxWidth == null || maxBitrate == null) {
+            builder.clearVideoSizeConstraints().setMaxVideoBitrate(Int.MAX_VALUE)
+        } else {
+            builder
+                // The quality model stores the longest display edge. A square constraint keeps
+                // portrait ladders eligible while still capping their effective resolution.
+                .setMaxVideoSize(maxWidth, maxWidth)
+                .setMaxVideoBitrate(maxBitrate)
+        }
+        trackSelector.parameters = builder.build()
     }
 
     override fun selectAudioTrack(id: String) = select(C.TRACK_TYPE_AUDIO, id)
@@ -758,6 +841,7 @@ class ExoVideoEngine(
         ticker?.cancel()
         ticker = null
         secondarySubtitles.release()
+        player.clearVideoFrameMetadataListener(videoFrameMetadataListener)
         player.removeListener(listener)
         player.removeAnalyticsListener(analyticsListener)
         player.release()
@@ -1122,6 +1206,10 @@ class ExoVideoEngine(
 
     private fun knownDuration(): Long = player.duration.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
 }
+
+private const val AV_SYNC_SAMPLE_INTERVAL_NS = 1_000_000_000L
+private const val MAX_RELEASE_DELAY_MS = 250L
+private const val MAX_REPORTED_AV_SYNC_OFFSET_MS = 5_000L
 
 private fun String.isSoftwareVideoDecoder(): Boolean {
     val normalized = lowercase()
