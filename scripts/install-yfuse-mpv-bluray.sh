@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Installs a libbluray-enabled AAR produced by build-yfuse-mpv-bluray.sh into composeApp/libs/.
-# The sidecar manifest is consumed by provenance tooling; never create it by hand.
+# Installs a verified libbluray-enabled AAR into composeApp/libs/.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,90 +11,36 @@ LIBS="$ROOT/composeApp/libs"
 DEST="$LIBS/libmpv-release.aar"
 DEST_SHA="$LIBS/libmpv-release.aar.sha256"
 DEST_SOURCES="$LIBS/libmpv-release.sources.txt"
+VERIFIER="$ROOT/scripts/verify-yfuse-mpv-bluray-aar.sh"
 
-EXPECTED_MPV="fcf6745703dc1265bca88f12fee8fc355ddf251e"
-EXPECTED_BLURAY="7d94f2660af5bfc16015291a03539329135c18f1"
-EXPECTED_UDFREAD="139a2194525f2745b98a98e4d8fa627d07440176"
-EXPECTED_CAPABILITY_CLASS="dev/yfuse/mpv/YfuseMpvCapabilities.class"
+[[ -x "$VERIFIER" ]] || chmod +x "$VERIFIER"
+"$VERIFIER" "$AAR" "$SHA_FILE" "$SOURCES"
 
-die() {
-  printf 'error: %s\n' "$*" >&2
+if command -v sha256sum >/dev/null 2>&1; then
+  actual_sha="$(sha256sum "$AAR" | awk '{ print tolower($1) }')"
+elif command -v shasum >/dev/null 2>&1; then
+  actual_sha="$(shasum -a 256 "$AAR" | awk '{ print tolower($1) }')"
+else
+  printf 'error: sha256sum or shasum is required\n' >&2
   exit 1
-}
-
-sha256_of() {
-  local file="$1"
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$file" | awk '{ print tolower($1) }'
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$file" | awk '{ print tolower($1) }'
-  else
-    die "sha256sum or shasum is required"
-  fi
-}
-
-manifest_value() {
-  local key="$1"
-  awk -F= -v key="$key" '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$SOURCES"
-}
-
-[[ -f "$AAR" ]] || die "AAR not found: $AAR"
-[[ -f "$SHA_FILE" ]] || die "SHA-256 sidecar not found: $SHA_FILE"
-[[ -f "$SOURCES" ]] || die "native source manifest not found: $SOURCES"
-command -v unzip >/dev/null 2>&1 || die "unzip is required"
-
-expected_sha="$(awk 'NR == 1 { print tolower($1) }' "$SHA_FILE")"
-[[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || die "invalid SHA-256 sidecar: $SHA_FILE"
-actual_sha="$(sha256_of "$AAR")"
-[[ "$actual_sha" == "$expected_sha" ]] ||
-  die "AAR SHA-256 mismatch: expected $expected_sha, got $actual_sha"
-
-[[ "$(manifest_value libmpv-android)" == "$EXPECTED_MPV" ]] ||
-  die "unexpected libmpv-android source revision"
-[[ "$(manifest_value libbluray)" == "$EXPECTED_BLURAY" ]] ||
-  die "unexpected libbluray source revision"
-[[ "$(manifest_value libudfread)" == "$EXPECTED_UDFREAD" ]] ||
-  die "unexpected libudfread source revision"
-[[ "$(manifest_value bdj_jar)" == "disabled" ]] ||
-  die "native AAR provenance must explicitly state bdj_jar=disabled"
-[[ "$(manifest_value capability-class)" == "$EXPECTED_CAPABILITY_CLASS" ]] ||
-  die "native AAR provenance is missing the Yfuse runtime capability marker"
-
-listing="$(mktemp)"
-staging="$(mktemp -d)"
-trap 'rm -f "${listing:-}"; rm -rf "${staging:-}"' EXIT
-unzip -l "$AAR" >"$listing"
-for entry in AndroidManifest.xml classes.jar jni/arm64-v8a/libmpv.so; do
-  grep -Fq "$entry" "$listing" || die "AAR is missing required entry: $entry"
-done
-
-unzip -p "$AAR" classes.jar >"$staging/classes.jar"
-unzip -l "$staging/classes.jar" | grep -Fq "$EXPECTED_CAPABILITY_CLASS" ||
-  die "AAR classes.jar is missing $EXPECTED_CAPABILITY_CLASS"
-
-# Extract only the ARM64 lib for ELF sanity checks; the app itself is arm64-only today.
-unzip -p "$AAR" jni/arm64-v8a/libmpv.so >"$staging/libmpv.so"
-[[ -s "$staging/libmpv.so" ]] || die "could not extract arm64 libmpv.so"
-if command -v readelf >/dev/null 2>&1; then
-  readelf -h "$staging/libmpv.so" | grep -Eq 'Class:[[:space:]]+ELF64' ||
-    die "arm64 libmpv.so is not ELF64"
-  readelf -h "$staging/libmpv.so" | grep -Eq 'Machine:[[:space:]]+(AArch64|ARM aarch64)' ||
-    die "libmpv.so is not AArch64"
 fi
 
 mkdir -p "$LIBS"
 tmp_aar="$(mktemp "$LIBS/.libmpv-release.aar.XXXXXX")"
 tmp_sha="$(mktemp "$LIBS/.libmpv-release.sha256.XXXXXX")"
 tmp_sources="$(mktemp "$LIBS/.libmpv-release.sources.XXXXXX")"
+trap 'rm -f "${tmp_aar:-}" "${tmp_sha:-}" "${tmp_sources:-}"' EXIT
+
 cp "$AAR" "$tmp_aar"
 printf '%s  libmpv-release.aar\n' "$actual_sha" >"$tmp_sha"
 cp "$SOURCES" "$tmp_sources"
 
-# Sidecars first, AAR last. Runtime capability still comes from a class embedded in the AAR itself,
-# so a stale sidecar can never turn the stock binary into a Blu-ray-capable build.
+# Sidecars first, AAR last. Runtime capability still comes from a marker embedded in the AAR itself,
+# so stale metadata can never make the stock binary appear Blu-ray capable.
 mv -f "$tmp_sha" "$DEST_SHA"
 mv -f "$tmp_sources" "$DEST_SOURCES"
 mv -f "$tmp_aar" "$DEST"
+trap - EXIT
 
 printf 'installed: %s\n' "$DEST"
 printf 'sha256:   %s\n' "$actual_sha"
