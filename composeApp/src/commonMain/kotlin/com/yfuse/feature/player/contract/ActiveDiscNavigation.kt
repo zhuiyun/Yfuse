@@ -76,6 +76,17 @@ object ActiveDiscNavigation {
         return sendMenuCommand(command)
     }
 
+    /** Touch coordinates are accepted only while the authored interactive plane is visible. */
+    fun routeActiveMenuPoint(
+        x: Int,
+        y: Int,
+        activate: Boolean,
+    ): Boolean {
+        val backend = binding?.backend ?: return false
+        if (!menuActive || !backend.status.interactiveMenuReady) return false
+        return backend.selectMenuPoint(x, y, activate)
+    }
+
     private fun bumpRevision() {
         mutableRevision.value =
             if (mutableRevision.value == Long.MAX_VALUE) 0L else mutableRevision.value + 1L
