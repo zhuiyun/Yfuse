@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs a libbluray-enabled AAR produced by build-yfuse-mpv-bluray.sh into composeApp/libs/.
-# The sidecar manifest is consumed by Gradle/runtime capability gates; never create it by hand.
+# The sidecar manifest is consumed by provenance tooling; never create it by hand.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,6 +16,7 @@ DEST_SOURCES="$LIBS/libmpv-release.sources.txt"
 EXPECTED_MPV="fcf6745703dc1265bca88f12fee8fc355ddf251e"
 EXPECTED_BLURAY="7d94f2660af5bfc16015291a03539329135c18f1"
 EXPECTED_UDFREAD="139a2194525f2745b98a98e4d8fa627d07440176"
+EXPECTED_CAPABILITY_CLASS="dev/yfuse/mpv/YfuseMpvCapabilities.class"
 
 die() {
   printf 'error: %s\n' "$*" >&2
@@ -57,6 +58,8 @@ actual_sha="$(sha256_of "$AAR")"
   die "unexpected libudfread source revision"
 [[ "$(manifest_value bdj_jar)" == "disabled" ]] ||
   die "native AAR provenance must explicitly state bdj_jar=disabled"
+[[ "$(manifest_value capability-class)" == "$EXPECTED_CAPABILITY_CLASS" ]] ||
+  die "native AAR provenance is missing the Yfuse runtime capability marker"
 
 listing="$(mktemp)"
 staging="$(mktemp -d)"
@@ -65,6 +68,10 @@ unzip -l "$AAR" >"$listing"
 for entry in AndroidManifest.xml classes.jar jni/arm64-v8a/libmpv.so; do
   grep -Fq "$entry" "$listing" || die "AAR is missing required entry: $entry"
 done
+
+unzip -p "$AAR" classes.jar >"$staging/classes.jar"
+unzip -l "$staging/classes.jar" | grep -Fq "$EXPECTED_CAPABILITY_CLASS" ||
+  die "AAR classes.jar is missing $EXPECTED_CAPABILITY_CLASS"
 
 # Extract only the ARM64 lib for ELF sanity checks; the app itself is arm64-only today.
 unzip -p "$AAR" jni/arm64-v8a/libmpv.so >"$staging/libmpv.so"
@@ -84,8 +91,8 @@ cp "$AAR" "$tmp_aar"
 printf '%s  libmpv-release.aar\n' "$actual_sha" >"$tmp_sha"
 cp "$SOURCES" "$tmp_sources"
 
-# Sidecars first, AAR last: Gradle can only observe a new capability after the complete binary has
-# been copied. A later verification task also checks all three before packaging.
+# Sidecars first, AAR last. Runtime capability still comes from a class embedded in the AAR itself,
+# so a stale sidecar can never turn the stock binary into a Blu-ray-capable build.
 mv -f "$tmp_sha" "$DEST_SHA"
 mv -f "$tmp_sources" "$DEST_SOURCES"
 mv -f "$tmp_aar" "$DEST"
