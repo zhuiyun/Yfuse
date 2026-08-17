@@ -34,7 +34,7 @@ object ActiveDiscNavigation {
         backend: DiscNavigationBackend,
     ) {
         val previous = binding
-        if (previous?.owner !== owner) previous?.backend?.close()
+        if (previous?.backend !== backend) previous?.backend?.close()
         binding = Binding(owner = owner, backend = backend)
     }
 
