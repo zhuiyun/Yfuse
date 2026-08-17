@@ -11,6 +11,22 @@ on:
         options:
           - arm64
           - all
+  push:
+    branches:
+      - feature/uhd-bluray
+    paths:
+      - .github/workflows/build-yfuse-mpv-bluray.yml
+      - scripts/build-yfuse-mpv-bluray.sh
+      - scripts/install-yfuse-mpv-bluray.sh
+      - scripts/verify-yfuse-mpv-bluray-aar.sh
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/RemoteDiscBlockSource.android.kt
+  pull_request:
+    paths:
+      - .github/workflows/build-yfuse-mpv-bluray.yml
+      - scripts/build-yfuse-mpv-bluray.sh
+      - scripts/install-yfuse-mpv-bluray.sh
+      - scripts/verify-yfuse-mpv-bluray-aar.sh
 
 permissions:
   contents: read
@@ -21,7 +37,7 @@ concurrency:
 
 jobs:
   build:
-    name: libmpv + libbluray (${{ inputs.architectures }})
+    name: libmpv + libbluray
     runs-on: ubuntu-24.04
     timeout-minutes: 180
 
@@ -33,32 +49,47 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf automake build-essential cmake curl git libtool \
+            autoconf automake binutils build-essential cmake curl git libtool \
             meson ninja-build pkg-config python3 unzip wget yasm
+
+      - name: Resolve ABI set
+        id: abi
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "value=${{ inputs.architectures }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=arm64" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build pinned native engine
         shell: bash
         run: |
-          chmod +x scripts/build-yfuse-mpv-bluray.sh
-          if [[ "${{ inputs.architectures }}" == "arm64" ]]; then
+          chmod +x scripts/build-yfuse-mpv-bluray.sh scripts/verify-yfuse-mpv-bluray-aar.sh
+          if [[ "${{ steps.abi.outputs.value }}" == "arm64" ]]; then
             scripts/build-yfuse-mpv-bluray.sh --arch arm64
           else
             scripts/build-yfuse-mpv-bluray.sh
           fi
+
+      - name: Verify native release gates
+        shell: bash
+        run: |
+          scripts/verify-yfuse-mpv-bluray-aar.sh
 
       - name: Record artifact manifest
         shell: bash
         run: |
           {
             cat .native-build/artifacts/NATIVE-SOURCES.txt
-            echo "architectures=${{ inputs.architectures }}"
+            echo "architectures=${{ steps.abi.outputs.value }}"
             cat .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
           } > .native-build/artifacts/BUILD-MANIFEST.txt
 
       - name: Upload libmpv AAR
         uses: actions/upload-artifact@v4
         with:
-          name: libmpv-yfuse-bluray-${{ inputs.architectures }}
+          name: libmpv-yfuse-bluray-${{ steps.abi.outputs.value }}
           path: |
             .native-build/artifacts/libmpv-yfuse-bluray.aar
             .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
