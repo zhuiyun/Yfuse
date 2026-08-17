@@ -127,7 +127,8 @@ data class PlaybackPlan(
  *
  * Platform hardware decode remains the efficient path. Native engines are selected for known
  * demux/subtitle gaps and GPU tone mapping. Server transcode wins over local software decoding
- * when the device has already rejected the exact source format.
+ * when the device has already rejected the exact source format, except for formats such as ProRes
+ * that are deliberately routed to the bundled FFmpeg path first to preserve the original source.
  */
 fun planPlayback(
     probe: PlaybackMediaProbe,
@@ -153,15 +154,17 @@ fun planPlayback(
             videoSupport = videoSupport,
         )
     val discNeedsServer = discDecision.requiresServerTranscode
+    val softwareFirstVideo = probe.source.videoRequirements.codec in SOFTWARE_FIRST_VIDEO_CODECS
     val unsupportedVideoCanUseLocalSoftware =
         engineSelection == PlaybackEngineSelection.Auto &&
-            videoSupport.isUnsupported &&
+            (videoSupport.isUnsupported || softwareFirstVideo) &&
             !probe.source.needsDolbyDecoder &&
-            !probe.hasServerTranscode &&
-            !probe.usingServerTranscode
+            !probe.usingServerTranscode &&
+            (!probe.hasServerTranscode || softwareFirstVideo)
     val unsupportedVideoUsesServer =
         engineSelection == PlaybackEngineSelection.Auto &&
             videoSupport.isUnsupported &&
+            !softwareFirstVideo &&
             !probe.source.needsDolbyDecoder &&
             probe.hasServerTranscode &&
             preferredDecoderMode != DecoderMode.Software
@@ -224,6 +227,7 @@ fun planPlayback(
         engineSelection == PlaybackEngineSelection.Auto &&
             optimizationMode == PlaybackOptimizationMode.Balanced &&
             !strictPlatformPath &&
+            !unsupportedVideoCanUseLocalSoftware &&
             !discDecision.requiresNativeEngine &&
             !probe.requiresNativeDemuxer &&
             !probe.styledSubtitles &&
@@ -263,6 +267,9 @@ fun planPlayback(
             strictPlatformPath && lockedEngine != null && lockedEngine != PlayerEngine.Exo ->
                 "受保护内容需要安全输出，已临时使用平台内核"
             lockedEngine != null -> "已锁定 ${lockedEngine.label}，YCore 不自动切换内核"
+            unsupportedVideoCanUseLocalSoftware &&
+                probe.source.videoRequirements.codec == PlaybackVideoCodec.ProRes ->
+                "ProRes 使用 FFmpeg 软件解码，保留原始高位深片源"
             unsupportedVideoCanUseLocalSoftware ->
                 "${videoSupport.detail}，服务器无可用转码，使用 FFmpeg 软件解码"
             unsupportedVideoUsesServer -> "${videoSupport.detail}，使用服务器转码后平台硬解"
@@ -279,17 +286,14 @@ fun planPlayback(
             optimizationMode == PlaybackOptimizationMode.Compatibility -> "兼容模式优先原生解封装"
             else -> null
         }
-
     return PlaybackPlan(
         primaryEngine = primary,
         decoderMode =
             when {
-                strictPlatformPath -> DecoderMode.Hardware
-                requiresServerTranscode -> DecoderMode.Hardware
                 unsupportedVideoCanUseLocalSoftware -> DecoderMode.Software
-                primary == PlayerEngine.Exo && optimizationMode == PlaybackOptimizationMode.PowerSaver ->
-                    DecoderMode.Hardware
-                else -> hdrRoute.decoderMode
+                requiresServerTranscode -> DecoderMode.Hardware
+                strictPlatformPath -> DecoderMode.Hardware
+                else -> preferredDecoderMode
             },
         renderPath = renderPath,
         requiresServerTranscode = requiresServerTranscode,
@@ -298,34 +302,35 @@ fun planPlayback(
     )
 }
 
-private fun Int.resolutionBucket(): String =
-    when {
-        this <= 0 -> "Unknown"
-        this <= 720 -> "720"
-        this <= 1_080 -> "1080"
-        this <= 1_440 -> "1440"
-        this <= 2_160 -> "2160"
-        else -> "Above2160"
-    }
+private fun Int.resolutionBucket(): String = when {
+    this >= 3800 -> "Uhd"
+    this >= 2500 -> "Qhd"
+    this >= 1900 -> "Fhd"
+    this >= 1200 -> "Hd"
+    else -> "Sd"
+}
 
-private fun Double.frameRateBucket(): String =
-    when {
-        this <= 0.0 -> "Unknown"
-        this <= 30.5 -> "30"
-        this <= 60.5 -> "60"
-        else -> "Above60"
-    }
+private fun Double.frameRateBucket(): String = when {
+    this >= 100.0 -> "HighFps"
+    this >= 50.0 -> "50Plus"
+    this >= 29.0 -> "30ish"
+    this >= 23.0 -> "24ish"
+    else -> "LowFps"
+}
 
 private val NATIVE_FIRST_CONTAINERS =
     setOf(
         "ISO",
-        "BDMV",
         "DVD",
+        "BLURAY",
+        "BDMV",
         "AVI",
-        "ASF",
-        "OGM",
-        "RM",
-        "RMVB",
-        "VOB",
-        "WMV",
+        "FLV",
     )
+
+/**
+ * Platform decoders are not a useful first attempt for these formats on Android. Keep the original
+ * file on bundled FFmpeg even when the server advertises a transcode path; server transcode remains
+ * the runtime fallback if native decode actually fails.
+ */
+private val SOFTWARE_FIRST_VIDEO_CODECS = setOf(PlaybackVideoCodec.ProRes)
