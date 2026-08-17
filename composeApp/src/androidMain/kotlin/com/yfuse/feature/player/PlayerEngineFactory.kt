@@ -100,11 +100,12 @@ internal fun createVideoEngine(
  * not be rejected merely because the mpv build lacks libbluray. Once classification is cached as
  * Blu-ray/BDMV, the concrete AAR marker is authoritative.
  */
-private fun missingNativeBluRayCapability(
+internal fun missingNativeBluRayCapability(
     items: List<PlayerMediaItem>,
     startIndex: Int,
+    nativeCapabilities: MpvNativeBuildCapabilities = installedMpvNativeBuildCapabilities,
 ): String? {
-    if (installedMpvNativeBuildCapabilities.nativeBluRay) return null
+    if (nativeCapabilities.nativeBluRay) return null
     val item = items.getOrNull(startIndex) ?: return null
     val url = item.url
     if (!url.startsWith("file://", ignoreCase = true)) return null
