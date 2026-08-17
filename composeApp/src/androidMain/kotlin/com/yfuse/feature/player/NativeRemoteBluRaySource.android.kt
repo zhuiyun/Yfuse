@@ -6,10 +6,6 @@ import com.yfuse.deviceId
 import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-/** Credential-free route marker understood only by the Yfuse libmpv build. */
-internal const val YFUSE_REMOTE_BLURAY_SCHEME = "yfusebd"
-internal const val YFUSE_REMOTE_BLURAY_PREFIX = "$YFUSE_REMOTE_BLURAY_SCHEME://"
-
 /**
  * Java object handed to the custom libmpv/libbluray JNI bridge.
  *
