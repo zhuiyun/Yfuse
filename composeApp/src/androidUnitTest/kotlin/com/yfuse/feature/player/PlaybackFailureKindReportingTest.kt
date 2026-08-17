@@ -79,9 +79,9 @@ class PlaybackFailureKindReportingTest {
         cases.forEach { (code, expected) ->
             val exception =
                 PlaybackException(
-                    /* message = */ "test",
-                    /* cause = */ null,
-                    /* errorCode = */ code,
+                    "test",
+                    null,
+                    code,
                 )
             assertEquals(expected, exception.playbackFailureKind(), "errorCode $code")
         }
@@ -115,7 +115,7 @@ class PlaybackFailureKindReportingTest {
 
     @Test
     fun the_native_backends_report_the_category_they_already_decided() {
-        val native = source("../commonMain/kotlin/com/yfuse/feature/player/NativePlaybackFailure.kt")
+        val native = source("feature/player/NativePlaybackFailure.kt", sourceSet = "commonMain")
 
         assertTrue("val kind: PlaybackFailureKind" in native)
         assertTrue("kind = PlaybackFailureKind.Authorization" in native)
@@ -131,10 +131,13 @@ class PlaybackFailureKindReportingTest {
         assertTrue(reported in 1..<parsed, "the reported category has to be consulted first")
     }
 
-    private fun source(path: String): String =
+    private fun source(
+        path: String,
+        sourceSet: String = "androidMain",
+    ): String =
         sequenceOf(
-            File("src/androidMain/kotlin/com/yfuse/$path"),
-            File("composeApp/src/androidMain/kotlin/com/yfuse/$path"),
+            File("src/$sourceSet/kotlin/com/yfuse/$path"),
+            File("composeApp/src/$sourceSet/kotlin/com/yfuse/$path"),
         ).firstOrNull(File::isFile)
             ?.readText()
             ?: error("Cannot locate $path from ${File(".").absolutePath}")

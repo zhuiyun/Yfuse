@@ -101,8 +101,7 @@ class PlaybackRuntimeFaultDetector(
 }
 
 /** How long a condition has held, or zero when its clock is not running. */
-private fun Long.heldSince(startedAtEpochMs: Long?): Long =
-    startedAtEpochMs?.let { this - it } ?: 0L
+private fun Long.heldSince(startedAtEpochMs: Long?): Long = startedAtEpochMs?.let { this - it } ?: 0L
 
 private const val MIN_PROGRESS_STEP_MS = 250L
 private const val BACKWARD_SEEK_THRESHOLD_MS = 1_000L

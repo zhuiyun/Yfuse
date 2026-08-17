@@ -27,21 +27,24 @@ internal fun nativePlaybackLogFailure(details: String?): NativePlaybackFailure? 
     val text = details?.trim()?.takeIf(String::isNotEmpty) ?: return null
     val normalized = text.lowercase()
     return when {
-        normalized.isUnauthorizedFailure() -> NativePlaybackFailure(
-            message = "服务器登录已失效（401），请重新登录该服务器",
-            blocksAutomaticFallback = true,
-            kind = PlaybackFailureKind.Authorization,
-        )
-        normalized.isForbiddenFailure() -> NativePlaybackFailure(
-            message = "当前账号没有播放权限，或服务器入口拒绝了访问（403）",
-            blocksAutomaticFallback = true,
-            kind = PlaybackFailureKind.Authorization,
-        )
-        TERMINAL_RENDER_FAILURES.any(normalized::contains) -> NativePlaybackFailure(
-            message = "播放器渲染器初始化失败，正在尝试其他播放器",
-            blocksAutomaticFallback = false,
-            kind = PlaybackFailureKind.Renderer,
-        )
+        normalized.isUnauthorizedFailure() ->
+            NativePlaybackFailure(
+                message = "服务器登录已失效（401），请重新登录该服务器",
+                blocksAutomaticFallback = true,
+                kind = PlaybackFailureKind.Authorization,
+            )
+        normalized.isForbiddenFailure() ->
+            NativePlaybackFailure(
+                message = "当前账号没有播放权限，或服务器入口拒绝了访问（403）",
+                blocksAutomaticFallback = true,
+                kind = PlaybackFailureKind.Authorization,
+            )
+        TERMINAL_RENDER_FAILURES.any(normalized::contains) ->
+            NativePlaybackFailure(
+                message = "播放器渲染器初始化失败，正在尝试其他播放器",
+                blocksAutomaticFallback = false,
+                kind = PlaybackFailureKind.Renderer,
+            )
         else -> null
     }
 }
@@ -51,11 +54,13 @@ internal fun terminalNativePlaybackFailure(
     fallbackMessage: String,
     details: String? = null,
     kind: PlaybackFailureKind = PlaybackFailureKind.Unknown,
-): NativePlaybackFailure = nativePlaybackLogFailure(details) ?: NativePlaybackFailure(
-    message = fallbackMessage,
-    blocksAutomaticFallback = false,
-    kind = kind,
-)
+): NativePlaybackFailure =
+    nativePlaybackLogFailure(details)
+        ?: NativePlaybackFailure(
+            message = fallbackMessage,
+            blocksAutomaticFallback = false,
+            kind = kind,
+        )
 
 private fun String.isUnauthorizedFailure(): Boolean =
     containsHttpStatus(401) ||
@@ -67,8 +72,7 @@ private fun String.isUnauthorizedFailure(): Boolean =
         contains("token expired") ||
         contains("expired token")
 
-private fun String.isForbiddenFailure(): Boolean =
-    containsHttpStatus(403) || contains("forbidden")
+private fun String.isForbiddenFailure(): Boolean = containsHttpStatus(403) || contains("forbidden")
 
 private fun String.containsHttpStatus(status: Int): Boolean {
     val value = status.toString()
@@ -85,14 +89,15 @@ private fun String.containsHttpStatus(status: Int): Boolean {
 
 private const val HTTP_STATUS_CONTEXT = 48
 
-private val TERMINAL_RENDER_FAILURES = listOf(
-    "failed to initialize gpu",
-    "failed initializing any suitable gpu context",
-    "failed to create gpu context",
-    "could not initialize video output",
-    "failed to initialize video output",
-    "video output initialization failed",
-    "failed to attach surface",
-    "failed to create android surface",
-    "surface is invalid",
-)
+private val TERMINAL_RENDER_FAILURES =
+    listOf(
+        "failed to initialize gpu",
+        "failed initializing any suitable gpu context",
+        "failed to create gpu context",
+        "could not initialize video output",
+        "failed to initialize video output",
+        "video output initialization failed",
+        "failed to attach surface",
+        "failed to create android surface",
+        "surface is invalid",
+    )

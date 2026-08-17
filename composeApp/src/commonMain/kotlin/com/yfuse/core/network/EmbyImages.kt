@@ -29,7 +29,7 @@ object EmbyImages {
      * case is losing the saving, not losing the picture. Should a deployment ever prove
      * otherwise, setting this to null is the entire rollback.
      */
-    private const val FORMAT: String? = "webp"
+    private val format: String? = "webp"
 
     /**
      * Posters are drawn at a few hundred pixels; 90 was buying detail no one can resolve at
@@ -43,7 +43,7 @@ object EmbyImages {
 
     private const val BACKDROP_QUALITY = 85
 
-    private val formatQuery = FORMAT?.let { "&format=$it" }.orEmpty()
+    private val formatQuery = format?.let { "&format=$it" }.orEmpty()
 
     fun primary(
         baseUrl: String,

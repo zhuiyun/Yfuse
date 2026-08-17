@@ -20,9 +20,34 @@ plugins {
  * debt-reset operation and must never run automatically in CI.
  */
 val ktlintVersion = libs.versions.ktlint.asProvider()
+val secureNettyVersion = "4.1.136.Final"
+val secureProtobufVersion = "3.25.5"
 
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
+
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            when {
+                requested.group == "io.netty" && requested.version.orEmpty().startsWith("4.1.") -> {
+                    useVersion(secureNettyVersion)
+                    because("Netty versions before 4.1.136.Final contain high-severity DoS vulnerabilities")
+                }
+                requested.group == "com.google.protobuf" &&
+                    requested.version.orEmpty().startsWith("3.") &&
+                    requested.name in
+                    setOf(
+                        "protobuf-java",
+                        "protobuf-javalite",
+                        "protobuf-kotlin",
+                        "protobuf-kotlin-lite",
+                    ) -> {
+                    useVersion(secureProtobufVersion)
+                    because("Protobuf versions before 3.25.5 allow unbounded recursion while parsing unknown fields")
+                }
+            }
+        }
+    }
 
     dependencyLocking {
         // Refresh intentionally with `./gradlew dependencies --write-locks` whenever

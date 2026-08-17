@@ -901,10 +901,10 @@ class TmdbRepository(
         /** Calendar discovery still needs to bound the number of shows it expands. */
         const val GLOBAL_UPCOMING_MIN_VOTES = 3
 
-        /** One `/tv/{id}` request each, so the list is capped rather than unbounded. */
         /** Three weeks of daily picks before one repeats. */
         const val FEATURED_POOL = 21
 
+        /** One `/tv/{id}` request each, so the list is capped rather than unbounded. */
         const val CALENDAR_MAX_SHOWS = 24
 
         /**

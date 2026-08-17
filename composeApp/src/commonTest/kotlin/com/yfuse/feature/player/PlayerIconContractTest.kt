@@ -71,6 +71,7 @@ class PlayerIconContractTest {
     fun the_function_strip_leads_with_the_keys_used_mid_scene() {
         val chrome = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerChrome.kt").readText()
         val strip = chrome.substringAfter("horizontalArrangement = Arrangement.spacedBy(5.dp)")
+
         fun at(marker: String) = strip.indexOf(marker).also { require(it >= 0) { "missing $marker" } }
 
         // 字幕 and 音轨 are changed while watching; 播放服务器 and 片头片尾 are set once and

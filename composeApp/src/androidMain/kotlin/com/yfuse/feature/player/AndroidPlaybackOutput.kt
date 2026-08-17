@@ -255,6 +255,7 @@ internal fun isDolbyObjectAudioCodec(identifier: String?): Boolean {
  * had it — [PlaybackException.errorCode] is set by the renderer that failed — and the engine was
  * already switching on it to decide what to do next before discarding it.
  */
+@OptIn(UnstableApi::class)
 internal fun PlaybackException.playbackFailureKind(): PlaybackFailureKind =
     when (errorCode) {
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
