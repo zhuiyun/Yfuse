@@ -2,6 +2,9 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Process-local binding for the disc-navigation popup and platform remote input.
@@ -17,6 +20,8 @@ object ActiveDiscNavigation {
     )
 
     private var binding: Binding? = null
+    private val mutableRevision = MutableStateFlow(0L)
+    val revision: StateFlow<Long> = mutableRevision.asStateFlow()
 
     val isBound: Boolean get() = binding != null
 
@@ -34,15 +39,24 @@ object ActiveDiscNavigation {
         backend: DiscNavigationBackend,
     ) {
         val previous = binding
-        if (previous?.backend !== backend) previous?.backend?.close()
+        if (previous?.backend !== backend) {
+            previous?.backend?.setChangeListener(null)
+            previous?.backend?.close()
+        }
         binding = Binding(owner = owner, backend = backend)
+        backend.setChangeListener {
+            if (binding?.backend === backend) bumpRevision()
+        }
+        bumpRevision()
     }
 
     internal fun unbind(owner: Any) {
         val active = binding ?: return
         if (active.owner === owner) {
             binding = null
+            active.backend.setChangeListener(null)
             active.backend.close()
+            bumpRevision()
         }
     }
 
@@ -60,5 +74,10 @@ object ActiveDiscNavigation {
     fun routeActiveMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
         if (!menuActive) return false
         return sendMenuCommand(command)
+    }
+
+    private fun bumpRevision() {
+        mutableRevision.value =
+            if (mutableRevision.value == Long.MAX_VALUE) 0L else mutableRevision.value + 1L
     }
 }
