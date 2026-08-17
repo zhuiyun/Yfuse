@@ -187,6 +187,7 @@ cat >"$YFUSE_STREAM" <<'C'
 #include <string.h>
 
 #include <libbluray/bluray.h>
+#include <libbluray/meta_data.h>
 
 #include "common/common.h"
 #include "common/msg.h"
@@ -246,16 +247,25 @@ static void yfuse_source_release(yfuse_source *source)
         yfuse_source_destroy(source);
 }
 
-static yfuse_source *yfuse_source_acquire(int64_t id)
+/*
+ * Registration is one-shot once mpv opens the URI: ownership moves from the registry to that stream.
+ * This prevents every successful movie from leaving a Java global reference behind for the lifetime
+ * of the process. Explicit unregister still cleans a source whose URI was prepared but never opened.
+ */
+static yfuse_source *yfuse_source_take(int64_t id)
 {
     yfuse_source *result = NULL;
     pthread_mutex_lock(&g_source_lock);
-    for (yfuse_source *source = g_sources; source; source = source->next) {
-        if (source->id == id) {
-            atomic_fetch_add_explicit(&source->refs, 1, memory_order_relaxed);
-            result = source;
+    yfuse_source **link = &g_sources;
+    while (*link) {
+        if ((*link)->id == id) {
+            result = *link;
+            *link = result->next;
+            result->next = NULL;
+            g_source_count--;
             break;
         }
+        link = &(*link)->next;
     }
     pthread_mutex_unlock(&g_source_lock);
     return result;
@@ -335,7 +345,7 @@ Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeRegister(JNIEnv *env, jclass clazz,
     source->object = global;
     source->read_blocks = read_blocks;
     source->close_source = close_source;
-    atomic_init(&source->refs, 1); /* registry ownership */
+    atomic_init(&source->refs, 1);
 
     pthread_mutex_lock(&g_source_lock);
     if (g_source_count >= YFUSE_MAX_REGISTERED_SOURCES) {
@@ -548,7 +558,7 @@ static int yfuse_bluray_open(stream_t *stream)
     if (id <= 0 || !end || *end != '\0')
         return STREAM_ERROR;
 
-    yfuse_source *source = yfuse_source_acquire(id);
+    yfuse_source *source = yfuse_source_take(id);
     if (!source)
         return STREAM_ERROR;
 
