@@ -59,6 +59,3 @@ private fun PlayerMediaItem.prepareNativeRemoteBluRayRoute(serverRegistry: Serve
         versions = versions.map { candidate -> if (candidate.id == version.id) nativeVersion else candidate },
     )
 }
-
-internal fun String.isYfuseNativeRemoteBluRayUrl(): Boolean =
-    startsWith(YFUSE_REMOTE_BLURAY_PREFIX, ignoreCase = true)
