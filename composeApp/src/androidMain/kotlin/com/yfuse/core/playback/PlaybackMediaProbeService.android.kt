@@ -235,6 +235,8 @@ internal fun String?.toPlaybackVideoCodec(): PlaybackVideoCodec? =
         "video/mpeg2", "mpeg2video" -> PlaybackVideoCodec.Mpeg2
         "video/mp4v-es", "mpeg4" -> PlaybackVideoCodec.Mpeg4
         "video/wvc1", "vc1" -> PlaybackVideoCodec.Vc1
+        "video/prores", "video/x-prores", "video/apple-prores", "prores", "prores_ks", "prores_aw" ->
+            PlaybackVideoCodec.ProRes
         else -> null
     }
 
