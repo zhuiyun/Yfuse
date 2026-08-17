@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import com.yfuse.core.playback.PlaybackDiscChapter
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackDiscTitle
+import com.yfuse.core.playback.mplsPlaylistNumber
 import dev.jdtech.mpv.MPVLib
 
 /** Small property surface so disc metadata parsing can be unit-tested without a native mpv handle. */
@@ -53,10 +54,15 @@ internal fun readMpvDiscNavigationMetadata(
             .coerceAtLeast(0)
     val titles =
         List(titleCount) { index ->
+            val title =
+                properties.string("edition-list/$index/title")
+                    ?.trim()
+                    ?.takeIf(String::isNotEmpty)
             PlaybackDiscTitle(
                 index = index,
                 id = properties.int("edition-list/$index/id"),
-                title = properties.string("edition-list/$index/title")?.trim()?.takeIf(String::isNotEmpty),
+                title = title,
+                playlistNumber = mplsPlaylistNumber(title),
                 isDefault = properties.flag("edition-list/$index/default") == true,
             )
         }
