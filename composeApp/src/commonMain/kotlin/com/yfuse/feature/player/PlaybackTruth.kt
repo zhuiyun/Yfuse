@@ -19,6 +19,7 @@ internal fun PlayerMediaItem.effectivePlaybackMethod(quality: PlaybackQuality): 
 /** Human-readable cause paired with the actual method, never inferred from a badge. */
 internal fun PlayerMediaItem.initialFallbackReason(quality: PlaybackQuality): String? =
     when {
+        url.isYfuseNativeRemoteBluRayUrl() -> "远程 Blu-ray 原盘使用客户端随机块读取"
         forcedTranscodeReason != null && transcodeUrl.isNotBlank() -> forcedTranscodeReason
         quality.requiresServerTranscode && transcodeUrl.isNotBlank() -> "用户选择 ${quality.label}"
         quality.requiresServerTranscode -> "服务器未提供转码地址，已保留原始播放方式"
@@ -62,6 +63,7 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
         } else {
             item?.url
         }.orEmpty()
+    val nativeRemoteDisc = !usingServerTranscode && sourceUrl.isYfuseNativeRemoteBluRayUrl()
     val serverResolvedDiscMainFeature =
         version?.discSource == true &&
             !usingServerTranscode &&
@@ -76,10 +78,14 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
                     needsDolbyDecoder = false,
                     dynamicRange = null,
                 ),
+        // The custom native route deliberately keeps transcode URLs on the item as a recovery
+        // chain. They must not win initial disc planning, otherwise YCore would immediately undo
+        // the registered raw-ISO route before libbluray gets one attempt.
         hasServerTranscode =
-            item?.let { media ->
-                media.transcodeUrl.isNotBlank() || media.fallbackTranscodeUrl.isNotBlank()
-            } == true,
+            !nativeRemoteDisc &&
+                item?.let { media ->
+                    media.transcodeUrl.isNotBlank() || media.fallbackTranscodeUrl.isNotBlank()
+                } == true,
         drmProtected = item?.drmConfiguration != null || version?.drmConfiguration != null,
         usingServerTranscode = usingServerTranscode,
         discKind =
