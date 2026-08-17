@@ -52,9 +52,7 @@ internal class HttpRangeDiscBlockSource(
         targetOffset: Int = 0,
     ): Int {
         if (closed) return fail("远程原盘读取器已关闭")
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            return fail("远程原盘随机读取不能运行在主线程")
-        }
+        if (runningOnAndroidMainThread()) return fail("远程原盘随机读取不能运行在主线程")
         if (lba < 0 || blockCount <= 0 || targetOffset < 0) {
             return fail("远程原盘块读取参数无效")
         }
@@ -102,6 +100,14 @@ internal class HttpRangeDiscBlockSource(
 
     /** Small capability probe; successful completion proves the origin honors byte ranges. */
     fun probeRangeSupport(): Boolean {
+        if (closed) {
+            fail("远程原盘读取器已关闭")
+            return false
+        }
+        if (runningOnAndroidMainThread()) {
+            fail("远程原盘 Range 能力探测不能运行在主线程")
+            return false
+        }
         val probe = ByteArray(1)
         val connection =
             runCatching { openConnection(0L, 0L) }
@@ -261,6 +267,13 @@ private fun safeInclusiveEnd(
     if (start < 0L || length <= 0L || start > Long.MAX_VALUE - (length - 1L)) return null
     return start + length - 1L
 }
+
+/** Local JVM unit tests use Android stubs where Looper methods throw; production Android does not. */
+private fun runningOnAndroidMainThread(): Boolean =
+    runCatching {
+        val main = Looper.getMainLooper() ?: return@runCatching false
+        Looper.myLooper() === main
+    }.getOrDefault(false)
 
 private fun String.isAllowedCallerHeader(): Boolean =
     !equals("Range", ignoreCase = true) &&
