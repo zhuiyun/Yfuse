@@ -1,0 +1,69 @@
+name: Build Yfuse mpv Blu-ray
+
+on:
+  workflow_dispatch:
+    inputs:
+      architectures:
+        description: Native ABI set
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yfuse-mpv-bluray-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: libmpv + libbluray (${{ inputs.architectures }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout Yfuse
+        uses: actions/checkout@v4
+
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake build-essential cmake curl git libtool \
+            meson ninja-build pkg-config python3 unzip wget yasm
+
+      - name: Build pinned native engine
+        shell: bash
+        run: |
+          chmod +x scripts/build-yfuse-mpv-bluray.sh
+          if [[ "${{ inputs.architectures }}" == "arm64" ]]; then
+            scripts/build-yfuse-mpv-bluray.sh --arch arm64
+          else
+            scripts/build-yfuse-mpv-bluray.sh
+          fi
+
+      - name: Record artifact manifest
+        shell: bash
+        run: |
+          {
+            echo "libmpv-android=fcf6745703dc1265bca88f12fee8fc355ddf251e"
+            echo "libbluray=1.4.1 (7d94f266...)"
+            echo "bdj_jar=disabled"
+            echo "architectures=${{ inputs.architectures }}"
+            cat .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
+          } > .native-build/artifacts/BUILD-MANIFEST.txt
+
+      - name: Upload libmpv AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-yfuse-bluray-${{ inputs.architectures }}
+          path: |
+            .native-build/artifacts/libmpv-yfuse-bluray.aar
+            .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
+            .native-build/artifacts/BUILD-MANIFEST.txt
+          if-no-files-found: error
+          retention-days: 14
