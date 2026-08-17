@@ -64,7 +64,7 @@ actual_sha="$(sha256_of "$AAR")"
 [[ "$(manifest_value libudfread)" == "$EXPECTED_UDFREAD" ]] || die "unexpected libudfread source revision"
 [[ "$(manifest_value bdj_jar)" == "disabled" ]] || die "native provenance must state bdj_jar=disabled"
 [[ "$(manifest_value remote-raw-bluray)" == "true" ]] || die "remote raw Blu-ray bridge is not enabled in provenance"
-[[ "$(manifest_value hdmv-menu)" == "false" ]] || die "HDMV menu must remain false until the overlay runtime is built"
+[[ "$(manifest_value hdmv-menu)" == "true" ]] || die "HDMV menu bridge is not enabled in provenance"
 [[ "$(manifest_value capability-class)" == "$EXPECTED_CAPABILITY_CLASS" ]] || die "native provenance is missing the Yfuse capability marker"
 [[ "$(manifest_value registry-class)" == "$EXPECTED_REGISTRY_CLASS" ]] || die "native provenance is missing the Yfuse remote registry marker"
 
@@ -78,11 +78,16 @@ unzip -l "$staging/aar/classes.jar" | grep -Fq "$EXPECTED_CAPABILITY_CLASS" || d
 unzip -l "$staging/aar/classes.jar" | grep -Fq "$EXPECTED_REGISTRY_CLASS" || die "AAR classes.jar is missing $EXPECTED_REGISTRY_CLASS"
 
 arm64_mpv="$staging/aar/jni/arm64-v8a/libmpv.so"
-readelf -Ws "$arm64_mpv" | grep -Fq 'Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeRegister' ||
-  die "libmpv.so is missing the remote Blu-ray register JNI symbol"
-readelf -Ws "$arm64_mpv" | grep -Fq 'Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeUnregister' ||
-  die "libmpv.so is missing the remote Blu-ray unregister JNI symbol"
+for symbol in \
+  Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeRegister \
+  Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeUnregister \
+  Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeSendMenuCommand \
+  Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeSelectMenuPoint; do
+  readelf -Ws "$arm64_mpv" | grep -Fq "$symbol" || die "libmpv.so is missing JNI symbol: $symbol"
+done
 strings "$arm64_mpv" | grep -Fq 'yfusebd' || die "libmpv.so is missing the yfusebd stream protocol"
+strings "$arm64_mpv" | grep -Fq 'Yfuse remote Blu-ray source opened with libbluray' ||
+  die "libmpv.so is missing the Yfuse libbluray stream implementation"
 
 mapfile -t arm64_libs < <(find "$staging/aar/jni/arm64-v8a" -maxdepth 1 -type f -name '*.so' -print | sort)
 (( ${#arm64_libs[@]} > 0 )) || die "AAR contains no arm64 native libraries"
@@ -94,5 +99,5 @@ done
 
 printf 'verified: %s\n' "$AAR"
 printf 'sha256:  %s\n' "$actual_sha"
-printf 'native:  libbluray + libudfread + authenticated remote raw Blu-ray, BD-J/HDMV menu disabled\n'
+printf 'native:  libbluray + libudfread + authenticated remote raw Blu-ray + HDMV menu; BD-J disabled\n'
 printf 'abi:     arm64-v8a, all PT_LOAD alignments >= 16 KiB\n'
