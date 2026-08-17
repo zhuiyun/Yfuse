@@ -31,11 +31,7 @@ private class AndroidPlaybackMediaProbeService(
     private val context: Context,
 ) : PlaybackMediaProbeService {
     private val nativeProbe = MpvPlaybackMediaProbe(context)
-
-    // An ordinary map plus explicit eviction avoids a Kotlin 2.1 KMP actualization compiler bug
-    // triggered by anonymous Java collection subclasses.
-    private val cache =
-        LinkedHashMap<String, PlaybackProbeResult>(MAX_PROBE_CACHE_ENTRIES, 0.75f, true)
+    private val cache = LinkedHashMap<String, PlaybackProbeResult>(MAX_PROBE_CACHE_ENTRIES, 0.75f, true)
 
     override suspend fun probe(request: PlaybackProbeRequest): PlaybackProbeResult {
         if (request.uri.isBlank() || request.baseline.usingServerTranscode) {
@@ -62,11 +58,7 @@ private class AndroidPlaybackMediaProbeService(
                         } else {
                             PlaybackProbeRequest(
                                 uri = request.uri,
-                                baseline =
-                                    request.baseline.copy(
-                                        discSource = true,
-                                        discKind = resolvedDiscKind,
-                                    ),
+                                baseline = request.baseline.copy(discSource = true, discKind = resolvedDiscKind),
                                 customUserAgent = request.customUserAgent,
                                 timeoutMs = request.timeoutMs,
                             )
@@ -99,9 +91,7 @@ private class AndroidPlaybackMediaProbeService(
             )
         synchronized(cache) {
             cache[cacheKey] = result
-            while (cache.size > MAX_PROBE_CACHE_ENTRIES) {
-                cache.remove(cache.keys.first())
-            }
+            while (cache.size > MAX_PROBE_CACHE_ENTRIES) cache.remove(cache.keys.first())
         }
         return result
     }
@@ -111,33 +101,21 @@ private class AndroidPlaybackMediaProbeService(
         val extractor = MediaExtractor()
         return try {
             val headers =
-                request.customUserAgent
-                    .trim()
-                    .takeIf(String::isNotEmpty)
-                    ?.let { mapOf("User-Agent" to it) }
-                    .orEmpty()
+                request.customUserAgent.trim().takeIf(String::isNotEmpty)?.let { mapOf("User-Agent" to it) }.orEmpty()
             extractor.setDataSource(context, Uri.parse(request.uri), headers)
             val trackFormats = (0 until extractor.trackCount).map(extractor::getTrackFormat)
             val video = trackFormats.firstOrNull { it.mimeType()?.startsWith("video/") == true }
             val audio = trackFormats.firstOrNull { it.mimeType()?.startsWith("audio/") == true }
             val source = request.baseline.source.enrichedWith(video)
-            val durationMs =
-                trackFormats
-                    .mapNotNull { it.longOrNull(MediaFormat.KEY_DURATION) }
-                    .maxOrNull()
-                    ?.div(MICROSECONDS_PER_MILLISECOND)
-            val styledSubtitles =
-                request.baseline.styledSubtitles ||
-                    trackFormats.any { it.mimeType() in STYLED_SUBTITLE_MIME_TYPES }
+            val durationMs = trackFormats.mapNotNull { it.longOrNull(MediaFormat.KEY_DURATION) }.maxOrNull()?.div(MICROSECONDS_PER_MILLISECOND)
+            val styledSubtitles = request.baseline.styledSubtitles || trackFormats.any { it.mimeType() in STYLED_SUBTITLE_MIME_TYPES }
             val probe =
                 request.baseline.copy(
                     source = source,
                     styledSubtitles = styledSubtitles,
                     drmProtected = request.baseline.drmProtected || !extractor.psshInfo.isNullOrEmpty(),
                     audioCodec = request.baseline.audioCodec ?: audio?.mimeType().toPlaybackAudioCodec(),
-                    audioChannelCount =
-                        request.baseline.audioChannelCount
-                            ?: audio?.intOrNull(MediaFormat.KEY_CHANNEL_COUNT),
+                    audioChannelCount = request.baseline.audioChannelCount ?: audio?.intOrNull(MediaFormat.KEY_CHANNEL_COUNT),
                     durationMs = request.baseline.durationMs ?: durationMs,
                     probeDepth = PlaybackProbeDepth.PlatformExtractor,
                 )
@@ -156,8 +134,6 @@ private class AndroidPlaybackMediaProbeService(
                 detail = "媒体访问被系统拒绝，继续使用服务端元数据",
             )
         } catch (_: Exception) {
-            // MediaExtractor exceptions frequently include the authenticated URI. Do not attach
-            // the throwable to logs or diagnostics.
             PlaybackProbeResult(
                 status = PlaybackProbeStatus.Failed,
                 probe = request.baseline,
@@ -171,11 +147,7 @@ private class AndroidPlaybackMediaProbeService(
 }
 
 private fun PlaybackProbeResult.requiresNativeProbe(): Boolean =
-    status != PlaybackProbeStatus.Complete ||
-        probe.requiresNativeDemuxer ||
-        probe.source.videoCodec == null ||
-        probe.source.width == null ||
-        probe.source.height == null
+    status != PlaybackProbeStatus.Complete || probe.requiresNativeDemuxer || probe.source.videoCodec == null || probe.source.width == null || probe.source.height == null
 
 private fun PlaybackSourceRequirements.enrichedWith(format: MediaFormat?): PlaybackSourceRequirements {
     if (format == null) return this
@@ -206,23 +178,10 @@ private fun MediaFormat.detectedDynamicRange(mime: String?): String? =
     }
 
 private fun MediaFormat.mimeType(): String? = stringOrNull(MediaFormat.KEY_MIME)?.lowercase()
-
-private fun MediaFormat.intOrNull(key: String): Int? =
-    if (containsKey(key)) runCatching { getInteger(key) }.getOrNull() else null
-
-private fun MediaFormat.longOrNull(key: String): Long? =
-    if (containsKey(key)) runCatching { getLong(key) }.getOrNull() else null
-
-private fun MediaFormat.numberOrNull(key: String): Number? =
-    if (!containsKey(key)) {
-        null
-    } else {
-        runCatching { getInteger(key) }.getOrNull()
-            ?: runCatching { getFloat(key) }.getOrNull()
-    }
-
-private fun MediaFormat.stringOrNull(key: String): String? =
-    if (containsKey(key)) runCatching { getString(key) }.getOrNull() else null
+private fun MediaFormat.intOrNull(key: String): Int? = if (containsKey(key)) runCatching { getInteger(key) }.getOrNull() else null
+private fun MediaFormat.longOrNull(key: String): Long? = if (containsKey(key)) runCatching { getLong(key) }.getOrNull() else null
+private fun MediaFormat.numberOrNull(key: String): Number? = if (!containsKey(key)) null else runCatching { getInteger(key) }.getOrNull() ?: runCatching { getFloat(key) }.getOrNull()
+private fun MediaFormat.stringOrNull(key: String): String? = if (containsKey(key)) runCatching { getString(key) }.getOrNull() else null
 
 internal fun String?.toPlaybackVideoCodec(): PlaybackVideoCodec? =
     when (this?.lowercase()) {
@@ -235,6 +194,7 @@ internal fun String?.toPlaybackVideoCodec(): PlaybackVideoCodec? =
         "video/mpeg2", "mpeg2video" -> PlaybackVideoCodec.Mpeg2
         "video/mp4v-es", "mpeg4" -> PlaybackVideoCodec.Mpeg4
         "video/wvc1", "vc1" -> PlaybackVideoCodec.Vc1
+        "video/prores", "video/x-prores", "video/apple-prores", "prores", "prores_ks", "prores_aw" -> PlaybackVideoCodec.ProRes
         else -> null
     }
 
@@ -256,11 +216,7 @@ internal fun String?.toPlaybackAudioCodec(): PlaybackAudioCodec? =
         else -> null
     }
 
-private fun String.sha256(): String =
-    MessageDigest
-        .getInstance("SHA-256")
-        .digest(toByteArray())
-        .joinToString("") { byte -> "%02x".format(byte) }
+private fun String.sha256(): String = MessageDigest.getInstance("SHA-256").digest(toByteArray()).joinToString("") { byte -> "%02x".format(byte) }
 
 private const val KEY_BIT_DEPTH = "bit-depth"
 private const val COLOR_TRANSFER_ST2084 = 6
@@ -269,10 +225,4 @@ private const val MICROSECONDS_PER_MILLISECOND = 1_000L
 private const val MIN_PROBE_TIMEOUT_MS = 500L
 private const val MAX_PROBE_TIMEOUT_MS = 10_000L
 private const val MAX_PROBE_CACHE_ENTRIES = 24
-private val STYLED_SUBTITLE_MIME_TYPES =
-    setOf(
-        "text/x-ssa",
-        "application/pgs",
-        "application/vobsub",
-        "application/dvbsubs",
-    )
+private val STYLED_SUBTITLE_MIME_TYPES = setOf("text/x-ssa", "application/pgs", "application/vobsub", "application/dvbsubs")
