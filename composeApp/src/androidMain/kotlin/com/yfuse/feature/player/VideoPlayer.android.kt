@@ -95,7 +95,7 @@ actual fun PlayerLauncher(
                         "nativeDisc" to
                             preparedItems.getOrNull(startIndex)
                                 ?.url
-                                ?.isYfuseNativeRemoteBluRayUrl()
+                                ?.isYfuseNativeBluRayRoute()
                                 .toString(),
                     ),
             )
