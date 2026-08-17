@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <libavutil/common.h>
 #include <libbluray/bluray.h>
 #include <libbluray/keys.h>
 #include <libbluray/meta_data.h>
@@ -25,6 +26,7 @@
 #define YFUSE_MAX_REGISTERED_SOURCES 64
 #define YFUSE_BD_TIMEBASE 90000.0
 #define YFUSE_UDF_BLOCK_SIZE 2048
+#define YFUSE_MAX_OVERLAY_PIXELS (4096 * 2160)
 #define YFUSE_MENU_SHOW 0
 #define YFUSE_MENU_BACK 1
 #define YFUSE_MENU_UP 2
@@ -47,6 +49,7 @@ struct yfuse_source {
     jmethodID overlay_cleared;
     jmethodID session_closed;
     atomic_int refs;
+    /** Serializes every libbluray API call made by mpv and Android menu input. */
     pthread_mutex_t session_lock;
     BLURAY *active_bd;
     yfuse_bluray_priv *active_priv;
@@ -233,7 +236,7 @@ static void yfuse_java_overlay_frame(yfuse_bluray_priv *priv)
         priv->overlay_width <= 0 || priv->overlay_height <= 0)
         return;
     int64_t pixels = (int64_t)priv->overlay_width * priv->overlay_height;
-    if (pixels <= 0 || pixels > INT32_MAX)
+    if (pixels <= 0 || pixels > YFUSE_MAX_OVERLAY_PIXELS)
         return;
 
     int attached = 0;
@@ -329,12 +332,16 @@ static void yfuse_overlay_draw(yfuse_bluray_priv *priv, const BD_OVERLAY *event)
     if (!priv->ig_overlay || !event->img || !priv->have_palette || event->w == 0 || event->h == 0)
         return;
     int64_t total = (int64_t)event->w * event->h;
+    if (total <= 0 || total > YFUSE_MAX_OVERLAY_PIXELS)
+        return;
     int64_t pixel = 0;
+    int64_t elements = 0;
     const BD_PG_RLE_ELEM *rle = event->img;
-    while (pixel < total) {
+    while (pixel < total && elements <= total) {
         int run = rle->len;
         int color = rle->color & 0xff;
         rle++;
+        elements++;
         if (run <= 0)
             continue;
         uint32_t argb = yfuse_palette_argb(&priv->palette[color]);
@@ -357,15 +364,15 @@ static void yfuse_overlay_proc(void *handle, const BD_OVERLAY *event)
     if (!priv || !event || event->plane != BD_OVERLAY_IG)
         return;
 
-    if (event->palette)
+    if (event->palette) {
         memcpy(priv->palette, event->palette, sizeof(priv->palette));
-    if (event->palette)
         priv->have_palette = 1;
+    }
 
     switch (event->cmd) {
     case BD_OVERLAY_INIT: {
         int64_t pixels = (int64_t)event->w * event->h;
-        if (pixels <= 0 || pixels > INT32_MAX)
+        if (pixels <= 0 || pixels > YFUSE_MAX_OVERLAY_PIXELS)
             break;
         free(priv->ig_overlay);
         priv->ig_overlay = calloc((size_t)pixels, sizeof(uint32_t));
@@ -491,7 +498,7 @@ static int yfuse_menu_command_locked(yfuse_source *source, int command)
     if (!bd || !priv || !priv->menu_supported)
         return 0;
 
-    int64_t pts = (int64_t)bd_tell_time(bd) * 2; /* bd_tell_time uses 45 kHz; menu API takes 90 kHz. */
+    int64_t pts = (int64_t)bd_tell_time(bd);
     switch (command) {
     case YFUSE_MENU_SHOW:
         if (!yfuse_ensure_navigation(source, bd))
@@ -539,7 +546,7 @@ Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeSelectMenuPoint(JNIEnv *env, jclass
 {
     (void)env;
     (void)clazz;
-    if (x < 0 || y < 0)
+    if (x < 0 || y < 0 || x > UINT16_MAX || y > UINT16_MAX)
         return JNI_FALSE;
     yfuse_source *source = yfuse_source_acquire((int64_t)id);
     if (!source)
@@ -549,7 +556,7 @@ Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeSelectMenuPoint(JNIEnv *env, jclass
     yfuse_bluray_priv *priv = source->active_priv;
     int handled = 0;
     if (bd && priv && priv->menu_supported && yfuse_ensure_navigation(source, bd)) {
-        int64_t pts = (int64_t)bd_tell_time(bd) * 2;
+        int64_t pts = (int64_t)bd_tell_time(bd);
         int selected = bd_mouse_select(bd, pts, (uint16_t)x, (uint16_t)y);
         handled = selected > 0;
         if (handled && activate)
@@ -617,7 +624,7 @@ static void yfuse_handle_event(stream_t *stream, const BD_EVENT *event)
         yfuse_java_session_state(priv);
 }
 
-static int yfuse_fill_buffer(stream_t *stream, void *buf, int len)
+static int yfuse_fill_buffer_unlocked(stream_t *stream, void *buf, int len)
 {
     yfuse_bluray_priv *priv = stream->priv;
     if (!priv->navigation_mode) {
@@ -640,6 +647,17 @@ static int yfuse_fill_buffer(stream_t *stream, void *buf, int len)
     return 0;
 }
 
+static int yfuse_fill_buffer(stream_t *stream, void *buf, int len)
+{
+    yfuse_bluray_priv *priv = stream->priv;
+    if (!priv || !priv->source)
+        return -1;
+    pthread_mutex_lock(&priv->source->session_lock);
+    int result = yfuse_fill_buffer_unlocked(stream, buf, len);
+    pthread_mutex_unlock(&priv->source->session_lock);
+    return result;
+}
+
 static void yfuse_bluray_close(stream_t *stream)
 {
     yfuse_bluray_priv *priv = stream->priv;
@@ -652,7 +670,8 @@ static void yfuse_bluray_close(stream_t *stream)
         source->active_priv = NULL;
         pthread_mutex_unlock(&source->session_lock);
     }
-    bd_register_overlay_proc(priv->bd, NULL, NULL);
+    if (priv->bd)
+        bd_register_overlay_proc(priv->bd, NULL, NULL);
     if (priv->title_info)
         bd_free_title_info(priv->title_info);
     if (priv->bd)
@@ -668,7 +687,7 @@ static void yfuse_bluray_close(stream_t *stream)
     }
 }
 
-static int yfuse_bluray_control(stream_t *stream, int cmd, void *arg)
+static int yfuse_bluray_control_unlocked(stream_t *stream, int cmd, void *arg)
 {
     yfuse_bluray_priv *priv = stream->priv;
     switch (cmd) {
@@ -770,6 +789,17 @@ static int yfuse_bluray_control(stream_t *stream, int cmd, void *arg)
     default:
         return STREAM_UNSUPPORTED;
     }
+}
+
+static int yfuse_bluray_control(stream_t *stream, int cmd, void *arg)
+{
+    yfuse_bluray_priv *priv = stream->priv;
+    if (!priv || !priv->source)
+        return STREAM_UNSUPPORTED;
+    pthread_mutex_lock(&priv->source->session_lock);
+    int result = yfuse_bluray_control_unlocked(stream, cmd, arg);
+    pthread_mutex_unlock(&priv->source->session_lock);
+    return result;
 }
 
 static int yfuse_disc_supported(BLURAY *bd, int *menu_supported)
