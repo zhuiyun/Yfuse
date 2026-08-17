@@ -25,7 +25,8 @@ actual fun PlayerLauncher(
         if (items.isEmpty()) return@LaunchedEffect
         val koin = GlobalContext.get()
         val serverRegistry = runCatching { koin.get<ServerRegistry>() }.getOrNull()
-        val preparedItems = prepareNativeRemoteBluRayRoutes(items, serverRegistry)
+        val localPrepared = prepareNativeLocalBluRayRoute(items, startIndex, context)
+        val preparedItems = prepareNativeRemoteBluRayRoutes(localPrepared, startIndex, serverRegistry)
         PlaybackSelection.update(preparedItems.getOrNull(startIndex))
         val preferencesResult =
             runCatching {
@@ -91,8 +92,11 @@ actual fun PlayerLauncher(
                 attributes =
                     mapOf(
                         "itemCount" to preparedItems.size.toString(),
-                        "nativeRemoteDisc" to
-                            preparedItems.any { it.url.isYfuseNativeRemoteBluRayUrl() }.toString(),
+                        "nativeDisc" to
+                            preparedItems.getOrNull(startIndex)
+                                ?.url
+                                ?.isYfuseNativeRemoteBluRayUrl()
+                                .toString(),
                     ),
             )
             onLaunched()
