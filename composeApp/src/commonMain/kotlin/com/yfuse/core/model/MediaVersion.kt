@@ -57,9 +57,16 @@ data class MediaVersion(
             }
         }
 
-    /** `4K HDR10` — resolution with the dynamic range appended when it has one. */
+    /**
+     * Compact quality label. Dolby metadata is authoritative over a generic `VideoRange=HDR10`:
+     * some servers report the HEVC base layer there while `DvProfile` correctly identifies DV.
+     */
     val qualityLabel: String
-        get() = listOfNotNull(resolutionLabel ?: "未知清晰度", videoRange).joinToString(" ")
+        get() =
+            listOf(
+                resolutionLabel ?: "未知清晰度",
+                rangeLabel,
+            ).joinToString(" ")
 
     val sizeLabel: String? get() = sizeBytes?.takeIf { it > 0 }?.let(::formatBytes)
 
