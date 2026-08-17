@@ -19,8 +19,8 @@ internal fun interface RemoteDiscHeaderProvider {
  *
  * It never logs or exposes [sourceUrl], requires HTTP byte-range semantics, forces identity transfer
  * encoding, uses 64-bit byte offsets, and refuses redirects so authorization headers cannot leak to a
- * different origin. The JNI bridge can keep one instance behind its opaque native handle and call
- * [readBlocks] from libbluray's native worker thread.
+ * different origin. The JNI bridge keeps one higher-level source behind its opaque native handle and
+ * calls [readBlocks] from a native worker thread.
  */
 internal class HttpRangeDiscBlockSource(
     private val sourceUrl: String,
@@ -43,6 +43,10 @@ internal class HttpRangeDiscBlockSource(
     /**
      * Reads [blockCount] UDF blocks beginning at [lba] into [target].
      *
+     * Authentication failure gets exactly one fresh request. [headerProvider] is invoked again for
+     * that request, so a token source that renewed credentials after a 401/403 can recover without
+     * rebuilding the native disc session. A second 401/403 is terminal and never loops.
+     *
      * @return complete blocks read, `0` at EOF, or `-1` on transport/protocol failure.
      */
     fun readBlocks(
@@ -64,38 +68,55 @@ internal class HttpRangeDiscBlockSource(
         val start = safeByteOffset(lba) ?: return fail("远程原盘块偏移溢出")
         val end = safeInclusiveEnd(start, requestedBytes) ?: return fail("远程原盘 Range 溢出")
 
-        val connection =
-            runCatching { openConnection(start, end) }
-                .getOrElse { return fail("无法建立远程原盘 Range 请求") }
-        return try {
-            when (val code = connection.responseCode) {
-                HttpURLConnection.HTTP_PARTIAL ->
-                    readPartialResponse(
-                        connection = connection,
-                        requestedStart = start,
-                        requestedEnd = end,
-                        target = target,
-                        targetOffset = targetOffset,
-                    )
-                HTTP_RANGE_NOT_SATISFIABLE -> {
-                    parseUnsatisfiedLength(connection.getHeaderField("Content-Range"))
-                        ?.let(knownLength::set)
-                    lastFailure = null
-                    0
+        var authRetry = 0
+        while (authRetry <= MAX_AUTH_RETRIES) {
+            val connection =
+                runCatching { openConnection(start, end) }
+                    .getOrElse { return fail("无法建立远程原盘 Range 请求") }
+            try {
+                when (val code = connection.responseCode) {
+                    HttpURLConnection.HTTP_PARTIAL ->
+                        return readPartialResponse(
+                            connection = connection,
+                            requestedStart = start,
+                            requestedEnd = end,
+                            target = target,
+                            targetOffset = targetOffset,
+                        )
+
+                    HTTP_RANGE_NOT_SATISFIABLE -> {
+                        parseUnsatisfiedLength(connection.getHeaderField("Content-Range"))
+                            ?.let(knownLength::set)
+                        lastFailure = null
+                        return 0
+                    }
+
+                    HttpURLConnection.HTTP_UNAUTHORIZED,
+                    HttpURLConnection.HTTP_FORBIDDEN,
+                    -> {
+                        if (authRetry < MAX_AUTH_RETRIES) {
+                            authRetry++
+                            continue
+                        }
+                        return fail("远程原盘鉴权失败（HTTP $code）")
+                    }
+
+                    HttpURLConnection.HTTP_MOVED_PERM,
+                    HttpURLConnection.HTTP_MOVED_TEMP,
+                    HttpURLConnection.HTTP_SEE_OTHER,
+                    HTTP_TEMPORARY_REDIRECT,
+                    HTTP_PERMANENT_REDIRECT,
+                    -> return fail("远程原盘 Range 请求发生重定向，已拒绝转发鉴权信息")
+
+                    else -> return fail("远程原盘服务器不支持安全随机读取（HTTP $code）")
                 }
-                HttpURLConnection.HTTP_MOVED_PERM,
-                HttpURLConnection.HTTP_MOVED_TEMP,
-                HttpURLConnection.HTTP_SEE_OTHER,
-                HTTP_TEMPORARY_REDIRECT,
-                HTTP_PERMANENT_REDIRECT,
-                -> fail("远程原盘 Range 请求发生重定向，已拒绝转发鉴权信息")
-                else -> fail("远程原盘服务器不支持安全随机读取（HTTP $code）")
+            } catch (_: Exception) {
+                return fail("远程原盘 Range 读取失败")
+            } finally {
+                connection.disconnect()
             }
-        } catch (_: Exception) {
-            fail("远程原盘 Range 读取失败")
-        } finally {
-            connection.disconnect()
         }
+        return fail("远程原盘鉴权重试耗尽")
     }
 
     /** Small capability probe; successful completion proves the origin honors byte ranges. */
@@ -108,44 +129,64 @@ internal class HttpRangeDiscBlockSource(
             fail("远程原盘 Range 能力探测不能运行在主线程")
             return false
         }
-        val probe = ByteArray(1)
-        val connection =
-            runCatching { openConnection(0L, 0L) }
-                .getOrElse {
-                    fail("无法探测远程原盘 Range 能力")
-                    return false
-                }
-        return try {
-            if (connection.responseCode != HttpURLConnection.HTTP_PARTIAL) {
-                fail("远程原盘服务器没有返回 HTTP 206")
-                false
-            } else {
-                val range = parseContentRange(connection.getHeaderField("Content-Range"))
-                if (range == null || range.start != 0L || range.end != 0L) {
-                    fail("远程原盘服务器返回了无效 Content-Range")
-                    false
-                } else if (!identityEncoding(connection)) {
-                    fail("远程原盘服务器对 Range 响应进行了内容编码")
-                    false
-                } else {
-                    knownLength.set(range.total)
-                    BufferedInputStream(connection.inputStream).use { input ->
-                        if (input.read(probe) != 1) {
-                            fail("远程原盘 Range 探测没有返回请求字节")
-                            false
-                        } else {
-                            lastFailure = null
-                            true
+
+        var authRetry = 0
+        while (authRetry <= MAX_AUTH_RETRIES) {
+            val connection =
+                runCatching { openConnection(0L, 0L) }
+                    .getOrElse {
+                        fail("无法探测远程原盘 Range 能力")
+                        return false
+                    }
+            try {
+                when (val code = connection.responseCode) {
+                    HttpURLConnection.HTTP_UNAUTHORIZED,
+                    HttpURLConnection.HTTP_FORBIDDEN,
+                    -> {
+                        if (authRetry < MAX_AUTH_RETRIES) {
+                            authRetry++
+                            continue
                         }
+                        fail("远程原盘鉴权失败（HTTP $code）")
+                        return false
+                    }
+
+                    HttpURLConnection.HTTP_PARTIAL -> {
+                        val range = parseContentRange(connection.getHeaderField("Content-Range"))
+                        if (range == null || range.start != 0L || range.end != 0L) {
+                            fail("远程原盘服务器返回了无效 Content-Range")
+                            return false
+                        }
+                        if (!identityEncoding(connection)) {
+                            fail("远程原盘服务器对 Range 响应进行了内容编码")
+                            return false
+                        }
+                        knownLength.set(range.total)
+                        val probe = ByteArray(1)
+                        BufferedInputStream(connection.inputStream).use { input ->
+                            if (input.read(probe) != 1) {
+                                fail("远程原盘 Range 探测没有返回请求字节")
+                                return false
+                            }
+                        }
+                        lastFailure = null
+                        return true
+                    }
+
+                    else -> {
+                        fail("远程原盘服务器没有返回 HTTP 206（HTTP $code）")
+                        return false
                     }
                 }
+            } catch (_: Exception) {
+                fail("远程原盘 Range 能力探测失败")
+                return false
+            } finally {
+                connection.disconnect()
             }
-        } catch (_: Exception) {
-            fail("远程原盘 Range 能力探测失败")
-            false
-        } finally {
-            connection.disconnect()
         }
+        fail("远程原盘鉴权重试耗尽")
+        return false
     }
 
     override fun close() {
@@ -180,7 +221,9 @@ internal class HttpRangeDiscBlockSource(
         target: ByteArray,
         targetOffset: Int,
     ): Int {
-        if (!identityEncoding(connection)) return fail("远程原盘 Range 响应不能使用压缩内容编码")
+        if (!identityEncoding(connection)) {
+            return fail("远程原盘 Range 响应不能使用压缩内容编码")
+        }
         val contentRange =
             parseContentRange(connection.getHeaderField("Content-Range"))
                 ?: return fail("远程原盘 HTTP 206 缺少有效 Content-Range")
@@ -286,5 +329,8 @@ private const val UNKNOWN_LENGTH = -1L
 private const val HTTP_RANGE_NOT_SATISFIABLE = 416
 private const val HTTP_TEMPORARY_REDIRECT = 307
 private const val HTTP_PERMANENT_REDIRECT = 308
-private val CONTENT_RANGE_REGEX = Regex("bytes\\s+(\\d+)-(\\d+)/(\\d+)", RegexOption.IGNORE_CASE)
-private val UNSATISFIED_CONTENT_RANGE_REGEX = Regex("bytes\\s+\\*/(\\d+)", RegexOption.IGNORE_CASE)
+private const val MAX_AUTH_RETRIES = 1
+private val CONTENT_RANGE_REGEX =
+    Regex("bytes\\s+(\\d+)-(\\d+)/(\\d+)", RegexOption.IGNORE_CASE)
+private val UNSATISFIED_CONTENT_RANGE_REGEX =
+    Regex("bytes\\s+\\*/(\\d+)", RegexOption.IGNORE_CASE)
