@@ -49,6 +49,16 @@ fun MpvSurface(
         }
     }
 
+    DisposableEffect(engine) {
+        ActiveDiscNavigation.bind(
+            owner = engine,
+            backend = VideoEngineDiscNavigationBackend(engine),
+        )
+        onDispose {
+            ActiveDiscNavigation.unbind(engine)
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             surfaceState.value?.let(::clearSurfaceFrameRate)
