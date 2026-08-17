@@ -65,7 +65,7 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
     val serverResolvedDiscMainFeature =
         version?.discSource == true &&
             !usingServerTranscode &&
-            item.playMethod == PlaybackMethod.DirectStream
+            item?.playMethod == PlaybackMethod.DirectStream
     return PlaybackMediaProbe(
         container = version?.container,
         discSource = version?.discSource == true,
