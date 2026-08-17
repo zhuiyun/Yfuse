@@ -41,6 +41,20 @@ internal fun shouldFailMpvFileLoad(
 ): Boolean = attempt == activeAttempt && !released && buffering
 
 /**
+ * Native optical-disc URLs are explicit so Blu-ray always starts on the main feature instead of
+ * relying on whichever playlist libbluray happens to expose first. mpv documents `bd://longest`
+ * as the longest Blu-ray playlist and uses the same `edition` property for later title changes.
+ */
+internal fun mpvDiscPlaybackUrl(kind: PlaybackDiscKind): String? =
+    when (kind) {
+        PlaybackDiscKind.Dvd -> "dvd://"
+        PlaybackDiscKind.BluRay,
+        PlaybackDiscKind.Bdmv,
+        -> "bd://longest"
+        else -> null
+    }
+
+/**
  * libmpv behind the engine-agnostic [VideoEngine] contract.
  *
  * mpv owns decoding and rendering, so the engine owns the `MPVLib` handle and
@@ -1205,13 +1219,13 @@ class MpvVideoEngine(
         return when (kind) {
             PlaybackDiscKind.Dvd -> {
                 setPropertyString("dvd-device", path)
-                "dvd://"
+                requireNotNull(mpvDiscPlaybackUrl(kind))
             }
             PlaybackDiscKind.BluRay,
             PlaybackDiscKind.Bdmv,
             -> {
                 setPropertyString("bluray-device", bluRayDiscRoot(path))
-                "bd://"
+                requireNotNull(mpvDiscPlaybackUrl(kind))
             }
             else -> url
         }
