@@ -21,11 +21,30 @@ below. CI cannot replace these measurements.
 - Dynamic range: SDR, HDR10, HDR10+, HLG and every Dolby Vision profile the device advertises.
 - Audio: AAC, MP3, FLAC, Opus, AC-3, E-AC3/JOC, DTS variants and TrueHD/Atmos.
 - Subtitles: SRT/WebVTT, ASS/SSA effects, PGS, VobSub and DVB; single, dual and offset tracks.
+- UHD Blu-ray: local ISO/BDMV and server-resolved M2TS/TS main-feature streams; HDR10/HDR10+/HLG,
+  Dolby Vision P7/P8 where legally available, TrueHD/Atmos, DTS-HD and PGS.
+- Large media: 4 GiB+ and 100 GiB+ samples must cover random seek, resume and EOF without 32-bit
+  offset truncation. Include MOV/ProRes and Blu-ray image/main-feature cases when available.
 - Faults: truncated manifests, corrupt timestamps, missing tracks, slow origin, 401/403/404/5xx,
   discontinuities and random seek/track/subtitle operations.
 
 Every sample has a redacted manifest entry containing capability signature, expected route, expected
 output and allowed fallback. Media URLs, tokens, account ids and server ids must never be committed.
+
+### UHD Blu-ray route gates
+
+- A valid server-resolved `.m2ts` / `.mts` / `.ts` main feature must remain direct-stream playback;
+  the original MediaSource being ISO/BDMV is not by itself a reason to start server ffmpeg.
+- A raw remote ISO/BDMV without a resolved linear stream must still use the server main-feature
+  fallback rather than being treated as an ordinary HTTP video file.
+- PGS may change the local backend to the native subtitle renderer, but must not change a valid
+  direct-stream URL into a server transcode.
+- TrueHD/Atmos or DTS-HD is reported as passthrough only when the active Android route proves encoded
+  output; speaker/Bluetooth fallback to PCM is a passing outcome.
+- Dolby Vision P7 FEL is `NotMeasured` unless a physical-device trace proves the enhancement layer is
+  being composed. Base-layer playback is not sufficient evidence for an FEL-support claim.
+- HDMV interactive menus and BD-J remain unsupported until a backend/runtime exposes verifiable
+  navigation; unit tests must not simulate these into a supported state.
 
 ## Release gates
 
