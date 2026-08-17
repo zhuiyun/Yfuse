@@ -23,6 +23,10 @@ on:
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeRemoteBluRaySource.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/RemoteDiscBlockSource.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBluRaySource.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvSource.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvRegistryProxy.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBluRayRoute.android.kt
   pull_request:
     paths:
       - .github/workflows/build-yfuse-mpv-bluray.yml
@@ -30,6 +34,10 @@ on:
       - scripts/install-yfuse-mpv-bluray.sh
       - scripts/verify-yfuse-mpv-bluray-aar.sh
       - scripts/native/**
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvSource.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvRegistryProxy.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBluRayRoute.android.kt
 
 permissions:
   contents: read
