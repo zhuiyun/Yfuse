@@ -44,15 +44,19 @@ data class PlaybackDiscNavigationState(
 
     /** Always gives the control layer selectable rows, even on a count-only backend. */
     val titleOptions: List<PlaybackDiscTitle>
-        get() =
-            titles.takeIf(List<PlaybackDiscTitle>::isNotEmpty)
-                ?: List(titleCount.coerceAtLeast(0)) { index -> PlaybackDiscTitle(index = index) }
+        get() {
+            if (effectiveTitleCount <= 0) return emptyList()
+            val byIndex = titles.associateBy(PlaybackDiscTitle::index)
+            return List(effectiveTitleCount) { index -> byIndex[index] ?: PlaybackDiscTitle(index = index) }
+        }
 
     /** Always gives the control layer selectable rows, even on a count-only backend. */
     val chapterOptions: List<PlaybackDiscChapter>
-        get() =
-            chapters.takeIf(List<PlaybackDiscChapter>::isNotEmpty)
-                ?: List(chapterCount.coerceAtLeast(0)) { index -> PlaybackDiscChapter(index = index) }
+        get() {
+            if (effectiveChapterCount <= 0) return emptyList()
+            val byIndex = chapters.associateBy(PlaybackDiscChapter::index)
+            return List(effectiveChapterCount) { index -> byIndex[index] ?: PlaybackDiscChapter(index = index) }
+        }
 
     val selectedTitle: PlaybackDiscTitle?
         get() = titleOptions.getOrNull(selectedTitleIndex)
