@@ -118,16 +118,35 @@ data class MediaVersion(
      */
     val dolbyProfile: Int? get() = video?.dolbyProfile?.takeIf { isDolbyVision }
 
+    /** True only when the server actually reports a Dolby Vision RPU in this stream. */
+    val hasDolbyVisionRpu: Boolean
+        get() = isDolbyVision && video?.dolbyRpuPresent == true
+
+    /**
+     * True when the server reports an enhancement layer. This is deliberately called EL rather
+     * than FEL: Jellyfin/Emby expose presence flags, not enough evidence to prove MEL vs FEL.
+     */
+    val hasDolbyVisionEnhancementLayer: Boolean
+        get() = isDolbyVision && video?.dolbyEnhancementLayerPresent == true
+
+    /**
+     * Profile 7 plus an EL is the UHD Blu-ray case that needs physical-device verification before
+     * Yfuse may claim FEL composition. Base-layer playback or a Dolby badge is not that proof.
+     */
+    val requiresDolbyVisionEnhancementValidation: Boolean
+        get() = dolbyProfile == 7 && hasDolbyVisionEnhancementLayer
+
     /**
      * True when only a Dolby-capable decoder can render this file correctly.
      *
-     * Profile 5, and profile 7 or 8 that the server explicitly marks as having no
-     * compatible base layer. Everything else degrades to HDR10 or SDR on its own.
+     * Profile 5, a stream with no base layer at all, and profile 7 or 8 that the server explicitly
+     * marks as having no compatible base layer cannot be repaired by pretending it is ordinary HEVC.
      */
     val needsDolbyCapableDecoder: Boolean
         get() {
             if (!isDolbyVision) return false
             if (dolbyProfile == 5) return true
+            if (video?.dolbyBaseLayerPresent == false) return true
             return video?.dolbyBaseLayerCompatibility == 0
         }
 
@@ -135,9 +154,13 @@ data class MediaVersion(
     val rangeLabel: String
         get() =
             when {
-                // The profile is worth the four characters: it is what decides whether this
-                // file plays on this device at all.
-                isDolbyVision -> dolbyProfile?.let { "Dolby Vision P$it" } ?: "Dolby Vision"
+                // A dual-layer label describes source evidence only. It intentionally does not say
+                // FEL, because EL presence alone cannot prove enhancement-layer composition.
+                isDolbyVision ->
+                    buildString {
+                        append(dolbyProfile?.let { "Dolby Vision P$it" } ?: "Dolby Vision")
+                        if (hasDolbyVisionEnhancementLayer) append(" · 双层")
+                    }
                 else -> videoRange?.takeIf { it.isNotBlank() } ?: "SDR"
             }
 
@@ -211,6 +234,10 @@ data class VideoStreamInfo(
     val dolbyProfile: Int? = null,
     /** Emby's `DvBlSignalCompatibilityId`: 1 = HDR10 base, 2 = SDR, 4 = HLG, 0 = none. */
     val dolbyBaseLayerCompatibility: Int? = null,
+    /** Dolby Vision metadata flags as exposed by Jellyfin/Emby probing. */
+    val dolbyRpuPresent: Boolean? = null,
+    val dolbyEnhancementLayerPresent: Boolean? = null,
+    val dolbyBaseLayerPresent: Boolean? = null,
 ) {
     val resolutionLabel: String?
         get() = if (width != null && height != null) "${width}x$height" else null
