@@ -61,6 +61,15 @@ interface DiscNavigationBackend {
 
     fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
+    /**
+     * Push signal for asynchronous native menu/title changes.
+     *
+     * Engine-backed adapters can no-op because the engine PlaybackState already drives Compose.
+     * A real libbluray/BD-J provider invokes this whenever navigation or status changes, avoiding
+     * native polling from the common UI.
+     */
+    fun setChangeListener(listener: (() -> Unit)?) = Unit
+
     /** Optional provider lifecycle. Engine-backed adapters do not own the engine and therefore no-op. */
     fun close() = Unit
 }
