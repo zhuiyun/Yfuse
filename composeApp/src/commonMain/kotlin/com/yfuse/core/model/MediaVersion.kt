@@ -63,9 +63,9 @@ data class MediaVersion(
      */
     val qualityLabel: String
         get() =
-            listOf(
+            listOfNotNull(
                 resolutionLabel ?: "未知清晰度",
-                rangeLabel,
+                if (isDolbyVision) rangeLabel else videoRange,
             ).joinToString(" ")
 
     val sizeLabel: String? get() = sizeBytes?.takeIf { it > 0 }?.let(::formatBytes)
