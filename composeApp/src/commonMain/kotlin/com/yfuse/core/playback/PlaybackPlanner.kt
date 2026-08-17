@@ -62,6 +62,17 @@ data class PlaybackMediaProbe(
     val usingServerTranscode: Boolean = false,
     val discKind: PlaybackDiscKind = PlaybackDiscKind.None,
     val localSource: Boolean = false,
+    /**
+     * True when the server has already selected the Blu-ray/DVD main feature and [container]
+     * describes the original disc rather than the linear stream delivered by [PlaybackInfo].
+     *
+     * This is deliberately distinct from transcoding: an Emby DirectStream can be an untouched
+     * M2TS/TS remux that preserves HDR/Dolby Vision, TrueHD/Atmos and PGS. Treating the original
+     * MediaSource's `discSource` flag as proof that the URL still points at raw ISO bytes used to
+     * force such streams back through server ffmpeg and destroy exactly the original-disc formats
+     * the player is trying to preserve.
+     */
+    val discMainFeatureResolved: Boolean = false,
     val audioCodec: PlaybackAudioCodec? = null,
     val audioChannelCount: Int? = null,
     val durationMs: Long? = null,
@@ -71,7 +82,10 @@ data class PlaybackMediaProbe(
         get() = container?.trim()?.uppercase().orEmpty()
 
     val requiresNativeDemuxer: Boolean
-        get() = discSource || normalizedContainer in NATIVE_FIRST_CONTAINERS
+        get() =
+            !discMainFeatureResolved &&
+                !usingServerTranscode &&
+                (discSource || normalizedContainer in NATIVE_FIRST_CONTAINERS)
 
     /** Credential-free, URL-free key used by the bounded failure memory. */
     val capabilitySignature: String
@@ -87,6 +101,7 @@ data class PlaybackMediaProbe(
                 audioCodec?.name ?: "UnknownAudio",
                 audioChannelCount?.toString() ?: "UnknownChannels",
                 discKind.name,
+                if (discMainFeatureResolved) "ResolvedDiscMainFeature" else "RawDiscSource",
                 if (styledSubtitles) "StyledSubtitles" else "PlainSubtitles",
                 if (drmProtected) "Drm" else "Clear",
                 if (usingServerTranscode) "Transcode" else "Original",
