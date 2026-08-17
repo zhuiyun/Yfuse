@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Builds the Yfuse libmpv variant with libbluray linked in for local and remote ISO/BDMV access.
-#
-# BD-J stays deliberately disabled. HDMV interactive overlays are a separate gate; this build first
-# establishes reproducible libbluray + remote UDF block access while keeping ordinary mpv intact.
+# Builds the Yfuse libmpv variant with libbluray, authenticated remote ISO access and HDMV menus.
+# BD-J remains deliberately disabled and is never inferred from native libbluray availability.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,6 +13,7 @@ LIBBLURAY_COMMIT="7d94f2660af5bfc16015291a03539329135c18f1"
 LIBUDFREAD_COMMIT="139a2194525f2745b98a98e4d8fa627d07440176"
 CAPABILITY_CLASS_PATH="dev/yfuse/mpv/YfuseMpvCapabilities.class"
 REGISTRY_CLASS_PATH="dev/yfuse/mpv/YfuseBluRayRegistry.class"
+YFUSE_STREAM_SOURCE="$ROOT/scripts/native/stream_yfuse_bluray.c"
 
 ARCH_ARGS=()
 if [[ $# -gt 0 ]]; then
@@ -31,6 +30,10 @@ need() {
 for tool in git python3 meson ninja unzip sha256sum; do
   need "$tool"
 done
+[[ -f "$YFUSE_STREAM_SOURCE" ]] || {
+  printf 'error: native stream source not found: %s\n' "$YFUSE_STREAM_SOURCE" >&2
+  exit 1
+}
 
 rm -rf "$WORK_ROOT"
 mkdir -p "$WORK_ROOT" "$OUT_DIR"
@@ -60,7 +63,7 @@ public final class YfuseMpvCapabilities {
     public static final boolean LIBBLURAY = true;
     public static final boolean BDJ = false;
     public static final boolean REMOTE_RAW_BLURAY = true;
-    public static final boolean HDMV_MENU = false;
+    public static final boolean HDMV_MENU = true;
     public static final String LIBMPV_ANDROID_REVISION = "$UPSTREAM_COMMIT";
     public static final String LIBBLURAY_REVISION = "$LIBBLURAY_COMMIT";
     public static final String LIBUDFREAD_REVISION = "$LIBUDFREAD_COMMIT";
@@ -69,8 +72,8 @@ public final class YfuseMpvCapabilities {
 }
 EOF
 
-# Kept separate from MPVLib so the app can discover it through reflection. Stock AARs do not contain
-# this class, therefore ordinary builds stay ABI/API compatible and can never accidentally enable raw ISO.
+# Stock libmpv-android has no class with this name. Runtime reflection therefore proves that the
+# exact custom AAR was installed rather than guessing from Kotlin source or stale sidecars.
 cat >"$REGISTRY_SOURCE" <<'EOF'
 package dev.yfuse.mpv;
 
@@ -90,8 +93,18 @@ public final class YfuseBluRayRegistry {
         if (id > 0L) nativeUnregister(id);
     }
 
+    public static boolean sendMenuCommand(long id, int command) {
+        return id > 0L && nativeSendMenuCommand(id, command);
+    }
+
+    public static boolean selectMenuPoint(long id, int x, int y, boolean activate) {
+        return id > 0L && x >= 0 && y >= 0 && nativeSelectMenuPoint(id, x, y, activate);
+    }
+
     private static native long nativeRegister(Object source);
     private static native void nativeUnregister(long id);
+    private static native boolean nativeSendMenuCommand(long id, int command);
+    private static native boolean nativeSelectMenuPoint(long id, int x, int y, boolean activate);
 }
 EOF
 
@@ -173,449 +186,10 @@ UDFREAD_HEAD="$(git -C "$BLURAY_ROOT/contrib/libudfread" rev-parse HEAD)"
   exit 1
 }
 
-# Add a private Yfuse stream protocol directly inside libmpv. The registry is JNI-backed but the
-# actual Blu-ray session remains inside the same libbluray/mpv stream stack as local bd:// playback.
+# Patch only the pinned throw-away mpv checkout. Yfuse source stays reviewable as a normal repository
+# file instead of a multi-hundred-line shell heredoc.
 MPV_ROOT="$SOURCE/buildscripts/deps/mpv"
-YFUSE_STREAM="$MPV_ROOT/stream/stream_yfuse_bluray.c"
-cat >"$YFUSE_STREAM" <<'C'
-#include <jni.h>
-#include <pthread.h>
-#include <stdatomic.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include <libbluray/bluray.h>
-#include <libbluray/meta_data.h>
-
-#include "common/common.h"
-#include "common/msg.h"
-#include "mpv_talloc.h"
-#include "stream.h"
-
-#define YFUSE_MAX_REGISTERED_SOURCES 64
-#define YFUSE_BD_TIMEBASE 90000.0
-
-typedef struct yfuse_source {
-    int64_t id;
-    JavaVM *vm;
-    jobject object;
-    jmethodID read_blocks;
-    jmethodID close_source;
-    atomic_int refs;
-    struct yfuse_source *next;
-} yfuse_source;
-
-static pthread_mutex_t g_source_lock = PTHREAD_MUTEX_INITIALIZER;
-static yfuse_source *g_sources;
-static int64_t g_next_source_id = 1;
-static int g_source_count;
-
-static JNIEnv *yfuse_env(JavaVM *vm, int *attached)
-{
-    JNIEnv *env = NULL;
-    *attached = 0;
-    if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) == JNI_OK)
-        return env;
-    if ((*vm)->AttachCurrentThread(vm, &env, NULL) != JNI_OK)
-        return NULL;
-    *attached = 1;
-    return env;
-}
-
-static void yfuse_source_destroy(yfuse_source *source)
-{
-    if (!source)
-        return;
-    int attached = 0;
-    JNIEnv *env = yfuse_env(source->vm, &attached);
-    if (env && source->object) {
-        (*env)->CallVoidMethod(env, source->object, source->close_source);
-        if ((*env)->ExceptionCheck(env))
-            (*env)->ExceptionClear(env);
-        (*env)->DeleteGlobalRef(env, source->object);
-    }
-    if (attached)
-        (*source->vm)->DetachCurrentThread(source->vm);
-    free(source);
-}
-
-static void yfuse_source_release(yfuse_source *source)
-{
-    if (source && atomic_fetch_sub_explicit(&source->refs, 1, memory_order_acq_rel) == 1)
-        yfuse_source_destroy(source);
-}
-
-/*
- * Registration is one-shot once mpv opens the URI: ownership moves from the registry to that stream.
- * This prevents every successful movie from leaving a Java global reference behind for the lifetime
- * of the process. Explicit unregister still cleans a source whose URI was prepared but never opened.
- */
-static yfuse_source *yfuse_source_take(int64_t id)
-{
-    yfuse_source *result = NULL;
-    pthread_mutex_lock(&g_source_lock);
-    yfuse_source **link = &g_sources;
-    while (*link) {
-        if ((*link)->id == id) {
-            result = *link;
-            *link = result->next;
-            result->next = NULL;
-            g_source_count--;
-            break;
-        }
-        link = &(*link)->next;
-    }
-    pthread_mutex_unlock(&g_source_lock);
-    return result;
-}
-
-static int yfuse_source_read_blocks(void *opaque, void *buf, int lba, int num_blocks)
-{
-    yfuse_source *source = opaque;
-    if (!source || !buf || lba < 0 || num_blocks <= 0)
-        return -1;
-    int64_t byte_count = (int64_t)num_blocks * 2048;
-    if (byte_count <= 0 || byte_count > INT32_MAX)
-        return -1;
-
-    int attached = 0;
-    JNIEnv *env = yfuse_env(source->vm, &attached);
-    if (!env)
-        return -1;
-    jbyteArray array = (*env)->NewByteArray(env, (jsize)byte_count);
-    if (!array) {
-        if (attached)
-            (*source->vm)->DetachCurrentThread(source->vm);
-        return -1;
-    }
-    jint blocks = (*env)->CallIntMethod(env, source->object, source->read_blocks,
-                                         (jint)lba, (jint)num_blocks, array, (jint)0);
-    if ((*env)->ExceptionCheck(env)) {
-        (*env)->ExceptionClear(env);
-        blocks = -1;
-    }
-    if (blocks > 0 && blocks <= num_blocks) {
-        jsize copied = (jsize)((int64_t)blocks * 2048);
-        (*env)->GetByteArrayRegion(env, array, 0, copied, (jbyte *)buf);
-        if ((*env)->ExceptionCheck(env)) {
-            (*env)->ExceptionClear(env);
-            blocks = -1;
-        }
-    } else if (blocks > num_blocks) {
-        blocks = -1;
-    }
-    (*env)->DeleteLocalRef(env, array);
-    if (attached)
-        (*source->vm)->DetachCurrentThread(source->vm);
-    return blocks;
-}
-
-JNIEXPORT jlong JNICALL
-Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeRegister(JNIEnv *env, jclass clazz, jobject object)
-{
-    (void)clazz;
-    if (!object)
-        return 0;
-    jclass type = (*env)->GetObjectClass(env, object);
-    if (!type)
-        return 0;
-    jmethodID read_blocks = (*env)->GetMethodID(env, type, "readBlocksNative", "(II[BI)I");
-    jmethodID close_source = (*env)->GetMethodID(env, type, "closeNativeSource", "()V");
-    (*env)->DeleteLocalRef(env, type);
-    if (!read_blocks || !close_source) {
-        if ((*env)->ExceptionCheck(env))
-            (*env)->ExceptionClear(env);
-        return 0;
-    }
-
-    JavaVM *vm = NULL;
-    if ((*env)->GetJavaVM(env, &vm) != JNI_OK || !vm)
-        return 0;
-    jobject global = (*env)->NewGlobalRef(env, object);
-    if (!global)
-        return 0;
-    yfuse_source *source = calloc(1, sizeof(*source));
-    if (!source) {
-        (*env)->DeleteGlobalRef(env, global);
-        return 0;
-    }
-    source->vm = vm;
-    source->object = global;
-    source->read_blocks = read_blocks;
-    source->close_source = close_source;
-    atomic_init(&source->refs, 1);
-
-    pthread_mutex_lock(&g_source_lock);
-    if (g_source_count >= YFUSE_MAX_REGISTERED_SOURCES) {
-        pthread_mutex_unlock(&g_source_lock);
-        yfuse_source_release(source);
-        return 0;
-    }
-    source->id = g_next_source_id++;
-    if (g_next_source_id <= 0)
-        g_next_source_id = 1;
-    source->next = g_sources;
-    g_sources = source;
-    g_source_count++;
-    pthread_mutex_unlock(&g_source_lock);
-    return (jlong)source->id;
-}
-
-JNIEXPORT void JNICALL
-Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeUnregister(JNIEnv *env, jclass clazz, jlong id)
-{
-    (void)env;
-    (void)clazz;
-    yfuse_source *removed = NULL;
-    pthread_mutex_lock(&g_source_lock);
-    yfuse_source **link = &g_sources;
-    while (*link) {
-        if ((*link)->id == (int64_t)id) {
-            removed = *link;
-            *link = removed->next;
-            removed->next = NULL;
-            g_source_count--;
-            break;
-        }
-        link = &(*link)->next;
-    }
-    pthread_mutex_unlock(&g_source_lock);
-    yfuse_source_release(removed);
-}
-
-typedef struct yfuse_bluray_priv {
-    BLURAY *bd;
-    BLURAY_TITLE_INFO *title_info;
-    yfuse_source *source;
-    int num_titles;
-    int current_title;
-    int current_playlist;
-    int current_angle;
-} yfuse_bluray_priv;
-
-static void yfuse_refresh_title_info(yfuse_bluray_priv *priv)
-{
-    if (priv->title_info) {
-        bd_free_title_info(priv->title_info);
-        priv->title_info = NULL;
-    }
-    if (priv->current_title >= 0)
-        priv->title_info = bd_get_title_info(priv->bd, priv->current_title, priv->current_angle);
-}
-
-static void yfuse_handle_event(stream_t *stream, const BD_EVENT *event)
-{
-    yfuse_bluray_priv *priv = stream->priv;
-    switch (event->event) {
-    case BD_EVENT_PLAYLIST:
-        priv->current_playlist = event->param;
-        priv->current_title = bd_get_current_title(priv->bd);
-        yfuse_refresh_title_info(priv);
-        break;
-    case BD_EVENT_TITLE:
-        if (event->param != BLURAY_TITLE_FIRST_PLAY)
-            priv->current_title = event->param;
-        else
-            priv->current_title = bd_get_current_title(priv->bd);
-        yfuse_refresh_title_info(priv);
-        break;
-    case BD_EVENT_ANGLE:
-        priv->current_angle = event->param;
-        yfuse_refresh_title_info(priv);
-        break;
-    case BD_EVENT_STILL_TIME:
-        bd_read_skip_still(priv->bd);
-        break;
-    default:
-        break;
-    }
-}
-
-static int yfuse_fill_buffer(stream_t *stream, void *buf, int len)
-{
-    yfuse_bluray_priv *priv = stream->priv;
-    BD_EVENT event;
-    while (bd_get_event(priv->bd, &event))
-        yfuse_handle_event(stream, &event);
-    return bd_read(priv->bd, buf, len);
-}
-
-static void yfuse_bluray_close(stream_t *stream)
-{
-    yfuse_bluray_priv *priv = stream->priv;
-    if (!priv)
-        return;
-    if (priv->title_info)
-        bd_free_title_info(priv->title_info);
-    if (priv->bd)
-        bd_close(priv->bd);
-    yfuse_source_release(priv->source);
-    priv->source = NULL;
-}
-
-static int yfuse_bluray_control(stream_t *stream, int cmd, void *arg)
-{
-    yfuse_bluray_priv *priv = stream->priv;
-    switch (cmd) {
-    case STREAM_CTRL_GET_NUM_CHAPTERS:
-        if (!priv->title_info)
-            return STREAM_UNSUPPORTED;
-        *(unsigned int *)arg = priv->title_info->chapter_count;
-        return STREAM_OK;
-    case STREAM_CTRL_GET_CHAPTER_TIME: {
-        if (!priv->title_info)
-            return STREAM_UNSUPPORTED;
-        int chapter = *(double *)arg;
-        if (chapter < 0 || chapter >= priv->title_info->chapter_count)
-            return STREAM_ERROR;
-        *(double *)arg = priv->title_info->chapters[chapter].start / YFUSE_BD_TIMEBASE;
-        return STREAM_OK;
-    }
-    case STREAM_CTRL_SET_CURRENT_TITLE: {
-        uint32_t title = *(unsigned int *)arg;
-        if (title >= (uint32_t)priv->num_titles || !bd_select_title(priv->bd, title))
-            return STREAM_UNSUPPORTED;
-        priv->current_title = title;
-        yfuse_refresh_title_info(priv);
-        return STREAM_OK;
-    }
-    case STREAM_CTRL_GET_CURRENT_TITLE:
-        *(unsigned int *)arg = priv->current_title;
-        return STREAM_OK;
-    case STREAM_CTRL_GET_NUM_TITLES:
-        *(unsigned int *)arg = priv->num_titles;
-        return STREAM_OK;
-    case STREAM_CTRL_GET_TIME_LENGTH:
-        if (!priv->title_info)
-            return STREAM_UNSUPPORTED;
-        *(double *)arg = priv->title_info->duration / YFUSE_BD_TIMEBASE;
-        return STREAM_OK;
-    case STREAM_CTRL_GET_CURRENT_TIME:
-        *(double *)arg = bd_tell_time(priv->bd) / YFUSE_BD_TIMEBASE;
-        return STREAM_OK;
-    case STREAM_CTRL_SEEK_TO_TIME: {
-        double seconds = *(double *)arg;
-        if (bd_seek_time(priv->bd, (uint64_t)(seconds * YFUSE_BD_TIMEBASE)) < 0)
-            return STREAM_ERROR;
-        stream_drop_buffers(stream);
-        return STREAM_OK;
-    }
-    case STREAM_CTRL_GET_TITLE_LENGTH: {
-        int title = *(double *)arg;
-        if (title < 0 || title >= priv->num_titles)
-            return STREAM_UNSUPPORTED;
-        BLURAY_TITLE_INFO *info = bd_get_title_info(priv->bd, title, 0);
-        if (!info)
-            return STREAM_UNSUPPORTED;
-        *(double *)arg = info->duration / YFUSE_BD_TIMEBASE;
-        bd_free_title_info(info);
-        return STREAM_OK;
-    }
-    case STREAM_CTRL_GET_TITLE_PLAYLIST: {
-        int title = *(double *)arg;
-        if (title < 0 || title >= priv->num_titles)
-            return STREAM_UNSUPPORTED;
-        BLURAY_TITLE_INFO *info = bd_get_title_info(priv->bd, title, 0);
-        if (!info)
-            return STREAM_UNSUPPORTED;
-        *(double *)arg = info->playlist;
-        bd_free_title_info(info);
-        return STREAM_OK;
-    }
-    case STREAM_CTRL_GET_DISC_NAME: {
-        const struct meta_dl *meta = bd_get_meta(priv->bd);
-        if (!meta || !meta->di_name || !meta->di_name[0])
-            return STREAM_UNSUPPORTED;
-        *(char **)arg = talloc_strdup(NULL, meta->di_name);
-        return STREAM_OK;
-    }
-    default:
-        return STREAM_UNSUPPORTED;
-    }
-}
-
-static bool yfuse_disc_supported(BLURAY *bd)
-{
-    const BLURAY_DISC_INFO *info = bd_get_disc_info(bd);
-    if (!info || !info->bluray_detected)
-        return false;
-    if (info->aacs_detected && !info->aacs_handled)
-        return false;
-    if (info->bdplus_detected && !info->bdplus_handled)
-        return false;
-    return true;
-}
-
-static int yfuse_bluray_open(stream_t *stream)
-{
-    const char *text = stream->path;
-    while (*text == '/')
-        text++;
-    char *end = NULL;
-    long long id = strtoll(text, &end, 10);
-    if (id <= 0 || !end || *end != '\0')
-        return STREAM_ERROR;
-
-    yfuse_source *source = yfuse_source_take(id);
-    if (!source)
-        return STREAM_ERROR;
-
-    yfuse_bluray_priv *priv = talloc_zero(stream, yfuse_bluray_priv);
-    stream->priv = priv;
-    priv->source = source;
-    priv->current_title = -1;
-    priv->current_playlist = -1;
-    priv->current_angle = 0;
-
-    BLURAY *bd = bd_init();
-    if (!bd || !bd_open_stream(bd, source, yfuse_source_read_blocks)) {
-        if (bd)
-            bd_close(bd);
-        goto fail;
-    }
-    priv->bd = bd;
-    if (!yfuse_disc_supported(bd))
-        goto fail;
-
-    priv->num_titles = bd_get_titles(bd, TITLES_RELEVANT, 0);
-    if (priv->num_titles <= 0)
-        goto fail;
-    bd_get_event(bd, NULL);
-    int main_title = bd_get_main_title(bd);
-    if (main_title < 0 || main_title >= priv->num_titles)
-        main_title = 0;
-    if (!bd_select_title(bd, main_title))
-        goto fail;
-    priv->current_title = bd_get_current_title(bd);
-    if (priv->current_title < 0 || priv->current_title >= priv->num_titles)
-        priv->current_title = main_title;
-    priv->current_angle = bd_get_current_angle(bd);
-    yfuse_refresh_title_info(priv);
-
-    stream->fill_buffer = yfuse_fill_buffer;
-    stream->close = yfuse_bluray_close;
-    stream->control = yfuse_bluray_control;
-    stream->demuxer = "+disc";
-    MP_INFO(stream, "Yfuse remote Blu-ray source opened with libbluray.\n");
-    return STREAM_OK;
-
-fail:
-    yfuse_bluray_close(stream);
-    talloc_free(priv);
-    stream->priv = NULL;
-    return STREAM_UNSUPPORTED;
-}
-
-const stream_info_t stream_info_yfuse_bluray = {
-    .name = "yfuse remote bluray",
-    .open = yfuse_bluray_open,
-    .protocols = (const char *const[]){ "yfusebd", NULL },
-    .stream_origin = STREAM_ORIGIN_UNSAFE,
-};
-C
-
+cp "$YFUSE_STREAM_SOURCE" "$MPV_ROOT/stream/stream_yfuse_bluray.c"
 python3 - "$MPV_ROOT/meson.build" "$MPV_ROOT/stream/stream.c" <<'PY'
 from pathlib import Path
 import sys
@@ -642,7 +216,7 @@ text = text.replace(list_anchor, list_anchor + "    &stream_info_yfuse_bluray,\n
 stream_c.write_text(text)
 PY
 
-printf '==> building libmpv + libbluray + Yfuse remote-disc bridge\n'
+printf '==> building libmpv + libbluray + Yfuse remote-disc/HDMV bridge\n'
 (
   cd "$SOURCE/buildscripts"
   if [[ ${#ARCH_ARGS[@]} -gt 0 ]]; then
@@ -689,7 +263,7 @@ sha256sum "$DEST" | tee "$DEST.sha256"
   printf 'libudfread=%s\n' "$LIBUDFREAD_COMMIT"
   printf 'bdj_jar=disabled\n'
   printf 'remote-raw-bluray=true\n'
-  printf 'hdmv-menu=false\n'
+  printf 'hdmv-menu=true\n'
   printf 'capability-class=%s\n' "$CAPABILITY_CLASS_PATH"
   printf 'registry-class=%s\n' "$REGISTRY_CLASS_PATH"
 } >"$OUT_DIR/NATIVE-SOURCES.txt"
