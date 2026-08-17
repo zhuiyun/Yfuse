@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the Yfuse libmpv variant with libbluray, authenticated remote ISO access and HDMV menus.
+# Builds the Yfuse libmpv variant with libbluray, authenticated remote ISO, BDMV VFS and HDMV menus.
 # BD-J remains deliberately disabled and is never inferred from native libbluray availability.
 set -euo pipefail
 
@@ -13,7 +13,9 @@ LIBBLURAY_COMMIT="7d94f2660af5bfc16015291a03539329135c18f1"
 LIBUDFREAD_COMMIT="139a2194525f2745b98a98e4d8fa627d07440176"
 CAPABILITY_CLASS_PATH="dev/yfuse/mpv/YfuseMpvCapabilities.class"
 REGISTRY_CLASS_PATH="dev/yfuse/mpv/YfuseBluRayRegistry.class"
+BDMV_REGISTRY_CLASS_PATH="dev/yfuse/mpv/YfuseBdmvRegistry.class"
 YFUSE_STREAM_SOURCE="$ROOT/scripts/native/stream_yfuse_bluray.c"
+YFUSE_BDMV_STREAM_SOURCE="$ROOT/scripts/native/stream_yfuse_bdmv.c"
 
 ARCH_ARGS=()
 if [[ $# -gt 0 ]]; then
@@ -30,10 +32,12 @@ need() {
 for tool in git python3 meson ninja unzip sha256sum; do
   need "$tool"
 done
-[[ -f "$YFUSE_STREAM_SOURCE" ]] || {
-  printf 'error: native stream source not found: %s\n' "$YFUSE_STREAM_SOURCE" >&2
-  exit 1
-}
+for native_source in "$YFUSE_STREAM_SOURCE" "$YFUSE_BDMV_STREAM_SOURCE"; do
+  [[ -f "$native_source" ]] || {
+    printf 'error: native stream source not found: %s\n' "$native_source" >&2
+    exit 1
+  }
+done
 
 rm -rf "$WORK_ROOT"
 mkdir -p "$WORK_ROOT" "$OUT_DIR"
@@ -54,6 +58,7 @@ DOWNLOAD_DEPS="$SOURCE/buildscripts/include/download-deps.sh"
 LIBBLURAY_BUILD="$SOURCE/buildscripts/scripts/libbluray.sh"
 CAPABILITY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseMpvCapabilities.java"
 REGISTRY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseBluRayRegistry.java"
+BDMV_REGISTRY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseBdmvRegistry.java"
 
 mkdir -p "$(dirname "$CAPABILITY_SOURCE")"
 cat >"$CAPABILITY_SOURCE" <<EOF
@@ -63,6 +68,7 @@ public final class YfuseMpvCapabilities {
     public static final boolean LIBBLURAY = true;
     public static final boolean BDJ = false;
     public static final boolean REMOTE_RAW_BLURAY = true;
+    public static final boolean BDMV_VFS = true;
     public static final boolean HDMV_MENU = true;
     public static final String LIBMPV_ANDROID_REVISION = "$UPSTREAM_COMMIT";
     public static final String LIBBLURAY_REVISION = "$LIBBLURAY_COMMIT";
@@ -72,7 +78,7 @@ public final class YfuseMpvCapabilities {
 }
 EOF
 
-# Stock libmpv-android has no class with this name. Runtime reflection therefore proves that the
+# Stock libmpv-android has no classes with these names. Runtime reflection therefore proves that the
 # exact custom AAR was installed rather than guessing from Kotlin source or stale sidecars.
 cat >"$REGISTRY_SOURCE" <<'EOF'
 package dev.yfuse.mpv;
@@ -83,6 +89,41 @@ public final class YfuseBluRayRegistry {
     }
 
     private YfuseBluRayRegistry() {}
+
+    public static long register(Object source) {
+        if (source == null) return 0L;
+        return nativeRegister(source);
+    }
+
+    public static void unregister(long id) {
+        if (id > 0L) nativeUnregister(id);
+    }
+
+    public static boolean sendMenuCommand(long id, int command) {
+        return id > 0L && nativeSendMenuCommand(id, command);
+    }
+
+    public static boolean selectMenuPoint(long id, int x, int y, boolean activate) {
+        return id > 0L && x >= 0 && y >= 0 && nativeSelectMenuPoint(id, x, y, activate);
+    }
+
+    private static native long nativeRegister(Object source);
+    private static native void nativeUnregister(long id);
+    private static native boolean nativeSendMenuCommand(long id, int command);
+    private static native boolean nativeSelectMenuPoint(long id, int x, int y, boolean activate);
+}
+EOF
+
+cat >"$BDMV_REGISTRY_SOURCE" <<'EOF'
+package dev.yfuse.mpv;
+
+/** Separate JNI namespace for the bd_open_files() BDMV VFS. */
+public final class YfuseBdmvRegistry {
+    static {
+        System.loadLibrary("mpv");
+    }
+
+    private YfuseBdmvRegistry() {}
 
     public static long register(Object source) {
         if (source == null) return 0L;
@@ -186,10 +227,11 @@ UDFREAD_HEAD="$(git -C "$BLURAY_ROOT/contrib/libudfread" rev-parse HEAD)"
   exit 1
 }
 
-# Patch only the pinned throw-away mpv checkout. Yfuse source stays reviewable as a normal repository
-# file instead of a multi-hundred-line shell heredoc.
+# Patch only the pinned throw-away mpv checkout. Yfuse source stays reviewable as normal repository
+# files instead of multi-hundred-line shell heredocs.
 MPV_ROOT="$SOURCE/buildscripts/deps/mpv"
 cp "$YFUSE_STREAM_SOURCE" "$MPV_ROOT/stream/stream_yfuse_bluray.c"
+cp "$YFUSE_BDMV_STREAM_SOURCE" "$MPV_ROOT/stream/stream_yfuse_bdmv.c"
 python3 - "$MPV_ROOT/meson.build" "$MPV_ROOT/stream/stream.c" <<'PY'
 from pathlib import Path
 import sys
@@ -201,22 +243,36 @@ text = meson.read_text()
 anchor = "    'stream/stream_cb.c',\n"
 if anchor not in text:
     raise SystemExit("unexpected mpv meson: stream_cb anchor missing")
-text = text.replace(anchor, anchor + "    'stream/stream_yfuse_bluray.c',\n", 1)
+text = text.replace(
+    anchor,
+    anchor + "    'stream/stream_yfuse_bluray.c',\n    'stream/stream_yfuse_bdmv.c',\n",
+    1,
+)
 meson.write_text(text)
 
 text = stream_c.read_text()
 extern_anchor = "extern const stream_info_t stream_info_bluray;\n"
 if extern_anchor not in text:
     raise SystemExit("unexpected mpv stream.c: bluray extern anchor missing")
-text = text.replace(extern_anchor, extern_anchor + "extern const stream_info_t stream_info_yfuse_bluray;\n", 1)
+text = text.replace(
+    extern_anchor,
+    extern_anchor +
+    "extern const stream_info_t stream_info_yfuse_bluray;\n" +
+    "extern const stream_info_t stream_info_yfuse_bdmv;\n",
+    1,
+)
 list_anchor = "    &stream_info_bluray,\n"
 if list_anchor not in text:
     raise SystemExit("unexpected mpv stream.c: bluray list anchor missing")
-text = text.replace(list_anchor, list_anchor + "    &stream_info_yfuse_bluray,\n", 1)
+text = text.replace(
+    list_anchor,
+    list_anchor + "    &stream_info_yfuse_bluray,\n    &stream_info_yfuse_bdmv,\n",
+    1,
+)
 stream_c.write_text(text)
 PY
 
-printf '==> building libmpv + libbluray + Yfuse remote-disc/HDMV bridge\n'
+printf '==> building libmpv + libbluray + Yfuse ISO/BDMV/HDMV bridges\n'
 (
   cd "$SOURCE/buildscripts"
   if [[ ${#ARCH_ARGS[@]} -gt 0 ]]; then
@@ -245,14 +301,12 @@ grep -q 'jni/arm64-v8a/libmpv.so' "$TMP_LIST" || {
   exit 1
 }
 unzip -p "$AAR" classes.jar >"$TMP_CLASSES"
-unzip -l "$TMP_CLASSES" | grep -Fq "$CAPABILITY_CLASS_PATH" || {
-  echo 'error: AAR is missing the Yfuse native capability marker' >&2
-  exit 1
-}
-unzip -l "$TMP_CLASSES" | grep -Fq "$REGISTRY_CLASS_PATH" || {
-  echo 'error: AAR is missing the Yfuse remote Blu-ray registry class' >&2
-  exit 1
-}
+for required_class in "$CAPABILITY_CLASS_PATH" "$REGISTRY_CLASS_PATH" "$BDMV_REGISTRY_CLASS_PATH"; do
+  unzip -l "$TMP_CLASSES" | grep -Fq "$required_class" || {
+    printf 'error: AAR is missing required Yfuse class: %s\n' "$required_class" >&2
+    exit 1
+  }
+done
 
 DEST="$OUT_DIR/libmpv-yfuse-bluray.aar"
 cp -f "$AAR" "$DEST"
@@ -263,8 +317,10 @@ sha256sum "$DEST" | tee "$DEST.sha256"
   printf 'libudfread=%s\n' "$LIBUDFREAD_COMMIT"
   printf 'bdj_jar=disabled\n'
   printf 'remote-raw-bluray=true\n'
+  printf 'bdmv-vfs=true\n'
   printf 'hdmv-menu=true\n'
   printf 'capability-class=%s\n' "$CAPABILITY_CLASS_PATH"
   printf 'registry-class=%s\n' "$REGISTRY_CLASS_PATH"
+  printf 'bdmv-registry-class=%s\n' "$BDMV_REGISTRY_CLASS_PATH"
 } >"$OUT_DIR/NATIVE-SOURCES.txt"
 printf 'done: %s\n' "$DEST"
