@@ -20,8 +20,10 @@ class MpvNativeBuildCapabilitiesTest {
         assertTrue(capabilities.libbluray)
         assertFalse(capabilities.bdj)
         assertTrue(capabilities.remoteRawBluRay)
+        assertTrue(capabilities.bdmvVfs)
         assertTrue(capabilities.hdmvMenu)
         assertTrue(capabilities.nativeBluRay)
+        assertTrue(capabilities.description.contains("ISO/BDMV"))
         assertEquals("mpv-rev", capabilities.libmpvAndroidRevision)
         assertEquals("bluray-rev", capabilities.libblurayRevision)
         assertEquals("udf-rev", capabilities.libudfreadRevision)
@@ -37,6 +39,7 @@ class MpvNativeBuildCapabilitiesTest {
 
         assertTrue(capabilities.libbluray)
         assertFalse(capabilities.remoteRawBluRay)
+        assertFalse(capabilities.bdmvVfs)
         assertFalse(capabilities.hdmvMenu)
     }
 
@@ -51,6 +54,7 @@ class MpvNativeBuildCapabilitiesTest {
         assertFalse(capabilities.libbluray)
         assertFalse(capabilities.bdj)
         assertFalse(capabilities.remoteRawBluRay)
+        assertFalse(capabilities.bdmvVfs)
         assertFalse(capabilities.hdmvMenu)
         assertFalse(capabilities.nativeBluRay)
         assertTrue(capabilities.description.contains("无 libbluray"))
@@ -174,6 +178,9 @@ private class FakeCustomMpvMarker {
 
         @JvmField
         val REMOTE_RAW_BLURAY = true
+
+        @JvmField
+        val BDMV_VFS = true
 
         @JvmField
         val HDMV_MENU = true
