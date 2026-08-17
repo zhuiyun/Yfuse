@@ -23,6 +23,8 @@ below. CI cannot replace these measurements.
 - Subtitles: SRT/WebVTT, ASS/SSA effects, PGS, VobSub and DVB; single, dual and offset tracks.
 - UHD Blu-ray: local ISO/BDMV and server-resolved M2TS/TS main-feature streams; HDR10/HDR10+/HLG,
   Dolby Vision P7/P8 where legally available, TrueHD/Atmos, DTS-HD and PGS.
+- Optical navigation: one disc with authored edition names, one count-only disc, one explicit MPLS
+  title hint, and chapters with timestamps; include direct non-adjacent title/chapter selection.
 - Large media: 4 GiB+ and 100 GiB+ samples must cover random seek, resume and EOF without 32-bit
   offset truncation. Include MOV/ProRes and Blu-ray image/main-feature cases when available.
 - Faults: truncated manifests, corrupt timestamps, missing tracks, slow origin, 401/403/404/5xx,
@@ -39,6 +41,15 @@ output and allowed fallback. Media URLs, tokens, account ids and server ids must
   fallback rather than being treated as an ordinary HTTP video file.
 - Local Blu-ray ISO/BDMV must start from `bd://longest`; the first rendered title must match the
   longest playlist unless the user explicitly selects another title/edition.
+- Rich optical metadata is optional: authored `edition-list` / `chapter-list` names, ids, default
+  flags and chapter timestamps must survive when present, while count-only `editions` / `chapters`
+  must still produce usable navigation rows.
+- The playback UI must directly select any exposed title/edition or chapter. Reaching title N may not
+  require N-1 repeated “next” commands, and a selection must update against the same active engine.
+- MPLS metadata may be surfaced only from an explicit `.mpls` / `MPLS/00001`-shaped hint. Arbitrary
+  numbers in authored titles must not be guessed into playlist ids.
+- During an engine handover, an outgoing navigation owner must not clear or receive commands intended
+  for the newer active navigation backend.
 - PGS may change the local backend to the native subtitle renderer, but must not change a valid
   direct-stream URL into a server transcode.
 - TrueHD/Atmos or DTS-HD is reported as passthrough only when the active Android route proves encoded
@@ -48,8 +59,9 @@ output and allowed fallback. Media URLs, tokens, account ids and server ids must
   composition.
 - Dolby Vision P7 FEL is `NotMeasured` unless a physical-device trace proves the enhancement layer is
   being composed. Base-layer playback is not sufficient evidence for an FEL-support claim.
-- HDMV interactive menus and BD-J remain unsupported until a backend/runtime exposes verifiable
-  navigation; unit tests must not simulate these into a supported state.
+- HDMV interactive menus and BD-J remain unsupported until an isolated backend/runtime exposes
+  verifiable navigation. The absence or failure of that optional provider must not break ordinary
+  main-feature playback.
 
 ## Release gates
 
