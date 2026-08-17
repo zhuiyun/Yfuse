@@ -23,6 +23,7 @@ enum class PlaybackVideoCodec(
     Mpeg2(setOf("mpeg2video")),
     Mpeg4(setOf("mpeg4")),
     Vc1(setOf("vc1")),
+    ProRes(setOf("prores")),
     DolbyVision(emptySet()),
 }
 
