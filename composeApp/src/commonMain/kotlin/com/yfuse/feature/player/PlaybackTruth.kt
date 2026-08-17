@@ -54,13 +54,18 @@ internal fun PlayerMediaVersion.sourceRequirements(): PlaybackSourceRequirements
 
 /** Fast PlaybackInfo-backed probe; FFmpeg probing can enrich the same core model later. */
 internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean = false): PlaybackMediaProbe {
-    val version = this?.activeVersion
+    val item = this
+    val version = item?.activeVersion
     val sourceUrl =
         if (usingServerTranscode) {
-            this?.transcodeUrl
+            item?.transcodeUrl
         } else {
-            this?.url
+            item?.url
         }.orEmpty()
+    val serverResolvedDiscMainFeature =
+        version?.discSource == true &&
+            !usingServerTranscode &&
+            item.playMethod == PlaybackMethod.DirectStream
     return PlaybackMediaProbe(
         container = version?.container,
         discSource = version?.discSource == true,
@@ -72,10 +77,10 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
                     dynamicRange = null,
                 ),
         hasServerTranscode =
-            this?.let { item ->
-                item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
+            item?.let { media ->
+                media.transcodeUrl.isNotBlank() || media.fallbackTranscodeUrl.isNotBlank()
             } == true,
-        drmProtected = this?.drmConfiguration != null || version?.drmConfiguration != null,
+        drmProtected = item?.drmConfiguration != null || version?.drmConfiguration != null,
         usingServerTranscode = usingServerTranscode,
         discKind =
             detectPlaybackDiscKind(
@@ -86,6 +91,7 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
         localSource =
             sourceUrl.startsWith("file://", ignoreCase = true) ||
                 sourceUrl.startsWith("content://", ignoreCase = true),
+        discMainFeatureResolved = serverResolvedDiscMainFeature,
     )
 }
 
