@@ -59,7 +59,6 @@ internal class EmbyBrowseService(
                 parameter("Ids", itemId)
                 if (kind == MediaContainerKind.Playlist) parameter("UserId", server.userId)
             }
-            Unit
         }
 
     /**
@@ -96,7 +95,6 @@ internal class EmbyBrowseService(
                     }
                 }
             }
-            Unit
         }
 
     /**
@@ -126,7 +124,6 @@ internal class EmbyBrowseService(
                         }.body()
                 require(!created.Id.isNullOrBlank()) { "playlist was not created" }
             }
-            Unit
         }
 
     /**

@@ -640,8 +640,8 @@ class OfflineMediaSecurityTest {
 
             assertEquals(DownloadStatus.Completed, completed?.status)
             assertTrue(completed?.playable == true)
-            assertNull(completed?.subtitlePath)
-            assertEquals("视频已完成，但所选字幕未能保存", completed?.error)
+            assertNull(completed.subtitlePath)
+            assertEquals("视频已完成，但所选字幕未能保存", completed.error)
             assertFalse(staleSubtitle.exists())
         } finally {
             directory.deleteRecursively()

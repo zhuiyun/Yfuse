@@ -31,6 +31,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -1327,8 +1328,9 @@ class EmbyRepositoryTest {
             assertTrue(repo.stopTranscoding(server, "yfuse-abc").isSuccess)
 
             assertEquals("/Videos/ActiveEncodings", path)
-            assertTrue(query!!.contains("PlaySessionId=yfuse-abc"), query!!)
-            assertTrue(query!!.contains("DeviceId="), query!!)
+            val actualQuery = assertNotNull(query)
+            assertTrue(actualQuery.contains("PlaySessionId=yfuse-abc"), actualQuery)
+            assertTrue(actualQuery.contains("DeviceId="), actualQuery)
         }
 
     @Test

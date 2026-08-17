@@ -314,6 +314,7 @@ private class AndroidPlaybackDeviceCapabilitiesProbe(
     }
 
     @SuppressLint("NewApi")
+    @Suppress("DEPRECATION") // Required below API 33; AudioManager replacement is unavailable there.
     private fun directAudioFormats(): Set<PlaybackAudioCodec> {
         if (Build.VERSION.SDK_INT < 29) return emptySet()
         val attributes =

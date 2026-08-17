@@ -662,7 +662,7 @@ class MpvVideoEngine(
         return withMpvResult { it.setPropertyInt("chapter", index) }
     }
 
-    override fun sendDiscMenuCommand(_command: PlaybackDiscMenuCommand): Boolean = false
+    override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
     override val supportsSecondarySubtitleTrack: Boolean = true
 

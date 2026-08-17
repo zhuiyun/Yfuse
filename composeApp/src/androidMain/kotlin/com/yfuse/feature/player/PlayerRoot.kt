@@ -750,7 +750,7 @@ internal fun PlayerRoot(
         }
     LaunchedEffect(trickplayKey, currentItem?.trickplay) {
         val key = trickplayKey ?: return@LaunchedEffect
-        val item = currentItem ?: return@LaunchedEffect
+        val item = currentItem
         if (item.trickplay != null || trickplayCache.containsKey(key)) return@LaunchedEffect
         val server = remoteSubtitleRegistry.serverById(key.serverId) ?: return@LaunchedEffect
         remoteSubtitleRepository

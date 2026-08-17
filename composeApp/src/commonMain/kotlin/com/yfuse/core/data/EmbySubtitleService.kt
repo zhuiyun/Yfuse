@@ -43,6 +43,5 @@ internal class EmbySubtitleService(
             ) {
                 header("X-Emby-Token", server.accessToken)
             }
-            Unit
         }
 }

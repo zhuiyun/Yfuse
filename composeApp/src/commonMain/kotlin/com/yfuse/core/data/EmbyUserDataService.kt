@@ -28,7 +28,6 @@ internal class EmbyUserDataService(
             } else {
                 client.delete(url) { header("X-Emby-Token", server.accessToken) }
             }
-            Unit
         }
 
     suspend fun setPlayed(
@@ -43,7 +42,6 @@ internal class EmbyUserDataService(
             } else {
                 client.delete(url) { header("X-Emby-Token", server.accessToken) }
             }
-            Unit
         }
 
     suspend fun snapshot(server: SavedServer): Result<List<SyncedUserItem>> =

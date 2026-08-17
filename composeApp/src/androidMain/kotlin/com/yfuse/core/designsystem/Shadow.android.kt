@@ -6,8 +6,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -38,10 +38,8 @@ actual fun Modifier.cssShadow(
             )
         if (grown.width <= 0f || grown.height <= 0f) return@drawBehind
 
-        val paint = Paint().apply { this.color = color }
         val frameworkPaint =
-            paint.asFrameworkPaint().apply {
-                isAntiAlias = true
+            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 this.color = color.toArgb()
                 val maskRadius = blur.toPx() * BLUR_TO_MASK_RADIUS
                 if (maskRadius > 0f) {
@@ -75,7 +73,7 @@ actual fun Modifier.cssShadow(
                     )
                 }
 
-                is Outline.Generic -> canvas.drawPath(outline.path, paint)
+                is Outline.Generic -> canvas.nativeCanvas.drawPath(outline.path.asAndroidPath(), frameworkPaint)
             }
             canvas.restore()
         }

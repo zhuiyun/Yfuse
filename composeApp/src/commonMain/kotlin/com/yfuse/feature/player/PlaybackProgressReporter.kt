@@ -313,7 +313,7 @@ internal class PlaybackProgressReporter(
         val newActive = newItems.getOrNull(newIndex)
         val activeChanged =
             oldActiveId != newActive?.id ||
-                activeBindingSessionId != newActive?.playSessionId
+                activeBindingSessionId != newActive.playSessionId
         if (activeChanged) stopActive()
         items = newItems
         if (activeChanged) {
