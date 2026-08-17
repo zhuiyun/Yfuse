@@ -3,6 +3,7 @@ package com.yfuse.core.playback
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackDiscNavigationTest {
@@ -49,6 +50,27 @@ class PlaybackDiscNavigationTest {
         assertEquals("导演剪辑版", state.selectedTitle?.label)
         assertEquals("追逐", state.selectedChapter?.label)
         assertEquals(315_000L, state.selectedChapter?.startMs)
+        assertEquals("05:15", state.selectedChapter?.timeLabel)
+    }
+
+    @Test
+    fun explicit_mpls_hints_become_stable_playlist_numbers() {
+        assertEquals(1, mplsPlaylistNumber("BDMV/PLAYLIST/00001.mpls"))
+        assertEquals(802, mplsPlaylistNumber("mpls/00802"))
+        assertEquals(42, mplsPlaylistNumber("MPLS: 00042"))
+        assertNull(mplsPlaylistNumber("Feature 2026"))
+
+        val title = PlaybackDiscTitle(index = 0, playlistNumber = 802)
+        assertEquals("00802.mpls", title.playlistLabel)
+        assertEquals("00802.mpls", title.label)
+    }
+
+    @Test
+    fun long_chapter_times_use_hour_format() {
+        val chapter = PlaybackDiscChapter(index = 4, startMs = 7_445_000L)
+
+        assertEquals("章节 5", chapter.label)
+        assertEquals("02:04:05", chapter.timeLabel)
     }
 
     @Test
