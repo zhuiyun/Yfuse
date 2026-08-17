@@ -50,9 +50,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "libmpv-android=fcf6745703dc1265bca88f12fee8fc355ddf251e"
-            echo "libbluray=1.4.1 (7d94f266...)"
-            echo "bdj_jar=disabled"
+            cat .native-build/artifacts/NATIVE-SOURCES.txt
             echo "architectures=${{ inputs.architectures }}"
             cat .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
           } > .native-build/artifacts/BUILD-MANIFEST.txt
@@ -64,6 +62,7 @@ jobs:
           path: |
             .native-build/artifacts/libmpv-yfuse-bluray.aar
             .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
+            .native-build/artifacts/NATIVE-SOURCES.txt
             .native-build/artifacts/BUILD-MANIFEST.txt
           if-no-files-found: error
           retention-days: 14
