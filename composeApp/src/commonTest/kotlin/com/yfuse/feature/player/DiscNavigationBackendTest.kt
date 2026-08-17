@@ -18,6 +18,9 @@ class DiscNavigationBackendTest {
 
         assertEquals(PlaybackDiscKind.BluRay, backend.navigation.kind)
         assertEquals("正片", backend.navigation.selectedTitle?.label)
+        assertEquals(DiscNavigationBackendLifecycle.Ready, backend.status.lifecycle)
+        assertEquals(DiscMenuRuntime.None, backend.status.menuRuntime)
+        assertFalse(backend.status.interactiveMenuReady)
         assertTrue(backend.selectTitle(1))
         assertEquals(1, engine.lastTitle)
         assertTrue(backend.selectChapter(4))
@@ -44,6 +47,61 @@ class DiscNavigationBackendTest {
         ActiveDiscNavigation.unbind(secondOwner)
         assertFalse(ActiveDiscNavigation.isBound)
         assertFalse(ActiveDiscNavigation.selectChapter(1))
+    }
+
+    @Test
+    fun menu_commands_are_routed_only_when_a_real_runtime_reports_an_active_menu() {
+        val owner = Any()
+        val backend = FakeInteractiveMenuBackend()
+        ActiveDiscNavigation.bind(owner, backend)
+
+        assertTrue(ActiveDiscNavigation.status.interactiveMenuReady)
+        assertFalse(ActiveDiscNavigation.menuActive)
+        assertFalse(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Down))
+        assertTrue(backend.commands.isEmpty())
+
+        backend.menuActive = true
+        assertTrue(ActiveDiscNavigation.menuActive)
+        assertTrue(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Down))
+        assertEquals(listOf(PlaybackDiscMenuCommand.Down), backend.commands)
+
+        ActiveDiscNavigation.unbind(owner)
+        assertTrue(backend.closed)
+        assertFalse(ActiveDiscNavigation.menuActive)
+    }
+}
+
+private class FakeInteractiveMenuBackend : DiscNavigationBackend {
+    var menuActive: Boolean = false
+    var closed: Boolean = false
+    val commands = mutableListOf<PlaybackDiscMenuCommand>()
+
+    override val navigation: PlaybackDiscNavigationState
+        get() =
+            PlaybackDiscNavigationState(
+                kind = PlaybackDiscKind.BluRay,
+                titleCount = 1,
+                menuSupported = true,
+                menuActive = menuActive,
+            )
+
+    override val status: DiscNavigationBackendStatus =
+        DiscNavigationBackendStatus(
+            lifecycle = DiscNavigationBackendLifecycle.Ready,
+            menuRuntime = DiscMenuRuntime.Hdmv,
+        )
+
+    override fun selectTitle(index: Int): Boolean = index == 0
+
+    override fun selectChapter(index: Int): Boolean = false
+
+    override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
+        commands += command
+        return true
+    }
+
+    override fun close() {
+        closed = true
     }
 }
 
