@@ -22,6 +22,11 @@ implicit first/default playlist. Users can still switch the exposed Blu-ray titl
 This reduces the common failure mode where a short bonus playlist or studio logo opens instead of the
 main feature.
 
+Remote raw ISO/BDMV is intentionally not advertised as native direct playback. The current libmpv
+integration gives libbluray a filesystem/ISO path, not a credentialed HTTP random-access block device.
+Until Yfuse has a bounded authenticated range-reader that can satisfy libbluray's seeks, pretending a
+remote ISO URL is a linear movie is unsafe; the server main-feature route remains the correct fallback.
+
 ## HDR and Dolby
 
 - HDR10, HDR10+, HLG and Dolby Vision continue through the existing device/display capability
@@ -62,6 +67,10 @@ mpv until a backend is integrated that can prove menu navigation and Java runtim
 This boundary is intentional: a fake menu control is worse than an explicit unsupported capability.
 Encrypted commercial-disc access also depends on external/licensed components and keys; Yfuse does
 not ship or emulate circumvention material.
+
+The next menu milestone is an isolated navigation backend rather than wiring fake commands into the
+existing mpv path. It must report its own capability, lifecycle and failure state so a missing BD-J
+runtime cannot break ordinary main-feature playback.
 
 ## Release validation
 
