@@ -61,6 +61,13 @@ interface DiscNavigationBackend {
 
     fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
+    /** Coordinates are in the menu overlay's authored pixel plane. */
+    fun selectMenuPoint(
+        x: Int,
+        y: Int,
+        activate: Boolean,
+    ): Boolean = false
+
     /**
      * Push signal for asynchronous native menu/title changes.
      *
@@ -105,4 +112,54 @@ internal class VideoEngineDiscNavigationBackend(
 
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
         engine.sendDiscMenuCommand(command)
+}
+
+/**
+ * Keeps title/chapter control on the video engine while an optional native runtime owns only menus.
+ *
+ * This avoids opening a second libbluray title path merely to obtain HDMV input. The menu provider can
+ * fail or disappear independently and the engine adapter remains able to select titles/chapters.
+ */
+internal class CompositeDiscNavigationBackend(
+    private val engineBackend: DiscNavigationBackend,
+    private val menuBackend: DiscNavigationBackend,
+) : DiscNavigationBackend {
+    private var listener: (() -> Unit)? = null
+
+    override val navigation: PlaybackDiscNavigationState
+        get() {
+            val engine = engineBackend.navigation
+            val menu = menuBackend.navigation
+            return engine.copy(
+                menuSupported = menu.menuSupported,
+                menuActive = menu.menuActive,
+            )
+        }
+
+    override val status: DiscNavigationBackendStatus
+        get() = menuBackend.status
+
+    override fun selectTitle(index: Int): Boolean = engineBackend.selectTitle(index)
+
+    override fun selectChapter(index: Int): Boolean = engineBackend.selectChapter(index)
+
+    override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
+        menuBackend.sendMenuCommand(command)
+
+    override fun selectMenuPoint(
+        x: Int,
+        y: Int,
+        activate: Boolean,
+    ): Boolean = menuBackend.selectMenuPoint(x, y, activate)
+
+    override fun setChangeListener(listener: (() -> Unit)?) {
+        this.listener = listener
+        menuBackend.setChangeListener(listener)
+    }
+
+    override fun close() {
+        menuBackend.setChangeListener(null)
+        menuBackend.close()
+        listener = null
+    }
 }
