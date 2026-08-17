@@ -19,7 +19,9 @@ on:
       - scripts/build-yfuse-mpv-bluray.sh
       - scripts/install-yfuse-mpv-bluray.sh
       - scripts/verify-yfuse-mpv-bluray-aar.sh
+      - scripts/native/**
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeRemoteBluRaySource.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/RemoteDiscBlockSource.android.kt
   pull_request:
     paths:
@@ -27,6 +29,7 @@ on:
       - scripts/build-yfuse-mpv-bluray.sh
       - scripts/install-yfuse-mpv-bluray.sh
       - scripts/verify-yfuse-mpv-bluray-aar.sh
+      - scripts/native/**
 
 permissions:
   contents: read
