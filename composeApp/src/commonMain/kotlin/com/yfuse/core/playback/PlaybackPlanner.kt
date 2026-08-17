@@ -64,7 +64,7 @@ data class PlaybackMediaProbe(
     val localSource: Boolean = false,
     /**
      * True when the server has already selected the Blu-ray/DVD main feature and [container]
-     * describes the original disc rather than the linear stream delivered by [PlaybackInfo].
+     * describes the original disc rather than the linear stream delivered by PlaybackInfo.
      *
      * This is deliberately distinct from transcoding: an Emby DirectStream can be an untouched
      * M2TS/TS remux that preserves HDR/Dolby Vision, TrueHD/Atmos and PGS. Treating the original
@@ -101,7 +101,11 @@ data class PlaybackMediaProbe(
                 audioCodec?.name ?: "UnknownAudio",
                 audioChannelCount?.toString() ?: "UnknownChannels",
                 discKind.name,
-                if (discMainFeatureResolved) "ResolvedDiscMainFeature" else "RawDiscSource",
+                when {
+                    discMainFeatureResolved -> "ResolvedDiscMainFeature"
+                    discSource || discKind != PlaybackDiscKind.None -> "RawDiscSource"
+                    else -> "LinearMedia"
+                },
                 if (styledSubtitles) "StyledSubtitles" else "PlainSubtitles",
                 if (drmProtected) "Drm" else "Clear",
                 if (usingServerTranscode) "Transcode" else "Original",
