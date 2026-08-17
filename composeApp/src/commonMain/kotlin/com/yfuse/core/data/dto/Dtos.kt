@@ -361,7 +361,7 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         title = title,
         subtitle = subtitle,
         type = Type ?: "",
-        posterItemId = if (useSeriesPoster) SeriesId ?: Id else Id,
+        posterItemId = if (useSeriesPoster) SeriesId else Id,
         posterTag = if (useSeriesPoster) SeriesPrimaryImageTag else ImageTags?.get("Primary"),
         backdropItemId = if (ownBackdrop != null) Id else ParentBackdropItemId ?: SeriesId ?: Id,
         backdropTag = ownBackdrop ?: inheritedBackdrop,

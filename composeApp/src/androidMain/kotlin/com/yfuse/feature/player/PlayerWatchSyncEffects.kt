@@ -154,7 +154,7 @@ internal fun PlayerWatchSyncEffects(
                             }
                         if (
                             lastAppliedRate == null ||
-                            abs(desiredRate - lastAppliedRate!!) > RATE_EPSILON
+                            abs(desiredRate - lastAppliedRate) > RATE_EPSILON
                         ) {
                             latestEngine.setSpeed(desiredRate)
                             lastAppliedRate = desiredRate

@@ -3,19 +3,20 @@ package com.yfuse.feature.player
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class NativePlaybackFailureTest {
     @Test
     fun http_auth_failures_block_engine_and_version_rotation() {
-        val unauthorized = nativePlaybackLogFailure("HTTP error 401 Unauthorized")
-        val forbidden = nativePlaybackLogFailure("server response status: 403")
+        val unauthorized = assertNotNull(nativePlaybackLogFailure("HTTP error 401 Unauthorized"))
+        val forbidden = assertNotNull(nativePlaybackLogFailure("server response status: 403"))
 
-        assertTrue(unauthorized?.blocksAutomaticFallback == true)
-        assertTrue(unauthorized?.message?.contains("重新登录") == true)
-        assertTrue(forbidden?.blocksAutomaticFallback == true)
-        assertTrue(forbidden?.message?.contains("播放权限") == true)
+        assertTrue(unauthorized.blocksAutomaticFallback)
+        assertTrue(unauthorized.message.contains("重新登录"))
+        assertTrue(forbidden.blocksAutomaticFallback)
+        assertTrue(forbidden.message.contains("播放权限"))
     }
 
     @Test

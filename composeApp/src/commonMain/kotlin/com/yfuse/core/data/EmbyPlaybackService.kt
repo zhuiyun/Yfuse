@@ -141,7 +141,6 @@ internal class EmbyPlaybackService(
             } catch (error: ResponseException) {
                 if (error.response.status.value !in setOf(404, 410)) throw error
             }
-            Unit
         }
 
     private suspend fun reportPlayback(
@@ -167,6 +166,5 @@ internal class EmbyPlaybackService(
                     ),
                 )
             }
-            Unit
         }
 }

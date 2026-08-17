@@ -8,6 +8,7 @@ import com.google.android.gms.cast.CastMediaControlIntent
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
 import com.google.android.gms.cast.MediaMetadata
+import com.google.android.gms.cast.MediaSeekOptions
 import com.google.android.gms.cast.MediaStatus
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
@@ -315,7 +316,7 @@ private class AndroidCastManager(
                     error =
                         when {
                             current.hasActiveSession -> current.error
-                            discoveryError is LocalNetworkPermissionRequiredException -> discoveryError?.message
+                            discoveryError is LocalNetworkPermissionRequiredException -> discoveryError.message
                             devices.isEmpty() && discoveryError != null -> "投屏设备发现失败"
                             devices.isEmpty() -> "未发现可用的投屏设备"
                             else -> null
@@ -373,7 +374,15 @@ private class AndroidCastManager(
 
     override suspend fun seekTo(positionMs: Long): Boolean =
         when (activeProtocol) {
-            ActiveProtocol.Chromecast -> chromecastCommand("跳转") { it.seek(positionMs.coerceAtLeast(0L)) }
+            ActiveProtocol.Chromecast ->
+                chromecastCommand("跳转") {
+                    it.seek(
+                        MediaSeekOptions
+                            .Builder()
+                            .setPosition(positionMs.coerceAtLeast(0L))
+                            .build(),
+                    )
+                }
             ActiveProtocol.Dlna -> seekDlna(positionMs)
             null -> false
         }

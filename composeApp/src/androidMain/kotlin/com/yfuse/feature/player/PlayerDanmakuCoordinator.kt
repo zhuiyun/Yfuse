@@ -84,7 +84,7 @@ internal fun rememberPlayerDanmakuController(
         }
     val binding =
         bindingKey
-            ?.let { key -> bindings[key] ?: currentItem?.id?.let(bindings::get) }
+            ?.let { key -> bindings[key] ?: currentItem.id.let(bindings::get) }
             ?.takeIf { candidate -> sources.any { it.id == candidate.sourceId } }
 
     LaunchedEffect(currentItem?.id, source, binding, enabled, reloads) {

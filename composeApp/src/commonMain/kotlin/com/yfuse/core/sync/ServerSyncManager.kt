@@ -413,7 +413,7 @@ class ServerSyncManager(
                 attributes =
                     mapOf(
                         "serverId" to server.id,
-                        "failureStreak" to (retryState?.failureStreak ?: 0).toString(),
+                        "failureStreak" to retryState.failureStreak.toString(),
                         "retryInMs" to (notBefore - now).toString(),
                     ),
             )

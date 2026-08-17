@@ -80,9 +80,7 @@ fun evaluatePlaybackRecovery(
     ) {
         return PlaybackRecoveryEvaluation(snapshot, PlaybackRecoveryEligibility.NearEnd)
     }
-    val serverId =
-        snapshot.serverId
-            ?: return PlaybackRecoveryEvaluation(snapshot, PlaybackRecoveryEligibility.Invalid)
+    val serverId = snapshot.serverId
     val server =
         servers.firstOrNull { it.id == serverId || serverId in it.previousIds }
             ?: return PlaybackRecoveryEvaluation(snapshot, PlaybackRecoveryEligibility.ServerMissing)
