@@ -18,6 +18,13 @@ interface HdmvDiscSession {
 
     fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean
 
+    /** Authored overlay coordinates; [activate] maps a tap to selection + Enter. */
+    fun selectMenuPoint(
+        x: Int,
+        y: Int,
+        activate: Boolean,
+    ): Boolean = false
+
     /** Native overlay/navigation callbacks use this instead of forcing the UI to poll JNI. */
     fun setNavigationChangedListener(listener: (() -> Unit)?) = Unit
 
@@ -88,6 +95,15 @@ class HdmvDiscNavigationBackend(
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
         runSafely(false) {
             session.sendMenuCommand(command).also { handled -> if (handled) notifyChanged() }
+        }
+
+    override fun selectMenuPoint(
+        x: Int,
+        y: Int,
+        activate: Boolean,
+    ): Boolean =
+        runSafely(false) {
+            session.selectMenuPoint(x, y, activate).also { handled -> if (handled) notifyChanged() }
         }
 
     override fun setChangeListener(listener: (() -> Unit)?) {
