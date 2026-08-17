@@ -11,7 +11,7 @@ explicit.
 | --- | --- | --- |
 | Emby/Jellyfin resolved `.m2ts` / `.mts` / `.ts` main feature | `DirectStream` -> YCore device planning | HEVC/HDR/Dolby metadata carried by the stream, lossless audio and PGS stay available when the backend/output route supports them |
 | Local Blu-ray ISO / BDMV with the Yfuse libbluray-enabled AAR | libmpv + libbluray `bd://longest` | longest playlist starts first, rich title/chapter metadata is exposed when available, video/audio/subtitle tracks stay local; no server transcode |
-| Remote raw ISO / BDMV without a linear direct stream | server main-feature fallback | server chooses the feature; transcoding is allowed only because no directly playable title was exposed |
+| Remote raw ISO / BDMV today | server main-feature fallback | range-reader foundation exists, but raw direct playback stays disabled until the libbluray `bd_open_stream` JNI/session bridge is built and device-validated |
 
 A negotiated disc `DirectStream` is not the raw disc image. YCore marks it as
 `discMainFeatureResolved`, does not force the native image demuxer and does not force server ffmpeg
@@ -22,11 +22,6 @@ implicit first/default playlist. Users can still switch the exposed Blu-ray titl
 This reduces the common failure mode where a short bonus playlist or studio logo opens instead of the
 main feature.
 
-Remote raw ISO/BDMV is intentionally not advertised as native direct playback. The current libmpv
-integration gives libbluray a filesystem/ISO path, not a credentialed HTTP random-access block device.
-Until Yfuse has a bounded authenticated range-reader that can satisfy libbluray's seeks, pretending a
-remote ISO URL is a linear movie is unsafe; the server main-feature route remains the correct fallback.
-
 ## Native engine binary gate
 
 The stock `libmpv-release.aar` fetched by `scripts/fetch-engines.sh` comes from the pinned
@@ -34,22 +29,59 @@ The stock `libmpv-release.aar` fetched by `scripts/fetch-engines.sh` comes from 
 libplacebo and related libraries, but **does not contain libbluray**. Therefore source code that knows
 how to form `bd://longest` is not by itself evidence that the shipped binary can open a Blu-ray image.
 
-Yfuse now has a separate reproducible build lane:
+Yfuse now has a separate reproducible build/install lane:
 
-- `scripts/build-yfuse-mpv-bluray.sh` pins the upstream libmpv-android commit and VideoLAN libbluray
-  1.4.1, links libbluray into libmpv, and fails unless mpv's generated configuration contains
+- `scripts/build-yfuse-mpv-bluray.sh` pins libmpv-android, VideoLAN libbluray 1.4.1 and libudfread to
+  exact revisions, links libbluray into mpv, and fails unless generated mpv config contains
   `HAVE_LIBBLURAY=1`;
-- `.github/workflows/build-yfuse-mpv-bluray.yml` can build an arm64 or all-ABI AAR and uploads its
-  SHA-256 plus a source manifest;
-- the libbluray build deliberately uses `bdj_jar=disabled`. This AAR is the local ISO/BDMV/title/HDMV
-  foundation, **not** proof of BD-J support.
+- the custom AAR embeds `dev.yfuse.mpv.YfuseMpvCapabilities` **only after** the `HAVE_LIBBLURAY` gate
+  passes. Runtime detects this class by reflection, so a stock AAR cannot accidentally claim native
+  Blu-ray support;
+- `scripts/install-yfuse-mpv-bluray.sh` checks SHA-256, exact native source revisions, the embedded
+  capability marker, AAR layout and ARM64 ELF before replacing `composeApp/libs/libmpv-release.aar`;
+- `scripts/fetch-engines.sh` removes custom provenance sidecars when it restores the stock AAR, so an
+  old build cannot leave a stale capability claim behind;
+- `.github/workflows/build-yfuse-mpv-bluray.yml` is the manual reproducible build lane and uploads the
+  AAR, checksum and exact source manifest;
+- libbluray is built with `bdj_jar=disabled`. This proves native libbluray/title/HDMV foundations only,
+  **not** BD-J.
+
+`PlayerEngineFactory` also checks the capability marker before constructing mpv for a *known local*
+Blu-ray/BDMV source. If the installed AAR is stock, Yfuse fails immediately with a native-capability
+message instead of pretending `bd://longest` can work. Generic ISO stays unblocked until the bounded
+image inspector knows whether it is Blu-ray or DVD.
 
 A release must not claim native local ISO/BDMV support until the produced Yfuse AAR has replaced the
 stock AAR, its checksum is pinned, and a physical-device ISO/BDMV corpus passes the validation matrix.
 
+## Remote raw ISO random access
+
+The missing transport half for remote raw ISO is now implemented as
+`HttpRangeDiscBlockSource`. It is intentionally shaped around libbluray/libudfread's 2048-byte UDF
+block callback instead of pretending an ISO is a linear HTTP movie.
+
+The reader:
+
+- converts logical block addresses to 64-bit byte offsets and is tested above 2 GiB/4 GiB boundaries;
+- requires exact HTTP `206 Partial Content` and validates `Content-Range`;
+- forces `Accept-Encoding: identity` and `Cache-Control: no-transform` so byte offsets remain stable;
+- rejects ordinary `200 OK` responses instead of accidentally downloading a complete 50–100+ GiB ISO;
+- refuses redirects so account/API authorization headers are never forwarded to another origin;
+- resolves authorization headers for every request, allowing an expiring token to be refreshed without
+  rebuilding the native disc session;
+- understands `416` as EOF when the server supplies the total length;
+- refuses main-thread reads and becomes inert after close;
+- never places the source URL/token in diagnostics.
+
+This is a **foundation, not a live playback route yet**. The remaining native work is to connect this
+reader to libbluray's `bd_open_stream` callback through a JNI session, then expose libbluray events,
+overlays, title/chapter/menu state through `HdmvDiscSession`. Until that bridge is compiled into the
+custom AAR and validated against real authenticated ISO origins, YCore keeps remote raw ISO on the
+server main-feature fallback.
+
 ## Title, MPLS and chapter navigation
 
-The native mpv route now reads the rich `edition-list` and `chapter-list` property trees rather than
+The native mpv route reads the rich `edition-list` and `chapter-list` property trees rather than
 keeping only their counts. When the backend exposes them, YCore retains:
 
 - title/edition index, backend id, authored name and default flag;
@@ -66,16 +98,18 @@ Optical navigation is isolated behind `DiscNavigationBackend`. The current mpv e
 that contract, while an owner-scoped process-local binding lets common UI issue a navigation command
 without owning the decoder. Engine handover cannot let an outgoing engine clear a newer binding.
 
-The contract now also reports backend lifecycle plus the actual interactive menu runtime (`None`,
-`Hdmv`, or `BdJ`). Android D-pad/enter/back routing is installed only while a provider reports both a
-ready interactive runtime and an active menu; ordinary playback therefore keeps the normal Activity
-and predictive-back behavior. A provider disappearing during a back event falls through to normal app
-back instead of trapping the viewer.
+The contract reports backend lifecycle plus actual interactive menu runtime (`None`, `Hdmv`, or
+`BdJ`) and supports asynchronous native state pushes. `HdmvDiscNavigationBackend` wraps a future JNI
+session with a hard failure boundary: a native menu failure marks only that optional provider failed
+and clears menu-active state; it cannot escape into video playback.
+
+Android D-pad/enter/menu/back routing is installed only while a provider reports both a ready
+interactive runtime and an active menu. Ordinary playback therefore keeps normal Activity and back
+behavior. Provider closure/failure removes the interception instead of trapping the viewer.
 
 ## HDR and Dolby
 
-- HDR10, HDR10+, HLG and Dolby Vision continue through the existing device/display capability
-  planner.
+- HDR10, HDR10+, HLG and Dolby Vision continue through the existing device/display capability planner.
 - A Dolby-only stream uses the verified Android Dolby Vision platform path when the device declares
   compatible decode and display support. It is never intentionally decoded as ordinary HEVC merely
   to avoid a fallback.
@@ -105,19 +139,16 @@ media URL or starting a server transcode.
 
 ## Navigation boundary
 
-The current native route exposes title/edition and chapter selection, including names/timestamps when
-mpv provides them. It does not claim HDMV interactive menus or BD-J support. `PlaybackDiscMenuCommand`
-therefore remains unsupported for the engine-backed adapter until a provider is integrated that can
-prove menu navigation and its runtime behavior.
+The current engine-backed route exposes title/edition and chapter selection, including names and
+timestamps when mpv provides them. `HdmvDiscSession` / `HdmvDiscNavigationBackend` now define the
+failure-isolated provider seam and Android input behavior, but a real libbluray JNI overlay/event
+session has not yet been built into the AAR.
 
-This boundary is intentional: a fake menu control is worse than an explicit unsupported capability.
+BD-J remains a separate milestone. The current native build deliberately disables the BD-J JAR, and
+Yfuse does not claim a Java runtime simply because libbluray is present.
+
 Encrypted commercial-disc access also depends on external/licensed components and keys; Yfuse does
 not ship or emulate circumvention material.
-
-The isolation layer for the next menu milestone exists: `DiscNavigationBackend` is independent of
-video decoding and now has explicit lifecycle/runtime capability. The remaining work is a real
-HDMV-capable provider first, then a separately verified BD-J runtime/provider — not simulated menu
-commands in mpv.
 
 ## Release validation
 
@@ -129,16 +160,18 @@ A UHD Blu-ray release lane must include, where legally available:
   without turning an `ElPresentFlag` into a false FEL-output claim.
 - TrueHD/Atmos and DTS-HD over HDMI/eARC, plus PCM fallback on speaker/Bluetooth routes.
 - PGS subtitle selection and rendering while preserving the same direct-stream URL.
-- The exact release AAR must prove `HAVE_LIBBLURAY=1` before native ISO/BDMV tests are accepted.
-- Local ISO/BDMV startup on the longest playlist, direct selection of non-adjacent titles and
-  chapters, authored names/timestamps, seeks and resume.
+- The exact release AAR must prove `HAVE_LIBBLURAY=1`, contain the Yfuse capability marker and match
+  its pinned SHA-256/source manifest before native ISO/BDMV tests are accepted.
+- Local ISO/BDMV startup on the longest playlist, direct selection of non-adjacent titles and chapters,
+  authored names/timestamps, seeks and resume.
 - A count-only optical-disc sample proving rich metadata is optional and navigation still works.
 - An explicit MPLS-title sample proving playlist numbers are preserved without guessing arbitrary
   numbers from title text.
-- A raw remote ISO case proving it still falls back to server main-feature parsing instead of being
-  mistaken for a linear stream.
+- Remote ISO transport tests must prove exact 206 ranges, identity encoding, no credential redirect,
+  64-bit offsets, 416 EOF behavior and token refresh; this still does not enable the route until the
+  `bd_open_stream` JNI bridge passes physical-device validation.
 - Interactive-menu input tests must show D-pad/select/back are consumed only while a verified menu is
   active; closing/failing the menu must restore normal Android back/key behavior.
 
-The critical regression assertion is: **a valid server-resolved linear Blu-ray main feature must not
-be converted into `ServerTranscode` solely because its original MediaSource was a disc image.**
+The critical regression assertion remains: **a valid server-resolved linear Blu-ray main feature must
+not be converted into `ServerTranscode` solely because its original MediaSource was a disc image.**
