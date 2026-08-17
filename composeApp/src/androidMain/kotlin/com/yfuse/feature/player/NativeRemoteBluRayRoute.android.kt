@@ -6,17 +6,22 @@ import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
 
 /**
- * Replaces only raw remote Blu-ray images with an opaque process-local native route.
+ * Replaces only the active raw remote Blu-ray image with an opaque process-local native route.
  *
- * The original HLS/progressive URLs remain on the item and are therefore still the fallback chain if
- * libbluray/HTTP range playback fails. No credential is placed in [PlayerMediaItem.url].
+ * Registering every queued disc would keep JNI global references for titles that may never be opened.
+ * Optical-disc sessions are effectively single-title queues, so preparation is intentionally scoped to
+ * [startIndex]. The original HLS/progressive URLs remain on the item as the recovery chain.
  */
 internal fun prepareNativeRemoteBluRayRoutes(
     items: List<PlayerMediaItem>,
+    startIndex: Int,
     serverRegistry: ServerRegistry?,
 ): List<PlayerMediaItem> {
     if (serverRegistry == null || !installedMpvNativeBuildCapabilities.remoteRawBluRay) return items
-    return items.map { item -> item.prepareNativeRemoteBluRayRoute(serverRegistry) }
+    val item = items.getOrNull(startIndex) ?: return items
+    val prepared = item.prepareNativeRemoteBluRayRoute(serverRegistry)
+    if (prepared === item) return items
+    return items.toMutableList().also { it[startIndex] = prepared }
 }
 
 private fun PlayerMediaItem.prepareNativeRemoteBluRayRoute(serverRegistry: ServerRegistry): PlayerMediaItem {
