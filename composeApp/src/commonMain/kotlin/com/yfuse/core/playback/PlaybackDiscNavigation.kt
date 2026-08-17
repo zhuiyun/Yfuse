@@ -1,5 +1,29 @@
 package com.yfuse.core.playback
 
+/** One selectable optical-disc title/edition. Indices are zero based. */
+data class PlaybackDiscTitle(
+    val index: Int,
+    /** Backend title/edition id when it differs from the zero-based UI index. */
+    val id: Int? = null,
+    /** Authored title when the disc/backend exposes one. */
+    val title: String? = null,
+    val isDefault: Boolean = false,
+) {
+    val label: String
+        get() = title?.trim()?.takeIf(String::isNotEmpty) ?: "标题 ${index + 1}"
+}
+
+/** One chapter inside the active optical-disc title. */
+data class PlaybackDiscChapter(
+    val index: Int,
+    val title: String? = null,
+    /** Milliseconds from the beginning of the active title, when exposed by the backend. */
+    val startMs: Long? = null,
+) {
+    val label: String
+        get() = title?.trim()?.takeIf(String::isNotEmpty) ?: "章节 ${index + 1}"
+}
+
 /** Backend-neutral navigation state for DVD and Blu-ray sources. Indices are zero based. */
 data class PlaybackDiscNavigationState(
     val kind: PlaybackDiscKind = PlaybackDiscKind.None,
@@ -7,11 +31,39 @@ data class PlaybackDiscNavigationState(
     val selectedTitleIndex: Int = 0,
     val chapterCount: Int = 0,
     val selectedChapterIndex: Int = 0,
+    /** Rich title metadata. Empty means the backend only exposed a count. */
+    val titles: List<PlaybackDiscTitle> = emptyList(),
+    /** Rich chapter metadata. Empty means the backend only exposed a count. */
+    val chapters: List<PlaybackDiscChapter> = emptyList(),
     val menuSupported: Boolean = false,
     val menuActive: Boolean = false,
 ) {
+    val effectiveTitleCount: Int get() = maxOf(titleCount, titles.size)
+
+    val effectiveChapterCount: Int get() = maxOf(chapterCount, chapters.size)
+
+    /** Always gives the control layer selectable rows, even on a count-only backend. */
+    val titleOptions: List<PlaybackDiscTitle>
+        get() =
+            titles.takeIf(List<PlaybackDiscTitle>::isNotEmpty)
+                ?: List(titleCount.coerceAtLeast(0)) { index -> PlaybackDiscTitle(index = index) }
+
+    /** Always gives the control layer selectable rows, even on a count-only backend. */
+    val chapterOptions: List<PlaybackDiscChapter>
+        get() =
+            chapters.takeIf(List<PlaybackDiscChapter>::isNotEmpty)
+                ?: List(chapterCount.coerceAtLeast(0)) { index -> PlaybackDiscChapter(index = index) }
+
+    val selectedTitle: PlaybackDiscTitle?
+        get() = titleOptions.getOrNull(selectedTitleIndex)
+
+    val selectedChapter: PlaybackDiscChapter?
+        get() = chapterOptions.getOrNull(selectedChapterIndex)
+
     val available: Boolean
-        get() = kind != PlaybackDiscKind.None && (titleCount > 0 || chapterCount > 0 || menuSupported)
+        get() =
+            kind != PlaybackDiscKind.None &&
+                (effectiveTitleCount > 0 || effectiveChapterCount > 0 || menuSupported)
 }
 
 enum class PlaybackDiscMenuCommand {
