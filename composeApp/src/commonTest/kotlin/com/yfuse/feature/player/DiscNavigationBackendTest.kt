@@ -60,7 +60,7 @@ class DiscNavigationBackendTest {
         assertFalse(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Down))
         assertTrue(backend.commands.isEmpty())
 
-        backend.menuActive = true
+        backend.setMenuActive(true)
         assertTrue(ActiveDiscNavigation.menuActive)
         assertTrue(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Down))
         assertEquals(listOf(PlaybackDiscMenuCommand.Down), backend.commands)
@@ -69,10 +69,31 @@ class DiscNavigationBackendTest {
         assertTrue(backend.closed)
         assertFalse(ActiveDiscNavigation.menuActive)
     }
+
+    @Test
+    fun asynchronous_provider_changes_publish_a_compose_safe_revision() {
+        val owner = Any()
+        val backend = FakeInteractiveMenuBackend()
+        val beforeBind = ActiveDiscNavigation.revision.value
+
+        ActiveDiscNavigation.bind(owner, backend)
+        val afterBind = ActiveDiscNavigation.revision.value
+        assertTrue(afterBind != beforeBind)
+
+        backend.setMenuActive(true)
+        val afterMenuChange = ActiveDiscNavigation.revision.value
+        assertTrue(afterMenuChange != afterBind)
+        assertTrue(ActiveDiscNavigation.navigation.menuActive)
+
+        ActiveDiscNavigation.unbind(owner)
+        assertTrue(ActiveDiscNavigation.revision.value != afterMenuChange)
+        assertFalse(ActiveDiscNavigation.isBound)
+    }
 }
 
 private class FakeInteractiveMenuBackend : DiscNavigationBackend {
-    var menuActive: Boolean = false
+    private var menuActive: Boolean = false
+    private var changeListener: (() -> Unit)? = null
     var closed: Boolean = false
     val commands = mutableListOf<PlaybackDiscMenuCommand>()
 
@@ -98,6 +119,15 @@ private class FakeInteractiveMenuBackend : DiscNavigationBackend {
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
         commands += command
         return true
+    }
+
+    override fun setChangeListener(listener: (() -> Unit)?) {
+        changeListener = listener
+    }
+
+    fun setMenuActive(active: Boolean) {
+        menuActive = active
+        changeListener?.invoke()
     }
 
     override fun close() {
