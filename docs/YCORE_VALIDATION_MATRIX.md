@@ -37,10 +37,15 @@ output and allowed fallback. Media URLs, tokens, account ids and server ids must
   the original MediaSource being ISO/BDMV is not by itself a reason to start server ffmpeg.
 - A raw remote ISO/BDMV without a resolved linear stream must still use the server main-feature
   fallback rather than being treated as an ordinary HTTP video file.
+- Local Blu-ray ISO/BDMV must start from `bd://longest`; the first rendered title must match the
+  longest playlist unless the user explicitly selects another title/edition.
 - PGS may change the local backend to the native subtitle renderer, but must not change a valid
   direct-stream URL into a server transcode.
 - TrueHD/Atmos or DTS-HD is reported as passthrough only when the active Android route proves encoded
   output; speaker/Bluetooth fallback to PCM is a passing outcome.
+- Dolby Vision source metadata must preserve RPU/EL/BL presence flags. A P7 source with EL present is
+  a dual-layer source, but `ElPresentFlag` alone is not accepted as evidence of MEL/FEL type or FEL
+  composition.
 - Dolby Vision P7 FEL is `NotMeasured` unless a physical-device trace proves the enhancement layer is
   being composed. Base-layer playback is not sufficient evidence for an FEL-support claim.
 - HDMV interactive menus and BD-J remain unsupported until a backend/runtime exposes verifiable
