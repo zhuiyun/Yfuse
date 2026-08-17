@@ -54,7 +54,9 @@ data class PlaybackVideoSupport(
 
     companion object {
         fun supported(detail: String) = PlaybackVideoSupport(PlaybackVideoSupportKind.Supported, detail)
+
         fun unsupported(detail: String) = PlaybackVideoSupport(PlaybackVideoSupportKind.Unsupported, detail)
+
         fun unknown(detail: String) = PlaybackVideoSupport(PlaybackVideoSupportKind.Unknown, detail)
     }
 }
@@ -110,7 +112,8 @@ data class PlaybackDeviceCapabilities(
             supportsHdrOutput(
                 format = PlaybackHdrFormat.DolbyVision,
                 codec = PlaybackVideoCodec.DolbyVision,
-            ) && dolbyVisionBaseCodecs.isNotEmpty()
+            ) &&
+                dolbyVisionBaseCodecs.isNotEmpty()
 
     val directPlayableAudio: Set<PlaybackAudioCodec>
         get() = audioDecoders + directAudioFormats
@@ -129,7 +132,9 @@ data class PlaybackDeviceCapabilities(
 
     /** Conservative common fallback; Android providers refine size/rate/bitrate with MediaCodec. */
     fun videoSupport(requirements: PlaybackVideoRequirements): PlaybackVideoSupport {
-        val codec = requirements.codec ?: return PlaybackVideoSupport.unknown("片源没有提供视频编码")
+        val codec =
+            requirements.codec
+                ?: return PlaybackVideoSupport.unknown("片源没有提供视频编码")
         if (codec !in videoDecoders) {
             return PlaybackVideoSupport.unsupported("设备没有 ${codec.name} 解码器")
         }
@@ -147,7 +152,12 @@ data class PlaybackDeviceCapabilities(
                 hdrFormats = emptySet(),
                 videoDecoders = setOf(PlaybackVideoCodec.H264),
                 hdrDecoders = emptyMap(),
-                audioDecoders = setOf(PlaybackAudioCodec.Aac, PlaybackAudioCodec.Mp3, PlaybackAudioCodec.Pcm),
+                audioDecoders =
+                    setOf(
+                        PlaybackAudioCodec.Aac,
+                        PlaybackAudioCodec.Mp3,
+                        PlaybackAudioCodec.Pcm,
+                    ),
                 directAudioFormats = emptySet(),
                 dolbyVisionCodecProfiles = emptySet(),
                 dolbyVisionBaseCodecs = emptySet(),
