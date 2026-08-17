@@ -20,7 +20,7 @@ class MpvNativeBuildCapabilitiesTest {
         assertTrue(capabilities.libbluray)
         assertFalse(capabilities.bdj)
         assertTrue(capabilities.remoteRawBluRay)
-        assertFalse(capabilities.hdmvMenu)
+        assertTrue(capabilities.hdmvMenu)
         assertTrue(capabilities.nativeBluRay)
         assertEquals("mpv-rev", capabilities.libmpvAndroidRevision)
         assertEquals("bluray-rev", capabilities.libblurayRevision)
@@ -176,7 +176,7 @@ private class FakeCustomMpvMarker {
         val REMOTE_RAW_BLURAY = true
 
         @JvmField
-        val HDMV_MENU = false
+        val HDMV_MENU = true
 
         @JvmField
         val LIBMPV_ANDROID_REVISION = "mpv-rev"
