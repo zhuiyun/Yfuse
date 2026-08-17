@@ -64,10 +64,32 @@ class DiscNavigationBackendTest {
         assertTrue(ActiveDiscNavigation.menuActive)
         assertTrue(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Down))
         assertEquals(listOf(PlaybackDiscMenuCommand.Down), backend.commands)
+        assertTrue(ActiveDiscNavigation.routeActiveMenuPoint(320, 240, activate = true))
+        assertEquals(Triple(320, 240, true), backend.lastPoint)
 
         ActiveDiscNavigation.unbind(owner)
         assertTrue(backend.closed)
         assertFalse(ActiveDiscNavigation.menuActive)
+    }
+
+    @Test
+    fun composite_backend_keeps_title_control_on_engine_and_menu_control_on_hdmv_runtime() {
+        val engine = FakeDiscEngine()
+        val menu = FakeInteractiveMenuBackend().apply { setMenuActive(true) }
+        val backend =
+            CompositeDiscNavigationBackend(
+                engineBackend = VideoEngineDiscNavigationBackend(engine),
+                menuBackend = menu,
+            )
+
+        assertTrue(backend.selectTitle(1))
+        assertEquals(1, engine.lastTitle)
+        assertTrue(backend.selectChapter(3))
+        assertEquals(3, engine.lastChapter)
+        assertTrue(backend.sendMenuCommand(PlaybackDiscMenuCommand.Select))
+        assertEquals(listOf(PlaybackDiscMenuCommand.Select), menu.commands)
+        assertTrue(backend.navigation.menuActive)
+        assertEquals(2, backend.navigation.effectiveTitleCount)
     }
 
     @Test
@@ -96,6 +118,7 @@ private class FakeInteractiveMenuBackend : DiscNavigationBackend {
     private var changeListener: (() -> Unit)? = null
     var closed: Boolean = false
     val commands = mutableListOf<PlaybackDiscMenuCommand>()
+    var lastPoint: Triple<Int, Int, Boolean>? = null
 
     override val navigation: PlaybackDiscNavigationState
         get() =
@@ -118,6 +141,15 @@ private class FakeInteractiveMenuBackend : DiscNavigationBackend {
 
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
         commands += command
+        return true
+    }
+
+    override fun selectMenuPoint(
+        x: Int,
+        y: Int,
+        activate: Boolean,
+    ): Boolean {
+        lastPoint = Triple(x, y, activate)
         return true
     }
 
