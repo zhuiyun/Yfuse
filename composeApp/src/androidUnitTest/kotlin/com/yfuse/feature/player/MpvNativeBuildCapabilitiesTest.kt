@@ -93,6 +93,55 @@ class MpvNativeBuildCapabilitiesTest {
     }
 
     @Test
+    fun saf_bdmv_tree_requires_the_bd_open_files_bridge_not_just_libbluray() {
+        val bdmv =
+            localDiscItem(
+                container = "BDMV",
+                label = "UHD Blu-ray BDMV",
+                url = "content://com.android.externalstorage.documents/tree/primary%3AMovies%2FDisc",
+            )
+
+        val oldCustomAar = MpvNativeBuildCapabilities(libbluray = true, bdmvVfs = false)
+        val reason = missingNativeBluRayCapability(listOf(bdmv), 0, oldCustomAar)
+        assertNotNull(reason)
+        assertTrue(reason.contains("BDMV VFS"))
+
+        assertNull(
+            missingNativeBluRayCapability(
+                listOf(bdmv),
+                0,
+                oldCustomAar.copy(bdmvVfs = true),
+            ),
+        )
+    }
+
+    @Test
+    fun content_uri_bluray_iso_requires_the_random_block_bridge() {
+        val iso =
+            localDiscItem(
+                container = "BLURAY",
+                label = "UHD Blu-ray",
+                url = "content://com.android.providers.downloads.documents/document/42",
+            )
+
+        val reason =
+            missingNativeBluRayCapability(
+                listOf(iso),
+                0,
+                MpvNativeBuildCapabilities(libbluray = true, remoteRawBluRay = false),
+            )
+        assertNotNull(reason)
+        assertTrue(reason.contains("随机块"))
+        assertNull(
+            missingNativeBluRayCapability(
+                listOf(iso),
+                0,
+                MpvNativeBuildCapabilities(libbluray = true, remoteRawBluRay = true),
+            ),
+        )
+    }
+
+    @Test
     fun remote_bluray_is_not_blocked_by_the_local_binary_gate() {
         val version =
             PlayerMediaVersion(
@@ -145,13 +194,14 @@ class MpvNativeBuildCapabilitiesTest {
     private fun localDiscItem(
         container: String,
         label: String,
+        url: String = "file:///storage/emulated/0/movie.iso",
     ): PlayerMediaItem {
         val version =
             PlayerMediaVersion(
                 id = "local-disc",
                 label = label,
                 detail = "disc",
-                url = "file:///storage/emulated/0/movie.iso",
+                url = url,
                 transcodeUrl = "",
                 fallbackTranscodeUrl = "",
                 container = container,
