@@ -39,8 +39,12 @@ output and allowed fallback. Media URLs, tokens, account ids and server ids must
   the original MediaSource being ISO/BDMV is not by itself a reason to start server ffmpeg.
 - A raw remote ISO/BDMV without a resolved linear stream must still use the server main-feature
   fallback rather than being treated as an ordinary HTTP video file.
-- Local Blu-ray ISO/BDMV must start from `bd://longest`; the first rendered title must match the
-  longest playlist unless the user explicitly selects another title/edition.
+- Native local Blu-ray is a **binary capability**, not a source-code assumption. The exact AAR shipped
+  in the release must come from the Yfuse libbluray build lane (or equivalent), have a pinned SHA-256,
+  and prove mpv was configured with `HAVE_LIBBLURAY=1`. The stock upstream v1.0.0 AAR does not satisfy
+  this gate merely because YCore can construct a `bd://` URL.
+- Once that binary gate passes, local Blu-ray ISO/BDMV must start from `bd://longest`; the first
+  rendered title must match the longest playlist unless the user explicitly selects another title.
 - Rich optical metadata is optional: authored `edition-list` / `chapter-list` names, ids, default
   flags and chapter timestamps must survive when present, while count-only `editions` / `chapters`
   must still produce usable navigation rows.
@@ -49,7 +53,8 @@ output and allowed fallback. Media URLs, tokens, account ids and server ids must
 - MPLS metadata may be surfaced only from an explicit `.mpls` / `MPLS/00001`-shaped hint. Arbitrary
   numbers in authored titles must not be guessed into playlist ids.
 - During an engine handover, an outgoing navigation owner must not clear or receive commands intended
-  for the newer active navigation backend.
+  for the newer active navigation backend. Replacing a backend for the same owner must close the old
+  backend exactly once.
 - PGS may change the local backend to the native subtitle renderer, but must not change a valid
   direct-stream URL into a server transcode.
 - TrueHD/Atmos or DTS-HD is reported as passthrough only when the active Android route proves encoded
@@ -59,9 +64,14 @@ output and allowed fallback. Media URLs, tokens, account ids and server ids must
   composition.
 - Dolby Vision P7 FEL is `NotMeasured` unless a physical-device trace proves the enhancement layer is
   being composed. Base-layer playback is not sufficient evidence for an FEL-support claim.
-- HDMV interactive menus and BD-J remain unsupported until an isolated backend/runtime exposes
-  verifiable navigation. The absence or failure of that optional provider must not break ordinary
-  main-feature playback.
+- An HDMV provider must report lifecycle and runtime capability independently of video decode. Any
+  native exception/failed command must mark only that optional provider failed, clear active-menu
+  state and leave main-feature playback alive.
+- Android D-pad/enter/system-back events may be consumed only while a provider reports a ready
+  interactive runtime **and** an active menu. When the provider closes/fails, normal Activity key and
+  predictive-back behavior must resume.
+- BD-J remains unsupported until a separately verified Java runtime/provider exists. Building
+  libbluray with `bdj_jar=disabled` is never accepted as BD-J evidence.
 
 ## Release gates
 
@@ -99,7 +109,7 @@ Widevine-license-server, power, thermal or 8/24-hour soak evidence.
 
 - Dolby Vision/Atmos claims require licensed components, advertised hardware support and device
   certification. YCore only preserves secure routing and safe fallback.
-- BD-J and licensed optical-disc navigation depend on external runtimes. Unsupported menu commands
-  remain explicit instead of being simulated.
+- HDMV navigation requires a real libbluray-backed provider; BD-J additionally requires a verified
+  Java runtime. Unsupported menu commands remain explicit instead of being simulated.
 - A backend may be enabled only when its bundled build, license notice, native symbols and ABI/page
   size checks pass the release workflow.
