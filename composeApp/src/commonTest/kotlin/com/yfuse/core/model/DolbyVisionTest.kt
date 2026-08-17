@@ -99,6 +99,7 @@ class DolbyVisionTest {
         assertTrue(subject.hasDolbyVisionEnhancementLayer)
         assertTrue(subject.requiresDolbyVisionEnhancementValidation)
         assertEquals("Dolby Vision P7 · 双层", subject.rangeLabel)
+        assertEquals("4K Dolby Vision P7 · 双层", subject.qualityLabel)
         assertFalse(subject.rangeLabel.contains("FEL", ignoreCase = true))
     }
 
@@ -117,6 +118,7 @@ class DolbyVisionTest {
         assertFalse(subject.hasDolbyVisionEnhancementLayer)
         assertFalse(subject.requiresDolbyVisionEnhancementValidation)
         assertEquals("Dolby Vision P8", subject.rangeLabel)
+        assertEquals("4K Dolby Vision P8", subject.qualityLabel)
     }
 
     @Test
@@ -130,6 +132,7 @@ class DolbyVisionTest {
         assertFalse(sdr.requiresDolbyVisionEnhancementValidation)
         assertFalse(sdr.needsDolbyCapableDecoder)
         assertEquals("SDR", sdr.rangeLabel)
+        assertEquals("4K SDR", sdr.qualityLabel)
     }
 
     @Test
@@ -153,6 +156,8 @@ class DolbyVisionTest {
 
         assertTrue(subject.isDolbyVision)
         assertEquals(5, subject.dolbyProfile)
+        assertEquals("Dolby Vision P5", subject.rangeLabel)
+        assertEquals("4K Dolby Vision P5", subject.qualityLabel)
         // The whole point: this is the file the P5 guard exists for.
         assertTrue(subject.needsDolbyCapableDecoder)
     }
