@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 
 class MpvDiscNavigationMetadataTest {
     @Test
-    fun edition_and_chapter_lists_keep_names_ids_defaults_and_times() {
+    fun edition_and_chapter_lists_keep_names_ids_playlists_defaults_and_times() {
         val properties =
             FakeDiscProperties(
                 ints =
@@ -24,7 +24,7 @@ class MpvDiscNavigationMetadataTest {
                     ),
                 strings =
                     mapOf(
-                        "edition-list/0/title" to "Main Feature",
+                        "edition-list/0/title" to "BDMV/PLAYLIST/00802.mpls",
                         "edition-list/1/title" to "Director's Cut",
                         "chapter-list/0/title" to "Opening",
                         "chapter-list/2/title" to "Finale",
@@ -46,12 +46,14 @@ class MpvDiscNavigationMetadataTest {
 
         assertEquals(2, state.titleCount)
         assertEquals(101, state.titles[0].id)
-        assertEquals("Main Feature", state.titles[0].label)
+        assertEquals(802, state.titles[0].playlistNumber)
+        assertEquals("00802.mpls", state.titles[0].playlistLabel)
         assertTrue(state.titles[0].isDefault)
         assertEquals("Director's Cut", state.selectedTitle?.label)
         assertEquals(3, state.chapterCount)
         assertEquals("Finale", state.selectedChapter?.label)
         assertEquals(61_250L, state.chapters[1].startMs)
+        assertEquals("01:01", state.chapters[1].timeLabel)
         assertEquals(125_500L, state.chapters[2].startMs)
     }
 
