@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.KeyEvent
+import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
@@ -17,7 +18,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.ViewCompat
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import kotlin.math.roundToInt
@@ -113,11 +113,10 @@ internal fun rememberSystemVolume(): Pair<Float, (Float) -> Unit> {
  */
 @Composable
 internal fun DiscNavigationPlatformInputEffect(menuActive: Boolean) {
-    val activity = LocalActivity.current
-    val lifecycleOwner = LocalLifecycleOwner.current
+    val activity = LocalActivity.current as? ComponentActivity
     val interactive = menuActive && ActiveDiscNavigation.status.interactiveMenuReady
 
-    DisposableEffect(activity, lifecycleOwner, interactive) {
+    DisposableEffect(activity, interactive) {
         if (activity == null || !interactive) {
             return@DisposableEffect onDispose { }
         }
@@ -132,10 +131,10 @@ internal fun DiscNavigationPlatformInputEffect(menuActive: Boolean) {
                     activity.onBackPressedDispatcher.onBackPressed()
                 }
             }
-        activity.onBackPressedDispatcher.addCallback(lifecycleOwner, backCallback)
+        activity.onBackPressedDispatcher.addCallback(activity, backCallback)
 
         val keyListener =
-            androidx.core.view.OnUnhandledKeyEventListenerCompat { _, event ->
+            ViewCompat.OnUnhandledKeyEventListenerCompat { _, event ->
                 if (event.action != KeyEvent.ACTION_DOWN || !ActiveDiscNavigation.menuActive) {
                     false
                 } else {
