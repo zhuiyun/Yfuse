@@ -44,4 +44,4 @@ trap - EXIT
 
 printf 'installed: %s\n' "$DEST"
 printf 'sha256:   %s\n' "$actual_sha"
-printf 'capability: native Blu-ray (libbluray), BD-J disabled\n'
+printf 'capability: native Blu-ray ISO + BDMV VFS + HDMV menu; BD-J disabled\n'
