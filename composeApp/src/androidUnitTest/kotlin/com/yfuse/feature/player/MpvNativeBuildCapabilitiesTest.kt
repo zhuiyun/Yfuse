@@ -19,10 +19,25 @@ class MpvNativeBuildCapabilitiesTest {
 
         assertTrue(capabilities.libbluray)
         assertFalse(capabilities.bdj)
+        assertTrue(capabilities.remoteRawBluRay)
+        assertFalse(capabilities.hdmvMenu)
         assertTrue(capabilities.nativeBluRay)
         assertEquals("mpv-rev", capabilities.libmpvAndroidRevision)
         assertEquals("bluray-rev", capabilities.libblurayRevision)
         assertEquals("udf-rev", capabilities.libudfreadRevision)
+    }
+
+    @Test
+    fun older_custom_marker_without_new_fields_stays_conservative() {
+        val capabilities =
+            detectMpvNativeBuildCapabilities(
+                className = FakeLegacyCustomMpvMarker::class.java.name,
+                classLoader = FakeLegacyCustomMpvMarker::class.java.classLoader,
+            )
+
+        assertTrue(capabilities.libbluray)
+        assertFalse(capabilities.remoteRawBluRay)
+        assertFalse(capabilities.hdmvMenu)
     }
 
     @Test
@@ -35,6 +50,8 @@ class MpvNativeBuildCapabilitiesTest {
 
         assertFalse(capabilities.libbluray)
         assertFalse(capabilities.bdj)
+        assertFalse(capabilities.remoteRawBluRay)
+        assertFalse(capabilities.hdmvMenu)
         assertFalse(capabilities.nativeBluRay)
         assertTrue(capabilities.description.contains("无 libbluray"))
     }
@@ -148,6 +165,31 @@ class MpvNativeBuildCapabilitiesTest {
 }
 
 private class FakeCustomMpvMarker {
+    companion object {
+        @JvmField
+        val LIBBLURAY = true
+
+        @JvmField
+        val BDJ = false
+
+        @JvmField
+        val REMOTE_RAW_BLURAY = true
+
+        @JvmField
+        val HDMV_MENU = false
+
+        @JvmField
+        val LIBMPV_ANDROID_REVISION = "mpv-rev"
+
+        @JvmField
+        val LIBBLURAY_REVISION = "bluray-rev"
+
+        @JvmField
+        val LIBUDFREAD_REVISION = "udf-rev"
+    }
+}
+
+private class FakeLegacyCustomMpvMarker {
     companion object {
         @JvmField
         val LIBBLURAY = true
