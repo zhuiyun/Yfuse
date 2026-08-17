@@ -108,7 +108,8 @@ data class PlaybackPlan(
  *
  * Platform hardware decode remains the efficient path. Native engines are selected for known
  * demux/subtitle gaps and GPU tone mapping. Server transcode wins over local software decoding
- * when the device has already rejected the exact source format.
+ * when the device has already rejected the exact source format, except for formats such as
+ * ProRes where the bundled FFmpeg pipeline is the intentional original-quality decoder.
  */
 fun planPlayback(
     probe: PlaybackMediaProbe,
@@ -134,14 +135,18 @@ fun planPlayback(
             videoSupport = videoSupport,
         )
     val discNeedsServer = discDecision.requiresServerTranscode
+    val softwareFirstVideo = probe.source.videoRequirements.codec in SOFTWARE_FIRST_VIDEO_CODECS
     val unsupportedVideoCanUseLocalSoftware =
         engineSelection == PlaybackEngineSelection.Auto &&
-            videoSupport.isUnsupported &&
             !probe.source.needsDolbyDecoder &&
-            !probe.hasServerTranscode &&
-            !probe.usingServerTranscode
+            !probe.usingServerTranscode &&
+            (
+                softwareFirstVideo ||
+                    (videoSupport.isUnsupported && !probe.hasServerTranscode)
+            )
     val unsupportedVideoUsesServer =
         engineSelection == PlaybackEngineSelection.Auto &&
+            !softwareFirstVideo &&
             videoSupport.isUnsupported &&
             !probe.source.needsDolbyDecoder &&
             probe.hasServerTranscode &&
@@ -205,6 +210,7 @@ fun planPlayback(
         engineSelection == PlaybackEngineSelection.Auto &&
             optimizationMode == PlaybackOptimizationMode.Balanced &&
             !strictPlatformPath &&
+            !unsupportedVideoCanUseLocalSoftware &&
             !discDecision.requiresNativeEngine &&
             !probe.requiresNativeDemuxer &&
             !probe.styledSubtitles &&
@@ -244,6 +250,8 @@ fun planPlayback(
             strictPlatformPath && lockedEngine != null && lockedEngine != PlayerEngine.Exo ->
                 "受保护内容需要安全输出，已临时使用平台内核"
             lockedEngine != null -> "已锁定 ${lockedEngine.label}，YCore 不自动切换内核"
+            softwareFirstVideo && unsupportedVideoCanUseLocalSoftware ->
+                "ProRes 使用 FFmpeg 软件解码，保留原始高位深片源"
             unsupportedVideoCanUseLocalSoftware ->
                 "${videoSupport.detail}，服务器无可用转码，使用 FFmpeg 软件解码"
             unsupportedVideoUsesServer -> "${videoSupport.detail}，使用服务器转码后平台硬解"
@@ -296,6 +304,8 @@ private fun Double.frameRateBucket(): String =
         this <= 60.5 -> "60"
         else -> "Above60"
     }
+
+private val SOFTWARE_FIRST_VIDEO_CODECS = setOf(PlaybackVideoCodec.ProRes)
 
 private val NATIVE_FIRST_CONTAINERS =
     setOf(
