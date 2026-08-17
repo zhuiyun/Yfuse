@@ -24,6 +24,27 @@ class DiscNavigationBackendTest {
         assertEquals(4, engine.lastChapter)
         assertFalse(backend.sendMenuCommand(PlaybackDiscMenuCommand.ShowMenu))
     }
+
+    @Test
+    fun outgoing_engine_cannot_clear_a_newer_active_navigation_binding() {
+        val firstOwner = Any()
+        val secondOwner = Any()
+        val first = FakeDiscEngine()
+        val second = FakeDiscEngine()
+
+        ActiveDiscNavigation.bind(firstOwner, VideoEngineDiscNavigationBackend(first))
+        ActiveDiscNavigation.bind(secondOwner, VideoEngineDiscNavigationBackend(second))
+        ActiveDiscNavigation.unbind(firstOwner)
+
+        assertTrue(ActiveDiscNavigation.isBound)
+        assertTrue(ActiveDiscNavigation.selectTitle(1))
+        assertEquals(null, first.lastTitle)
+        assertEquals(1, second.lastTitle)
+
+        ActiveDiscNavigation.unbind(secondOwner)
+        assertFalse(ActiveDiscNavigation.isBound)
+        assertFalse(ActiveDiscNavigation.selectChapter(1))
+    }
 }
 
 private class FakeDiscEngine : VideoEngine {
