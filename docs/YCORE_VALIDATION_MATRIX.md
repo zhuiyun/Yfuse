@@ -16,10 +16,13 @@ below. CI cannot replace these measurements.
 
 ## Corpus lanes
 
-- Containers: MP4/MOV, MKV, MPEG-TS, WebM, AVI, FLV, ISO, DVD and BDMV.
-- Video: H.264 8/10-bit, HEVC Main/Main10, VP9, AV1, MPEG-2 and VC-1 where available.
+- Containers: MP4/MOV, MKV, MPEG-TS, WebM, AVI, FLV, ISO, DVD and BDMV; include MOV files above
+  4 GiB and at least one 100+ GiB sample to exercise 64-bit offset/range-seek behavior.
+- Video: H.264 8/10-bit, HEVC Main/Main10, VP9, AV1, MPEG-2 and VC-1 where available; ProRes must
+  include 10-bit and 12-bit samples routed through the native FFmpeg software-decoder path.
 - Dynamic range: SDR, HDR10, HDR10+, HLG and every Dolby Vision profile the device advertises.
-- Audio: AAC, MP3, FLAC, Opus, AC-3, E-AC3/JOC, DTS variants and TrueHD/Atmos.
+- Audio: AAC, MP3, FLAC, Opus, AC-3, E-AC3/JOC, DTS variants, TrueHD/Atmos and PCM 16/24-bit,
+  including `pcm_s24le` paired with ProRes MOV.
 - Subtitles: SRT/WebVTT, ASS/SSA effects, PGS, VobSub and DVB; single, dual and offset tracks.
 - Faults: truncated manifests, corrupt timestamps, missing tracks, slow origin, 401/403/404/5xx,
   discontinuities and random seek/track/subtitle operations.
