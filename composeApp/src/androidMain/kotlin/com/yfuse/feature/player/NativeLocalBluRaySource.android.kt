@@ -12,17 +12,15 @@ import com.yfuse.core.playback.PlaybackDiscNavigationState
 import java.io.File
 
 /**
- * Local-disc source for the same `yfusebd://` runtime used by authenticated remote ISO.
+ * Seekable local ISO source for the same `yfusebd://` runtime used by authenticated remote ISO.
  *
- * Ordinary file paths are handed to libbluray directly through [nativeDiscPath], which covers both
- * ISO files and BDMV directories. Seekable `content://` ISO providers use `pread(2)` so offsets stay
- * 64-bit and no temporary 50–100 GiB copy is created. Tree/document directories that do not expose a
- * seekable file descriptor remain on the existing mpv path rather than being guessed into support.
+ * Both `file://` and seekable `content://` sources use `pread(2)` so offsets stay 64-bit and no
+ * temporary 50–100 GiB copy is created. BDMV directories cannot be represented by a single file
+ * descriptor; they deliberately remain on mpv's existing `bd://` directory path until the native
+ * `bd_open_files` VFS bridge is enabled.
  */
 internal class NativeLocalBluRaySource private constructor(
-    private val uri: String,
-    private val descriptor: ParcelFileDescriptor?,
-    private val directPath: String?,
+    private val descriptor: ParcelFileDescriptor,
 ) {
     private val hdmvSession = LocalHdmvSession()
 
@@ -37,11 +35,7 @@ internal class NativeLocalBluRaySource private constructor(
         hdmvSession.bindNativeId(nativeId)
     }
 
-    /** JNI queries this before choosing `bd_open()` versus `bd_open_stream()`. */
-    @Suppress("unused")
-    fun nativeDiscPath(): String? = directPath
-
-    /** Used only for seekable content-backed ISO sources. Returns complete UDF blocks. */
+    /** JNI callback. Returns complete 2048-byte UDF blocks, `0` at EOF, `-1` on I/O failure. */
     @Synchronized
     @Suppress("unused")
     fun readBlocksNative(
@@ -50,7 +44,6 @@ internal class NativeLocalBluRaySource private constructor(
         target: ByteArray,
         targetOffset: Int,
     ): Int {
-        val pfd = descriptor ?: return -1
         if (closed || lba < 0 || blockCount <= 0 || targetOffset < 0) return -1
         val requested = blockCount.toLong() * BLURAY_UDF_BLOCK_SIZE
         if (requested <= 0L || requested > Int.MAX_VALUE) return -1
@@ -61,7 +54,7 @@ internal class NativeLocalBluRaySource private constructor(
             while (total < requested.toInt()) {
                 val count =
                     Os.pread(
-                        pfd.fileDescriptor,
+                        descriptor.fileDescriptor,
                         target,
                         targetOffset + total,
                         requested.toInt() - total,
@@ -103,7 +96,8 @@ internal class NativeLocalBluRaySource private constructor(
         height: Int,
         argb: IntArray,
     ) {
-        if (closed || width <= 0 || height <= 0 || argb.size != width * height) return
+        val pixels = width.toLong() * height.toLong()
+        if (closed || width <= 0 || height <= 0 || pixels != argb.size.toLong()) return
         NativeRemoteBluRaySessionRegistry.updateOverlay(
             hdmvSession,
             NativeBluRayOverlayFrame(width = width, height = height, argb = argb.copyOf()),
@@ -127,7 +121,7 @@ internal class NativeLocalBluRaySource private constructor(
         if (closed) return
         closed = true
         onNativeSessionClosed()
-        runCatching { descriptor?.close() }
+        runCatching { descriptor.close() }
     }
 
     private inner class LocalHdmvSession : HdmvDiscSession {
@@ -179,6 +173,7 @@ internal class NativeLocalBluRaySource private constructor(
 
         override fun navigation(): PlaybackDiscNavigationState = state
 
+        // CompositeDiscNavigationBackend keeps title/chapter selection on MPV itself.
         override fun selectTitle(index: Int): Boolean = false
 
         override fun selectChapter(index: Int): Boolean = false
@@ -209,22 +204,23 @@ internal class NativeLocalBluRaySource private constructor(
             uri: String,
         ): NativeLocalBluRaySource? {
             val parsed = runCatching { Uri.parse(uri) }.getOrNull() ?: return null
-            return when (parsed.scheme?.lowercase()) {
-                "file" -> {
-                    val path = parsed.path?.takeIf(String::isNotBlank) ?: return null
-                    val file = File(path)
-                    if (!file.exists()) return null
-                    NativeLocalBluRaySource(uri = uri, descriptor = null, directPath = file.absolutePath)
-                }
-                "content" -> {
-                    val pfd =
+            val descriptor =
+                when (parsed.scheme?.lowercase()) {
+                    "file" -> {
+                        val path = parsed.path?.takeIf(String::isNotBlank) ?: return null
+                        val file = File(path)
+                        if (!file.isFile) return null
+                        runCatching {
+                            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                        }.getOrNull()
+                    }
+                    "content" ->
                         runCatching {
                             context.contentResolver.openFileDescriptor(parsed, "r")
-                        }.getOrNull() ?: return null
-                    NativeLocalBluRaySource(uri = uri, descriptor = pfd, directPath = null)
-                }
-                else -> null
-            }
+                        }.getOrNull()
+                    else -> null
+                } ?: return null
+            return NativeLocalBluRaySource(descriptor)
         }
     }
 }
