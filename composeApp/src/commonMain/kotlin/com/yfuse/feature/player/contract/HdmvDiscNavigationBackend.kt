@@ -74,6 +74,12 @@ class HdmvDiscNavigationBackend(
                         menuRuntime = DiscMenuRuntime.None,
                         detail = "HDMV 导航会话已关闭",
                     )
+                !navigation.menuSupported ->
+                    DiscNavigationBackendStatus(
+                        lifecycle = DiscNavigationBackendLifecycle.Unavailable,
+                        menuRuntime = DiscMenuRuntime.None,
+                        detail = "当前 Blu-ray 没有可用的 HDMV 菜单",
+                    )
                 else ->
                     DiscNavigationBackendStatus(
                         lifecycle = DiscNavigationBackendLifecycle.Ready,
