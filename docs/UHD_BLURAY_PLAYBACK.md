@@ -10,12 +10,17 @@ explicit.
 | Source | Route | Expected preservation |
 | --- | --- | --- |
 | Emby/Jellyfin resolved `.m2ts` / `.mts` / `.ts` main feature | `DirectStream` -> YCore device planning | HEVC/HDR/Dolby metadata carried by the stream, lossless audio and PGS stay available when the backend/output route supports them |
-| Local Blu-ray ISO / BDMV | libmpv + libbluray native route | title/chapter selection, video/audio/subtitle tracks; no server transcode |
+| Local Blu-ray ISO / BDMV | libmpv + libbluray `bd://longest` | longest playlist starts first, title/chapter selection remains available, video/audio/subtitle tracks stay local; no server transcode |
 | Remote raw ISO / BDMV without a linear direct stream | server main-feature fallback | server chooses the feature; transcoding is allowed only because no directly playable title was exposed |
 
 A negotiated disc `DirectStream` is not the raw disc image. YCore marks it as
 `discMainFeatureResolved`, does not force the native image demuxer and does not force server ffmpeg
 merely because the original MediaSource is an ISO/BDMV source.
+
+For local Blu-ray sources Yfuse explicitly opens `bd://longest` instead of relying on libbluray's
+implicit first/default playlist. Users can still switch the exposed Blu-ray title/edition afterwards.
+This reduces the common failure mode where a short bonus playlist or studio logo opens instead of the
+main feature.
 
 ## HDR and Dolby
 
@@ -24,6 +29,12 @@ merely because the original MediaSource is an ISO/BDMV source.
 - A Dolby-only stream uses the verified Android Dolby Vision platform path when the device declares
   compatible decode and display support. It is never intentionally decoded as ordinary HEVC merely
   to avoid a fallback.
+- Yfuse now preserves the server's Dolby Vision `RpuPresentFlag`, `ElPresentFlag` and
+  `BlPresentFlag`. A Profile 7 source with an enhancement layer is labeled as a **dual-layer** source;
+  this is source evidence only, not proof that the device composed a Full Enhancement Layer.
+- If the server says no base layer is present, YCore treats the stream as Dolby-decoder-required even
+  if another compatibility field is inconsistent. This prevents an EL/RPU stream from being handed
+  to an ordinary HEVC path that cannot render it correctly.
 - Dolby Vision Profile 7 FEL reconstruction is **not claimed**. Playback may use the device/base-layer
   path available for the selected stream, but a release must not label FEL as active without physical
   device evidence that the enhancement layer is being composed.
@@ -58,9 +69,11 @@ A UHD Blu-ray release lane must include, where legally available:
 
 - 4K HEVC Main10 HDR10 main feature via server-resolved `.m2ts` DirectStream.
 - HDR10+, HLG and Dolby Vision samples on devices that advertise the corresponding output.
+- Dolby Vision P7 samples with RPU/EL/BL metadata, proving that source-layer evidence is preserved
+  without turning an `ElPresentFlag` into a false FEL-output claim.
 - TrueHD/Atmos and DTS-HD over HDMI/eARC, plus PCM fallback on speaker/Bluetooth routes.
 - PGS subtitle selection and rendering while preserving the same direct-stream URL.
-- Local ISO/BDMV title and chapter changes, seeks and resume.
+- Local ISO/BDMV startup on the longest playlist, title/chapter changes, seeks and resume.
 - A raw remote ISO case proving it still falls back to server main-feature parsing instead of being
   mistaken for a linear stream.
 
