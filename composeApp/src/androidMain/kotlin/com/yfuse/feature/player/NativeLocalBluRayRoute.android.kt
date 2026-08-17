@@ -53,7 +53,7 @@ private fun PlayerMediaItem.prepareNativeLocalBluRayRoute(
     // probe and falls through to the block bridge without doing any large I/O.
     if (capabilities.bdmvVfs) {
         NativeLocalBdmvSource.create(context, url)?.let { source ->
-            val nativeId = NativeLocalBdmvRegistry.register(source)
+            val nativeId = NativeLocalBdmvProxyRegistry.register(source)
             if (nativeId != null) {
                 return withNativeLocalDiscUrl(
                     nativeUrl = "$YFUSE_BDMV_PREFIX$nativeId",
