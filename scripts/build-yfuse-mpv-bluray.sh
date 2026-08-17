@@ -15,6 +15,7 @@ LIBBLURAY_TAG="1.4.1"
 LIBBLURAY_COMMIT="7d94f2660af5bfc16015291a03539329135c18f1"
 # libbluray 1.4.1 pins this exact VideoLAN submodule revision.
 LIBUDFREAD_COMMIT="139a2194525f2745b98a98e4d8fa627d07440176"
+CAPABILITY_CLASS_PATH="dev/yfuse/mpv/YfuseMpvCapabilities.class"
 
 ARCH_ARGS=()
 if [[ $# -gt 0 ]]; then
@@ -49,6 +50,25 @@ SOURCE="$WORK_ROOT/source"
 DEPINFO="$SOURCE/buildscripts/include/depinfo.sh"
 DOWNLOAD_DEPS="$SOURCE/buildscripts/include/download-deps.sh"
 LIBBLURAY_BUILD="$SOURCE/buildscripts/scripts/libbluray.sh"
+CAPABILITY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseMpvCapabilities.java"
+
+# The stock AAR has no compile-time marker. Only this build creates the class, and the script refuses
+# to publish the AAR unless mpv independently proves HAVE_LIBBLURAY=1 below. Yfuse therefore detects
+# the actual installed binary at runtime without coupling app compilation to a custom-only class.
+mkdir -p "$(dirname "$CAPABILITY_SOURCE")"
+cat >"$CAPABILITY_SOURCE" <<EOF
+package dev.yfuse.mpv;
+
+public final class YfuseMpvCapabilities {
+    public static final boolean LIBBLURAY = true;
+    public static final boolean BDJ = false;
+    public static final String LIBMPV_ANDROID_REVISION = "$UPSTREAM_COMMIT";
+    public static final String LIBBLURAY_REVISION = "$LIBBLURAY_COMMIT";
+    public static final String LIBUDFREAD_REVISION = "$LIBUDFREAD_COMMIT";
+
+    private YfuseMpvCapabilities() {}
+}
+EOF
 
 python3 - "$DEPINFO" "$DOWNLOAD_DEPS" "$LIBBLURAY_COMMIT" "$LIBUDFREAD_COMMIT" <<'PY'
 from pathlib import Path
@@ -157,11 +177,17 @@ if ! grep -RqsE '^#define HAVE_LIBBLURAY[[:space:]]+1$' "$SOURCE/buildscripts/de
 fi
 
 TMP_LIST="$WORK_ROOT/aar-list.txt"
+TMP_CLASSES="$WORK_ROOT/classes.jar"
 unzip -l "$AAR" >"$TMP_LIST"
 if ! grep -q 'jni/arm64-v8a/libmpv.so' "$TMP_LIST"; then
   echo 'error: AAR has no arm64-v8a libmpv.so' >&2
   exit 1
 fi
+unzip -p "$AAR" classes.jar >"$TMP_CLASSES"
+unzip -l "$TMP_CLASSES" | grep -Fq "$CAPABILITY_CLASS_PATH" || {
+  echo 'error: AAR is missing the Yfuse native capability marker' >&2
+  exit 1
+}
 
 DEST="$OUT_DIR/libmpv-yfuse-bluray.aar"
 cp -f "$AAR" "$DEST"
@@ -171,5 +197,6 @@ sha256sum "$DEST" | tee "$DEST.sha256"
   printf 'libbluray=%s\n' "$LIBBLURAY_COMMIT"
   printf 'libudfread=%s\n' "$LIBUDFREAD_COMMIT"
   printf 'bdj_jar=disabled\n'
+  printf 'capability-class=%s\n' "$CAPABILITY_CLASS_PATH"
 } >"$OUT_DIR/NATIVE-SOURCES.txt"
 printf 'done: %s\n' "$DEST"
