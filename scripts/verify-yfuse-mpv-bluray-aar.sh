@@ -13,6 +13,7 @@ EXPECTED_BLURAY="7d94f2660af5bfc16015291a03539329135c18f1"
 EXPECTED_UDFREAD="139a2194525f2745b98a98e4d8fa627d07440176"
 EXPECTED_CAPABILITY_CLASS="dev/yfuse/mpv/YfuseMpvCapabilities.class"
 EXPECTED_REGISTRY_CLASS="dev/yfuse/mpv/YfuseBluRayRegistry.class"
+EXPECTED_BDMV_REGISTRY_CLASS="dev/yfuse/mpv/YfuseBdmvRegistry.class"
 ANDROID_PAGE_ALIGNMENT=$((16 * 1024))
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -64,9 +65,11 @@ actual_sha="$(sha256_of "$AAR")"
 [[ "$(manifest_value libudfread)" == "$EXPECTED_UDFREAD" ]] || die "unexpected libudfread source revision"
 [[ "$(manifest_value bdj_jar)" == "disabled" ]] || die "native provenance must state bdj_jar=disabled"
 [[ "$(manifest_value remote-raw-bluray)" == "true" ]] || die "remote raw Blu-ray bridge is not enabled in provenance"
+[[ "$(manifest_value bdmv-vfs)" == "true" ]] || die "BDMV bd_open_files bridge is not enabled in provenance"
 [[ "$(manifest_value hdmv-menu)" == "true" ]] || die "HDMV menu bridge is not enabled in provenance"
 [[ "$(manifest_value capability-class)" == "$EXPECTED_CAPABILITY_CLASS" ]] || die "native provenance is missing the Yfuse capability marker"
 [[ "$(manifest_value registry-class)" == "$EXPECTED_REGISTRY_CLASS" ]] || die "native provenance is missing the Yfuse remote registry marker"
+[[ "$(manifest_value bdmv-registry-class)" == "$EXPECTED_BDMV_REGISTRY_CLASS" ]] || die "native provenance is missing the Yfuse BDMV registry marker"
 
 staging="$(mktemp -d)"
 trap 'rm -rf "${staging:-}"' EXIT
@@ -74,18 +77,22 @@ unzip -q "$AAR" -d "$staging/aar"
 [[ -f "$staging/aar/AndroidManifest.xml" ]] || die "AAR is missing AndroidManifest.xml"
 [[ -f "$staging/aar/classes.jar" ]] || die "AAR is missing classes.jar"
 [[ -f "$staging/aar/jni/arm64-v8a/libmpv.so" ]] || die "AAR is missing arm64-v8a/libmpv.so"
-unzip -l "$staging/aar/classes.jar" | grep -Fq "$EXPECTED_CAPABILITY_CLASS" || die "AAR classes.jar is missing $EXPECTED_CAPABILITY_CLASS"
-unzip -l "$staging/aar/classes.jar" | grep -Fq "$EXPECTED_REGISTRY_CLASS" || die "AAR classes.jar is missing $EXPECTED_REGISTRY_CLASS"
+for required_class in "$EXPECTED_CAPABILITY_CLASS" "$EXPECTED_REGISTRY_CLASS" "$EXPECTED_BDMV_REGISTRY_CLASS"; do
+  unzip -l "$staging/aar/classes.jar" | grep -Fq "$required_class" ||
+    die "AAR classes.jar is missing $required_class"
+done
 
 arm64_mpv="$staging/aar/jni/arm64-v8a/libmpv.so"
-for symbol in \
-  Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeRegister \
-  Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeUnregister \
-  Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeSendMenuCommand \
-  Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeSelectMenuPoint; do
-  readelf -Ws "$arm64_mpv" | grep -Fq "$symbol" || die "libmpv.so is missing JNI symbol: $symbol"
+for prefix in \
+  Java_dev_yfuse_mpv_YfuseBluRayRegistry \
+  Java_dev_yfuse_mpv_YfuseBdmvRegistry; do
+  for suffix in nativeRegister nativeUnregister nativeSendMenuCommand nativeSelectMenuPoint; do
+    symbol="${prefix}_${suffix}"
+    readelf -Ws "$arm64_mpv" | grep -Fq "$symbol" || die "libmpv.so is missing JNI symbol: $symbol"
+  done
 done
 strings "$arm64_mpv" | grep -Fq 'yfusebd' || die "libmpv.so is missing the yfusebd stream protocol"
+strings "$arm64_mpv" | grep -Fq 'yfusebdmv' || die "libmpv.so is missing the yfusebdmv stream protocol"
 strings "$arm64_mpv" | grep -Fq 'Yfuse remote Blu-ray source opened with libbluray' ||
   die "libmpv.so is missing the Yfuse libbluray stream implementation"
 
@@ -99,5 +106,5 @@ done
 
 printf 'verified: %s\n' "$AAR"
 printf 'sha256:  %s\n' "$actual_sha"
-printf 'native:  libbluray + libudfread + authenticated remote raw Blu-ray + HDMV menu; BD-J disabled\n'
+printf 'native:  libbluray + libudfread + remote ISO + local BDMV VFS + HDMV menu; BD-J disabled\n'
 printf 'abi:     arm64-v8a, all PT_LOAD alignments >= 16 KiB\n'
