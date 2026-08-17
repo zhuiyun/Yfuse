@@ -59,9 +59,9 @@ fun MpvSurface(
         }
     }
 
-    // Does nothing for ordinary playback and for title/chapter-only Blu-ray support. It becomes
-    // active only after a future/native provider proves that an interactive HDMV/BD-J menu is live.
-    DiscNavigationPlatformInputEffect(menuActive = playbackState.discNavigation.menuActive)
+    // playbackState changes keep this composable fresh; the actual menu state comes from whichever
+    // navigation provider currently owns the binding, not necessarily from the video engine itself.
+    DiscNavigationPlatformInputEffect(menuActive = ActiveDiscNavigation.menuActive)
 
     DisposableEffect(Unit) {
         onDispose {
