@@ -684,13 +684,13 @@ class MpvVideoEngine(
     override fun selectSubtitleTrack(id: String) = selectTrack("sid", id)
 
     override fun selectDiscTitle(index: Int): Boolean {
-        val count = _state.value.discNavigation.titleCount
+        val count = _state.value.discNavigation.effectiveTitleCount
         if (index !in 0 until count) return false
         return withMpvResult { it.setPropertyInt("edition", index) }
     }
 
     override fun selectDiscChapter(index: Int): Boolean {
-        val count = _state.value.discNavigation.chapterCount
+        val count = _state.value.discNavigation.effectiveChapterCount
         if (index !in 0 until count) return false
         return withMpvResult { it.setPropertyInt("chapter", index) }
     }
@@ -1025,31 +1025,15 @@ class MpvVideoEngine(
         runCatching {
             val previous = _state.value.discNavigation
             if (previous.kind == PlaybackDiscKind.None) return
-            val titleCount = instance.getPropertyInt("editions")?.coerceAtLeast(0) ?: 0
-            val chapterCount = instance.getPropertyInt("chapters")?.coerceAtLeast(0) ?: 0
-            val selectedTitle =
-                instance
-                    .getPropertyInt("current-edition")
-                    ?.coerceIn(0, (titleCount - 1).coerceAtLeast(0))
-                    ?: 0
-            val selectedChapter =
-                instance
-                    .getPropertyInt("chapter")
-                    ?.coerceIn(0, (chapterCount - 1).coerceAtLeast(0))
-                    ?: 0
-            _state.update {
-                it.copy(
-                    discNavigation =
-                        previous.copy(
-                            titleCount = titleCount,
-                            selectedTitleIndex = selectedTitle,
-                            chapterCount = chapterCount,
-                            selectedChapterIndex = selectedChapter,
-                            menuSupported = false,
-                            menuActive = false,
-                        ),
+            val navigation =
+                readMpvDiscNavigationMetadata(
+                    previous = previous,
+                    properties = instance.discPropertyReader(),
+                ).copy(
+                    menuSupported = false,
+                    menuActive = false,
                 )
-            }
+            _state.update { it.copy(discNavigation = navigation) }
         }.onFailure {
             AppLog.info(
                 category = "player.mpv",
