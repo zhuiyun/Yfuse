@@ -80,7 +80,8 @@ data class PlaybackSyncDocument(
 @Serializable
 data class StoredPlaybackDocument(
     val document: PlaybackSyncDocument,
-    val remoteCursor: Long = 0L,
+    /** Per opaque alias/entity CAS cursor. Different servers may publish different provider ids. */
+    val remoteCursors: Map<String, Long> = emptyMap(),
     val dirty: Boolean = true,
     val mutationId: String,
 )
