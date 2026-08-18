@@ -12,6 +12,15 @@ interface YPlayer {
     /** Legacy engines prepare during construction; Core2 implementations may do real work here. */
     fun prepare() = Unit
 
+    /**
+     * Attaches or detaches the platform video output.
+     *
+     * The common API carries only an opaque handle; Android owns the Surface type in its platform
+     * adapter. Legacy returns false until its existing surface lifecycle is migrated. Core2 returns
+     * true and keeps decode output direct-to-Surface.
+     */
+    fun setVideoOutput(output: YVideoOutput?): Boolean = false
+
     fun play()
 
     fun pause()
@@ -33,6 +42,9 @@ interface YPlayer {
 
     fun release()
 }
+
+/** Platform-specific video target marker; platform modules own the concrete Surface/texture type. */
+interface YVideoOutput
 
 /** Construction boundary so the App never needs to know whether Legacy or Core2 is underneath. */
 fun interface YPlayerFactory {
@@ -94,7 +106,7 @@ enum class YPlaybackRoute {
     /** Platform demux + hardware codec + direct Surface presentation. */
     NativeDirect,
 
-    /** Custom/FFmpeg demux + normalized bitstream + hardware codec + Surface. */
+    /** Custom/FFmpeg demux + normalized compressed bitstream + hardware codec + Surface. */
     NativeEnhanced,
 
     /** Hardware decode into a GPU path for tone mapping or other required processing. */
