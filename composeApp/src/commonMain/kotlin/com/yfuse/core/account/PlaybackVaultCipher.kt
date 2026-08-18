@@ -18,6 +18,9 @@ class PlaybackVaultCipher(
 ) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
+    fun currentUserId(): String? =
+        (account.state.value as? AccountState.SignedIn)?.session?.user?.id
+
     fun encrypt(
         document: PlaybackSyncDocument,
         mutationId: String,
@@ -115,11 +118,9 @@ class PlaybackVaultCipher(
     ): ByteArray = "yfuse-playback:v1:$userId:$entityKey".encodeToByteArray()
 
     private companion object {
-        // These are the account vault entries owned by AccountRepository. Keeping playback crypto
-        // in this package makes the coupling explicit while avoiding a second key hierarchy.
         const val KEY_VAULT_KEY = "vault_key"
         const val KEY_VAULT_USER_ID = "vault_user_id"
         const val HMAC_BLOCK_SIZE = 64
-        const val MAX_PLAYBACK_PLAINTEXT_BYTES = 96 * 1024
+        const val MAX_PLAYBACK_PLAINTEXT_BYTES = 24 * 1024
     }
 }
