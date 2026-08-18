@@ -20,15 +20,14 @@ internal data class AndroidTunnelConfiguration(
                 MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback,
                 true,
             )
-            // Public MediaFormat key value used by the platform tunneled codec contract.
-            setInteger(KEY_AUDIO_SESSION_ID_COMPAT, audioSessionId)
+            setInteger(MediaFormat.KEY_AUDIO_SESSION_ID, audioSessionId)
         }
 
     fun audioAttributes(): AudioAttributes =
         AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-            .setFlags(AUDIO_FLAG_HW_AV_SYNC)
+            .setFlags(AudioAttributes.FLAG_HW_AV_SYNC)
             .build()
 }
 
@@ -41,9 +40,3 @@ internal object AndroidTunnelConfigurationFactory {
         return AndroidTunnelConfiguration(id)
     }
 }
-
-// AudioAttributes.FLAG_HW_AV_SYNC is the platform flag used by multimedia tunneling. Keeping the
-// numeric wire value here avoids depending on hidden/vendor SDK surfaces while still using the
-// public Builder.setFlags API.
-private const val AUDIO_FLAG_HW_AV_SYNC = 0x10
-private const val KEY_AUDIO_SESSION_ID_COMPAT = "audio-session-id"
