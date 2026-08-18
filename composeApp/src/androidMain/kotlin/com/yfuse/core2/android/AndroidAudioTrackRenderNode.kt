@@ -69,7 +69,7 @@ internal class AndroidAudioTrackRenderNode(
         }
     }
 
-    /** Writes one decoded PCM access unit. Returns bytes consumed or throws on AudioTrack error. */
+    /** Writes the complete decoded PCM access unit or throws on an AudioTrack error. */
     fun write(
         data: ByteBuffer,
         presentationTimeUs: Long,
@@ -78,11 +78,14 @@ internal class AndroidAudioTrackRenderNode(
         if (basePresentationTimeUs == null && data.hasRemaining()) {
             basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
         }
-        val size = data.remaining()
-        if (size == 0) return 0
-        val written = audioTrack.write(data, size, AudioTrack.WRITE_BLOCKING)
-        check(written >= 0) { "AudioTrack.write failed with code $written" }
-        return written
+        var total = 0
+        while (data.hasRemaining()) {
+            val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_BLOCKING)
+            check(written >= 0) { "AudioTrack.write failed with code $written" }
+            if (written == 0) continue
+            total += written
+        }
+        return total
     }
 
     fun clockSnapshot(): YAudioClockSnapshot? {
@@ -147,7 +150,12 @@ private fun buildAudioTrack(format: MediaFormat): AudioTrack {
         } else {
             AudioFormat.ENCODING_PCM_16BIT
         }
-    val channelMask = channelMaskForCount(channelCount)
+    val channelMask =
+        if (format.containsKey(MediaFormat.KEY_CHANNEL_MASK)) {
+            format.getInteger(MediaFormat.KEY_CHANNEL_MASK)
+        } else {
+            channelMaskForCount(channelCount)
+        }
     val minBuffer =
         AudioTrack.getMinBufferSize(
             sampleRate,
@@ -182,11 +190,14 @@ private fun channelMaskForCount(channelCount: Int): Int =
     when (channelCount) {
         1 -> AudioFormat.CHANNEL_OUT_MONO
         2 -> AudioFormat.CHANNEL_OUT_STEREO
-        3 -> AudioFormat.CHANNEL_OUT_2POINT1
+        3 ->
+            AudioFormat.CHANNEL_OUT_FRONT_LEFT or
+                AudioFormat.CHANNEL_OUT_FRONT_RIGHT or
+                AudioFormat.CHANNEL_OUT_FRONT_CENTER
         4 -> AudioFormat.CHANNEL_OUT_QUAD
-        5 -> AudioFormat.CHANNEL_OUT_SURROUND
+        5 -> AudioFormat.CHANNEL_OUT_QUAD or AudioFormat.CHANNEL_OUT_FRONT_CENTER
         6 -> AudioFormat.CHANNEL_OUT_5POINT1
-        7 -> AudioFormat.CHANNEL_OUT_6POINT1
+        7 -> AudioFormat.CHANNEL_OUT_5POINT1 or AudioFormat.CHANNEL_OUT_BACK_CENTER
         8 -> AudioFormat.CHANNEL_OUT_7POINT1_SURROUND
         else -> AudioFormat.CHANNEL_OUT_STEREO
     }
