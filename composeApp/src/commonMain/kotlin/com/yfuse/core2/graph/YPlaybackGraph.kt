@@ -44,7 +44,9 @@ data class YPlaybackGraph(
                 audioDecoder,
                 videoRenderer,
                 audioRenderer,
-            ).distinctBy { it === it }
+            ).fold(emptyList()) { unique, node ->
+                if (unique.any { it === node }) unique else unique + node
+            }
 
     fun flush() {
         nodes.asReversed().forEach(YPlaybackNode::flush)
