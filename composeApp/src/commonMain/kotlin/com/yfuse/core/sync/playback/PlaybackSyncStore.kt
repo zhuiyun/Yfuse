@@ -105,7 +105,7 @@ class PlaybackSyncStore(
                 played = played,
                 lastPlayedAtEpochMs = now,
                 progressEpoch =
-                    if (startsNewGeneration) now
+                    if (startsNewGeneration) nextProgressEpoch(previousState?.progressEpoch ?: 0L)
                     else previousState?.progressEpoch ?: 0L,
                 deviceId = deviceId,
                 sessionId = sessionId?.takeIf(String::isNotBlank),
@@ -173,7 +173,7 @@ class PlaybackSyncStore(
                 durationMs = previous?.durationMs ?: 0L,
                 played = false,
                 lastPlayedAtEpochMs = now,
-                progressEpoch = now,
+                progressEpoch = nextProgressEpoch(previous?.progressEpoch ?: 0L),
                 deviceId = deviceId,
                 sessionId = null,
                 serverId = serverId ?: previous?.serverId,
@@ -222,7 +222,7 @@ class PlaybackSyncStore(
                 durationMs = previous?.durationMs ?: 0L,
                 played = watched,
                 lastPlayedAtEpochMs = now,
-                progressEpoch = now,
+                progressEpoch = nextProgressEpoch(previous?.progressEpoch ?: 0L),
                 deviceId = deviceId,
                 sessionId = previous?.sessionId,
                 serverId = serverId ?: previous?.serverId,
@@ -402,6 +402,9 @@ class PlaybackSyncStore(
             .getOrDefault(emptyList())
             .takeLast(MAX_LOCAL_DOCUMENTS)
     }
+
+    private fun nextProgressEpoch(current: Long): Long =
+        if (current == Long.MAX_VALUE) Long.MAX_VALUE else current.coerceAtLeast(0L) + 1L
 
     private fun newId(prefix: String): String =
         "$prefix-${Random.nextLong().toULong().toString(16)}-${nowEpochMs().toString(16)}"
