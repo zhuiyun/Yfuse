@@ -130,7 +130,11 @@ class DetailComponent(
             .onEach {
                 if (it is DetailLabel.Play) {
                     val fromStart = explicitFromStartPending
-                    if (!fromStart) playbackSync?.refreshForPlayback()
+                    if (fromStart) {
+                        mirrorRestarted(store.state)
+                    } else {
+                        playbackSync?.refreshForPlayback()
+                    }
                     val launchTicks =
                         if (fromStart) {
                             it.startPositionTicks
@@ -247,32 +251,52 @@ class DetailComponent(
 
     /**
      * Yfuse cloud state is the convergence authority for an ordinary resume. A deliberate
-     * PlayFromStart is handled by the label interceptor above and therefore never calls this.
+     * PlayFromStart creates a new playback generation and never calls this for its launch.
      */
     private fun syncedStartPositionTicks(
         state: DetailState,
         fallbackTicks: Long,
     ): Long {
-        val target = state.playTarget ?: return fallbackTicks
+        val identity = playbackIdentity(state) ?: return fallbackTicks
+        val syncedMs =
+            playbackSync?.startPositionMs(
+                mediaKey = identity.mediaKey,
+                aliases = identity.aliases,
+            ) ?: return fallbackTicks
+        return syncedMs.coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND
+    }
+
+    private fun playbackIdentity(state: DetailState): PlaybackIdentity? {
+        val target = state.playTarget ?: return null
         val seriesProviderIds =
             state.playSourceDetail
                 ?.takeIf { source -> source.type == "Series" && target.type == "Episode" }
                 ?.providerIds
                 .orEmpty()
-        val aliases =
-            watchMatchKeys(
-                ownProviderIds = target.providerIds,
-                seriesProviderIds = seriesProviderIds,
-                seasonNumber = target.seasonNumber,
-                episodeNumber = target.episodeNumber,
-                fallbackId = target.id,
-            )
-        val syncedMs =
-            playbackSync?.startPositionMs(
-                mediaKey = target.providerIds.watchKey(target.id),
-                aliases = aliases,
-            ) ?: return fallbackTicks
-        return syncedMs.coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND
+        return PlaybackIdentity(
+            mediaKey = target.providerIds.watchKey(target.id),
+            aliases =
+                watchMatchKeys(
+                    ownProviderIds = target.providerIds,
+                    seriesProviderIds = seriesProviderIds,
+                    seasonNumber = target.seasonNumber,
+                    episodeNumber = target.episodeNumber,
+                    fallbackId = target.id,
+                ),
+            serverId = state.playServer?.id,
+            itemId = target.id,
+        )
+    }
+
+    /** A from-start action starts a new generation so older larger progress cannot revive. */
+    private fun mirrorRestarted(state: DetailState) {
+        val identity = playbackIdentity(state) ?: return
+        playbackSync?.markRestarted(
+            mediaKey = identity.mediaKey,
+            aliases = identity.aliases,
+            serverId = identity.serverId,
+            serverItemId = identity.itemId,
+        )
     }
 
     /** Manual watched/unwatched is an explicit user decision and must outrank auto progress. */
@@ -293,6 +317,13 @@ class DetailComponent(
             serverItemId = detail.id,
         )
     }
+
+    private data class PlaybackIdentity(
+        val mediaKey: String,
+        val aliases: List<String>,
+        val serverId: String?,
+        val itemId: String,
+    )
 
     private companion object {
         const val TICKS_PER_MILLISECOND = 10_000L
