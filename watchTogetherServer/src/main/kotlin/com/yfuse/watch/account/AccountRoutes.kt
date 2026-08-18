@@ -155,6 +155,46 @@ internal fun Route.accountRoutes(
                     call.respondLimitedJson(backend.execute { deleteSync(accessToken) })
                 }
             }
+            get("/playback") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.SyncRead) {
+                    val accessToken = call.requireBearerToken()
+                    val account = backend.authenticateAccessToken(accessToken)
+                    val after = call.request.queryParameters["after"]?.toLongOrNull() ?: 0L
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
+                    if (after < 0L || limit !in 1..200) {
+                        throw AccountServiceException(
+                            AccountProblem.InvalidRequest,
+                            "playback_query_invalid",
+                            "播放记录同步参数无效",
+                        )
+                    }
+                    call.respondLimitedJson(
+                        PlaybackRelayStoreProvider.instance.pull(account.userId, after, limit),
+                    )
+                }
+            }
+            post("/playback") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.SyncWrite) {
+                    val accessToken = call.requireBearerToken()
+                    val account = backend.authenticateAccessToken(accessToken)
+                    val request = call.receiveLimitedJson<PlaybackPushRequest>()
+                    val response =
+                        try {
+                            PlaybackRelayStoreProvider.instance.push(
+                                userId = account.userId,
+                                request = request,
+                                nowEpochMs = System.currentTimeMillis(),
+                            )
+                        } catch (_: IllegalArgumentException) {
+                            throw AccountServiceException(
+                                AccountProblem.InvalidRequest,
+                                "playback_payload_invalid",
+                                "播放记录同步数据无效",
+                            )
+                        }
+                    call.respondLimitedJson(response)
+                }
+            }
         }
     }
 }
