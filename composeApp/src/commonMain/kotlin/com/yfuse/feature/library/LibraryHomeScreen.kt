@@ -335,6 +335,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 serverId = state.currentServer?.id,
                                                 serverName = state.currentServer?.serverName.orEmpty(),
                                                 onClick = { component.onOpenItem(animatedItem.id) },
+                                                onPlay = { component.onPlayItem(animatedItem.id) },
                                                 onToggleFavorite = {
                                                     store.accept(
                                                         LibraryIntent.ToggleFavorite(
@@ -637,6 +638,7 @@ private fun HeroCarousel(
     serverId: String?,
     serverName: String,
     onClick: () -> Unit,
+    onPlay: () -> Unit,
     onToggleFavorite: () -> Unit,
     onToggleServerMenu: () -> Unit,
 ) {
@@ -759,48 +761,28 @@ private fun HeroCarousel(
                 )
             }
             Spacer(Modifier.height(14.dp))
-            // `rgba(255,255,255,.92)`, `radius:18px`, `padding:8px 18px`, `700 12px`.
+            // 方案 B：三个操作只保留圆形悬浮键。播放是 48dp 的品牌主操作，
+            // 收藏和详情是 44dp 次级玻璃圆钮；不再把详情包成一条胶囊去和圆钮竞争。
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    Modifier
-                        .pressable(onClickLabel = "查看详情", onClick = openDetail)
-                        .touchTarget()
-                        .height(42.dp)
-                        .glass(
-                            shape = GlassShapes.chip,
-                            fill = Color(0xFF101722).copy(alpha = 0.30f),
-                            border = Color.White.copy(alpha = 0.40f),
-                        ).padding(start = 4.dp, end = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        Modifier
-                            .size(34.dp)
-                            .glass(
-                                shape = CircleShape,
-                                fill = Color.White.copy(alpha = 0.22f),
-                                border = Color.White.copy(alpha = 0.54f),
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            AppIcons.Info,
-                            null,
-                            tint = Color.White,
-                            modifier = Modifier.size(19.dp),
-                        )
-                    }
-                    Text("查看详情", style = AppTypography.body.strong, color = Color.White)
-                }
+                HeroCircleAction(
+                    icon = AppIcons.Play,
+                    description = "播放",
+                    onClick = onPlay,
+                    primary = true,
+                )
                 HeroCircleAction(
                     active = item.isFavorite,
                     icon = if (item.isFavorite) AppIcons.HeartFilled else AppIcons.Heart,
                     description = if (item.isFavorite) "取消收藏" else "加入收藏",
                     onClick = onToggleFavorite,
+                )
+                HeroCircleAction(
+                    icon = AppIcons.Info,
+                    description = "查看详情",
+                    onClick = openDetail,
                 )
             }
         }
@@ -1284,6 +1266,10 @@ internal fun PosterCard(
     )
 }
 
+/**
+ * Scheme B hero key: one 48dp primary play circle and 44dp secondary circles.
+ * The fixed brand colour keeps the action hierarchy stable while artwork colours change.
+ */
 @Composable
 private fun HeroCircleAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -1291,7 +1277,23 @@ private fun HeroCircleAction(
     onClick: () -> Unit,
     /** Non-null for a toggle, so the glyph can answer being switched on. */
     active: Boolean? = null,
+    primary: Boolean = false,
 ) {
+    val controlSize = if (primary) 48.dp else 44.dp
+    val iconSize = if (primary) 26.dp else 22.dp
+    val fill =
+        when {
+            primary -> Brand.Primary.copy(alpha = 0.96f)
+            active == true -> Brand.Primary.copy(alpha = 0.78f)
+            else -> Color.White.copy(alpha = 0.16f)
+        }
+    val edge =
+        when {
+            primary -> Color.White.copy(alpha = 0.42f)
+            active == true -> Color.White.copy(alpha = 0.46f)
+            else -> Color.White.copy(alpha = 0.36f)
+        }
+
     Box(
         Modifier
             .pressable(
@@ -1305,17 +1307,17 @@ private fun HeroCircleAction(
                 } else {
                     Modifier.semantics { toggleableState = ToggleableState(active) }
                 },
-            ).touchTarget()
-            .size(34.dp)
+            ).size(controlSize)
+            .touchTarget()
             .glass(
                 shape = CircleShape,
-                fill = Color.White.copy(alpha = 0.14f),
-                border = Color.White.copy(alpha = 0.34f),
+                fill = fill,
+                border = edge,
             ),
         contentAlignment = Alignment.Center,
     ) {
         if (active == null) {
-            Icon(icon, description, tint = Color.White, modifier = Modifier.size(14.dp))
+            Icon(icon, description, tint = Color.White, modifier = Modifier.size(iconSize))
         } else {
             BurstIcon(
                 icon = icon,
@@ -1323,6 +1325,7 @@ private fun HeroCircleAction(
                 contentDescription = description,
                 tint = Color.White,
                 burstColor = Color.White,
+                iconSize = iconSize,
             )
         }
     }
