@@ -20,6 +20,30 @@ class PlaybackSyncStore(
             ?.takeIf(String::isNotBlank)
             ?: newId("device").also { settings.putString(KEY_DEVICE_ID, it) }
 
+    /**
+     * Binds the local cloud-sync partition to one Yfuse account. Re-entering the same account
+     * keeps offline mutations; switching accounts removes the previous account's local history
+     * and cursor before any ciphertext can be uploaded under the new vault key.
+     *
+     * The first account adopts anonymous local playback so a user can sign in after watching.
+     * Returns true only when an existing account partition had to be reset.
+     */
+    fun bindAccount(userId: String): Boolean = synchronized(lock) {
+        require(userId.isNotBlank())
+        val previous = settings.getStringOrNull(KEY_ACCOUNT_USER_ID)?.takeIf(String::isNotBlank)
+        if (previous == null) {
+            settings.putString(KEY_ACCOUNT_USER_ID, userId)
+            return@synchronized false
+        }
+        if (previous == userId) return@synchronized false
+
+        documents.clear()
+        settings.remove(KEY_DOCUMENTS)
+        settings.putLong(KEY_CURSOR, 0L)
+        settings.putString(KEY_ACCOUNT_USER_ID, userId)
+        true
+    }
+
     fun cursor(): Long = settings.getLong(KEY_CURSOR, 0L).coerceAtLeast(0L)
 
     fun updateCursor(value: Long) {
@@ -310,6 +334,7 @@ class PlaybackSyncStore(
         const val KEY_DOCUMENTS = "playback.cross_platform.documents.v1"
         const val KEY_CURSOR = "playback.cross_platform.cursor.v1"
         const val KEY_DEVICE_ID = "playback.cross_platform.device.v1"
+        const val KEY_ACCOUNT_USER_ID = "playback.cross_platform.account_user.v1"
         const val MAX_LOCAL_DOCUMENTS = 512
         const val MAX_STORED_BYTES = 4 * 1024 * 1024
         val TERMINAL_TRIGGERS =
