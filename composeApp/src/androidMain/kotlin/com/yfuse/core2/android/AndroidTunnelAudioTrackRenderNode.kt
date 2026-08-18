@@ -25,7 +25,10 @@ internal class AndroidTunnelAudioTrackRenderNode(
     private var sampleRate = 0
     private var channelCount = 0
     private var encoding = AudioFormat.ENCODING_PCM_16BIT
+    private var bytesPerFrame = 0
     private var playing = false
+    private var mediaBaseUs: Long? = null
+    private var frameBase: Long? = null
 
     fun configure(format: MediaFormat) {
         release()
@@ -38,6 +41,7 @@ internal class AndroidTunnelAudioTrackRenderNode(
             } else {
                 AudioFormat.ENCODING_PCM_16BIT
             }
+        bytesPerFrame = channelCount * bytesPerSample(encoding)
         val channelMask = channelMask(channelCount)
         val audioFormat =
             AudioFormat.Builder()
@@ -60,6 +64,7 @@ internal class AndroidTunnelAudioTrackRenderNode(
                 .build()
         check(created.state == AudioTrack.STATE_INITIALIZED) { "HW AV sync AudioTrack failed to initialize" }
         track = created
+        resetClockAnchor()
     }
 
     fun play() {
@@ -80,37 +85,55 @@ internal class AndroidTunnelAudioTrackRenderNode(
         val resume = playing
         if (active.playState == AudioTrack.PLAYSTATE_PLAYING) active.pause()
         active.flush()
+        resetClockAnchor()
         if (resume) active.play()
     }
 
     /**
-     * Timestamped non-blocking write. The caller retains the codec output buffer until [data] is
-     * fully consumed, so partial writes never drop audio or its presentation timestamp.
+     * Timestamped non-blocking write. [byteOffsetFromAccessUnit] is the number of PCM bytes already
+     * accepted from this decoder output buffer, so a partial retry advances the HW_AV_SYNC media
+     * timestamp instead of reusing the timestamp of the beginning of the access unit.
      */
     fun write(
         data: ByteBuffer,
         presentationTimeUs: Long,
+        byteOffsetFromAccessUnit: Int = 0,
     ): Int {
         val active = checkNotNull(track) { "HW AV sync AudioTrack is not configured" }
         if (!data.hasRemaining()) return 0
+        val adjustedPresentationUs =
+            presentationTimeUs.coerceAtLeast(0L) + durationUsForPcmBytes(byteOffsetFromAccessUnit)
+        if (mediaBaseUs == null) {
+            mediaBaseUs = adjustedPresentationUs
+            frameBase = currentFramePosition(active)
+        }
         val written =
             active.write(
                 data,
                 data.remaining(),
                 AudioTrack.WRITE_NON_BLOCKING,
-                presentationTimeUs.coerceAtLeast(0L) * NANOS_PER_MICROSECOND,
+                adjustedPresentationUs * NANOS_PER_MICROSECOND,
             )
         check(written >= 0) { "HW AV sync AudioTrack write failed: $written" }
         return written
     }
 
+    fun durationUsForPcmBytes(byteCount: Int): Long {
+        if (byteCount <= 0 || bytesPerFrame <= 0 || sampleRate <= 0) return 0L
+        val frames = byteCount / bytesPerFrame
+        return frames.toLong() * MICROS_PER_SECOND / sampleRate
+    }
+
     fun clockSnapshot(): AndroidTunnelAudioClockSnapshot? {
         val active = track ?: return null
+        val baseUs = mediaBaseUs ?: return null
+        val baseFrame = frameBase ?: return null
         val timestamp = AudioTimestamp()
         if (!active.getTimestamp(timestamp)) return null
         val rate = sampleRate.takeIf { it > 0 } ?: return null
+        val deltaFrames = (timestamp.framePosition - baseFrame).coerceAtLeast(0L)
         return AndroidTunnelAudioClockSnapshot(
-            positionUs = timestamp.framePosition * MICROS_PER_SECOND / rate,
+            positionUs = baseUs + deltaFrames * MICROS_PER_SECOND / rate,
             nanoTime = timestamp.nanoTime,
         )
     }
@@ -121,6 +144,8 @@ internal class AndroidTunnelAudioTrackRenderNode(
         playing = false
         sampleRate = 0
         channelCount = 0
+        bytesPerFrame = 0
+        resetClockAnchor()
         if (active != null) {
             runCatching {
                 if (active.playState == AudioTrack.PLAYSTATE_PLAYING) active.pause()
@@ -128,6 +153,17 @@ internal class AndroidTunnelAudioTrackRenderNode(
             runCatching(active::flush)
             runCatching(active::release)
         }
+    }
+
+    private fun resetClockAnchor() {
+        mediaBaseUs = null
+        frameBase = null
+    }
+
+    private fun currentFramePosition(active: AudioTrack): Long {
+        val timestamp = AudioTimestamp()
+        if (active.getTimestamp(timestamp)) return timestamp.framePosition
+        return active.playbackHeadPosition.toLong() and UINT32_MASK
     }
 }
 
@@ -149,18 +185,20 @@ private fun channelMask(channelCount: Int): Int =
         else -> error("Unsupported tunnel PCM channel count: $channelCount")
     }
 
+private fun bytesPerSample(encoding: Int): Int =
+    when (encoding) {
+        AudioFormat.ENCODING_PCM_8BIT -> 1
+        AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_32BIT -> 4
+        AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
+        else -> 2
+    }
+
 private fun fallbackBufferBytes(
     sampleRate: Int,
     channelCount: Int,
     encoding: Int,
 ): Int {
-    val bytesPerSample =
-        when (encoding) {
-            AudioFormat.ENCODING_PCM_8BIT -> 1
-            AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_32BIT -> 4
-            AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
-            else -> 2
-        }
+    val bytesPerSample = bytesPerSample(encoding)
     // About 500 ms of PCM: enough headroom without building a large app-side buffer.
     return (sampleRate.toLong() * channelCount * bytesPerSample / 2L)
         .coerceIn(4_096L, Int.MAX_VALUE.toLong())
@@ -169,3 +207,4 @@ private fun fallbackBufferBytes(
 
 private const val MICROS_PER_SECOND = 1_000_000L
 private const val NANOS_PER_MICROSECOND = 1_000L
+private const val UINT32_MASK = 0xffff_ffffL
