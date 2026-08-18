@@ -96,6 +96,21 @@ enum class YPlaybackPhase {
     Failed,
 }
 
+/**
+ * Machine-readable recovery domain. UI text must never be parsed to decide whether a backend,
+ * credential, network route or media source should be penalized.
+ */
+enum class YPlaybackFailureCategory {
+    Authorization,
+    Drm,
+    Network,
+    Container,
+    Decoder,
+    Renderer,
+    AudioSink,
+    Unknown,
+}
+
 enum class YPlaybackRoute {
     /** Existing Exo/mpv/MDK implementation wrapped behind the new product API. */
     Legacy,
@@ -141,6 +156,7 @@ data class YPlayerState(
     val audioTracks: List<YTrack> = emptyList(),
     val subtitleTracks: List<YTrack> = emptyList(),
     val error: String? = null,
+    val errorCategory: YPlaybackFailureCategory? = null,
     val diagnostics: YPlayerDiagnostics = YPlayerDiagnostics(),
 ) {
     val hasNext: Boolean get() = currentIndex + 1 < itemCount
