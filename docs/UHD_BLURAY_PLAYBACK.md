@@ -13,8 +13,8 @@ device support.
 | Emby/Jellyfin resolved `.m2ts/.mts/.ts` main feature | DirectStream -> YCore device planner | implemented; physical HDR/audio corpus still required |
 | Local seekable Blu-ray ISO (`file://` or seekable `content://`) | `yfusebd://` -> libbluray `bd_open_stream` -> mpv | source implemented; custom AAR build + device validation still required |
 | Local filesystem BDMV directory / persisted SAF tree | `yfusebdmv://` -> libbluray `bd_open_files` VFS -> mpv | source implemented; native compile + real tree/device validation still required |
-| Remote raw ISO from a saved server | authenticated HTTP Range -> 2048-byte block source -> `yfusebd://` -> `bd_open_stream` | source implemented; custom AAR build + real-origin/device validation still required |
-| Raw disc route when required native capability is absent/fails | server main-feature/transcode fallback | implemented safety fallback |
+| Remote raw ISO from a saved server | authenticated HTTP Range preflight -> block source -> `yfusebd://` -> `bd_open_stream` | source implemented; custom AAR build + real-origin/device validation still required |
+| Raw disc route when required native capability/range semantics are absent | server main-feature/transcode fallback | implemented safety fallback |
 
 A server-resolved disc DirectStream is not treated as the raw disc image. The planner records
 `discMainFeatureResolved` so an original MediaSource marked ISO/BDMV cannot force an otherwise valid
@@ -47,9 +47,10 @@ alignment against Android's 16 KiB page requirement before installation/promotio
 `install-yfuse-mpv-bluray.sh` reuses that verifier and replaces the app AAR only after all checks pass.
 
 The build workflow is wired to branch/PR native changes. At the time this document was updated there
-is still no confirmed successful runner execution for this branch, therefore the ISO/BDMV native
-bridges have **not yet produced a release-verified AAR**. Do not promote capability-marker source to a
-release claim until the native job really compiles, links and passes verification.
+is still no confirmed successful runner execution for this branch: Actions creates jobs but they fail
+before any step executes. Therefore the ISO/BDMV native bridges have **not yet produced a
+release-verified AAR**. Do not promote capability-marker source to a release claim until the native job
+really compiles, links and passes verification.
 
 ## Remote ISO transport
 
@@ -64,9 +65,15 @@ by libbluray/libudfread:
 - no automatic cross-origin redirect while credentials are present;
 - authentication headers resolved for every request so a renewed token can be used without rebuilding
   the playback item;
+- one 401/403 retry with freshly resolved authentication and no unbounded auth loop;
 - 416 with `bytes */N` treated as EOF;
 - 64 KiB read-ahead, a 512 KiB hard ceiling per callback and a bounded ~4 MiB LRU media-byte cache;
 - source URL/token excluded from diagnostics.
+
+Before native registration, the exact raw-disc endpoint is probed on `Dispatchers.IO` with a one-byte
+Range request. A source is changed to `yfusebd://` only after the origin proves the same strict 206 and
+Content-Range semantics required by normal block reads. Failed preflight is not itself a playback
+error: YCore leaves the existing server main-feature/transcode route intact.
 
 Only the active optical-disc queue item is registered with JNI, preventing unused queued images from
 retaining Java global references. The original server transcode/progressive URLs remain on the item so
@@ -109,13 +116,13 @@ read-only ParcelFileDescriptor and `content://` images use the provider's seekab
 Generic `.iso` files are not routed until the bounded image classifier or trusted metadata establishes
 Blu-ray, preventing DVD images from being misrouted to libbluray.
 
-Extracted BDMV now has a separate read-only filesystem bridge. `NativeLocalBdmvSource` accepts a
-filesystem directory containing `BDMV/`, the BDMV directory itself, an `index.bdmv`/
-`MovieObject.bdmv` selection, or a persisted Android SAF tree. It rejects absolute paths, NUL, `.` and
-`..`, canonicalizes filesystem children under the selected root, and uses 64-bit random access for
-files. `stream_yfuse_bdmv.c` reuses the ISO session/menu/event/overlay state machine but substitutes
-libbluray `bd_open_files(open_dir, open_file)` for the block-device opener. This keeps ISO and BDMV
-navigation behavior aligned without pretending a directory is a single file descriptor.
+Extracted BDMV has a separate read-only filesystem bridge. `NativeLocalBdmvSource` accepts a filesystem
+directory containing `BDMV/`, the BDMV directory itself, an `index.bdmv`/`MovieObject.bdmv` selection,
+or a persisted Android SAF tree. It rejects absolute paths, NUL, `.` and `..`, canonicalizes filesystem
+children under the selected root, and uses 64-bit random access for files. `stream_yfuse_bdmv.c`
+reuses the ISO session/menu/event/overlay state machine but substitutes libbluray
+`bd_open_files(open_dir, open_file)` for the block-device opener. This keeps ISO and BDMV navigation
+behavior aligned without pretending a directory is a single file descriptor.
 
 The BDMV VFS has its own `YfuseBdmvRegistry` marker/JNI namespace and `BDMV_VFS` runtime capability.
 A `content://` BDMV source fails fast if the installed AAR has libbluray but lacks this bridge; a
@@ -124,15 +131,22 @@ custom AAR from being treated as fully interchangeable with the current one.
 
 ## Startup watchdog for giant sources
 
-A source-aware watchdog policy and deterministic evaluator now exist. The policy gives optical-disc
-sources a 60-second grace / 30-second stall window / 180-second hard cap, MOV/ProRes a 45/25/120-second
-window, remote linear media a 30/15/90-second window, and ordinary local files a smaller window.
-Unit tests explicitly prove that the old eight-second deadline is not a valid timeout for an optical
-load and that progress heartbeats may extend startup only until the hard cap.
+The historical fixed eight-second `FILE_LOADED` deadline has been removed from `MpvVideoEngine`.
+Startup now uses the source-aware watchdog policy/evaluator directly:
 
-**The current `MpvVideoEngine` still needs to be switched from its historical fixed eight-second timer
-to this evaluator.** Until that wiring lands, the helper is a tested policy contract but not yet an
-active runtime fix. The release gate remains open for large MOV/ProRes and ISO startup.
+- optical disc: 60 s grace, 30 s stall, 180 s hard limit;
+- MOV/ProRes: 45 s grace, 25 s stall, 120 s hard limit;
+- remote linear media: 30 s grace, 15 s stall, 90 s hard limit;
+- ordinary local media: 15 s grace, 10 s stall, 45 s hard limit.
+
+Native open/probe logs, `cache-speed`, `demuxer-cache-duration` and `START_FILE` are startup heartbeats.
+Heartbeats can extend the stall deadline but never the hard limit. `FILE_LOADED`, release and stale
+attempts invalidate the watcher. Timeout diagnostics contain policy/decision/index/transcoding facts,
+not a media URL or token. Unit tests cover the former eight-second optical regression, progress/stall,
+hard cap and stale attempts.
+
+This is now an active runtime source fix, but the release gate remains open until 100 GiB+ ISO and
+MOV/ProRes samples prove startup, random seek, resume and EOF behavior on physical devices.
 
 ## Title, MPLS, chapter and menu UI
 
@@ -179,12 +193,12 @@ Before merging/releasing this branch, all of the following must have evidence:
    SHA-256/source manifest, including `REMOTE_RAW_BLURAY`, `BDMV_VFS` and `HDMV_MENU`.
 3. Local ISO and BDMV: main feature, direct title/chapter selection, random seek, resume, EOF, SAF tree
    access and 100 GiB+ offset coverage where applicable.
-4. Remote ISO: 206/identity/no-redirect/token-refresh/416/large-offset tests plus real authenticated
-   server playback and server fallback on native failure.
+4. Remote ISO: preflight + 206/identity/no-redirect/token-refresh/416/large-offset tests plus real
+   authenticated server playback and server fallback on native failure.
 5. HDMV: root/popup menu, D-pad/select/back, touch, overlay clear/flush, still frame and failure
    isolation on authored discs.
-6. The adaptive/stall-based mpv startup policy is wired into the engine, and large ISO/ProRes startup
-   no longer depends on a fixed eight-second deadline.
+6. Large ISO/ProRes startup proves the active adaptive/stall watcher avoids false timeouts while still
+   terminating a genuinely stalled native backend.
 7. HDR10/HDR10+/HLG/Dolby Vision samples on hardware that advertises those outputs; P7 FEL remains
    NotMeasured unless enhancement-layer composition is independently proven.
 8. TrueHD/Atmos and DTS-HD over HDMI/eARC plus safe PCM fallback on speaker/Bluetooth.
