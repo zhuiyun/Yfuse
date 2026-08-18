@@ -1,5 +1,7 @@
 package com.yfuse.core2.legacy
 
+import com.yfuse.core.playback.PlaybackFailureKind
+import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.YPlayer
@@ -92,6 +94,7 @@ private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerSta
         audioTracks = audioTracks.map { it.toYTrack(YTrackType.Audio) },
         subtitleTracks = subtitleTracks.map { it.toYTrack(YTrackType.Subtitle) },
         error = error,
+        errorCategory = errorKind?.toYPlaybackFailureCategory(),
         diagnostics =
             YPlayerDiagnostics(
                 route = YPlaybackRoute.Legacy,
@@ -104,6 +107,18 @@ private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerSta
                 reason = diagnostics.planningReason ?: diagnostics.fallbackReason,
             ),
     )
+
+private fun PlaybackFailureKind.toYPlaybackFailureCategory(): YPlaybackFailureCategory =
+    when (this) {
+        PlaybackFailureKind.Authorization -> YPlaybackFailureCategory.Authorization
+        PlaybackFailureKind.Drm -> YPlaybackFailureCategory.Drm
+        PlaybackFailureKind.Network -> YPlaybackFailureCategory.Network
+        PlaybackFailureKind.Container -> YPlaybackFailureCategory.Container
+        PlaybackFailureKind.Decoder -> YPlaybackFailureCategory.Decoder
+        PlaybackFailureKind.Renderer -> YPlaybackFailureCategory.Renderer
+        PlaybackFailureKind.AudioSink -> YPlaybackFailureCategory.AudioSink
+        PlaybackFailureKind.Unknown -> YPlaybackFailureCategory.Unknown
+    }
 
 private fun EngineTrack.toYTrack(type: YTrackType): YTrack =
     YTrack(
