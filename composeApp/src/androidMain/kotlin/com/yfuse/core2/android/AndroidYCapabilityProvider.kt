@@ -46,17 +46,13 @@ internal class AndroidYCapabilityProvider(
         val normalizedType = type.lowercase()
         val codec = normalizedType.toYVideoCodec() ?: return null
         val capabilities = runCatching { getCapabilitiesForType(type) }.getOrNull() ?: return null
+        val profiles = capabilities.profileLevels.map { it.profile }
         val videoCapabilities = runCatching { capabilities.videoCapabilities }.getOrNull()
-        val hdrTypes =
-            buildSet {
-                add(YHdrType.Sdr)
-                if (normalizedType == MIME_DOLBY_VISION) add(YHdrType.DolbyVision)
-            }
         return YVideoDecoderCapability(
             name = name,
             codec = codec,
-            hdrTypes = hdrTypes,
-            rawProfiles = capabilities.profileLevels.mapTo(mutableSetOf()) { it.profile },
+            hdrTypes = decoderHdrTypes(normalizedType, profiles),
+            rawProfiles = profiles.toSet(),
             maxWidth = videoCapabilities?.supportedWidths?.upper ?: 0,
             maxHeight = videoCapabilities?.supportedHeights?.upper ?: 0,
             maxFrameRate = videoCapabilities?.supportedFrameRates?.upper ?: 0.0,
@@ -87,6 +83,82 @@ internal class AndroidYCapabilityProvider(
         }
     }
 }
+
+private fun decoderHdrTypes(
+    mimeType: String,
+    profiles: List<Int>,
+): Set<YHdrType> =
+    buildSet {
+        add(YHdrType.Sdr)
+        when (mimeType) {
+            MIME_DOLBY_VISION -> add(YHdrType.DolbyVision)
+            "video/hevc" -> {
+                if (
+                    profiles.any {
+                        it == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 ||
+                            it == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10 ||
+                            it == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus
+                    }
+                ) {
+                    add(YHdrType.Hlg)
+                }
+                if (
+                    profiles.any {
+                        it == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10 ||
+                            it == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus
+                    }
+                ) {
+                    add(YHdrType.Hdr10)
+                }
+                if (MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus in profiles) {
+                    add(YHdrType.Hdr10Plus)
+                }
+            }
+            "video/x-vnd.on2.vp9" -> {
+                if (
+                    profiles.any {
+                        it == MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR ||
+                            it == MediaCodecInfo.CodecProfileLevel.VP9Profile3HDR ||
+                            it == MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR10Plus ||
+                            it == MediaCodecInfo.CodecProfileLevel.VP9Profile3HDR10Plus
+                    }
+                ) {
+                    add(YHdrType.Hdr10)
+                    add(YHdrType.Hlg)
+                }
+                if (
+                    profiles.any {
+                        it == MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR10Plus ||
+                            it == MediaCodecInfo.CodecProfileLevel.VP9Profile3HDR10Plus
+                    }
+                ) {
+                    add(YHdrType.Hdr10Plus)
+                }
+            }
+            "video/av01" -> {
+                if (
+                    profiles.any {
+                        it == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10 ||
+                            it == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10 ||
+                            it == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus
+                    }
+                ) {
+                    add(YHdrType.Hlg)
+                }
+                if (
+                    profiles.any {
+                        it == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10 ||
+                            it == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus
+                    }
+                ) {
+                    add(YHdrType.Hdr10)
+                }
+                if (MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus in profiles) {
+                    add(YHdrType.Hdr10Plus)
+                }
+            }
+        }
+    }
 
 private fun String.toYVideoCodec(): YVideoCodec? =
     when (this) {
