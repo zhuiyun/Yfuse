@@ -12,6 +12,8 @@ import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
+import com.yfuse.core2.dolby.YDolbyVisionCodecFamily
+import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.strategy.DefaultYPlaybackStrategy
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
@@ -31,6 +33,7 @@ internal sealed interface YCore2ProbeResult {
         val videoMime: String,
         val audioMime: String?,
         val durationMs: Long,
+        val dolbyVisionConfig: YDolbyVisionConfig? = null,
     ) : YCore2ProbeResult
 
     data class Failure(
@@ -71,7 +74,8 @@ internal class AndroidCore2MediaProbe(
             val videoFormat = demux.trackFormat(videoIndex)
             val videoMime = videoFormat.getString(MediaFormat.KEY_MIME)?.lowercase()
                 ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.UnknownVideoCodec)
-            val videoCodec = videoMime.toCore2VideoCodec()
+            val dolbyVisionConfig = videoFormat.dolbyVisionConfigOrNull(videoMime)
+            val videoCodec = videoMime.toCore2VideoCodec(videoFormat, dolbyVisionConfig)
                 ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.UnknownVideoCodec)
             val audioIndex = demux.findFirstTrack("audio/")
             val audioFormat = audioIndex?.let(demux::trackFormat)
@@ -85,9 +89,7 @@ internal class AndroidCore2MediaProbe(
                     frameRate = videoFormat.frameRateOrZero(),
                     bitDepth = videoFormat.bitDepth(videoMime),
                     hdrType = videoFormat.hdrType(videoMime),
-                    // Android's codec profile constants are not the same semantic value as the
-                    // Dolby Vision bitstream profile; leave this unknown until the DV parser owns it.
-                    dolbyVisionProfile = null,
+                    dolbyVisionProfile = dolbyVisionConfig?.profile,
                 )
             val audio =
                 audioFormat?.let { format ->
@@ -110,14 +112,14 @@ internal class AndroidCore2MediaProbe(
                         audio = audio,
                         platformDemuxSupported = true,
                         enhancedDemuxSupported = true,
-                        // Compatibility fallback is deliberately absent here. P8.1/P8.4 fallback
-                        // requires a real Dolby bitstream parser, not a MIME/profile guess.
-                        fallbackHdrType = null,
+                        fallbackHdrType = dolbyVisionConfig?.compatibleBaseHdr,
+                        // Tunnel is implemented after the direct Surface lifecycle is hardened.
                         preferTunnel = false,
                     ),
                 videoMime = videoMime,
                 audioMime = audioMime,
                 durationMs = durationUs / 1_000L,
+                dolbyVisionConfig = dolbyVisionConfig,
             )
         } catch (_: Throwable) {
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
@@ -145,15 +147,44 @@ internal class AndroidCore2RouteEvaluator(
 private fun YMediaItem.toProbeSource(): YAndroidMediaSource =
     YAndroidMediaSource(uri = uri, headers = headers)
 
-private fun String.toCore2VideoCodec(): YVideoCodec? =
+private fun String.toCore2VideoCodec(
+    format: MediaFormat,
+    dolbyVisionConfig: YDolbyVisionConfig?,
+): YVideoCodec? =
     when (lowercase()) {
         "video/avc" -> YVideoCodec.H264
-        "video/hevc", "video/dolby-vision" -> YVideoCodec.H265
+        "video/hevc" -> YVideoCodec.H265
         "video/av01" -> YVideoCodec.Av1
         "video/x-vnd.on2.vp9" -> YVideoCodec.Vp9
         "video/mpeg2" -> YVideoCodec.Mpeg2
+        "video/dolby-vision" ->
+            when (dolbyVisionConfig?.codecFamily) {
+                YDolbyVisionCodecFamily.Hevc -> YVideoCodec.H265
+                YDolbyVisionCodecFamily.Avc -> YVideoCodec.H264
+                YDolbyVisionCodecFamily.Av1 -> YVideoCodec.Av1
+                YDolbyVisionCodecFamily.Unknown, null -> format.dolbyVisionCodecFromPlatformProfile()
+            }
         else -> null
     }
+
+private fun MediaFormat.dolbyVisionCodecFromPlatformProfile(): YVideoCodec {
+    val platformProfile = intOrZero(MediaFormat.KEY_PROFILE)
+    return when (platformProfile) {
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvav110 -> YVideoCodec.Av1
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavSe -> YVideoCodec.H264
+        else -> YVideoCodec.H265
+    }
+}
+
+/** AOSP MP4 extraction exposes dvcC/dvvC/dvwC as the opaque `csd-2` MediaFormat buffer. */
+private fun MediaFormat.dolbyVisionConfigOrNull(mime: String): YDolbyVisionConfig? {
+    if (mime != "video/dolby-vision" || !containsKey(CSD_2)) return null
+    val source = runCatching { getByteBuffer(CSD_2) }.getOrNull() ?: return null
+    val copy = source.duplicate()
+    val bytes = ByteArray(copy.remaining())
+    copy.get(bytes)
+    return runCatching { YDolbyVisionConfig.parse(bytes) }.getOrNull()
+}
 
 private fun MediaFormat.intOrZero(key: String): Int =
     if (containsKey(key)) runCatching { getInteger(key) }.getOrDefault(0) else 0
@@ -243,5 +274,6 @@ private fun YMediaItem.containerHint(): YContainer {
     }
 }
 
+private const val CSD_2 = "csd-2"
 private const val COLOR_TRANSFER_ST2084 = 6
 private const val COLOR_TRANSFER_HLG = 7
