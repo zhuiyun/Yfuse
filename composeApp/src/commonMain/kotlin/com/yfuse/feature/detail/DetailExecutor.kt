@@ -990,11 +990,21 @@ internal class DetailExecutor(
         val current = state()
         val detail = current.detail ?: return
         val server = current.server ?: return
+        if (current.watchLater) return
+
+        // Immediate visual confirmation, but owned by the Store so a failed server request can
+        // roll it back instead of leaving a local composable in a false selected state.
+        dispatch(DetailMsg.WatchLaterChanged(server.id, detail.id, true))
         scope.launch {
             repo
                 .addToWatchLater(server, detail.id)
-                .onSuccess { dispatch(DetailMsg.ActionMessage("已加入稍后观看")) }
-                .onFailure {
+                .onSuccess {
+                    if (isVisibleSource(server.id, detail.id)) {
+                        dispatch(DetailMsg.ActionMessage("已加入稍后观看"))
+                    }
+                }.onFailure {
+                    if (!isVisibleSource(server.id, detail.id)) return@onFailure
+                    dispatch(DetailMsg.WatchLaterChanged(server.id, detail.id, false))
                     AppLog.warning(
                         category = "feature.detail",
                         event = "watch_later_failed",
