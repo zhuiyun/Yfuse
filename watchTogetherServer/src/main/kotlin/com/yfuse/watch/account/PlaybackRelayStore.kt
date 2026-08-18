@@ -342,10 +342,14 @@ internal class PlaybackRelayStore private constructor(
 
         internal fun inMemoryForTests(): PlaybackRelayStore {
             val connection = DriverManager.getConnection("jdbc:sqlite::memory:")
+            val store = PlaybackRelayStore(connection)
+            // Production always has the account `users` table and intentionally keeps FK checks
+            // enabled. This isolated unit store has no account schema; disable only after the
+            // relay constructor has created its own tables so tests exercise relay semantics.
             connection.createStatement().use {
                 it.execute("PRAGMA foreign_keys = OFF")
             }
-            return PlaybackRelayStore(connection)
+            return store
         }
     }
 }
