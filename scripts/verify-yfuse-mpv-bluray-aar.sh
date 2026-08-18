@@ -79,7 +79,7 @@ unzip -q "$AAR" -d "$staging/aar"
 [[ -f "$staging/aar/classes.jar" ]] || die "AAR is missing classes.jar"
 [[ -f "$staging/aar/jni/arm64-v8a/libmpv.so" ]] || die "AAR is missing arm64-v8a/libmpv.so"
 for required_class in "$EXPECTED_CAPABILITY_CLASS" "$EXPECTED_REGISTRY_CLASS" "$EXPECTED_BDMV_REGISTRY_CLASS"; do
-  unzip -l "$staging/aar/classes.jar" | grep -Fq "$required_class" ||
+  unzip -l "$staging/aar/classes.jar" | grep -F "$required_class" >/dev/null ||
     die "AAR classes.jar is missing $required_class"
 done
 
@@ -89,19 +89,19 @@ for prefix in \
   Java_dev_yfuse_mpv_YfuseBdmvRegistry; do
   for suffix in nativeRegister nativeUnregister nativeSelectAngle nativeSendMenuCommand nativeSelectMenuPoint; do
     symbol="${prefix}_${suffix}"
-    readelf -Ws "$arm64_mpv" | grep -Fq "$symbol" || die "libmpv.so is missing JNI symbol: $symbol"
+    readelf -Ws "$arm64_mpv" | grep -F "$symbol" >/dev/null || die "libmpv.so is missing JNI symbol: $symbol"
   done
 done
-strings "$arm64_mpv" | grep -Fq 'yfusebd' || die "libmpv.so is missing the yfusebd stream protocol"
-strings "$arm64_mpv" | grep -Fq 'yfusebdmv' || die "libmpv.so is missing the yfusebdmv stream protocol"
-strings "$arm64_mpv" | grep -Fq 'Yfuse remote Blu-ray source opened with libbluray' ||
+strings "$arm64_mpv" | grep -F 'yfusebd' >/dev/null || die "libmpv.so is missing the yfusebd stream protocol"
+strings "$arm64_mpv" | grep -F 'yfusebdmv' >/dev/null || die "libmpv.so is missing the yfusebdmv stream protocol"
+strings "$arm64_mpv" | grep -F 'Yfuse remote Blu-ray source opened with libbluray' >/dev/null ||
   die "libmpv.so is missing the Yfuse libbluray stream implementation"
 
 mapfile -t arm64_libs < <(find "$staging/aar/jni/arm64-v8a" -maxdepth 1 -type f -name '*.so' -print | sort)
 (( ${#arm64_libs[@]} > 0 )) || die "AAR contains no arm64 native libraries"
 for so in "${arm64_libs[@]}"; do
-  readelf -h "$so" | grep -Eq 'Class:[[:space:]]+ELF64' || die "$(basename "$so") is not ELF64"
-  readelf -h "$so" | grep -Eq 'Machine:[[:space:]]+(AArch64|ARM aarch64)' || die "$(basename "$so") is not AArch64"
+  readelf -h "$so" | grep -E 'Class:[[:space:]]+ELF64' >/dev/null || die "$(basename "$so") is not ELF64"
+  readelf -h "$so" | grep -E 'Machine:[[:space:]]+(AArch64|ARM aarch64)' >/dev/null || die "$(basename "$so") is not AArch64"
   verify_load_alignment "$so"
 done
 

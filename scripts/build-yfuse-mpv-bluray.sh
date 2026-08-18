@@ -350,7 +350,7 @@ grep -q 'jni/arm64-v8a/libmpv.so' "$TMP_LIST" || {
 }
 unzip -p "$AAR" classes.jar >"$TMP_CLASSES"
 for required_class in "$CAPABILITY_CLASS_PATH" "$REGISTRY_CLASS_PATH" "$BDMV_REGISTRY_CLASS_PATH"; do
-  unzip -l "$TMP_CLASSES" | grep -Fq "$required_class" || {
+  unzip -l "$TMP_CLASSES" | grep -F "$required_class" >/dev/null || {
     printf 'error: AAR is missing required Yfuse class: %s\n' "$required_class" >&2
     exit 1
   }
