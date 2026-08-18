@@ -31,7 +31,6 @@ data class YPlaybackRequest(
     /** HDR-compatible base layer, e.g. HDR10 for Dolby Vision Profile 8.1. */
     val fallbackHdrType: YHdrType? = null,
     val preferTunnel: Boolean = true,
-    val allowSoftwareFallback: Boolean = true,
 )
 
 data class YPlaybackPlan(
@@ -134,17 +133,6 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                         else ->
                             "Use platform/native hardware decode with direct Surface presentation"
                     },
-            )
-        }
-
-        if (!request.allowSoftwareFallback) {
-            return YPlaybackPlan(
-                route = YPlaybackRoute.SoftwareFallback,
-                demuxPath = YDemuxPath.Software,
-                decodePath = YDecodePath.Software,
-                renderPath = YRenderPath.Gpu,
-                outputHdrType = YHdrType.Sdr,
-                reason = "No compatible native path exists and software fallback is disabled",
             )
         }
 
