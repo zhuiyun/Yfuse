@@ -1,11 +1,20 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -25,7 +34,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/**
+/*
  * The artwork-over-page hero shared by 影视详情页 and the TMDB info page.
  *
  * Both pages are the same layout — full-bleed backdrop, a wash blending it into the
@@ -53,6 +62,65 @@ val HeroTextShadow: Shadow =
         offset = Offset(0f, 1.5f),
         blurRadius = 12f,
     )
+
+private val HeroPlayFill = Color.White.copy(alpha = 0.82f)
+private val HeroPlayBorder = Color.White.copy(alpha = 0.62f)
+private val HeroPlayInk = Color(0xFF101722)
+private val HeroSecondaryFill = HeroInk.copy(alpha = 0.44f)
+private val HeroSecondaryBorder = Color.White.copy(alpha = 0.24f)
+
+/**
+ * Primary action shared by the 首页 and 媒体库 reels.
+ *
+ * The old copies were opaque white pills painted outside the glass system, so changing
+ * 毛玻璃/液态玻璃 left the largest hero control untouched. This surface deliberately goes
+ * through [liquidGlass]: liquid gets a shallow body and highlight, frosted gets diffused
+ * tones, and 减弱透明度 receives the opaque accessible counterpart.
+ */
+@Composable
+fun HeroPlayButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    label: String = "播放",
+    actionLabel: String = "播放影片",
+) {
+    Row(
+        modifier
+            .height(48.dp)
+            .pressable(onClickLabel = actionLabel, onClick = onClick)
+            .shadow(GlassLift.control, GlassShapes.chip)
+            .liquidGlass(
+                shape = GlassShapes.chip,
+                fill = HeroPlayFill,
+                border = HeroPlayBorder,
+                over = HeroInk,
+                sheen = 0.76f,
+            ).padding(horizontal = 18.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            AppIcons.Play,
+            contentDescription = null,
+            tint = HeroPlayInk,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(label, style = AppTypography.body.strong, color = HeroPlayInk)
+    }
+}
+
+/** Artwork-safe secondary control material for hero action rows. */
+@Composable
+fun Modifier.heroGlassAction(): Modifier =
+    this
+        .shadow(GlassLift.control, CircleShape)
+        .liquidGlass(
+            shape = CircleShape,
+            fill = HeroSecondaryFill,
+            border = HeroSecondaryBorder,
+            over = HeroInk,
+            sheen = 0.58f,
+        )
 
 /**
  * Scrim for a hero whose lower edge dissolves into the page — dark at the top, where the
@@ -95,21 +163,21 @@ fun heroSurface(
         accent
             .copy(alpha = 0.34f)
             .compositeOver(Color(0xFF0B111C))
-            .darkenedTo(DarkHeroSurfaceLuminance, Color(0xFF0B111C))
-            .chromaBoosted(DarkHeroSurfaceChroma)
+            .darkenedTo(DARK_HERO_SURFACE_LUMINANCE, Color(0xFF0B111C))
+            .chromaBoosted(DARK_HERO_SURFACE_CHROMA)
     } else {
         accent
             .copy(alpha = 0.34f)
             .compositeOver(Color.White)
-            .lightenedTo(LightHeroSurfaceLuminance, Color.White)
-            .chromaBoosted(LightHeroSurfaceChroma)
+            .lightenedTo(LIGHT_HERO_SURFACE_LUMINANCE, Color.White)
+            .chromaBoosted(LIGHT_HERO_SURFACE_CHROMA)
     }
 
 /** As bright as [LightPalette]'s own `background`, where its greys were measured. */
-private const val LightHeroSurfaceLuminance = 0.87f
+private const val LIGHT_HERO_SURFACE_LUMINANCE = 0.87f
 
 /** No lighter than the tint the dark detail page already carried. */
-private const val DarkHeroSurfaceLuminance = 0.032f
+private const val DARK_HERO_SURFACE_LUMINANCE = 0.032f
 
 /**
  * How much of the artwork's colour survives the brightness guards.
@@ -119,8 +187,8 @@ private const val DarkHeroSurfaceLuminance = 0.032f
  * colour rather than as a hint of one. Chroma is symmetric about the channel mean, so it
  * moves the hue back into view without moving the brightness the guards just fixed.
  */
-private const val LightHeroSurfaceChroma = 2.6f
-private const val DarkHeroSurfaceChroma = 2.2f
+private const val LIGHT_HERO_SURFACE_CHROMA = 2.6f
+private const val DARK_HERO_SURFACE_CHROMA = 2.2f
 
 private fun Color.lightenedTo(
     minimum: Float,

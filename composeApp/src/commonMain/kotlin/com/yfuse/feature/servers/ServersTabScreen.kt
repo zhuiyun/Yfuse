@@ -618,14 +618,12 @@ private fun CurrentServerHero(
             ).shadow(
                 Shadows.primaryButton(accent.accent.copy(alpha = 0.42f)),
                 GlassShapes.card,
-            ).glass(
+            ).liquidGlass(
                 shape = GlassShapes.card,
-                fill =
-                    Brush.linearGradient(
-                        0f to lerp(accent.container, Color.White, if (palette.isDark) 0.04f else 0.20f),
-                        1f to palette.card,
-                    ),
+                fill = lerp(palette.card, accent.container, if (palette.isDark) 0.26f else 0.22f),
                 border = accent.border.copy(alpha = 0.72f),
+                over = palette.background,
+                sheen = 0.66f,
             ).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -841,14 +839,12 @@ private fun ServerCard(
         if (isCurrent) {
             Modifier
                 .shadow(Shadows.primaryButton(accent.accent.copy(alpha = 0.55f)), GlassShapes.card)
-                .glass(
+                .liquidGlass(
                     shape = GlassShapes.card,
-                    fill =
-                        Brush.linearGradient(
-                            0f to lerp(accent.container, Color.White, if (palette.isDark) 0.04f else 0.18f),
-                            1f to palette.card,
-                        ),
+                    fill = lerp(palette.card, accent.container, if (palette.isDark) 0.26f else 0.20f),
                     border = accent.border.copy(alpha = 0.72f),
+                    over = palette.background,
+                    sheen = 0.64f,
                 )
         } else if (server.iconTint != null) {
             // A tint the user chose is theirs to see. It washes the card from the badge corner

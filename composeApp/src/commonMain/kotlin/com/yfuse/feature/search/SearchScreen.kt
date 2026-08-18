@@ -52,7 +52,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.core.data.CrossServerMediaGroup
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -153,23 +152,29 @@ private fun SearchHomeScreen(
             state = component.listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = TabBarInset),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                SearchField(
-                    query = state.query,
-                    onQueryChange = { store.accept(SearchIntent.QueryChanged(it)) },
-                    onSubmit = { store.accept(SearchIntent.Submit) },
-                    onClear = { store.accept(SearchIntent.Clear) },
-                    focusRequester = fieldFocusRequester,
-                )
+                Column {
+                    SearchField(
+                        query = state.query,
+                        onQueryChange = { store.accept(SearchIntent.QueryChanged(it)) },
+                        onSubmit = { store.accept(SearchIntent.Submit) },
+                        onClear = { store.accept(SearchIntent.Clear) },
+                        focusRequester = fieldFocusRequester,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
             }
             item {
-                SearchFilterBar(
-                    state = state,
-                    onOpen = { filterSheet = it },
-                    onClear = { store.accept(SearchIntent.ClearFilters) },
-                )
+                Column {
+                    SearchFilterBar(
+                        state = state,
+                        onOpen = { filterSheet = it },
+                        onClear = { store.accept(SearchIntent.ClearFilters) },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 filterSheet?.let { sheet ->
                     SearchFilterDialog(
                         state = state,
@@ -209,8 +214,11 @@ private fun SearchHomeScreen(
 
             // Nothing typed yet: the chip row alone, no empty results heading.
             if ((state.hasSearched || state.error != null) && !awaitingFirstResults) {
-                item {
-                    Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
+                item(key = "search-results-heading") {
+                    Column(
+                        Modifier.padding(horizontal = Dimens.pageHorizontal),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
                         ResultsHeading(
                             count = state.visibleResultCount,
                             types = state.availableTypes,
@@ -225,47 +233,78 @@ private fun SearchHomeScreen(
                                 onToggle = { coverageExpanded = !coverageExpanded },
                                 onOpenServerSettings = component.onOpenServerSettings,
                             )
-                            Spacer(Modifier.height(14.dp))
-                        }
-                        when {
-                            state.error != null ->
-                                ErrorState(
-                                    message = state.error!!,
-                                    onRetry = { store.accept(SearchIntent.Retry) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-
-                            // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
-                            state.visibleGroups.all { it.items.isEmpty() } && !state.loading ->
-                                EmptyResults(filtered = state.type != SearchType.All)
-
-                            else ->
-                                if (state.aggregated.isNotEmpty()) {
-                                    AggregatedResults(
-                                        groups = state.visibleAggregated,
-                                        baseUrl = component::serverBaseUrl,
-                                        accessToken = component::serverAccessToken,
-                                        onOpenItem = component.onOpenItem,
-                                    )
-                                } else {
-                                    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                                        state.visibleGroups.forEach { group ->
-                                            ServerGroup(
-                                                group = group,
-                                                baseUrl = component.serverBaseUrl(group.serverId),
-                                                accessToken = component.serverAccessToken(group.serverId),
-                                                onOpenItem = {
-                                                    component.onOpenItem(group.serverId, it)
-                                                },
-                                                onLoadMore = {
-                                                    store.accept(SearchIntent.LoadMore(group.serverId))
-                                                },
-                                            )
-                                        }
-                                    }
-                                }
                         }
                     }
+                }
+                when {
+                    state.error != null ->
+                        item(key = "search-results-error") {
+                            ErrorState(
+                                message = state.error!!,
+                                onRetry = { store.accept(SearchIntent.Retry) },
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = Dimens.pageHorizontal),
+                            )
+                        }
+
+                    // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
+                    state.visibleGroups.all { it.items.isEmpty() } && !state.loading ->
+                        item(key = "search-results-empty") {
+                            Box(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
+                                EmptyResults(filtered = state.type != SearchType.All)
+                            }
+                        }
+
+                    state.aggregated.isNotEmpty() ->
+                        items(
+                            items = state.visibleAggregated,
+                            key = { it.identity },
+                            contentType = { "aggregated-search-result" },
+                        ) { group ->
+                            val recommended = group.recommended
+                            ResultRow(
+                                baseUrl = component.serverBaseUrl(recommended.serverId),
+                                accessToken = component.serverAccessToken(recommended.serverId),
+                                serverId = recommended.serverId,
+                                item = recommended.item,
+                                sourceSummary =
+                                    if (group.copies.size > 1) {
+                                        "${group.copies.size} 个片源 · 推荐 ${recommended.serverName}"
+                                    } else {
+                                        null
+                                    },
+                                onClick = {
+                                    component.onOpenItem(recommended.serverId, recommended.item.id)
+                                },
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = Dimens.pageHorizontal),
+                            )
+                        }
+
+                    else ->
+                        items(
+                            items = state.visibleGroups,
+                            key = { "server-results-${it.serverId}" },
+                            contentType = { "server-search-group" },
+                        ) { group ->
+                            ServerGroup(
+                                group = group,
+                                baseUrl = component.serverBaseUrl(group.serverId),
+                                accessToken = component.serverAccessToken(group.serverId),
+                                onOpenItem = {
+                                    component.onOpenItem(group.serverId, it)
+                                },
+                                onLoadMore = {
+                                    store.accept(SearchIntent.LoadMore(group.serverId))
+                                },
+                                modifier =
+                                    Modifier.padding(horizontal = Dimens.pageHorizontal),
+                            )
+                        }
                 }
             }
 
@@ -281,35 +320,6 @@ private fun SearchHomeScreen(
                     )
                 }
             }
-        }
-    }
-}
-
-/** One logical card per title; its badge reveals how many concrete server copies back it. */
-@Composable
-private fun AggregatedResults(
-    groups: List<CrossServerMediaGroup>,
-    baseUrl: (String) -> String,
-    accessToken: (String) -> String,
-    onOpenItem: (String, String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        groups.forEach { group ->
-            val recommended = group.recommended
-            ResultRow(
-                baseUrl = baseUrl(recommended.serverId),
-                accessToken = accessToken(recommended.serverId),
-                serverId = recommended.serverId,
-                item = recommended.item,
-                sourceSummary =
-                    if (group.copies.size > 1) {
-                        "${group.copies.size} 个片源 · 推荐 ${recommended.serverName}"
-                    } else {
-                        null
-                    },
-                onClick = { onOpenItem(recommended.serverId, recommended.item.id) },
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }
@@ -387,7 +397,7 @@ private fun ResultsHeading(
 ) {
     val palette = LocalPalette.current
     Row(
-        Modifier.fillMaxWidth().padding(bottom = 10.dp),
+        Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -550,9 +560,10 @@ private fun ServerGroup(
     accessToken: String,
     onOpenItem: (String) -> Unit,
     onLoadMore: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             Modifier.fillMaxWidth().padding(bottom = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -603,7 +614,7 @@ private fun ServerGroup(
                         serverId = group.serverId,
                         item = item,
                         onClick = { onOpenItem(item.id) },
-                        modifier = Modifier.width(SearchResultCardWidth).then(motionAwareItem()),
+                        modifier = Modifier.width(SearchResultCardWidth),
                     )
                 }
             }

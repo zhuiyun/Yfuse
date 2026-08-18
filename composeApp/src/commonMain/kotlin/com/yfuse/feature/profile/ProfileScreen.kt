@@ -96,6 +96,7 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.defaultAnimation
+import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
@@ -947,8 +948,7 @@ internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(GlassShapes.card)
-            .background(palette.card2),
+            .flatGlass(GlassShapes.card, palette.card2, palette.border),
         content = content,
     )
 }
@@ -982,9 +982,13 @@ internal fun Section(
                         Modifier
                             .pressable(onClick = onAction)
                             .touchTarget()
-                            .clip(GlassShapes.chip)
-                            .background(palette.card2)
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                            .liquidGlass(
+                                shape = GlassShapes.chip,
+                                fill = palette.card2,
+                                border = palette.border,
+                                over = palette.background,
+                                sheen = 0.52f,
+                            ).padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
         }
@@ -1132,12 +1136,18 @@ private fun BrandAndSplashScreen(
                         .fillMaxWidth()
                         .pressable(role = Role.RadioButton) { selectAnimation(variant) }
                         .semantics { this.selected = active }
-                        .clip(AppShapes.card)
-                        .background(palette.card2)
-                        .border(
-                            if (active) 2.dp else 1.dp,
-                            if (active) accent.border else palette.border,
-                            AppShapes.card,
+                        .liquidGlass(
+                            shape = AppShapes.card,
+                            fill = palette.card2,
+                            border = palette.border,
+                            over = palette.background,
+                            sheen = 0.54f,
+                        ).then(
+                            if (active) {
+                                Modifier.border(2.dp, accent.border, AppShapes.card)
+                            } else {
+                                Modifier
+                            },
                         ).padding(horizontal = 14.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -1403,8 +1413,7 @@ private fun SettingSegmentControl(
         Modifier
             .then(if (expanded) Modifier.fillMaxWidth() else Modifier)
             .selectableGroup()
-            .clip(GlassShapes.chip)
-            .background(palette.card3)
+            .flatGlass(GlassShapes.chip, palette.card3, palette.border)
             .padding(2.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {

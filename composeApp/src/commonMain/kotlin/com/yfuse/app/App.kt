@@ -89,7 +89,6 @@ import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.backdropSource
-import com.yfuse.core.designsystem.frostedGlass
 import com.yfuse.core.designsystem.overlayGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberBackdropState
@@ -119,6 +118,21 @@ private data class TabItem(
     val label: String,
     val icon: ImageVector,
 )
+
+internal data class NavigationGlassVisuals(
+    val shell: Color,
+    val selection: Color,
+)
+
+/** One navigation material for the bottom dock, its detached keys and the expanded rail. */
+internal fun navigationGlassVisuals(
+    palette: com.yfuse.core.designsystem.Palette,
+    accent: com.yfuse.core.designsystem.AccentColors,
+): NavigationGlassVisuals =
+    NavigationGlassVisuals(
+        shell = palette.glassStrong,
+        selection = accent.container.copy(alpha = if (palette.isDark) 0.44f else 0.58f),
+    )
 
 /**
  * The four destinations in the bar.
@@ -828,7 +842,7 @@ private fun CollapsedNavButton(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val frosted = frostedGlass()
+    val navigationGlass = navigationGlassVisuals(palette, accent)
     val item = tabs.firstOrNull { it.tab == active } ?: tabs.first()
     Box(
         Modifier
@@ -845,15 +859,7 @@ private fun CollapsedNavButton(
             .backdropBlur(backdrop, CircleShape)
             .overlayGlass(
                 CircleShape,
-                palette.glassStrong.copy(
-                    alpha =
-                        when {
-                            frosted && palette.isDark -> 0.68f
-                            frosted -> 0.58f
-                            palette.isDark -> 0.86f
-                            else -> 0.92f
-                        },
-                ),
+                navigationGlass.shell,
                 palette.tabbarBorder,
             ),
         contentAlignment = Alignment.Center,
@@ -878,7 +884,7 @@ private fun SearchButton(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val frosted = frostedGlass()
+    val navigationGlass = navigationGlassVisuals(palette, accent)
     val tint by animateColorAsState(
         targetValue = if (selected) accent.accent else palette.sub2,
         animationSpec = Motion.settle<Color>(reduceMotion),
@@ -899,17 +905,9 @@ private fun SearchButton(
             .overlayGlass(
                 CircleShape,
                 if (selected) {
-                    accent.container
+                    navigationGlass.selection
                 } else {
-                    palette.glassStrong.copy(
-                        alpha =
-                            when {
-                                frosted && palette.isDark -> 0.68f
-                                frosted -> 0.58f
-                                palette.isDark -> 0.86f
-                                else -> 0.92f
-                            },
-                    )
+                    navigationGlass.shell
                 },
                 if (selected) accent.border else palette.tabbarBorder,
             ),
@@ -941,25 +939,14 @@ private fun GlassTabBar(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val frosted = frostedGlass()
+    val navigationGlass = navigationGlassVisuals(palette, accent)
     // -1 while 搜索 is open: it is not one of the cells any more, so the pill has nowhere to
     // be and is not drawn rather than parking under 首页 and claiming the user is there.
     val selectedIndex = tabs.indexOfFirst { it.tab == active }
     val hasSelection = selectedIndex >= 0
-    // Reference-style shell: almost-opaque light glass with a quiet neutral selected island.
-    // The accent stays on the icon/label so theme colours remain expressive without tinting
-    // the whole selected cell. Dark mode keeps the same hierarchy with a stronger dark glass.
-    val barFill =
-        palette.glassStrong.copy(
-            alpha =
-                when {
-                    frosted && palette.isDark -> 0.68f
-                    frosted -> 0.58f
-                    palette.isDark -> 0.86f
-                    else -> 0.92f
-                },
-        )
-    val selectionFill = accent.container.copy(alpha = if (palette.isDark) 0.46f else 0.72f)
+    // The shell uses the same semantic material as the rail and detached keys. The glass
+    // implementation itself resolves liquid/frosted differences; overriding alpha here used
+    // to turn only the phone dock into a near-opaque plate.
     // The pill travels between cells rather than appearing under the new one. Tabs are
     // equal-weight quarters of the bar, so its position is the animated index and nothing
     // has to be measured.
@@ -986,7 +973,7 @@ private fun GlassTabBar(
             // the children's fillMaxHeight consume the whole screen.
             .shadow(Shadows.tabBar, CircleShape)
             .backdropBlur(backdrop, CircleShape)
-            .overlayGlass(CircleShape, barFill, palette.tabbarBorder)
+            .overlayGlass(CircleShape, navigationGlass.shell, palette.tabbarBorder)
             // After the fill and before the buttons: the pill belongs to the material, not
             // over the icons.
             .drawBehind {
@@ -1000,7 +987,7 @@ private fun GlassTabBar(
                 val pillWidth = cell * 0.82f
                 val pillHeight = size.height * 0.86f
                 drawRoundRect(
-                    color = selectionFill,
+                    color = navigationGlass.selection,
                     topLeft =
                         Offset(
                             x = cell * indicator + (cell - pillWidth) / 2f,
@@ -1073,6 +1060,7 @@ private fun GlassNavigationRail(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val navigationGlass = navigationGlassVisuals(palette, LocalAccentColors.current)
     Column(
         modifier
             .padding(start = Dimens.tabBarInset, top = 72.dp, bottom = 72.dp)
@@ -1081,7 +1069,7 @@ private fun GlassNavigationRail(
             .selectableGroup()
             .shadow(Shadows.tabBar, GlassShapes.tabBar)
             .backdropBlur(backdrop, GlassShapes.tabBar)
-            .overlayGlass(GlassShapes.tabBar, palette.glassStrong, palette.tabbarBorder)
+            .overlayGlass(GlassShapes.tabBar, navigationGlass.shell, palette.tabbarBorder)
             .padding(horizontal = 6.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceEvenly,
@@ -1105,6 +1093,7 @@ private fun RailTabButton(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val navigationGlass = navigationGlassVisuals(palette, accent)
     val tint by animateColorAsState(
         targetValue = if (selected) accent.accent else palette.sub2,
         animationSpec = Motion.settle<Color>(reduceMotion),
@@ -1115,7 +1104,7 @@ private fun RailTabButton(
             .width(64.dp)
             .heightIn(min = 58.dp)
             .clip(GlassShapes.card)
-            .background(if (selected) accent.container else Color.Transparent)
+            .background(if (selected) navigationGlass.selection else Color.Transparent)
             .pressable(
                 pressedScale = 0.96f,
                 haptic = HapticSignal.Select,

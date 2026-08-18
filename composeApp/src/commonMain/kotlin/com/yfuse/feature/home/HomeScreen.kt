@@ -63,6 +63,7 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroCaptionClearance
 import com.yfuse.core.designsystem.HeroPageIndicator
+import com.yfuse.core.designsystem.HeroPlayButton
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -79,6 +80,7 @@ import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.heroGlassAction
 import com.yfuse.core.designsystem.heroReelScrim
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
@@ -719,24 +721,7 @@ private fun HeroCaption(
             horizontalArrangement = Arrangement.spacedBy(9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier
-                    .height(48.dp)
-                    .clip(GlassShapes.chip)
-                    .background(Color.White.copy(alpha = 0.94f))
-                    .pressable(onClickLabel = "播放影片", onClick = onPlay)
-                    .padding(horizontal = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    AppIcons.Play,
-                    contentDescription = null,
-                    tint = Color(0xFF101722),
-                    modifier = Modifier.size(19.dp),
-                )
-                Text("播放", style = AppTypography.body.strong, color = Color(0xFF101722))
-            }
+            HeroPlayButton(onClick = onPlay)
             HeroCircleButton(AppIcons.Info, "查看详情", onDetails)
             HeroCircleButton(AppIcons.Add, "加入收藏", onFavorite)
         }
@@ -754,8 +739,7 @@ private fun HeroCircleButton(
         Modifier
             .pressable(onClick = onClick)
             .size(48.dp)
-            .clip(CircleShape)
-            .background(Color(0xFF11151F).copy(alpha = 0.42f)),
+            .heroGlassAction(),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, label, tint = Color.White, modifier = Modifier.size(15.dp))

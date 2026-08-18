@@ -130,7 +130,7 @@ fun AddServerDialog(
                             Modifier
                                 .fillMaxWidth()
                                 .pressable { onIntent(ServersIntent.SelectDiscovered(server)) }
-                                .background(palette.card2)
+                                .glass(GlassShapes.chip, palette.card2, palette.border)
                                 .padding(horizontal = 10.dp, vertical = 9.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -192,7 +192,7 @@ fun AddServerDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(palette.card2),
+                    .glass(GlassShapes.card, palette.card2, palette.border),
             ) {
                 FormInput(
                     label = "显示名称",
@@ -236,7 +236,7 @@ fun AddServerDialog(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(palette.card2),
+                    .glass(GlassShapes.card, palette.card2, palette.border),
             ) {
                 FormInput(
                     label = "用户名",

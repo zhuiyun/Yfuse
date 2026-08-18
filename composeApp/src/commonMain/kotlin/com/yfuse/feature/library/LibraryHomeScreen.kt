@@ -75,6 +75,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.HeroCaptionClearance
 import com.yfuse.core.designsystem.HeroPageIndicator
+import com.yfuse.core.designsystem.HeroPlayButton
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -90,6 +91,7 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.heroGlassAction
 import com.yfuse.core.designsystem.heroReelScrim
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
@@ -769,21 +771,10 @@ private fun HeroCarousel(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    Modifier
-                        .height(48.dp)
-                        .clip(GlassShapes.chip)
-                        .background(Color.White.copy(alpha = 0.94f))
-                        .pressable(
-                            onClickLabel = libraryHeroPresentation.playActionLabel,
-                            onClick = onPlay,
-                        ).padding(horizontal = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(AppIcons.Play, null, tint = Color(0xFF101722), modifier = Modifier.size(19.dp))
-                    Text("播放", style = AppTypography.body.strong, color = Color(0xFF101722))
-                }
+                HeroPlayButton(
+                    actionLabel = libraryHeroPresentation.playActionLabel,
+                    onClick = onPlay,
+                )
                 HeroCircleAction(
                     icon = AppIcons.Info,
                     description = libraryHeroPresentation.detailActionLabel,
@@ -1300,8 +1291,7 @@ private fun HeroCircleAction(
                 },
             ).touchTarget()
             .size(48.dp)
-            .clip(CircleShape)
-            .background(Color(0xFF11151F).copy(alpha = 0.42f)),
+            .heroGlassAction(),
         contentAlignment = Alignment.Center,
     ) {
         if (active == null) {
