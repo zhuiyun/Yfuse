@@ -4,6 +4,7 @@ import android.content.Context
 import android.hardware.display.DisplayManager
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
+import android.os.Build
 import android.view.Display
 import com.yfuse.core2.capability.YCapabilityProvider
 import com.yfuse.core2.capability.YDeviceCapabilities
@@ -36,6 +37,7 @@ internal class AndroidYCapabilityProvider(
             .codecInfos
             .asSequence()
             .filterNot(MediaCodecInfo::isEncoder)
+            .filter(MediaCodecInfo::isHardwareDecoderCompat)
             .flatMap { info ->
                 info.supportedTypes
                     .asSequence()
@@ -82,6 +84,16 @@ internal class AndroidYCapabilityProvider(
             }
         }
     }
+}
+
+private fun MediaCodecInfo.isHardwareDecoderCompat(): Boolean {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return isHardwareAccelerated
+    val normalized = name.lowercase()
+    return !normalized.startsWith("omx.google.") &&
+        !normalized.startsWith("c2.android.") &&
+        !normalized.startsWith("c2.google.") &&
+        !normalized.contains("software") &&
+        !normalized.contains("sw.decoder")
 }
 
 private fun decoderHdrTypes(
