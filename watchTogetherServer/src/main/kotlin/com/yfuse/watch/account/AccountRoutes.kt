@@ -19,12 +19,12 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.utils.io.readAvailable
-import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.ByteArrayOutputStream
 
 internal fun Route.accountRoutes(
     backend: AccountBackend,
@@ -275,7 +275,7 @@ private suspend fun ApplicationCall.handleAccountEndpoint(
         respondError(
             HttpStatusCode.TooManyRequests,
             "rate_limited",
-            "尝试次数过多，请稍后重试",
+            "尝试次数过多，请稍后再试",
         )
     } catch (_: ResponseTooLargeException) {
         application.log.error("Account API response exceeded its configured limit")
