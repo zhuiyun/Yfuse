@@ -78,15 +78,20 @@ class PlaybackSyncStore(
         val index = findIndexLocked(mediaKey, aliases)
         val existing = documents.getOrNull(index)
         val previous = existing?.document
-        val revision = (previous?.state?.revision ?: 0L) + 1L
+        val previousState = previous?.state
+        val revision = (previousState?.revision ?: 0L) + 1L
         val normalizedAliases =
-            (previous?.state?.aliases.orEmpty() + aliases + previous?.state?.mediaKey.orEmpty())
+            (previousState?.aliases.orEmpty() + aliases + previousState?.mediaKey.orEmpty())
                 .asSequence()
                 .filter(String::isNotBlank)
                 .filterNot { it == mediaKey }
                 .distinct()
                 .take(32)
                 .toList()
+        val startsNewGeneration =
+            trigger == PlaybackSyncTrigger.Started &&
+                positionMs.coerceAtLeast(0L) <= NEW_GENERATION_START_WINDOW_MS &&
+                previousState?.played == true
         val state =
             PlaybackStateRecord(
                 mediaKey = mediaKey,
@@ -95,6 +100,9 @@ class PlaybackSyncStore(
                 durationMs = durationMs.coerceAtLeast(0L),
                 played = played,
                 lastPlayedAtEpochMs = now,
+                progressEpoch =
+                    if (startsNewGeneration) now
+                    else previousState?.progressEpoch ?: 0L,
                 deviceId = deviceId,
                 sessionId = sessionId?.takeIf(String::isNotBlank),
                 serverId = serverId?.takeIf(String::isNotBlank),
@@ -137,6 +145,53 @@ class PlaybackSyncStore(
         stored
     }
 
+    fun markRestarted(
+        mediaKey: String,
+        aliases: List<String> = emptyList(),
+        serverId: String? = null,
+        serverItemId: String? = null,
+    ): StoredPlaybackDocument = synchronized(lock) {
+        val index = findIndexLocked(mediaKey, aliases)
+        val existing = documents.getOrNull(index)
+        val previous = existing?.document?.state
+        val now = nowEpochMs()
+        val state =
+            PlaybackStateRecord(
+                mediaKey = mediaKey,
+                aliases =
+                    (previous?.aliases.orEmpty() + aliases + previous?.mediaKey.orEmpty())
+                        .filter(String::isNotBlank)
+                        .filterNot { it == mediaKey }
+                        .distinct()
+                        .take(32),
+                positionMs = 0L,
+                durationMs = previous?.durationMs ?: 0L,
+                played = false,
+                lastPlayedAtEpochMs = now,
+                progressEpoch = now,
+                deviceId = deviceId,
+                sessionId = null,
+                serverId = serverId ?: previous?.serverId,
+                serverItemId = serverItemId ?: previous?.serverItemId,
+                revision = (previous?.revision ?: 0L) + 1L,
+                mutationKind = PlaybackMutationKind.ManualRestart,
+            )
+        val stored =
+            StoredPlaybackDocument(
+                document =
+                    PlaybackSyncDocument(
+                        state = state,
+                        preference = existing?.document?.preference,
+                        history = existing?.document?.history.orEmpty(),
+                    ),
+                remoteCursors = existing?.remoteCursors.orEmpty(),
+                dirty = true,
+                mutationId = newId("mutation"),
+            )
+        replaceLocked(index, stored)
+        stored
+    }
+
     fun markManual(
         mediaKey: String,
         aliases: List<String> = emptyList(),
@@ -161,6 +216,7 @@ class PlaybackSyncStore(
                 durationMs = previous?.durationMs ?: 0L,
                 played = watched,
                 lastPlayedAtEpochMs = now,
+                progressEpoch = now,
                 deviceId = deviceId,
                 sessionId = previous?.sessionId,
                 serverId = serverId ?: previous?.serverId,
@@ -337,6 +393,7 @@ class PlaybackSyncStore(
         const val KEY_ACCOUNT_USER_ID = "playback.cross_platform.account_user.v1"
         const val MAX_LOCAL_DOCUMENTS = 512
         const val MAX_STORED_BYTES = 4 * 1024 * 1024
+        const val NEW_GENERATION_START_WINDOW_MS = 5_000L
         val TERMINAL_TRIGGERS =
             setOf(
                 PlaybackSyncTrigger.Stop,
