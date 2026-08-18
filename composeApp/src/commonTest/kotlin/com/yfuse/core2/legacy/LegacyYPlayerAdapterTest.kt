@@ -6,63 +6,58 @@ import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.VideoEngine
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class LegacyYPlayerAdapterTest {
     @Test
-    fun `legacy state is exposed through the unified player contract`() =
-        runTest {
-            val engine = FakeVideoEngine()
-            val player = LegacyYPlayerAdapter(engine, backgroundScope)
-            engine.mutableState.value =
-                PlaybackState(
-                    playing = true,
-                    buffering = false,
-                    positionMs = 12_345L,
-                    durationMs = 90_000L,
-                    audioTracks =
-                        listOf(
-                            EngineTrack(
-                                id = "audio-1",
-                                label = "English",
-                                language = "en",
-                                selected = true,
-                                codec = "eac3",
-                            ),
+    fun `legacy state is exposed through the unified player contract`() {
+        val engine = FakeVideoEngine()
+        val player = LegacyYPlayerAdapter(engine)
+        engine.mutableState.value =
+            PlaybackState(
+                playing = true,
+                buffering = false,
+                positionMs = 12_345L,
+                durationMs = 90_000L,
+                audioTracks =
+                    listOf(
+                        EngineTrack(
+                            id = "audio-1",
+                            label = "English",
+                            language = "en",
+                            selected = true,
+                            codec = "eac3",
                         ),
-                )
-            advanceUntilIdle()
+                    ),
+            )
 
-            assertTrue(player.state.value.playing)
-            assertEquals(12_345L, player.state.value.positionMs)
-            assertEquals(YPlaybackRoute.Legacy, player.state.value.diagnostics.route)
-            assertEquals("audio-1", player.state.value.audioTracks.single().id)
-        }
+        assertTrue(player.state.value.playing)
+        assertEquals(12_345L, player.state.value.positionMs)
+        assertEquals(YPlaybackRoute.Legacy, player.state.value.diagnostics.route)
+        assertEquals("audio-1", player.state.value.audioTracks.single().id)
+    }
 
     @Test
-    fun `unified controls forward to the legacy engine`() =
-        runTest {
-            val engine = FakeVideoEngine()
-            val player = LegacyYPlayerAdapter(engine, backgroundScope)
+    fun `unified controls forward to the legacy engine`() {
+        val engine = FakeVideoEngine()
+        val player = LegacyYPlayerAdapter(engine)
 
-            player.play()
-            player.seekTo(42_000L)
-            player.setSpeed(1.25f)
-            player.selectTrack(YTrackType.Audio, "a2")
-            player.selectTrack(YTrackType.Subtitle, "s2")
-            player.selectItem(3)
+        player.play()
+        player.seekTo(42_000L)
+        player.setSpeed(1.25f)
+        player.selectTrack(YTrackType.Audio, "a2")
+        player.selectTrack(YTrackType.Subtitle, "s2")
+        player.selectItem(3)
 
-            assertTrue(engine.playCalled)
-            assertEquals(42_000L, engine.seekPositionMs)
-            assertEquals(1.25f, engine.speed)
-            assertEquals("a2", engine.audioTrack)
-            assertEquals("s2", engine.subtitleTrack)
-            assertEquals(3, engine.itemIndex)
-        }
+        assertTrue(engine.playCalled)
+        assertEquals(42_000L, engine.seekPositionMs)
+        assertEquals(1.25f, engine.speed)
+        assertEquals("a2", engine.audioTrack)
+        assertEquals("s2", engine.subtitleTrack)
+        assertEquals(3, engine.itemIndex)
+    }
 
     private class FakeVideoEngine : VideoEngine {
         val mutableState = MutableStateFlow(PlaybackState(buffering = false))
