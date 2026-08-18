@@ -79,12 +79,13 @@ class PlaybackSyncStore(
         val existing = documents.getOrNull(index)
         val previous = existing?.document
         val previousState = previous?.state
+        val canonicalMediaKey = previousState?.mediaKey?.takeIf(String::isNotBlank) ?: mediaKey
         val revision = (previousState?.revision ?: 0L) + 1L
         val normalizedAliases =
-            (previousState?.aliases.orEmpty() + aliases + previousState?.mediaKey.orEmpty())
+            (previousState?.aliases.orEmpty() + aliases + mediaKey + previousState?.mediaKey.orEmpty())
                 .asSequence()
                 .filter(String::isNotBlank)
-                .filterNot { it == mediaKey }
+                .filterNot { it == canonicalMediaKey }
                 .distinct()
                 .take(32)
                 .toList()
@@ -94,7 +95,7 @@ class PlaybackSyncStore(
                 previousState?.played == true
         val state =
             PlaybackStateRecord(
-                mediaKey = mediaKey,
+                mediaKey = canonicalMediaKey,
                 aliases = normalizedAliases,
                 positionMs = positionMs.coerceAtLeast(0L),
                 durationMs = durationMs.coerceAtLeast(0L),
@@ -154,14 +155,15 @@ class PlaybackSyncStore(
         val index = findIndexLocked(mediaKey, aliases)
         val existing = documents.getOrNull(index)
         val previous = existing?.document?.state
+        val canonicalMediaKey = previous?.mediaKey?.takeIf(String::isNotBlank) ?: mediaKey
         val now = nowEpochMs()
         val state =
             PlaybackStateRecord(
-                mediaKey = mediaKey,
+                mediaKey = canonicalMediaKey,
                 aliases =
-                    (previous?.aliases.orEmpty() + aliases + previous?.mediaKey.orEmpty())
+                    (previous?.aliases.orEmpty() + aliases + mediaKey + previous?.mediaKey.orEmpty())
                         .filter(String::isNotBlank)
-                        .filterNot { it == mediaKey }
+                        .filterNot { it == canonicalMediaKey }
                         .distinct()
                         .take(32),
                 positionMs = 0L,
@@ -202,14 +204,15 @@ class PlaybackSyncStore(
         val index = findIndexLocked(mediaKey, aliases)
         val existing = documents.getOrNull(index)
         val previous = existing?.document?.state
+        val canonicalMediaKey = previous?.mediaKey?.takeIf(String::isNotBlank) ?: mediaKey
         val now = nowEpochMs()
         val state =
             PlaybackStateRecord(
-                mediaKey = mediaKey,
+                mediaKey = canonicalMediaKey,
                 aliases =
-                    (previous?.aliases.orEmpty() + aliases + previous?.mediaKey.orEmpty())
+                    (previous?.aliases.orEmpty() + aliases + mediaKey + previous?.mediaKey.orEmpty())
                         .filter(String::isNotBlank)
-                        .filterNot { it == mediaKey }
+                        .filterNot { it == canonicalMediaKey }
                         .distinct()
                         .take(32),
                 positionMs = if (watched) maxOf(previous?.positionMs ?: 0L, previous?.durationMs ?: 0L) else 0L,
@@ -265,16 +268,30 @@ class PlaybackSyncStore(
             replaceLocked(-1, stored)
             return@synchronized RemoteApplyResult(remote, changedLocal = true, needsUpload = false)
         }
-        val merged = PlaybackConflictResolver.merge(existing.document, remote)
-        val needsUpload = merged != remote
+        val localMediaKey = existing.document.state.mediaKey
+        val mergedRaw = PlaybackConflictResolver.merge(existing.document, remote)
+        val merged =
+            mergedRaw.copy(
+                state =
+                    mergedRaw.state.copy(
+                        mediaKey = localMediaKey,
+                        aliases =
+                            (mergedRaw.state.aliases + mergedRaw.state.mediaKey)
+                                .filter(String::isNotBlank)
+                                .filterNot { it == localMediaKey }
+                                .distinct()
+                                .take(32),
+                    ),
+            )
         val changedLocal = merged != existing.document
+        val needsUpload = existing.dirty || (changedLocal && merged != remote)
         val stored =
             existing.copy(
                 document = merged,
                 remoteCursors = existing.remoteCursors + (entityKey to cursor),
                 dirty = needsUpload,
                 mutationId =
-                    if (needsUpload && existing.dirty) existing.mutationId
+                    if (existing.dirty) existing.mutationId
                     else if (needsUpload) newId("mutation")
                     else existing.mutationId,
             )
