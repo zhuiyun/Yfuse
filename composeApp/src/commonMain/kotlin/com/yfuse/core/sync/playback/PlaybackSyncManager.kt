@@ -68,6 +68,8 @@ class PlaybackSyncManager(
         scope.launch {
             accessTokens.sessionAvailable.collectLatest { available ->
                 if (!available) return@collectLatest
+                val userId = cipher.currentUserId() ?: return@collectLatest
+                if (store.bindAccount(userId)) updatePendingState()
                 syncNow()
                 while (true) {
                     delay(PERIODIC_CLOUD_SYNC_MS)
@@ -144,6 +146,8 @@ class PlaybackSyncManager(
 
     suspend fun syncNow() {
         syncMutex.withLock {
+            val userId = cipher.currentUserId() ?: return
+            if (store.bindAccount(userId)) updatePendingState()
             val accessToken = accessTokens.validAccessTokenFor(cloud.origin) ?: return
             lastCloudAttemptAtEpochMs = nowEpochMs()
             _state.value = _state.value.copy(syncing = true, error = null)
@@ -313,8 +317,8 @@ class PlaybackSyncManager(
         const val PERIODIC_CLOUD_SYNC_MS = 60_000L
         const val PULL_PAGE_SIZE = 100
         const val MAX_PULL_PAGES_PER_SYNC = 8
-        const val PUSH_BATCH_SIZE = 48
-        const val MAX_PUSH_ROUNDS = 2
+        const val PUSH_BATCH_SIZE = 8
+        const val MAX_PUSH_ROUNDS = 1
         const val COMPLETED_RATIO = 0.95
     }
 }
@@ -345,7 +349,6 @@ private class EmbyCompatiblePlaybackStateApplier(
                     .mapNotNull { key -> repo.findByMediaKey(server, key).getOrNull() }
                     .firstOrNull()
                     ?: return@forEach
-            // Avoid echoing a record back to the exact server item that created it.
             if (server.id == state.serverId && item.id == state.serverItemId) return@forEach
             when (state.mutationKind) {
                 PlaybackMutationKind.ManualWatched,
