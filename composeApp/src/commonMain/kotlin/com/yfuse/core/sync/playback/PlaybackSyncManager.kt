@@ -112,6 +112,18 @@ class PlaybackSyncManager(
         scheduleCloudSync(trigger.isImmediateCloudTrigger)
     }
 
+    fun markRestarted(
+        mediaKey: String,
+        aliases: List<String> = emptyList(),
+        serverId: String? = null,
+        serverItemId: String? = null,
+    ) {
+        if (mediaKey.isBlank()) return
+        store.markRestarted(mediaKey, aliases, serverId, serverItemId)
+        updatePendingState()
+        scheduleCloudSync(immediate = true)
+    }
+
     fun markWatched(
         mediaKey: String,
         aliases: List<String> = emptyList(),
@@ -379,12 +391,33 @@ private class EmbyCompatiblePlaybackStateApplier(
                     .mapNotNull { key -> repo.findByMediaKey(server, key).getOrNull() }
                     .firstOrNull()
                     ?: return@forEach
-            if (server.id == state.serverId && item.id == state.serverItemId) return@forEach
+            val isOrigin = server.id == state.serverId && item.id == state.serverItemId
+            if (
+                isOrigin &&
+                state.mutationKind != PlaybackMutationKind.ManualRestart &&
+                state.mutationKind != PlaybackMutationKind.ManualUnwatched
+            ) {
+                return@forEach
+            }
             when (state.mutationKind) {
                 PlaybackMutationKind.ManualWatched,
                 PlaybackMutationKind.AutoFinished,
                 -> repo.setPlayed(server, item.id, true)
-                PlaybackMutationKind.ManualUnwatched -> repo.setPlayed(server, item.id, false)
+                PlaybackMutationKind.ManualRestart,
+                PlaybackMutationKind.ManualUnwatched,
+                ->
+                    repo.setPlayed(server, item.id, false).fold(
+                        onSuccess = {
+                            repo.reportPlaybackStopped(
+                                server = server,
+                                itemId = item.id,
+                                playSessionId = "yfuse-cloud-reset-${state.deviceId.takeLast(12)}",
+                                positionTicks = 0L,
+                                isPaused = true,
+                            )
+                        },
+                        onFailure = { Result.failure(it) },
+                    )
                 PlaybackMutationKind.AutoProgress -> {
                     if (state.positionMs <= 0L) return@forEach
                     repo.reportPlaybackStopped(
